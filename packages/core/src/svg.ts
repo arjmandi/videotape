@@ -35,13 +35,17 @@ function textBars(r: Region, b: Px, color: string): string {
   for (let i = 0; i < t.lines; i++) {
     const ratio = t.lines > 1 && i === t.lines - 1 ? 0.6 : BAR_WIDTHS[i % BAR_WIDTHS.length]!;
     const w = b.w * ratio * (r.kind === "text" && t.role !== "body" ? 0.7 : 1);
-    const x = t.align === "center" ? b.x + (b.w - w) / 2 : b.x;
+    const x = t.align === "center" ? b.x + (b.w - w) / 2 : t.align === "end" ? b.x + b.w - w : b.x;
     out.push(rect({ x, y: b.y + i * lineH + (lineH - barH) / 2, w, h: barH }, color, barH / 2));
   }
   return out.join("");
 }
 
-interface Shapes { bars: boolean }
+/**
+ * `conditioning`: everything, text included, for generators.
+ * `scene`: only what the content layer does not draw natively (panels and media frames).
+ */
+interface Shapes { conditioning: boolean }
 
 function shapes(regions: Region[], canvas: Size, style: StylePack, opts: Shapes): string {
   const { bg, fg, accent, muted } = style.palette;
@@ -54,28 +58,29 @@ function shapes(regions: Region[], canvas: Size, style: StylePack, opts: Shapes)
         out.push(rect(b, mix(bg, fg, 0.05), radius * 1.4, ` stroke="${mix(bg, fg, 0.12)}" stroke-width="${n(radius * 0.12)}"`));
         break;
       case "button":
-        out.push(rect(b, r.emphasis === "primary" ? accent : mix(bg, fg, 0.16), radius));
+        if (opts.conditioning) out.push(rect(b, r.emphasis === "primary" ? accent : mix(bg, fg, 0.16), radius));
         break;
       case "link":
-        out.push(rect({ x: b.x, y: b.y + b.h * 0.78, w: b.w * 0.5, h: Math.max(2, b.h * 0.04) }, mix(bg, accent, 0.55), 1));
+        if (opts.conditioning) out.push(rect({ x: b.x, y: b.y + b.h * 0.78, w: b.w * 0.5, h: Math.max(2, b.h * 0.04) }, mix(bg, accent, 0.55), 1));
         break;
       case "input": case "textarea": case "select": case "date": case "slider": {
+        if (!opts.conditioning) break;
         const label = r.labelSize ? r.labelSize * 1.35 + radius * 0.4 : 0;
-        if (label && opts.bars) out.push(rect({ x: b.x, y: b.y + label * 0.2, w: b.w * 0.3, h: label * 0.5 }, mix(bg, muted, 0.6), label * 0.25));
+        if (label) out.push(rect({ x: b.x, y: b.y + label * 0.2, w: b.w * 0.3, h: label * 0.5 }, mix(bg, muted, 0.6), label * 0.25));
         out.push(rect({ ...b, y: b.y + label, h: b.h - label }, mix(bg, fg, 0.1), radius * 0.7, ` stroke="${mix(bg, fg, 0.24)}" stroke-width="${n(radius * 0.1)}"`));
         break;
       }
       case "toggle":
-        out.push(rect({ x: b.x, y: b.y + b.h * 0.25, w: b.h * 0.9, h: b.h * 0.5 }, mix(bg, fg, 0.2), b.h));
+        if (opts.conditioning) out.push(rect({ x: b.x, y: b.y + b.h * 0.25, w: b.h * 0.9, h: b.h * 0.5 }, mix(bg, fg, 0.2), b.h));
         break;
       case "image": case "media":
         out.push(rect(b, mix(bg, fg, 0.08), radius * 0.6));
         break;
       case "list":
-        if (opts.bars) out.push(textBars(r, b, mix(bg, muted, 0.55)));
+        if (opts.conditioning) out.push(textBars(r, b, mix(bg, muted, 0.55)));
         break;
       case "text":
-        if (opts.bars) out.push(textBars(r, b, mix(bg, muted, 0.55)));
+        if (opts.conditioning) out.push(textBars(r, b, mix(bg, muted, 0.55)));
         break;
     }
   }
@@ -88,7 +93,7 @@ function open(canvas: Size): string {
 
 export function wireframeSvg(regions: Region[], canvas: Size, style: StylePack): string {
   return open(canvas) + rect({ x: 0, y: 0, w: canvas.w, h: canvas.h }, style.palette.bg, 0) +
-    shapes(regions, canvas, style, { bars: true }) + "</svg>";
+    shapes(regions, canvas, style, { conditioning: true }) + "</svg>";
 }
 
 export function sceneSvg(regions: Region[], canvas: Size, style: StylePack): string {
@@ -103,5 +108,5 @@ export function sceneSvg(regions: Region[], canvas: Size, style: StylePack): str
     `</defs>`;
   const full = (fill: string) => `<rect width="${w}" height="${h}" fill="${fill}"/>`;
   return open(canvas) + defs + full("url(#g)") + full("url(#a)") + full("url(#b)") + full("url(#v)") +
-    shapes(regions, canvas, style, { bars: false }) + "</svg>";
+    shapes(regions, canvas, style, { conditioning: false }) + "</svg>";
 }

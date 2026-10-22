@@ -320,10 +320,10 @@ area** of 6 % on each side keeps every region visible under cover-cropping. `wid
 are reserved for later.
 
 Cover alone is not enough: a common 390 × 844 phone is narrower than 9:16 and would crop about 9 %
-from each side, past the safe area. The player therefore uses
-`scale = min(coverScale, safeFitScale)`, where `safeFitScale` is the largest scale at which the whole
-safe area is visible. When the two differ, the stage is centred and the uncovered edges show a
-blurred, enlarged copy of the scene, so no region is ever cut off and nothing looks letterboxed.
+from each side, past the safe area. The player therefore covers only when the crop stays inside
+the safe margin; otherwise it shrinks the stage until the safe area plus a small gutter (4.5 % of
+the canvas per side) is visible. The stage is centred and the uncovered edges show a blurred,
+enlarged copy of the scene, so no region is ever cut off or flush with the window edge.
 
 ### 6.2 Archetypes and slots
 
@@ -503,6 +503,10 @@ model, facts from the code" split, just at 30 fps.
 - **Input.** Pointer and keyboard events are handled by the content nodes only. Tab order follows
   slot order. Enter in a form input triggers the frame's primary button. Escape sends `back` if the
   frame allows it. There is no pixel hit-testing anywhere.
+- **Button faces.** In v1 the content layer draws button faces natively (accent for primary). §7.3
+  enforces nothing on `surface` regions yet, so a generated scene cannot be trusted to draw an
+  affordance under every label; the face moves to the generator in the ratchet step that adds
+  surface validation. The flat scene therefore draws only panels and media frames.
 - **Immediate feedback.** Focus ring, caret, typing, pressed state, and disabled-during-transition
   are all local and instant. A transition in flight disables the content layer with a 2 s timeout
   that re-enables it and shows the fallback.
@@ -526,7 +530,7 @@ JSON messages over one WebSocket. Binary assets are fetched over HTTPS from cont
 |-----------|---------|--------|
 | C→S | `hello` | `v: 1`, `viewport: {w, h, dpr}`, `caps: {video: ["webm","mp4"], webrtc: bool}`, `resume?: token` |
 | S→C | `welcome` | `session`, `token`, `viewportClass`, `canvas`, `style` (palette, fonts) |
-| S→C | `render` | `seq`, `head`, `key`, `layers[]`, `regions[]`, `content[]`, `edges[]`, `a11y`, `fallback: bool` |
+| S→C | `render` | `seq`, `head`, `canvas` (changes with the viewport class), `key`, `layers[]`, `regions[]`, `content[]`, `edges[]`, `a11y`, `fallback: bool` |
 | S→C | `cut` | `seq`, `from`, `to`, `url?` (absent for a crossfade), `durationMs`, `kind: "generated" \| "crossfade"` |
 | S→C | `patch` | `seq`, `content[]` diffs (for `stay`), or `layers[]` (generated asset replacing a fallback) |
 | S→C | `prefetch` | `assets: [{url, kind, forEdge}]` |
@@ -691,7 +695,8 @@ layout model; native players; i18n and RTL; local generation.
 | 10 | Does the demo need audio? | No. `media` supports it; nothing is generated. |
 | 11 | How does a frame load the data it binds? | Decided: a frame `enter` hook (§5.1). Static jumps stay static. |
 | 12 | Appendix A jumps to `settings` and `reset`, which it never defines | Decided: one-frame stub tapes with a back link, so `check` passes and every edge is walkable. |
-| 13 | Cover-cropping exceeds the 6 % safe area on common phones | Decided: scale to `min(cover, safe-fit)` with a blurred scene extension (§6.1). |
+| 13 | Cover-cropping exceeds the 6 % safe area on common phones | Decided: cover only inside the safe margin, otherwise shrink with a gutter and a blurred scene extension (§6.1). |
+| 14 | Who draws button faces while surfaces are unvalidated? | Decided for v1: the content layer (§8). |
 
 ---
 

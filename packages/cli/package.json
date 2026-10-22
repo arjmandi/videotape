@@ -15,7 +15,8 @@
     "@videotape/engine": "workspace:^",
     "@videotape/player": "workspace:^",
     "@videotape/renderer-flat": "workspace:^",
-    "tsx": "^4"
+    "tsx": "^4",
+    "vite": "^6"
   },
   "bin": {
     "videotape": "./bin/videotape.mjs"

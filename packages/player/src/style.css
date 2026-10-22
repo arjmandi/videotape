@@ -1,0 +1,241 @@
+/* The player: one full-window picture with real DOM on top (spec §8). */
+
+:root {
+  --vt-bg: #14121a;
+  --vt-fg: #f3ede4;
+  --vt-accent: #ff6a3d;
+  --vt-muted: #8a8494;
+  --vt-display: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+  --vt-body: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  /* CSS px per canvas px; set from the stage fit. */
+  --s: 0.5;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--vt-bg);
+  color: var(--vt-fg);
+  font-family: var(--vt-body);
+  overflow: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+.vt {
+  position: fixed;
+  inset: 0;
+  height: 100dvh;
+  overflow: hidden;
+  /* The stage and backdrop overflow on purpose; `clip` also stops focus from scrolling them into view. */
+  overflow: clip;
+  background: var(--vt-bg);
+}
+
+/* Blurred, enlarged copy of the scene behind the stage, for edges the stage does not cover. */
+.vt-backdrop {
+  position: absolute;
+  inset: -8%;
+  width: 116%;
+  height: 116%;
+  object-fit: cover;
+  filter: blur(48px) brightness(0.9) saturate(1.1);
+  pointer-events: none;
+}
+
+.vt-stage {
+  position: absolute;
+  overflow: hidden;
+  overflow: clip;
+  contain: layout paint;
+}
+
+.vt-scene, .vt-cut {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: fill;
+  pointer-events: none;
+  user-select: none;
+}
+.vt-scene { transition-property: opacity; transition-timing-function: ease; }
+.vt-scene.is-back { opacity: 0; }
+.vt-cut { z-index: 1; opacity: 0; }
+.vt-cut.is-playing { opacity: 1; }
+
+.vt-content {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  transition: opacity 120ms ease;
+}
+.vt-content.is-entering { opacity: 0; }
+/* A transition is in flight: input is held until the next render, patch, or error. */
+.vt-content.is-busy { pointer-events: none; }
+
+.vt-node {
+  position: absolute;
+  margin: 0;
+  min-width: 0;
+  min-height: 0;
+}
+
+/* ── text ─────────────────────────────────────────────────────────────── */
+
+.vt-text {
+  overflow: hidden;
+  line-height: var(--lh, 1.3);
+  color: var(--vt-fg);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  font-weight: 400;
+}
+.vt-text.is-single { white-space: nowrap; text-overflow: ellipsis; display: flex; align-items: center; }
+.vt-text.is-single > span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.vt-text.is-center { text-align: center; justify-content: center; }
+.vt-text.is-end, .vt-link.is-end { text-align: end; justify-content: flex-end; }
+.vt-text.is-clamped { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: var(--lines); }
+.vt-text.is-scroll { overflow: auto; white-space: pre-line; overscroll-behavior: contain; scrollbar-width: thin; }
+.vt-text.is-scroll:focus-visible { outline: 2px solid var(--vt-accent); outline-offset: 4px; }
+/* The heading takes focus after a move so screen readers announce it; it is not a control. */
+.vt-text[tabindex="-1"]:focus { outline: none; }
+.vt-role-display, .vt-role-title, .vt-role-number { font-family: var(--vt-display); letter-spacing: -0.01em; }
+.vt-role-caption { color: color-mix(in srgb, var(--vt-fg) 72%, transparent); }
+.vt-role-number { font-variant-numeric: tabular-nums; }
+
+/* ── controls ─────────────────────────────────────────────────────────── */
+
+.vt-button, .vt-link, .vt-item {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.vt-button {
+  border: 0;
+  border-radius: calc(var(--s) * 18px);
+  padding: 0 1em;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--vt-fg) 14%, transparent);
+  color: var(--vt-fg);
+  transition: transform 80ms ease, filter 120ms ease, background 120ms ease;
+}
+.vt-button.is-primary { background: var(--vt-accent); color: var(--vt-bg); }
+.vt-button:hover { filter: brightness(1.08); }
+.vt-button.is-pressed, .vt-button:active { transform: scale(0.98); filter: brightness(0.92); }
+
+.vt-link {
+  display: flex;
+  align-items: center;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--vt-accent) 70%, transparent);
+  text-underline-offset: 0.25em;
+  color: var(--vt-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vt-link:hover { text-decoration-color: var(--vt-accent); }
+
+.vt-button:focus-visible, .vt-link:focus-visible, .vt-item:focus-visible {
+  outline: 3px solid var(--vt-accent);
+  outline-offset: 3px;
+}
+
+.vt-field { display: flex; flex-direction: column; gap: calc(var(--s) * 8px); }
+.vt-label { color: color-mix(in srgb, var(--vt-fg) 78%, transparent); line-height: 1.2; }
+.vt-field input, .vt-field textarea, .vt-field select, .vt-input {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  font: inherit;
+  color: var(--vt-fg);
+  background: color-mix(in srgb, var(--vt-bg) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--vt-fg) 28%, transparent);
+  border-radius: calc(var(--s) * 14px);
+  padding: 0 0.75em;
+}
+.vt-field textarea { padding: 0.5em 0.75em; resize: none; }
+.vt-field input:focus, .vt-field textarea:focus, .vt-field select:focus, .vt-input:focus {
+  outline: 2px solid var(--vt-accent);
+  outline-offset: 1px;
+  border-color: transparent;
+}
+.vt-field input[type="range"] { background: none; border: 0; padding: 0; accent-color: var(--vt-accent); }
+.vt-field.is-search .vt-label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+
+.vt-toggle { display: flex; align-items: center; gap: 0.6em; cursor: pointer; }
+.vt-toggle input { width: 1.4em; height: 1.4em; accent-color: var(--vt-accent); }
+
+.vt-list { overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; }
+.vt-list ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.25em; }
+.vt-item {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1em;
+  text-align: start;
+  border: 0;
+  border-radius: calc(var(--s) * 12px);
+  padding: 0.5em 0.75em;
+  background: transparent;
+}
+.vt-item:hover { background: color-mix(in srgb, var(--vt-fg) 8%, transparent); }
+.vt-item .vt-meta { color: var(--vt-muted); font-size: 0.85em; }
+
+.vt-image { object-fit: contain; width: 100%; height: 100%; }
+
+/* ── chrome ───────────────────────────────────────────────────────────── */
+
+.vt-badge, .vt-toast {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  font: 600 13px/1 var(--vt-body);
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vt-bg) 85%, transparent);
+  color: var(--vt-fg);
+  border: 1px solid color-mix(in srgb, var(--vt-fg) 20%, transparent);
+  backdrop-filter: blur(8px);
+}
+.vt-badge { top: 12px; }
+.vt-toast { bottom: 16px; }
+.vt-badge[hidden], .vt-toast[hidden] { display: none; }
+
+.vt-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ── HUD (?debug=1 or `) ─────────────────────────────────────────────── */
+
+.vt-hud { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.vt-hud[hidden] { display: none; }
+.vt-hud-region { position: absolute; border: 1px dashed; font: 10px/1.2 ui-monospace, monospace; }
+.vt-hud-region.is-reserved { border-color: #4ade80; }
+.vt-hud-region.is-surface { border-color: #fb923c; }
+.vt-hud-region.is-panel { border-color: #60a5fa; }
+.vt-hud-panel {
+  position: fixed;
+  right: 8px;
+  bottom: 8px;
+  z-index: 11;
+  max-width: min(420px, 90vw);
+  max-height: 60vh;
+  overflow: auto;
+  font: 11px/1.4 ui-monospace, monospace;
+  white-space: pre-wrap;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.78);
+  color: #e5e5e5;
+  pointer-events: auto;
+}
+.vt-hud-panel[hidden] { display: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vt-scene, .vt-content, .vt-button { transition: none; }
+}

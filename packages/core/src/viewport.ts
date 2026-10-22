@@ -18,6 +18,8 @@ export const CANVAS: Record<ViewportClass, Size> = {
 
 /** Fraction of the canvas kept clear on each side. */
 export const SAFE_MARGIN = 0.06;
+/** How much of that margin the stage keeps visible, so regions never sit flush on the window edge. */
+export const VISIBLE_MARGIN = 0.045;
 
 export function viewportClass(widthCssPx: number): ViewportClass {
   if (widthCssPx < 600) return "phone";
@@ -38,14 +40,14 @@ export interface StageFit {
 }
 
 /**
- * `min(cover, safe-fit)`: cover the viewport unless that would crop into the
- * safe area, in which case shrink just enough to keep the safe area visible.
+ * Cover the viewport when the crop stays inside the safe margin. Otherwise
+ * shrink until the safe area plus a small gutter is visible, and let the
+ * blurred scene extension fill the edges.
  */
-export function stageFit(viewport: Size, canvas: Size, margin = SAFE_MARGIN): StageFit {
+export function stageFit(viewport: Size, canvas: Size): StageFit {
   const cover = Math.max(viewport.w / canvas.w, viewport.h / canvas.h);
-  const inner = 1 - 2 * margin;
-  const safeFit = Math.min(viewport.w / (canvas.w * inner), viewport.h / (canvas.h * inner));
-  const scale = Math.min(cover, safeFit);
+  const fit = (margin: number) => Math.min(viewport.w / (canvas.w * (1 - 2 * margin)), viewport.h / (canvas.h * (1 - 2 * margin)));
+  const scale = cover <= fit(SAFE_MARGIN) ? cover : fit(VISIBLE_MARGIN);
   const w = canvas.w * scale;
   const h = canvas.h * scale;
   return { scale, w, h, x: (viewport.w - w) / 2, y: (viewport.h - h) / 2, covers: scale === cover };

@@ -76,7 +76,7 @@ export const TypeHintSchema = z.object({
   role: z.enum(["display", "title", "subtitle", "body", "caption", "number", "control"]),
   size: z.number(),
   lines: z.number().int(),
-  align: z.enum(["start", "center"]),
+  align: z.enum(["start", "center", "end"]),
 });
 
 const listItem = z.object({ id: z.string(), label: z.string(), meta: z.string().optional() });
@@ -122,6 +122,8 @@ export const RenderSchema = z.object({
   t: z.literal("render"),
   seq,
   head,
+  /** The canonical canvas of this render; changes when the viewport class does. */
+  canvas: z.object({ w: z.number(), h: z.number() }).optional(),
   key: z.string(),
   layers: z.array(LayerSchema),
   regions: z.array(RegionSchema),

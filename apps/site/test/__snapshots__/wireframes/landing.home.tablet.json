@@ -46,7 +46,7 @@
         "role": "control",
         "size": 34,
         "lines": 1,
-        "align": "start"
+        "align": "end"
       },
       "slot": "nav.trailing"
     },

@@ -16,7 +16,7 @@ export interface TypeHint {
   role: TypeRole;
   size: number;
   lines: number;
-  align: "start" | "center";
+  align: "start" | "center" | "end";
 }
 
 export interface Region {
@@ -142,7 +142,7 @@ class Plan {
     const { x, y, w } = this.safe;
     this.put("nav.leading", { x, y, w: Math.min(w * 0.45, this.u(320)), h });
     const tw = Math.min(w * 0.45, this.u(200));
-    this.put("nav.trailing", { x: x + w - tw, y, w: tw, h });
+    this.put("nav.trailing", { x: x + w - tw, y, w: tw, h }, "end");
     return y + h + this.u(28);
   }
 

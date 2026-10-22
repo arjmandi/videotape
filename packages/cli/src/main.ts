@@ -30,7 +30,7 @@ export async function main(argv: string[]): Promise<number> {
       host: { type: "string" },
       renderers: { type: "string" },
       viewports: { type: "string" },
-      open: { type: "boolean", default: false },
+      debug: { type: "boolean" },
     },
   });
   const dir = positionals[0] ?? ".";
@@ -42,7 +42,7 @@ export async function main(argv: string[]): Promise<number> {
       case "schema": return runSchema(values.out);
       case "dev": case "serve": {
         const { runServer } = await import("./serve");
-        return await runServer(dir, { dev: command === "dev", port: values.port, host: values.host, renderers: values.renderers });
+        return await runServer(dir, { dev: command === "dev", port: values.port, host: values.host, renderers: values.renderers, debug: values.debug });
       }
       case "render": {
         const { runRender } = await import("./render");
