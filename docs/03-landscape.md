@@ -55,7 +55,7 @@ differ ("cinematic backdrop with a calm panel in the centre third" rather than "
 
 | Backend | Where | Notes |
 |---------|-------|-------|
-| fal.ai hosted image models with structural control | `renderer-still-fal` | Choose a FLUX-family or SDXL-family endpoint that accepts a control image. Exact endpoint ids change; pick and record them when M2 starts. |
+| fal.ai hosted image models with structural control | `renderer-still-fal` | **Chosen at M2 start (2026-10-22): `fal-ai/flux/dev/image-to-image`**, image-to-image over the wireframe raster. Inputs used: `image_url` (data URI), `prompt`, `strength` (default 0.82 here; fal's default 0.95), `seed`, `num_inference_steps` (28), `guidance_scale` (3.5), `output_format: png`, `sync_mode: true`. No negative prompt, so "no text, no letters" stays in the style suffix. The model id is configurable and part of the renderer version, so changing it invalidates cached scenes. Not yet run against the live API; the next check is a run with a real key. Better-documented alternative if strength or seed misbehave: `fal-ai/flux-differential-diffusion`. Source: fal model page `fal.ai/models/fal-ai/flux/dev/image-to-image`. |
 | ComfyUI, local | `renderer-still-comfy` | SDXL or FLUX with a ControlNet (union or canny/depth). Export the workflow JSON into the repo and call ComfyUI's HTTP API. Open-weights path. |
 
 ## 3. Transitions (candidates for the `cut` renderer)

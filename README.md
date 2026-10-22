@@ -3,8 +3,24 @@
 **Interfaces, played.** A framework where a user interface is written as a journey, rendered as
 generated video, and shown by a player that knows which parts of the picture you can touch.
 
-> Status: design phase. Nothing runs yet. The design is in [`docs/`](docs/) and is meant to be
-> built against.
+> Status: M0 and M1 are done: the loop runs end to end with the AI off, in a browser, at phone,
+> tablet, and desktop sizes. M2 has started: region validation, re-roll, budgets, ahead-of-time
+> rendering, and a fal.ai still renderer, tested against fakes and not yet run with a live key.
+
+## Try it
+
+Needs Node 20.18+ and pnpm 9.
+
+```bash
+pnpm install
+pnpm dev                      # the demo at http://127.0.0.1:4173/?debug=1 (backtick toggles the HUD)
+pnpm check                    # videotape check on the demo
+pnpm test                     # unit, engine, and wire tests
+pnpm test:e2e                 # Playwright walks every edge at three sizes
+```
+
+Sign in with `ada` / `lovelace`. To try generated scenes, set `FAL_KEY` and run
+`node packages/cli/bin/videotape.mjs dev apps/site --renderers still-fal`.
 
 ## The idea
 
@@ -57,16 +73,17 @@ why the share of the screen that is generated can grow as models improve.
 Real-time whole-screen video (`live` renderer over WebRTC) is defined as an interface in v1 and
 implemented after it.
 
-## Planned layout
+## Layout
 
 ```
 packages/core        the model, schemas, validation, graph, layout engine (pure)
 packages/engine      sessions, pipeline, cache, protocol server, renderer host
 packages/player      the browser client
 packages/cli         videotape dev | check | graph | render | serve
-packages/renderers   flat (reference) · still-* · cut-* · live-* (later)
+packages/renderers   flat (reference) · still-fal · still-comfy, cut-*, live-* (later)
 apps/site            the demo and public site
-examples/hello-tape  the smallest possible app
+e2e                  Playwright suites against the demo
+examples/hello-tape  the smallest possible app (later)
 ```
 
 Packages publish under the `@videotape/*` npm scope. The bare `videotape` name on npm belongs to an

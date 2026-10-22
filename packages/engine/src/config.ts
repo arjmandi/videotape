@@ -1,6 +1,6 @@
 // videotape.config.ts (spec §11).
 
-import type { App, CutRenderer, SceneRenderer, Services } from "@videotape/core";
+import type { App, CutRenderer, Data, SceneRenderer, Services } from "@videotape/core";
 
 export interface Budgets {
   /** First render of a session before the flat fallback is sent (spec §7.5). */
@@ -31,6 +31,11 @@ export interface VideotapeConfig {
   budgets?: Partial<Budgets>;
   /** Allow `reroll` messages and attach HUD details to renders. Default: on in dev, off in serve. */
   debug?: boolean;
+  /**
+   * Reel data samples for `videotape render`. Scenes vary with flavour, and flavour
+   * with data, so list one sample per flavour worth rendering ahead. Default: `[{}]`.
+   */
+  aheadSamples?: Data[];
 }
 
 export function defineConfig(config: VideotapeConfig): VideotapeConfig {

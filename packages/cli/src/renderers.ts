@@ -2,13 +2,14 @@
 // only when named, so an app that never uses one never loads it.
 
 import type { SceneRenderer } from "@videotape/core";
-import type { Logger, Validator } from "@videotape/engine";
+import { type Logger, type Validator, sharpValidator } from "@videotape/engine";
 import { flatRenderer } from "@videotape/renderer-flat";
 
 type Factory = (opts: Record<string, unknown>) => Promise<SceneRenderer>;
 
 const FACTORIES: Record<string, Factory> = {
   flat: async () => flatRenderer(),
+  "still-fal": async (opts) => (await import("@videotape/renderer-still-fal")).falStill(opts),
 };
 
 export const KNOWN_RENDERERS = Object.keys(FACTORIES);
@@ -32,5 +33,7 @@ export async function resolveRenderers(
     scene.push(r);
   }
   if (!scene.some((r) => r.id === "flat")) scene.push(flatRenderer());
-  return { scene };
+  // Generated scenes are checked region by region before they are cached (spec §7.3).
+  const generative = scene.some((r) => !r.deterministic);
+  return generative ? { scene, validator: sharpValidator() } : { scene };
 }

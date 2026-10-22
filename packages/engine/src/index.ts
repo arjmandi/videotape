@@ -1,3 +1,4 @@
+export * from "./ahead";
 export * from "./config";
 export * from "./cache";
 export * from "./content";
@@ -7,3 +8,4 @@ export * from "./keys";
 export * from "./log";
 export * from "./prompt";
 export * from "./server";
+export * from "./validate";

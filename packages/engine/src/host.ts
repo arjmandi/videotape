@@ -36,6 +36,8 @@ export interface SceneResult {
 
 /** Region checks for generated scenes (spec §7.3). See ./validate. */
 export interface Validator {
+  /** Brings a backend's output to the canonical canvas size and the stored format. */
+  normalize?(asset: SceneAsset, wf: Wireframe): Promise<SceneAsset>;
   check(asset: SceneAsset, wf: Wireframe, style: StylePack): Promise<{ failing: string[] }>;
   patch(asset: SceneAsset, wf: Wireframe, style: StylePack, failing: string[]): Promise<SceneAsset>;
 }
@@ -138,6 +140,7 @@ export class RendererHost {
           clearTimeout(timer);
         }
         this.stats.generated++;
+        if (!r.deterministic && this.opts.validator?.normalize) asset = await this.opts.validator.normalize(asset, plan.wireframe);
         if (r.deterministic || !this.opts.validator) break;
         failing = (await this.opts.validator.check(asset, plan.wireframe, plan.style)).failing;
         if (failing.length === 0) break;
