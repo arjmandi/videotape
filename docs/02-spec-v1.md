@@ -200,6 +200,13 @@ Rules the API enforces or lints:
   `videotape check` and its edges are not prefetched.
 - `scene` is a string, or a function of **flavour** only (§5.5). It never receives reel data.
 - Every `bind()` reads a path in the reel's data store and is rendered on the content layer.
+- An input-like component (`input`, `textarea`, `select`, `toggle`, `slider`, `date`) may take
+  `bind: "path"`. Its value is then read from the store when the frame renders and written to that
+  path when the value is committed. A `secret` input cannot be bound.
+- A frame may declare `enter: async ({ data, services, reel }) => patch | void`. It runs on the
+  server each time the head arrives at the frame (by `goto`, `jump`, `back`, or as the app's
+  entry), before the frame renders, and its patch is merged into the store. It cannot move the head,
+  so the graph stays static. This is how a frame loads the data it binds.
 
 ### 5.2 Semantics
 
@@ -215,6 +222,11 @@ Rules the API enforces or lints:
 - **Entry.** Each tape has an entry frame (default: its first). The app declares an entry tape.
 - **Data store.** A JSON object scoped to the reel. Values marked `secret` are passed to the handler
   once and never stored.
+- **Patches.** The data passed to `jump`, the patch passed to `stay`, and the value an `enter` hook
+  returns are all maps of **path → value** (`{ "login.error": "Wrong credentials" }`). Each entry
+  replaces the value at its path; missing parents are created.
+- **Handler context.** `values` holds committed values keyed by component id. For a `list`
+  `select` event it also holds `item`, the selected item's id.
 
 ### 5.3 Component kinds
 
@@ -306,6 +318,12 @@ Scene assets are generated at the canonical canvas. The player scales the pictur
 viewport and applies the same transform to the content layer, so regions stay aligned. A **safe
 area** of 6 % on each side keeps every region visible under cover-cropping. `wide` and `tv` classes
 are reserved for later.
+
+Cover alone is not enough: a common 390 × 844 phone is narrower than 9:16 and would crop about 9 %
+from each side, past the safe area. The player therefore uses
+`scale = min(coverScale, safeFitScale)`, where `safeFitScale` is the largest scale at which the whole
+safe area is visible. When the two differ, the stage is centred and the uncovered edges show a
+blurred, enlarged copy of the scene, so no region is ever cut off and nothing looks letterboxed.
 
 ### 6.2 Archetypes and slots
 
@@ -507,18 +525,20 @@ JSON messages over one WebSocket. Binary assets are fetched over HTTPS from cont
 | Direction | Message | Fields |
 |-----------|---------|--------|
 | C→S | `hello` | `v: 1`, `viewport: {w, h, dpr}`, `caps: {video: ["webm","mp4"], webrtc: bool}`, `resume?: token` |
-| S→C | `welcome` | `session`, `viewportClass`, `canvas`, `style` (palette, fonts) |
+| S→C | `welcome` | `session`, `token`, `viewportClass`, `canvas`, `style` (palette, fonts) |
 | S→C | `render` | `seq`, `head`, `key`, `layers[]`, `regions[]`, `content[]`, `edges[]`, `a11y`, `fallback: bool` |
-| S→C | `cut` | `seq`, `from`, `to`, `url`, `durationMs`, `kind: "generated" \| "crossfade"` |
+| S→C | `cut` | `seq`, `from`, `to`, `url?` (absent for a crossfade), `durationMs`, `kind: "generated" \| "crossfade"` |
 | S→C | `patch` | `seq`, `content[]` diffs (for `stay`), or `layers[]` (generated asset replacing a fallback) |
 | S→C | `prefetch` | `assets: [{url, kind, forEdge}]` |
 | S→C | `error` | `code`, `message`, `recoverable` |
-| C→S | `event` | `seq`, `component`, `type`, `value?`, `values?` (committed form values on submit) |
+| C→S | `event` | `seq`, `render` (the `seq` of the render it was made against), `component`, `type`, `value?`, `values?` (committed form values on submit) |
 | C→S | `resize` | `viewport: {w, h, dpr}` |
 | C→S | `reroll` | `frame?` (debug and authoring only; disabled in production by default) |
 | C↔S | `ping` / `pong` | — |
 
 `seq` is monotonic per direction. The player ignores a `render` older than the last one it applied.
+The engine drops an `event` whose `render` is not the latest render it sent, so a click made just
+before a transition can never fire a same-named component on the next frame.
 Every message is validated against a Zod schema on both ends; the schemas live in `@videotape/core`
 so the engine and the player cannot drift.
 
@@ -669,10 +689,16 @@ layout model; native players; i18n and RTL; local generation.
 | 8 | Should `goto` be allowed backwards within a tape? | Yes; `check` warns on cycles with no exit. |
 | 9 | Package naming | `@videotape/*` scope; try to obtain the bare `videotape` name from its current holder. |
 | 10 | Does the demo need audio? | No. `media` supports it; nothing is generated. |
+| 11 | How does a frame load the data it binds? | Decided: a frame `enter` hook (§5.1). Static jumps stay static. |
+| 12 | Appendix A jumps to `settings` and `reset`, which it never defines | Decided: one-frame stub tapes with a back link, so `check` passes and every edge is walkable. |
+| 13 | Cover-cropping exceeds the 6 % safe area on common phones | Decided: scale to `min(cover, safe-fit)` with a blurred scene extension (§6.1). |
 
 ---
 
 ## Appendix A — The demo app's tapes
+
+This is the original sketch. The runnable version in `apps/site/tapes.ts` adds `enter` hooks for
+the frames that bind data and stub `settings` and `reset` tapes (§14, rows 11 and 12).
 
 ```ts
 import { app, tape, frame, text, input, button, link, list, image,

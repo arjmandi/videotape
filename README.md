@@ -42,6 +42,7 @@ why the share of the screen that is generated can grow as models improve.
 | [docs/01-review-and-risks.md](docs/01-review-and-risks.md) | An honest review of the idea: what is strong, where the pitch over-reaches, and a risk register with mitigations. |
 | [docs/02-spec-v1.md](docs/02-spec-v1.md) | The v1 design specification: goals, vocabulary, architecture, the tape model and authoring API, layout, engine pipeline, renderer plugins, player, protocol, security, CLI, repo layout, milestones. |
 | [docs/03-landscape.md](docs/03-landscape.md) | Which models and services could sit behind each renderer as of the check date, with sources. Kept separate because it goes stale. |
+| [docs/04-test-plan.md](docs/04-test-plan.md) | How the contracts, the engine, the player, and the generative path are tested, layer by layer. |
 
 ## Roadmap (v1)
 
