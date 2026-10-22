@@ -15,8 +15,15 @@ import { type LetteringOptions, findLettering, overlap } from "./lettering";
 export type RegionStats = RegionCheck;
 
 export interface ValidatorOptions {
-  /** Highest luma spread a reserved region may have. */
+  /** Highest luma spread a reserved region may have, over the whole region. */
   maxSpread?: number;
+  /**
+   * Highest luma spread in any tile of a reserved region. Averaged over a long subtitle, a small
+   * object behind two words barely moves the spread; per tile, it stands out.
+   */
+  maxTileSpread?: number;
+  /** Tile side in pixels of the downscaled copy (16 at 1/4 scale is 64 canvas px, about a word). */
+  tile?: number;
   /** Lowest contrast against the foreground colour (WCAG AA body text: 4.5). */
   minContrast?: number;
   /** Spread and contrast run on a copy downscaled by this divisor. */
@@ -27,7 +34,43 @@ export interface ValidatorOptions {
   format?: "webp" | "png";
 }
 
-export const DEFAULTS = { maxSpread: 24, minContrast: 4.5, scale: 4 } as const;
+export const DEFAULTS = { maxSpread: 24, maxTileSpread: 30, tile: 16, minContrast: 4.5, scale: 4 } as const;
+
+/**
+ * Bumped whenever a check changes, so cached scenes made under older checks are checked again.
+ * 1: spread and contrast. 2: lettering. 3: spread per tile.
+ */
+export const VALIDATOR_VERSION = "3";
+
+/** Luma spread over a box of an RGB buffer w pixels wide. */
+function spreadOf(data: Uint8Array | Buffer, w: number, x0: number, y0: number, x1: number, y1: number): number {
+  let n = 0, s = 0, s2 = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * w + x) * 3;
+      const l = 0.2126 * data[i]! + 0.7152 * data[i + 1]! + 0.0722 * data[i + 2]!;
+      n++; s += l; s2 += l * l;
+    }
+  }
+  const m = s / n;
+  return Math.sqrt(Math.max(0, s2 / n - m * m));
+}
+
+/** Worst spread over half-overlapping square tiles covering the box. */
+function worstTile(data: Uint8Array | Buffer, w: number, box: [number, number, number, number], side: number): number {
+  const [x0, y0, x1, y1] = box;
+  const s = Math.max(4, Math.min(side, x1 - x0, y1 - y0));
+  const step = Math.max(1, Math.floor(s / 2));
+  let worst = 0;
+  for (let ty = y0; ty < y1; ty += step) {
+    for (let tx = x0; tx < x1; tx += step) {
+      worst = Math.max(worst, spreadOf(data, w, tx, ty, Math.min(x1, tx + s), Math.min(y1, ty + s)));
+      if (tx + s >= x1) break;
+    }
+    if (ty + s >= y1) break;
+  }
+  return worst;
+}
 
 /** Regions validation looks at: reserved content, and surfaces (button faces and panels). */
 const checkedRegions = (wf: Wireframe): Region[] => wf.regions.filter((r) => (r.z === 2 && r.mask === "reserved") || r.mask === "surface");
@@ -69,14 +112,16 @@ export async function regionStats(bytes: Uint8Array, wf: Wireframe, style: Style
     }
     const mean = sl / n;
     const spread = Math.sqrt(Math.max(0, sl2 / n - mean * mean));
+    const tileSpread = worstTile(data, w, [x0, y0, x1, y1], o.tile);
     const c = contrast([sr / n, sg / n, sb / n], fg);
     const why = [
-      ...(spread > o.maxSpread ? ["busy"] : []),
+      ...(spread > o.maxSpread || tileSpread > o.maxTileSpread ? ["busy"] : []),
       ...(c < o.minContrast ? ["contrast"] : []),
       ...(inside.length ? ["lettering"] : []),
     ];
     return {
-      id: r.id, mask: "reserved", spread: Math.round(spread * 10) / 10, contrast: Math.round(c * 100) / 100,
+      id: r.id, mask: "reserved", spread: Math.round(spread * 10) / 10, tileSpread: Math.round(tileSpread * 10) / 10,
+      contrast: Math.round(c * 100) / 100,
       ...lettering, ok: why.length === 0, ...(why.length ? { why } : {}),
     };
   });
@@ -104,6 +149,7 @@ export function sharpValidator(opts: ValidatorOptions = {}): Validator {
   const format = opts.format ?? "webp";
   const mime = format === "png" ? "image/png" : "image/webp";
   return {
+    version: VALIDATOR_VERSION,
     async normalize(asset: SceneAsset, wf: Wireframe): Promise<SceneAsset> {
       // Backends round sizes (to multiples of 8 or 16); the stage needs the canonical canvas exactly.
       const img = sharp(asset.bytes).resize(wf.canvas.w, wf.canvas.h, { fit: "cover" });

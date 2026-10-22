@@ -18,6 +18,8 @@ export interface AheadResult {
   rerolls?: number;
   patched?: string[];
   attempts?: Attempt[];
+  /** Set when a cached scene was checked again under a newer validator. */
+  rechecked?: { failing: string[] };
   /** Asset URL of the scene as served. */
   url: string;
   prompt: string;
@@ -58,6 +60,7 @@ export async function renderAhead(engine: Engine, opts: AheadOptions = {}): Prom
             ...(scene.rerolls !== undefined ? { rerolls: scene.rerolls } : {}),
             ...(scene.patched?.length ? { patched: scene.patched } : {}),
             ...(scene.attempts ? { attempts: scene.attempts } : {}),
+            ...(scene.rechecked ? { rechecked: scene.rechecked } : {}),
           };
           out.push(r);
           opts.onScene?.(r);

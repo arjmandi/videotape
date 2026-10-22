@@ -171,6 +171,41 @@ Two follow-ups, in order:
 
 Totals: 36 fal calls that returned an image, plus three refused (one 503, two 403s).
 
+### 2.6 Tile spread, and re-checking the cache (no fal calls)
+
+Calibrated on every fal image in the cache. No tile size separates "a dark object behind words"
+from "a lit monitor bezel or city lights behind words": v4's subtitle tiles reach about 35, and the
+good cool dashboard's bezels 31–37. By the spec both mean the area behind text is not calm, so the
+threshold is the stricter reading: the worst 64-px tile at or below 30, alongside the whole-region
+24. `videotape render --cache-only` then re-checked the eight cached scenes:
+
+| Scene | Whole / worst tile | Result |
+|-------|--------------------|--------|
+| landing v4, desktop | sub 16 / 34.8 | failed, subtitle patched |
+| landing v4, phone | sub 19.8 / 74.3 | failed, subtitle patched |
+| dashboard desktop, cool | watch 16.9 / 31.4, subs 17.7 / 32.9 | failed, both patched inside their monitors |
+| login (both), dashboard warm desktop, both phone dashboards | all ≤ 30 | passed |
+
+The cool dashboard is the cost of the stricter reading; its two patches sit inside the monitor
+screens and read as dark cards.
+
+### 2.7 Proposal: place the subject by inpainting (not yet built)
+
+Inpainting repaints only inside a mask, so a subject masked to the largest free area cannot land
+behind text. Candidates checked on fal's model pages (2026-10-22):
+
+| Endpoint | Inputs | Price |
+|----------|--------|-------|
+| `fal-ai/flux-lora/inpainting` | `image_url`, `mask_url`, `prompt`, `strength` (default 0.85), `seed`, steps, guidance, `sync_mode` | $0.035 / MP |
+| `fal-ai/flux-pro/v1/fill` | `image_url`, `mask_url`, `prompt`, `seed`, `sync_mode`; no `strength` | $0.05 / MP |
+
+Neither page states whether white or black marks the area to repaint; one probe call settles it.
+The plan: an optional `subject` on frames (the scene text names the whole picture; the subject is
+what goes in the free area); the renderer first paints the backdrop as today, then inpaints the
+subject into a feathered mask of the free area; the mask and subject prompt join the cache key;
+validation is unchanged. A 1920 × 1080 scene is about 2 MP, so the inpainting pass is about $0.07
+(flux-lora) or $0.10 (fill) per scene on top of the backdrop.
+
 ## 3. Transitions (candidates for the `cut` renderer)
 
 First-and-last-frame video generation is exactly the cut problem: two scene stills in, a short clip

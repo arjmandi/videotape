@@ -35,7 +35,7 @@ function overlay(t: SheetTile, w: number, h: number): Buffer {
     parts.push(`<rect x="${x}" y="${y}" width="${rw}" height="${rh}" fill="none" stroke="${color}" stroke-width="1.5"${dash}/>`);
     // Passing surfaces stay unlabelled so the sheet stays readable.
     if (check && (r.mask === "reserved" || !check.ok)) {
-      const nums = r.mask === "reserved" ? ` σ${check.spread} c${check.contrast}` : "";
+      const nums = r.mask === "reserved" ? ` σ${check.spread}/${check.tileSpread ?? "?"} c${check.contrast}` : "";
       const label = `${r.id}${nums}${check.words ? ` “${check.text ?? ""}”` : ""}`;
       parts.push(`<text x="${x + 2}" y="${y + 10}" font-family="Menlo, monospace" font-size="9" fill="${color}" stroke="#000" stroke-width="2.5" paint-order="stroke">${esc(label)}</text>`);
     }

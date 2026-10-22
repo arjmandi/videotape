@@ -428,8 +428,10 @@ adapter. A manifest maps keys to asset hashes so re-rolls can coexist and one ca
 
 ### 7.3 Validation and re-roll
 
-For each `reserved` region: luminance variance below a threshold, and contrast between the region's
-mean colour and the style's foreground colour at or above 4.5:1 (WCAG AA).
+For each `reserved` region: luminance spread below a threshold over the whole region (24) and in
+every tile of about a word (64 canvas px; 30), and contrast between the region's mean colour and the
+style's foreground colour at or above 4.5:1 (WCAG AA). The tile check exists because a small object
+behind two words barely moves the spread of a long region.
 
 For every `reserved` and `surface` region (button faces and panels included): **no lettering**. The
 engine runs OCR (tesseract, local model) on the whole scene; a word of three or more letters read
@@ -442,6 +444,11 @@ A failing asset is re-rolled with the next seed up to three times; if it still f
 composites a flat fill from the style palette into the failing regions only and keeps the rest.
 Every attempt is kept in the cache with its region numbers; the HUD shows re-roll and patch counts
 per frame, and `videotape render --sheet` draws them.
+
+The validator has a version. A cached generated scene made under another version is checked again
+the first time it is looked up, and what fails is patched the same way, without generating; the
+result is recorded under the same key. Pinned scenes are left as they are.
+`videotape render --cache-only` runs this over a whole app without risking a backend call.
 
 ### 7.4 Style packs
 

@@ -7,7 +7,7 @@ import {
 } from "@videotape/core";
 import demo from "../../../apps/site/tapes";
 import { services } from "../../../apps/site/services";
-import { MemoryCache, contactSheet, drawingStructure, patchRegions, regionStats, renderAhead, sharpValidator } from "../src";
+import { MemoryCache, type Validator, contactSheet, drawingStructure, patchRegions, regionStats, renderAhead, sharpValidator } from "../src";
 import { harness, settle } from "./harness";
 
 const wf = layout(frame("f", { layout: "form", components: [
@@ -86,6 +86,22 @@ describe("region validation (spec §7.3)", () => {
     const stats = await regionStats(await solid("#101014"), wf, dusk);
     expect(stats.map((s) => `${s.id}:${s.mask}`).sort()).toEqual(["__panel:surface", "go:surface", "title:reserved", "user:reserved"]);
     expect(stats.find((s) => s.id === "go")).not.toHaveProperty("spread");
+  });
+
+  it("fails a small object behind a few words, which spread over the whole region misses", async () => {
+    // A soft glow, and a small dark object straddling the left end of the title, as fal painted on v4.
+    const { w, h } = wf.canvas;
+    const [x, y, rw, rh] = wf.regions.find((r) => r.id === "title")!.rect;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
+      `<defs><radialGradient id="g" cx="0.5" cy="0.45" r="0.6"><stop offset="0" stop-color="#b0582e"/><stop offset="1" stop-color="#16121a"/></radialGradient></defs>` +
+      `<rect width="${w}" height="${h}" fill="url(#g)"/>` +
+      `<rect x="${(x + rw * 0.05) * w}" y="${(y + rh * 0.1) * h}" width="${rw * 0.12 * w}" height="${rh * 0.8 * h}" rx="6" fill="#0b0a0d"/></svg>`;
+    const stats = await regionStats(new Uint8Array(await sharp(Buffer.from(svg)).png().toBuffer()), wf, dusk, { lettering: false });
+    const title = stats.find((s) => s.id === "title")!;
+    expect(title.spread!).toBeLessThan(24);
+    expect(title.tileSpread!).toBeGreaterThan(30);
+    expect(title).toMatchObject({ ok: false, why: ["busy"] });
+    expect(stats.find((s) => s.id === "user")!.ok).toBe(true);
   });
 
   it("finds fake lettering that spread and contrast miss, in text regions and on panels", async () => {
@@ -335,6 +351,51 @@ describe("cache", () => {
     await h.send({ t: "reroll" });
     expect(h.take()).toEqual([]);
     expect(r.calls()).toBe(calls);
+  });
+});
+
+describe("re-checking cached scenes", () => {
+  /** A validator from before the current checks: passes everything, stamps an old version. */
+  const lenient = (): Validator => ({ version: "1", check: async () => ({ failing: [] }), patch: async (a) => a });
+
+  it("checks a scene cached under an older validator once, and patches what now fails, without generating", async () => {
+    const r = fakeRenderer([() => noise(5)]);
+    const cache = new MemoryCache();
+    const old = harness(demo, services, { renderers: [r], validator: lenient(), cache });
+    await renderAhead(old.engine, { viewports: ["desktop"], frames: ["landing"] });
+    const calls = r.calls();
+    const key = old.engine.host.keyFor(r, old.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop"));
+    const stale = (await cache.lookup(key))!;
+
+    let checks = 0;
+    const current = sharpValidator();
+    const counting: Validator = { ...current, check: (...a) => (checks++, current.check(...a)) };
+    const h = harness(demo, services, { renderers: [r], validator: counting, cache, generate: false, budgets: { firstRenderMs: 30_000 } });
+    await h.hello();
+    expect(r.calls()).toBe(calls);
+    expect(h.render().fallback).toBe(false);
+    expect(h.render().layers[0]!.url).not.toBe(`/a/${stale.file}`);
+    const now = (await cache.lookup(key))!;
+    expect(now.meta).toMatchObject({ validator: current.version, rechecked: { from: stale.file } });
+    expect((now.meta!.rechecked as { failing: string[] }).failing.length).toBeGreaterThan(0);
+
+    const before = checks;
+    const again = harness(demo, services, { renderers: [r], validator: counting, cache, generate: false });
+    await again.hello();
+    expect(checks).toBe(before);
+  });
+
+  it("leaves a pinned scene alone", async () => {
+    const r = fakeRenderer([() => noise(5)]);
+    const cache = new MemoryCache();
+    const old = harness(demo, services, { renderers: [r], validator: lenient(), cache });
+    await renderAhead(old.engine, { viewports: ["desktop"], frames: ["landing"] });
+    const key = old.engine.host.keyFor(r, old.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop"));
+    const entry = (await cache.lookup(key))!;
+    await cache.record(key, { ...entry, pinned: true });
+    const h = harness(demo, services, { renderers: [r], validator: sharpValidator(), cache, generate: false });
+    await h.hello();
+    expect(h.render().layers[0]!.url).toBe(`/a/${entry.file}`);
   });
 });
 

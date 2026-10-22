@@ -15,8 +15,8 @@ Usage: videotape <command> [dir] [options]
   schema [--out dir]                    print or write JSON Schemas for tapes and VTP
   dev    [dir] [--port n] [--renderers a,b] [--cache-only]   engine with reload and debug on
   serve  [dir] [--port n] [--renderers a,b] [--cache-only]   production engine; --cache-only never generates
-  render [dir] [--viewports a,b] [--renderers a,b] [--frames tape,tape/frame] [--sheet out.png]
-                                        ahead-of-time render into the cache
+  render [dir] [--viewports a,b] [--renderers a,b] [--frames tape,tape/frame] [--sheet out.png] [--cache-only]
+                                        ahead-of-time render into the cache; --cache-only re-checks without generating
 `;
 
 export async function main(argv: string[]): Promise<number> {
@@ -53,7 +53,9 @@ export async function main(argv: string[]): Promise<number> {
       }
       case "render": {
         const { runRender } = await import("./render");
-        return await runRender(dir, { renderers: values.renderers, viewports: values.viewports, frames: values.frames, sheet: values.sheet });
+        return await runRender(dir, {
+          renderers: values.renderers, viewports: values.viewports, frames: values.frames, sheet: values.sheet, cacheOnly: values["cache-only"],
+        });
       }
       case undefined: case "help": case "--help": case "-h":
         process.stdout.write(HELP);

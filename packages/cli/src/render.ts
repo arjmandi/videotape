@@ -12,6 +12,7 @@ export interface RenderOptions {
   viewports?: string | undefined;
   frames?: string | undefined;
   sheet?: string | undefined;
+  cacheOnly?: boolean | undefined;
 }
 
 const list = (s: string | undefined) => s?.split(",").map((x) => x.trim()).filter(Boolean);
@@ -28,7 +29,10 @@ function line(r: AheadResult): string {
     };
     return `      attempt ${i + 1} seed ${a.seed}: ${a.failing.length ? `failed ${a.failing.map((id) => id + why(id)).join(", ")}` : "passed"}`;
   });
-  return [head, ...tries].join("\n") + "\n";
+  const recheck = r.rechecked
+    ? [`      re-checked under the current validator: ${r.rechecked.failing.length ? `failed ${r.rechecked.failing.join(", ")}, patched` : "passed"}`]
+    : [];
+  return [head, ...tries, ...recheck].join("\n") + "\n";
 }
 
 export async function runRender(dir: string, opts: RenderOptions): Promise<number> {
@@ -44,6 +48,7 @@ export async function runRender(dir: string, opts: RenderOptions): Promise<numbe
     logger,
     renderers: renderers.scene,
     ...(renderers.validator ? { validator: renderers.validator } : {}),
+    ...(opts.cacheOnly ? { generate: false } : {}),
   });
   if (frames) {
     const known = new Set(config.app.tapes.flatMap((t) => [t.id, ...t.frames.map((f) => `${t.id}/${f.id}`)]));

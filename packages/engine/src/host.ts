@@ -42,6 +42,8 @@ export interface SceneResult {
   patched?: string[];
   /** Every generation attempt for this key, kept for review. */
   attempts?: Attempt[];
+  /** Set when a cached scene was checked again under a newer validator. */
+  rechecked?: { failing: string[] };
 }
 
 /** One generation attempt: its seed, the raw output as stored, and what failed. */
@@ -56,8 +58,10 @@ export interface RegionCheck {
   id: string;
   /** reserved: must be calm, readable, and free of lettering. surface: free of lettering. */
   mask: "reserved" | "surface";
-  /** Standard deviation of luma, 0–255 (reserved only). */
+  /** Standard deviation of luma, 0–255, over the whole region (reserved only). */
   spread?: number;
+  /** The same, in the region's worst tile (reserved only). */
+  tileSpread?: number;
   /** Contrast of the region's mean colour against the style's foreground, 1–21 (reserved only). */
   contrast?: number;
   /** Words OCR read inside the region; anything above zero fails it. */
@@ -71,6 +75,8 @@ export interface RegionCheck {
 
 /** Region checks for generated scenes (spec §7.3). See ./validate. */
 export interface Validator {
+  /** Changes when a check changes; cached generated scenes made under another version are checked again. */
+  version?: string;
   /** Brings a backend's output to the canonical canvas size and the stored format. */
   normalize?(asset: SceneAsset, wf: Wireframe): Promise<SceneAsset>;
   check(asset: SceneAsset, wf: Wireframe, style: StylePack): Promise<{ failing: string[]; regions?: RegionCheck[] }>;
@@ -105,6 +111,7 @@ export class RendererHost {
   readonly flat: SceneRenderer;
   readonly stats: HostStats = { hits: 0, misses: 0, generated: 0, fallbacks: 0, rerolls: 0, patched: 0 };
   private inflight = new Map<string, Promise<SceneResult>>();
+  private rechecks = new Map<string, Promise<ManifestEntry>>();
 
   constructor(readonly renderers: SceneRenderer[], private opts: HostOptions) {
     const flat = renderers.find((r) => r.id === "flat");
@@ -138,7 +145,7 @@ export class RendererHost {
     const hit = await this.opts.cache.lookup(key);
     if (hit) {
       count("hits");
-      return this.result(key, hit, "hit");
+      return this.result(key, await this.recheck(r, plan, key, hit), "hit");
     }
     count("misses");
     if (this.opts.generate === false) {
@@ -202,10 +209,60 @@ export class RendererHost {
         asset = await this.opts.validator.patch(asset, plan.wireframe, plan.style, failing);
         this.stats.patched++;
       }
-      const meta = { rerolls, patched: failing, prompt: plan.prompt, ...(attempts.length ? { attempts } : {}) };
+      const meta = {
+        rerolls, patched: failing, prompt: plan.prompt, ...(attempts.length ? { attempts } : {}),
+        ...(this.opts.validator?.version && !r.deterministic ? { validator: this.opts.validator.version } : {}),
+      };
       const entry = await this.store(key, asset!, r.id, plan.seed + rerolls, meta);
       return { ...this.result(key, entry, "miss"), rerolls, patched: failing, ...(attempts.length ? { attempts } : {}) };
     });
+  }
+
+  /**
+   * A cached generated scene made under an older validator is checked again, once per key.
+   * What fails now is patched with a flat fill, as after the last re-roll; nothing is
+   * generated, so this costs no backend calls. Pinned entries are a person's choice and are kept.
+   */
+  private recheck(r: SceneRenderer, plan: ScenePlan, key: string, entry: ManifestEntry): Promise<ManifestEntry> {
+    const v = this.opts.validator;
+    if (r.deterministic || !v?.version || entry.pinned || entry.meta?.validator === v.version) return Promise.resolve(entry);
+    let p = this.rechecks.get(key);
+    if (!p) {
+      p = this.runRecheck(v, plan, key, entry).catch((e: unknown) => {
+        this.opts.logger.warn("re-checking a cached scene failed; serving it as is", { node: plan.node, error: e instanceof Error ? e.message : String(e) });
+        return entry;
+      });
+      this.rechecks.set(key, p);
+    }
+    return p;
+  }
+
+  private async runRecheck(v: Validator, plan: ScenePlan, key: string, entry: ManifestEntry): Promise<ManifestEntry> {
+    const stored = await this.opts.cache.getAsset(entry.file);
+    if (!stored) return entry;
+    const asset: SceneAsset = { key, mime: stored.mime as SceneAsset["mime"], bytes: stored.bytes, meta: {} };
+    const verdict = await v.check(asset, plan.wireframe, plan.style);
+    const before = Array.isArray(entry.meta?.patched) ? (entry.meta.patched as string[]) : [];
+    let file = entry.file;
+    if (verdict.failing.length) {
+      const fixed = await v.patch(asset, plan.wireframe, plan.style, verdict.failing);
+      file = (await this.opts.cache.putAsset(fixed.bytes, fixed.mime)).file;
+      this.stats.patched++;
+      this.opts.logger.info("cached scene fails a newer check; patched", { node: plan.node, failing: verdict.failing.join(",") });
+    }
+    const next: ManifestEntry = {
+      ...entry,
+      file,
+      createdAt: new Date().toISOString(),
+      meta: {
+        ...entry.meta,
+        validator: v.version,
+        patched: [...new Set([...before, ...verdict.failing])],
+        rechecked: { from: entry.file, failing: verdict.failing, ...(verdict.regions ? { regions: verdict.regions } : {}) },
+      },
+    };
+    await this.opts.cache.record(key, next);
+    return next;
   }
 
   private async once(key: string, fn: () => Promise<SceneResult>): Promise<SceneResult> {
@@ -248,6 +305,8 @@ export class RendererHost {
     if (typeof m?.rerolls === "number") out.rerolls = m.rerolls;
     if (Array.isArray(m?.patched) && m.patched.length) out.patched = m.patched as string[];
     if (Array.isArray(m?.attempts)) out.attempts = m.attempts as Attempt[];
+    const rc = m?.rechecked as { failing?: string[] } | undefined;
+    if (rc && Array.isArray(rc.failing)) out.rechecked = { failing: rc.failing };
     return out;
   }
 }

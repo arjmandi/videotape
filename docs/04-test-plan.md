@@ -112,7 +112,8 @@ tablet 768 × 1024, and desktop 1440 × 900.
 
 | Area | Cases |
 |------|-------|
-| Region validation | Synthetic images: a flat dark field passes; a high-variance noise field fails on variance; a mid-grey field fails on contrast with a light foreground colour; faint fake words in a field and on a button face fail on lettering although their spread passes; every flat scene of the demo passes |
+| Region validation | Synthetic images: a flat dark field passes; a high-variance noise field fails on variance; a mid-grey field fails on contrast with a light foreground colour; faint fake words in a field and on a button face fail on lettering although their spread passes; a small dark object behind part of a title fails on tile spread although its whole-region spread passes; every flat scene of the demo passes |
+| Re-checking | A scene cached under an older validator is checked once, patched where it now fails, and recorded, with no generation; a pinned scene is left alone |
 | Conditioning | Generative renderers get the scene drawing, not the wireframe; editing a style's prompt changes the cache key |
 | Re-roll | A fake renderer that fails validation twice, then passes, is called three times with seeds `s`, `s+1`, `s+2`; one that always fails ends with a flat fill composited into the failing regions only, and the HUD counters say so |
 | Budgets | A fake renderer slower than 1.5 s on the first render gives a `flat` render with `fallback: true`, then a `patch` with `layers` when the asset lands |
