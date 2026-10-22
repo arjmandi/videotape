@@ -18,7 +18,7 @@ const list = (s: string | undefined) => s?.split(",").map((x) => x.trim()).filte
 
 function line(r: AheadResult): string {
   const head =
-    `  ${r.cache === "hit" ? "·" : "✚"} ${r.node.padEnd(18)} ${r.viewportClass.padEnd(7)} ${r.renderer.padEnd(10)} ${String(r.ms).padStart(6)} ms` +
+    `  ${r.fallback ? "✗" : r.cache === "hit" ? "·" : "✚"} ${r.node.padEnd(18)} ${r.viewportClass.padEnd(7)} ${r.renderer.padEnd(10)} ${String(r.ms).padStart(6)} ms` +
     `${r.fallback ? "  FALLBACK" : ""}${r.rerolls ? `  rerolls ${r.rerolls}` : ""}${r.patched ? `  patched ${r.patched.join(",")}` : ""}` +
     `${r.flavour !== "{}" ? `  ${r.flavour}` : ""}`;
   const tries = (r.attempts ?? []).map((a, i) => {
@@ -57,9 +57,10 @@ export async function runRender(dir: string, opts: RenderOptions): Promise<numbe
     ...(config.aheadSamples ? { samples: config.aheadSamples } : {}),
     onScene: (r) => process.stdout.write(line(r)),
   });
-  const misses = results.filter((r) => r.cache === "miss").length;
   const fallbacks = results.filter((r) => r.fallback).length;
-  process.stdout.write(`${results.length} scenes: ${misses} rendered, ${results.length - misses} already cached${fallbacks ? `, ${fallbacks} fell back to flat` : ""}\n`);
+  const rendered = results.filter((r) => !r.fallback && r.cache === "miss").length;
+  const cached = results.length - fallbacks - rendered;
+  process.stdout.write(`${results.length} scenes: ${rendered} rendered, ${cached} already cached${fallbacks ? `, ${fallbacks} fell back to flat` : ""}\n`);
 
   if (opts.sheet) {
     const tiles: SheetTile[] = [];

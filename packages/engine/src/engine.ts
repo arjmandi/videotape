@@ -32,7 +32,23 @@ export interface EngineOptions {
   resumeTtlMs?: number;
   /** False: serve only scenes already in the cache, so serving never spends on generation. */
   generate?: boolean;
+  /**
+   * Freedom given to generators when a frame's scene drawing has almost no structure
+   * (panels and media frames under 2 % of the canvas). Image-to-image over a bare gradient
+   * otherwise returns the gradient. Default 0.95; `false` turns it off.
+   */
+  emptyFreedom?: number | false;
 }
+
+/** Share of the canvas the scene drawing gives a generator to build on: panels and media frames. */
+export function drawingStructure(wf: Wireframe): number {
+  return wf.regions
+    .filter((r) => r.kind === "panel" || r.kind === "image" || r.kind === "media")
+    .reduce((sum, r) => sum + r.rect[2] * r.rect[3], 0);
+}
+
+/** Below this structure, a drawing counts as empty. */
+export const EMPTY_DRAWING = 0.02;
 
 interface Reel {
   id: string;
@@ -70,6 +86,7 @@ export class Engine {
   private readonly reels = new Map<string, Reel>();
   private readonly wireframes = new Map<string, Wireframe>();
   private readonly resumeTtlMs: number;
+  private readonly emptyFreedom: number | false;
 
   constructor(config: VideotapeConfig, opts: EngineOptions = {}) {
     const errors = check(config.app).filter((d) => d.level === "error");
@@ -83,6 +100,7 @@ export class Engine {
     this.debug = opts.debug ?? config.debug ?? false;
     this.budgets = { ...DEFAULT_BUDGETS, ...config.budgets, ...opts.budgets };
     this.resumeTtlMs = opts.resumeTtlMs ?? 10 * 60_000;
+    this.emptyFreedom = opts.emptyFreedom ?? 0.95;
     for (const t of config.app.tapes) this.tapes.set(t.id, t);
 
     const renderers = opts.renderers ?? (config.renderers ?? []).map((r) => {
@@ -157,6 +175,7 @@ export class Engine {
       wireframe: wf,
       prompt: composePrompt(style, sceneText(frame, flavour), wf),
       condition: sceneSvg(wf.regions, wf.canvas, style),
+      ...(this.emptyFreedom !== false && drawingStructure(wf) < EMPTY_DRAWING ? { freedom: this.emptyFreedom } : {}),
     };
   }
 

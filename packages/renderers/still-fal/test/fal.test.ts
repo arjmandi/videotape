@@ -49,6 +49,17 @@ describe("fal still renderer", () => {
     expect(asset).toMatchObject({ key: "sha256:k", mime: "image/png", meta: { model: DEFAULT_MODEL, seed: 4210 } });
   });
 
+  it("uses the engine's freedom as strength when it is set", async () => {
+    vi.stubEnv("FAL_KEY", "k");
+    const f = fakeFetch(ok(inline), ok(inline));
+    const r = falStill({ fetch: f.fn });
+    const free = await r.render(request({ freedom: 0.95 }), new AbortController().signal);
+    await r.render(request(), new AbortController().signal);
+    expect(JSON.parse(String(f.calls[0]!.init!.body)).strength).toBe(0.95);
+    expect(JSON.parse(String(f.calls[1]!.init!.body)).strength).toBe(0.82);
+    expect(free.meta.strength).toBe(0.95);
+  });
+
   it("downloads the image when fal returns a URL instead of inline data", async () => {
     vi.stubEnv("FAL_KEY", "k");
     const f = fakeFetch(
@@ -74,6 +85,24 @@ describe("fal still renderer", () => {
     expect(err).toBeInstanceOf(FalError);
     expect(err).toMatchObject({ status: 429 });
     expect(String((err as Error).message)).toContain("quota exceeded");
+  });
+
+  it("stops calling fal once it refuses the account, so the engine uses flat", async () => {
+    vi.stubEnv("FAL_KEY", "k");
+    const f = fakeFetch(new Response(JSON.stringify({ detail: "User is locked. Reason: TOP_UP." }), { status: 403 }));
+    const r = falStill({ fetch: f.fn });
+    expect(r.available!()).toBe(true);
+    await expect(r.render(request(), new AbortController().signal)).rejects.toMatchObject({ status: 403 });
+    expect(r.available!()).toBe(false);
+  });
+
+  it("keeps going after a passing server error", async () => {
+    vi.stubEnv("FAL_KEY", "k");
+    const f = fakeFetch(new Response("upstream connect error", { status: 503 }), ok(inline));
+    const r = falStill({ fetch: f.fn });
+    await expect(r.render(request(), new AbortController().signal)).rejects.toMatchObject({ status: 503 });
+    expect(r.available!()).toBe(true);
+    await expect(r.render(request(), new AbortController().signal)).resolves.toMatchObject({ mime: "image/png" });
   });
 
   it("refuses an image the safety checker flagged", async () => {

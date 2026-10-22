@@ -406,7 +406,14 @@ key = sha256(core.version, renderer.id, renderer.version,
 ```
 
 The last three make the key cover everything a renderer is given, so no input can change while an
-old asset keeps being served.
+old asset keeps being served. A request's `freedom` (below) is appended only when it is set, so
+frames that never get it keep their keys.
+
+**Freedom.** Image-to-image over the scene drawing works when the drawing has structure (panels,
+media frames); over a bare gradient it returns the gradient. When panels and media frames cover
+less than 2 % of the canvas, the engine sets `freedom` (default 0.95) on the request, and renderers
+map it to their own parameter (fal: `strength`). Lettering validation (§7.3) is what makes the
+extra latitude safe.
 
 Reel **data is not part of the key**: facts live on the content layer, so one scene asset serves
 every user. The cache is a content-addressed store with a filesystem implementation and an S3-style
@@ -484,6 +491,7 @@ export interface SceneRequest {
   condition: { svg: string; png: Uint8Array };        // the scene drawing (§6.3), not the wireframe
   masks: { reserved: Uint8Array; surface: Uint8Array };
   style: StylePack;
+  freedom?: number;                                   // 0–1: how far the output may move from `condition`
 }
 export interface CutRequest {
   key: string; canvas: { w: number; h: number }; seed: number;

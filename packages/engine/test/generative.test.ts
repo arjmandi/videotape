@@ -7,7 +7,7 @@ import {
 } from "@videotape/core";
 import demo from "../../../apps/site/tapes";
 import { services } from "../../../apps/site/services";
-import { MemoryCache, contactSheet, patchRegions, regionStats, renderAhead, sharpValidator } from "../src";
+import { MemoryCache, contactSheet, drawingStructure, patchRegions, regionStats, renderAhead, sharpValidator } from "../src";
 import { harness, settle } from "./harness";
 
 const wf = layout(frame("f", { layout: "form", components: [
@@ -144,6 +144,28 @@ describe("what generators are shown", () => {
     // The primary button face and text bars are in the wireframe only.
     expect(plan.wireframe.svg).toContain(dusk.palette.accent);
     expect(seen[0]).not.toMatch(new RegExp(`<rect[^>]*fill="${dusk.palette.accent}"`));
+  });
+
+  it("gives extra freedom only to frames whose drawing has nothing to build on", async () => {
+    const seen: Array<number | undefined> = [];
+    const r = { ...fakeRenderer([() => solid("#101014")]) };
+    const render = r.render.bind(r);
+    r.render = (req, signal) => (seen.push(req.freedom), render(req, signal));
+    const h = harness(demo, services, { renderers: [r], validator: sharpValidator(), budgets: { firstRenderMs: 30_000 } });
+    const landing = h.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop");
+    const login = h.engine.plan({ tape: "login", frame: "form" }, {}, "desktop");
+    expect(drawingStructure(landing.wireframe)).toBe(0);
+    expect(landing.freedom).toBe(0.95);
+    expect(login.freedom).toBeUndefined();
+    await h.hello();
+    expect(seen[0]).toBe(0.95);
+
+    // Freedom is part of the key when set, and only then.
+    const off = harness(demo, services, { renderers: [r], emptyFreedom: false });
+    const landingOff = off.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop");
+    expect(landingOff.freedom).toBeUndefined();
+    expect(h.engine.host.keyFor(r, landing)).not.toBe(off.engine.host.keyFor(r, landingOff));
+    expect(h.engine.host.keyFor(r, login)).toBe(off.engine.host.keyFor(r, off.engine.plan({ tape: "login", frame: "form" }, {}, "desktop")));
   });
 
   it("starts a fresh cache key when the style's prompt changes", async () => {

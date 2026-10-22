@@ -39,6 +39,8 @@ export interface KeyParts {
   condition: string;
   /** The composed prompt; empty for deterministic renderers, which ignore it. */
   prompt: string;
+  /** Set only for drawings with little structure (see EngineOptions.emptyFreedom). */
+  freedom?: number;
 }
 
 /**
@@ -50,5 +52,7 @@ export function sceneKey(p: KeyParts): string {
   return "sha256:" + sha256(
     CORE_VERSION, p.renderer.id, p.renderer.version, p.frameHash, p.viewportClass, p.style.id, String(p.seed), canonicalJson(p.flavour),
     sha256(canonicalJson(p.style)), sha256(p.condition), p.prompt,
+    // Appended only when set, so frames that never get it keep their keys and cached scenes.
+    ...(p.freedom !== undefined ? [`freedom:${p.freedom}`] : []),
   );
 }

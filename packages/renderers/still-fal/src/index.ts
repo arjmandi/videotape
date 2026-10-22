@@ -56,15 +56,20 @@ export function falStill(opts: FalStillOptions = {}): SceneRenderer {
   const key = () => opts.key ?? process.env.FAL_KEY;
   const http = opts.fetch ?? fetch;
   const baseUrl = (opts.baseUrl ?? "https://fal.run").replace(/\/$/, "");
+  // After fal refuses the account (bad key, locked, out of credit), stop asking: every scene and
+  // prefetch would fail the same way. The engine sees `available() === false` and uses flat.
+  let refused: string | undefined;
 
   return {
     id: "still-fal",
     version: `1:${model}:s${strength}:n${steps}:g${guidance}`,
     kind: "scene",
-    available: () => !!key(),
+    available: () => !!key() && !refused,
     async render(req: SceneRequest, signal: AbortSignal): Promise<SceneAsset> {
       const k = key();
       if (!k) throw new FalError(401, "FAL_KEY is not set");
+      // The engine raises freedom for drawings with nothing to build on; it is fal's strength.
+      const s = req.freedom ?? strength;
       if (req.condition.png.byteLength === 0) throw new FalError(0, "the request has no conditioning image");
       const res = await http(`${baseUrl}/${model}`, {
         method: "POST",
@@ -72,7 +77,7 @@ export function falStill(opts: FalStillOptions = {}): SceneRenderer {
         body: JSON.stringify({
           prompt: req.prompt,
           image_url: `data:image/png;base64,${base64(req.condition.png)}`,
-          strength,
+          strength: s,
           seed: req.seed,
           num_inference_steps: steps,
           guidance_scale: guidance,
@@ -86,6 +91,7 @@ export function falStill(opts: FalStillOptions = {}): SceneRenderer {
       });
       if (!res.ok) {
         const detail = (await res.text().catch(() => "")).slice(0, 300);
+        if (res.status === 401 || res.status === 402 || res.status === 403) refused = detail || String(res.status);
         throw new FalError(res.status, `fal ${model} answered ${res.status}${detail ? `: ${detail}` : ""}`);
       }
       const json = (await res.json()) as FalResponse;
@@ -107,7 +113,7 @@ export function falStill(opts: FalStillOptions = {}): SceneRenderer {
         key: req.key,
         mime: MIMES[mime.split(";")[0]!.trim()] ?? "image/png",
         bytes,
-        meta: { renderer: "still-fal", model, seed: json.seed ?? req.seed, strength },
+        meta: { renderer: "still-fal", model, seed: json.seed ?? req.seed, strength: s },
       };
     },
   };

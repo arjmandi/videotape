@@ -11,12 +11,18 @@ export interface SceneRequest {
   seed: number;
   prompt: string;
   negative?: string;
-  /** The wireframe as conditioning: SVG source and a PNG raster at canvas size. */
+  /** The scene drawing as conditioning: SVG source and a PNG raster at canvas size. */
   condition: { svg: string; png: Uint8Array };
   /** Grayscale PNG masks at canvas size: white where the mask applies. */
   masks: { reserved: Uint8Array; surface: Uint8Array };
   style: StylePack;
   wireframe: Wireframe;
+  /**
+   * How far the generator may move away from the conditioning image, 0–1. Set by the
+   * engine only when the drawing gives little to build on; otherwise the renderer's own
+   * default applies. Renderers map it to their parameter (image-to-image strength, denoise).
+   */
+  freedom?: number;
 }
 
 export interface CutRequest {

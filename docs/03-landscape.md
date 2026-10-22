@@ -128,6 +128,16 @@ So conditioning on structure works where there is structure. Frames whose drawin
 need either more freedom (a higher strength) or a subject shape in the drawing; that is the next
 experiment. Total fal calls across the three runs: 28.
 
+### 2.4 More freedom for empty drawings (built; live run blocked)
+
+The engine now sets `freedom: 0.95` (fal `strength`) when panels and media frames cover under 2 %
+of the canvas; in the demo that is landing and the two stub tapes. Login and dashboard keep their
+keys and cached scenes. The landing re-render did not produce scenes: fal answered 503 (upstream
+connection reset) for desktop and then 403 `User is locked. Reason: TOP_UP.` for phone, so the
+account needs credit before this can be judged. Both scenes fell back to flat, as designed; the
+renderer now also stops calling fal after a 401, 402, or 403, so a locked account costs one
+failed call rather than one per scene and prefetch.
+
 ## 3. Transitions (candidates for the `cut` renderer)
 
 First-and-last-frame video generation is exactly the cut problem: two scene stills in, a short clip

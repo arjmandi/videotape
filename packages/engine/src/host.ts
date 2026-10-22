@@ -25,6 +25,8 @@ export interface ScenePlan {
    * read as a UI mock-up, and image models then paint fake controls and lettering.
    */
   condition: string;
+  /** Extra latitude for drawings with almost nothing to build on (no panels, no media frames). */
+  freedom?: number;
 }
 
 export interface SceneResult {
@@ -119,6 +121,7 @@ export class RendererHost {
     return sceneKey({
       renderer: r, frameHash: plan.frameHash, viewportClass: plan.viewportClass, style: plan.style, seed: plan.seed, flavour: plan.flavour,
       condition: plan.condition, prompt: r.deterministic ? "" : plan.prompt,
+      ...(plan.freedom !== undefined && !r.deterministic ? { freedom: plan.freedom } : {}),
     });
   }
 
@@ -227,6 +230,7 @@ export class RendererHost {
       masks: generative ? { reserved: maskPng(wf, "reserved"), surface: maskPng(wf, "surface") } : { reserved: empty, surface: empty },
       style: plan.style,
       wireframe: wf,
+      ...(plan.freedom !== undefined ? { freedom: plan.freedom } : {}),
     };
   }
 
