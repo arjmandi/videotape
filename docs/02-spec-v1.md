@@ -415,6 +415,13 @@ less than 2 % of the canvas, the engine sets `freedom` (default 0.95) on the req
 map it to their own parameter (fal: `strength`). Lettering validation (§7.3) is what makes the
 extra latitude safe.
 
+**Steering.** With that latitude, models centre their subject, which on a hero layout is where the
+headline sits. So when `freedom` is set, the engine also finds the largest empty rectangle in the
+safe area, clear of every content region and panel, and steers the subject there twice: the prompt
+says so ("the main subject placed in the upper part of the frame, across its width, nothing in the
+middle band"), and the scene drawing moves its glow and vignette onto that rectangle. The flat
+renderer draws the same conditioning drawing, so flat and generated scenes share a composition.
+
 Reel **data is not part of the key**: facts live on the content layer, so one scene asset serves
 every user. The cache is a content-addressed store with a filesystem implementation and an S3-style
 adapter. A manifest maps keys to asset hashes so re-rolls can coexist and one can later be pinned.

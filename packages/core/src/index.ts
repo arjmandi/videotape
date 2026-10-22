@@ -7,6 +7,7 @@ export * from "./color";
 export * from "./paths";
 export * from "./archetypes";
 export * from "./layout";
+export * from "./freespace";
 export * from "./svg";
 export * from "./graph";
 export * from "./check";

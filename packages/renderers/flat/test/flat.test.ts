@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type SceneRequest, button, dusk, frame, layout, text } from "@videotape/core";
+import { type SceneRequest, button, dusk, frame, layout, sceneSvg, text } from "@videotape/core";
 import { flatRenderer, rasterize } from "../src";
 
 const f = frame("f", { layout: "hero", components: [text("t", "Title"), button("b", "Go", { on: { press: "x" } })] });
@@ -8,7 +8,7 @@ function request(cls: "phone" | "desktop"): SceneRequest {
   const wf = layout(f, cls, dusk);
   return {
     key: "k", canvas: wf.canvas, seed: 1, prompt: "", style: dusk, wireframe: wf,
-    condition: { svg: wf.svg, png: new Uint8Array() }, masks: { reserved: new Uint8Array(), surface: new Uint8Array() },
+    condition: { svg: sceneSvg(wf.regions, wf.canvas, dusk), png: new Uint8Array() }, masks: { reserved: new Uint8Array(), surface: new Uint8Array() },
   };
 }
 
@@ -32,6 +32,14 @@ describe("flat renderer", () => {
     const a = await r.render(request("desktop"), new AbortController().signal);
     const b = await r.render(request("desktop"), new AbortController().signal);
     expect(Buffer.from(a.bytes).equals(Buffer.from(b.bytes))).toBe(true);
+  });
+
+  it("draws the conditioning drawing it is given, so flat and generators see the same picture", async () => {
+    const r = flatRenderer();
+    const plain = await r.render(request("desktop"), new AbortController().signal);
+    const req = request("desktop");
+    const focused = await r.render({ ...req, condition: { ...req.condition, svg: sceneSvg(req.wireframe.regions, req.canvas, dusk, { focus: [0.1, 0.1, 0.8, 0.2] }) } }, new AbortController().signal);
+    expect(Buffer.from(focused.bytes).equals(Buffer.from(plain.bytes))).toBe(false);
   });
 
   it("honours an aborted signal", async () => {

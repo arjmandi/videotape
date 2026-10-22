@@ -139,7 +139,7 @@ describe("what generators are shown", () => {
     const h = harness(demo, services, { renderers: [r], validator: sharpValidator(), budgets: { firstRenderMs: 30_000 } });
     await h.hello();
     const plan = h.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop");
-    expect(seen[0]).toBe(sceneSvg(plan.wireframe.regions, plan.wireframe.canvas, dusk));
+    expect(seen[0]).toBe(plan.condition);
     expect(seen[0]).not.toBe(plan.wireframe.svg);
     // The primary button face and text bars are in the wireframe only.
     expect(plan.wireframe.svg).toContain(dusk.palette.accent);
@@ -166,6 +166,16 @@ describe("what generators are shown", () => {
     expect(landingOff.freedom).toBeUndefined();
     expect(h.engine.host.keyFor(r, landing)).not.toBe(off.engine.host.keyFor(r, landingOff));
     expect(h.engine.host.keyFor(r, login)).toBe(off.engine.host.keyFor(r, off.engine.plan({ tape: "login", frame: "form" }, {}, "desktop")));
+  });
+
+  it("steers the subject into the free space when the drawing is empty, and only then", async () => {
+    const h = harness(demo, services);
+    const landing = h.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop");
+    const login = h.engine.plan({ tape: "login", frame: "form" }, {}, "desktop");
+    expect(landing.prompt).toContain("the main subject placed in the upper part of the frame, across its width, nothing in the middle band of the frame");
+    expect(landing.condition).not.toBe(sceneSvg(landing.wireframe.regions, landing.wireframe.canvas, dusk));
+    expect(login.prompt).not.toContain("main subject");
+    expect(login.condition).toBe(sceneSvg(login.wireframe.regions, login.wireframe.canvas, dusk));
   });
 
   it("starts a fresh cache key when the style's prompt changes", async () => {

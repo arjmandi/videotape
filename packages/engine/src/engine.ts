@@ -8,7 +8,7 @@ import {
   type Action, type App, type ClientMessage, type Content, type Data, type DataPatch, type Edge,
   type EventMessage, type Flavour, type Frame, type Head, type HelloMessage, type ReelInfo, type RenderMessage,
   type SceneRenderer, type ServerMessage, type Services, type StylePack, type Tape, type ViewportClass, type Wireframe,
-  CANVAS, ClientMessageSchema, KIND_EVENTS, ServerMessageSchema, VALUE_KINDS, applyPatch, check, decode, layout, sceneSvg, setPath,
+  CANVAS, ClientMessageSchema, KIND_EVENTS, ServerMessageSchema, VALUE_KINDS, applyPatch, check, decode, largestFreeArea, layout, sceneSvg, setPath,
   styleById, tapeEntry, viewportClass,
 } from "@videotape/core";
 import { flatRenderer } from "@videotape/renderer-flat";
@@ -165,6 +165,10 @@ export class Engine {
     const style = this.styleOf(tape);
     const wf = this.wireframe(frame, tape, cls);
     const flavour = this.flavour(frame, data);
+    // A drawing with nothing to build on gets extra freedom, and then needs telling where the
+    // subject goes, or the model centres it behind the headline (03-landscape §2.4).
+    const freedom = this.emptyFreedom !== false && drawingStructure(wf) < EMPTY_DRAWING ? this.emptyFreedom : undefined;
+    const focus = freedom !== undefined ? largestFreeArea(wf) : undefined;
     return {
       node: `${head.tape}/${head.frame}`,
       frameHash: frameSpecHash(frame),
@@ -173,9 +177,9 @@ export class Engine {
       seed: style.seed + seedOffset,
       flavour,
       wireframe: wf,
-      prompt: composePrompt(style, sceneText(frame, flavour), wf),
-      condition: sceneSvg(wf.regions, wf.canvas, style),
-      ...(this.emptyFreedom !== false && drawingStructure(wf) < EMPTY_DRAWING ? { freedom: this.emptyFreedom } : {}),
+      prompt: composePrompt(style, sceneText(frame, flavour), wf, focus),
+      condition: sceneSvg(wf.regions, wf.canvas, style, focus ? { focus } : {}),
+      ...(freedom !== undefined ? { freedom } : {}),
     };
   }
 

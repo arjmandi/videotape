@@ -17,12 +17,14 @@ export function rasterize(svg: string, width?: number): Uint8Array {
 export function flatRenderer(): SceneRenderer {
   return {
     id: "flat",
-    version: "2",
+    version: "3",
     kind: "scene",
     deterministic: true,
     async render(req: SceneRequest, signal: AbortSignal): Promise<SceneAsset> {
       signal.throwIfAborted();
-      const svg = sceneSvg(req.wireframe.regions, req.canvas, req.style);
+      // The flat picture is the conditioning drawing itself, so what flat shows and what
+      // generators are shown never drift apart.
+      const svg = req.condition.svg || sceneSvg(req.wireframe.regions, req.canvas, req.style);
       return { key: req.key, mime: "image/png", bytes: rasterize(svg), meta: { renderer: "flat" } };
     },
   };

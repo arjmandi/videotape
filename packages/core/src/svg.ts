@@ -5,6 +5,7 @@
 
 import { mix } from "./color";
 import type { Region } from "./layout";
+import type { Rect } from "./model";
 import type { StylePack } from "./style";
 import type { Size } from "./viewport";
 
@@ -96,17 +97,32 @@ export function wireframeSvg(regions: Region[], canvas: Size, style: StylePack):
     shapes(regions, canvas, style, { conditioning: true }) + "</svg>";
 }
 
-export function sceneSvg(regions: Region[], canvas: Size, style: StylePack): string {
+export interface SceneOptions {
+  /**
+   * Where the picture's subject should go (canvas fractions). The glow and the vignette move
+   * there, so an image model reading the drawing puts its subject there too instead of in the
+   * centre, which on many layouts is where the headline sits.
+   */
+  focus?: Rect;
+}
+
+export function sceneSvg(regions: Region[], canvas: Size, style: StylePack, opts: SceneOptions = {}): string {
   const { bg, accent, muted } = style.palette;
   const { w, h } = canvas;
+  const f = opts.focus;
+  const fx = f ? n(f[0] + f[2] / 2) : "0.18";
+  const fy = f ? n(f[1] + f[3] / 2) : "0.12";
+  const glow = f
+    ? `<radialGradient id="a" cx="${fx}" cy="${fy}" r="${n(Math.max(f[2], f[3]) * 0.6)}"><stop offset="0" stop-color="${accent}" stop-opacity="0.38"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`
+    : `<radialGradient id="a" cx="0.18" cy="0.12" r="0.75"><stop offset="0" stop-color="${accent}" stop-opacity="0.22"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>`;
   const defs =
     `<defs>` +
     `<linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${bg}"/><stop offset="1" stop-color="${mix(bg, accent, 0.14)}"/></linearGradient>` +
-    `<radialGradient id="a" cx="0.18" cy="0.12" r="0.75"><stop offset="0" stop-color="${accent}" stop-opacity="0.22"/><stop offset="1" stop-color="${accent}" stop-opacity="0"/></radialGradient>` +
+    glow +
     `<radialGradient id="b" cx="0.9" cy="0.95" r="0.7"><stop offset="0" stop-color="${muted}" stop-opacity="0.18"/><stop offset="1" stop-color="${muted}" stop-opacity="0"/></radialGradient>` +
-    `<radialGradient id="v" cx="0.5" cy="0.5" r="0.75"><stop offset="0.6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="0.35"/></radialGradient>` +
+    `<radialGradient id="v" cx="${f ? fx : "0.5"}" cy="${f ? fy : "0.5"}" r="${f ? "0.95" : "0.75"}"><stop offset="0.6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity="${f ? "0.45" : "0.35"}"/></radialGradient>` +
     `</defs>`;
   const full = (fill: string) => `<rect width="${w}" height="${h}" fill="${fill}"/>`;
-  return open(canvas) + defs + full("url(#g)") + full("url(#a)") + full("url(#b)") + full("url(#v)") +
+  return open(canvas) + defs + full("url(#g)") + full("url(#a)") + (f ? "" : full("url(#b)")) + full("url(#v)") +
     shapes(regions, canvas, style, { conditioning: false }) + "</svg>";
 }

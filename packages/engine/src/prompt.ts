@@ -2,7 +2,7 @@
 // Layout hints come from the wireframe, so the generator keeps calm space where
 // the facts go. Reel data never reaches this function; only flavour does.
 
-import type { Flavour, Frame, Region, StylePack, Wireframe } from "@videotape/core";
+import { type Flavour, type Frame, type Rect, type Region, type StylePack, type Wireframe, describeArea } from "@videotape/core";
 
 function where(r: Region): string {
   const [x, y, w, h] = r.rect;
@@ -29,7 +29,27 @@ export function sceneText(frame: Frame, flavour: Flavour): string {
   return frame.scene ?? "An abstract, calm backdrop";
 }
 
-export function composePrompt(style: StylePack, scene: string, wf: Wireframe): string {
+/** Bounding box of rectangles, as a rect. */
+function bounds(rects: Rect[]): Rect {
+  const x0 = Math.min(...rects.map((r) => r[0]));
+  const y0 = Math.min(...rects.map((r) => r[1]));
+  const x1 = Math.max(...rects.map((r) => r[0] + r[2]));
+  const y1 = Math.max(...rects.map((r) => r[1] + r[3]));
+  return [x0, y0, x1 - x0, y1 - y0];
+}
+
+/**
+ * Tells the generator where the subject goes, and where nothing should go: the area the
+ * headline and controls occupy (the nav row and footer are left out; they hug the edges).
+ */
+export function subjectHint(focus: Rect, wf: Wireframe): string {
+  const main = wf.regions.filter((r) => r.z === 2 && !r.slot?.startsWith("nav.") && r.slot !== "footer");
+  const keepClear = main.length ? `, nothing in ${describeArea(bounds(main.map((r) => r.rect)))}` : "";
+  return `the main subject placed in ${describeArea(focus)}${keepClear}`;
+}
+
+export function composePrompt(style: StylePack, scene: string, wf: Wireframe, focus?: Rect): string {
   const hints = layoutHints(wf);
-  return `${style.prompt.prefix}${scene}${hints ? `, ${hints}` : ""}${style.prompt.suffix}`;
+  const subject = focus ? `, ${subjectHint(focus, wf)}` : "";
+  return `${style.prompt.prefix}${scene}${subject}${hints ? `, ${hints}` : ""}${style.prompt.suffix}`;
 }

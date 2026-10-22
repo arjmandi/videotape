@@ -146,9 +146,30 @@ so the served scene is try 4 with flat fills patched into those two regions. In 
 patch reads as a dark card behind the headline, with the cassette's glow above it and its
 reflections below; most of the cassette is hidden. The phone scene passed on its second try.
 
-Next experiment: steer the subject into the layout's free space, either with a prompt hint naming
-the largest free area or with a soft glow drawn there in the scene drawing. Totals so far: 34 fal
-calls that returned an image, plus three refused (one 503, two 403s).
+### 2.5 Steering the subject into free space (did not work at this strength)
+
+When `freedom` is set, the engine now finds the largest empty rectangle in the safe area (for the
+landing page, the band between the nav row and the headline, at both sizes) and steers the subject
+there twice: the prompt says "the main subject placed in the upper part of the frame, across its
+width, nothing in the middle band of the frame", and the scene drawing moves its glow and vignette
+onto that band.
+
+Result (2 fal calls, both passed first time): the model ignored both. Each scene is a small
+glowing cassette dead centre with its own centred halo. At strength 0.95 FLUX [dev] image-to-image
+takes almost nothing from the drawing, and it does not follow placement words. In the player the
+small cassette sits directly under the subtitle, which is worse for legibility than v3's patched
+card. It passed validation because spread is averaged over the whole subtitle region and a small
+object barely moves it.
+
+Two follow-ups, in order:
+
+1. **Validation gap.** Check spread over tiles of each reserved region, not the whole region, so a
+   small object behind a few words fails.
+2. **Real placement.** Prompt words and glows are suggestions; an inpainting endpoint with a mask
+   is a constraint. Generating the subject only inside the free-area mask would put it there by
+   construction.
+
+Totals: 36 fal calls that returned an image, plus three refused (one 503, two 403s).
 
 ## 3. Transitions (candidates for the `cut` renderer)
 
