@@ -664,7 +664,7 @@ layout model; native players; i18n and RTL; local generation.
 | 3 | Where are facts composited? | On the client (content layer). Server burn-in after v1. |
 | 4 | Cut semantics: free or tied to the tape metaphor (head moving along the tape)? | Free, with a `cut` hint per frame. The metaphor can be a style pack. |
 | 5 | Hosted or local model first? | Hosted (fal) for speed of iteration; ComfyUI backends follow for the open-weights path. |
-| 6 | Licence | Apache-2.0. |
+| 6 | Licence | Decided: Apache-2.0 (LICENSE added 2026-10-22). |
 | 7 | Session resume | Best effort, in memory, token in `welcome`. |
 | 8 | Should `goto` be allowed backwards within a tape? | Yes; `check` warns on cycles with no exit. |
 | 9 | Package naming | `@videotape/*` scope; try to obtain the bare `videotape` name from its current holder. |

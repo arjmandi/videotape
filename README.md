@@ -73,4 +73,4 @@ unrelated package last touched in 2017; the CLI's command is still `videotape`.
 
 ## Licence
 
-Proposed: Apache-2.0. Not yet added; see the open questions at the end of the spec.
+[Apache-2.0](LICENSE).
