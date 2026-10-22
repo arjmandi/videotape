@@ -1,0 +1,21 @@
+{
+  "name": "@videotape/engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1",
+    "@hono/node-ws": "^1",
+    "@videotape/core": "workspace:^",
+    "@videotape/renderer-flat": "workspace:^",
+    "hono": "^4",
+    "sharp": "^0.34"
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "canvas": {
+    "w": 1536,
+    "h": 2048
+  },
+  "viewportClass": "tablet",
+  "archetype": "detail",
+  "safe": [
+    0.06,
+    0.06,
+    0.88,
+    0.88
+  ],
+  "regions": [
+    {
+      "id": "backlink",
+      "kind": "link",
+      "rect": [
+        0.06,
+        0.06,
+        0.396,
+        0.0469
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 34,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "nav.leading"
+    },
+    {
+      "id": "title",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.1342,
+        0.88,
+        0.0404
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "title",
+        "size": 72,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "detail.title"
+    },
+    {
+      "id": "chart",
+      "kind": "image",
+      "rect": [
+        0.06,
+        0.1981,
+        0.88,
+        0.2819
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 34,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "detail.media"
+    },
+    {
+      "id": "summary",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.5035,
+        0.88,
+        0.3137
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "body",
+        "size": 34,
+        "lines": 13,
+        "align": "start"
+      },
+      "slot": "detail.body"
+    },
+    {
+      "id": "exported",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.8328,
+        0.88,
+        0.0369
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "caption",
+        "size": 28,
+        "lines": 2,
+        "align": "start"
+      },
+      "slot": "detail.meta"
+    },
+    {
+      "id": "export",
+      "kind": "button",
+      "rect": [
+        0.06,
+        0.8892,
+        0.88,
+        0.0508
+      ],
+      "mask": "surface",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 34,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "detail.primary",
+      "emphasis": "primary"
+    }
+  ],
+  "diagnostics": []
+}

@@ -1,0 +1,132 @@
+{
+  "canvas": {
+    "w": 1080,
+    "h": 1920
+  },
+  "viewportClass": "phone",
+  "archetype": "hero",
+  "safe": [
+    0.06,
+    0.06,
+    0.88,
+    0.88
+  ],
+  "regions": [
+    {
+      "id": "wordmark",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.06,
+        0.396,
+        0.0688
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "subtitle",
+        "size": 49.5,
+        "lines": 2,
+        "align": "start"
+      },
+      "slot": "nav.leading"
+    },
+    {
+      "id": "signin",
+      "kind": "link",
+      "rect": [
+        0.544,
+        0.06,
+        0.396,
+        0.0688
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "nav.trailing"
+    },
+    {
+      "id": "headline",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.3293,
+        0.88,
+        0.1091
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "display",
+        "size": 93.5,
+        "lines": 2,
+        "align": "start"
+      },
+      "slot": "hero.title"
+    },
+    {
+      "id": "sub",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.4613,
+        0.88,
+        0.1005
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "subtitle",
+        "size": 49.5,
+        "lines": 3,
+        "align": "start"
+      },
+      "slot": "hero.subtitle"
+    },
+    {
+      "id": "docs",
+      "kind": "button",
+      "rect": [
+        0.06,
+        0.6134,
+        0.88,
+        0.0745
+      ],
+      "mask": "surface",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "hero.primary",
+      "emphasis": "primary"
+    },
+    {
+      "id": "github",
+      "kind": "link",
+      "rect": [
+        0.06,
+        0.7051,
+        0.88,
+        0.0745
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "hero.secondary"
+    }
+  ],
+  "diagnostics": []
+}

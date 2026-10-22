@@ -1,0 +1,23 @@
+{
+  "name": "@videotape/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@videotape/core": "workspace:^",
+    "@videotape/engine": "workspace:^",
+    "@videotape/player": "workspace:^",
+    "@videotape/renderer-flat": "workspace:^",
+    "tsx": "^4"
+  },
+  "bin": {
+    "videotape": "./bin/videotape.mjs"
+  }
+}

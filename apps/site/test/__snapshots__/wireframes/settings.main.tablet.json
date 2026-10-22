@@ -1,0 +1,74 @@
+{
+  "canvas": {
+    "w": 1536,
+    "h": 2048
+  },
+  "viewportClass": "tablet",
+  "archetype": "hero",
+  "safe": [
+    0.06,
+    0.06,
+    0.88,
+    0.88
+  ],
+  "regions": [
+    {
+      "id": "back",
+      "kind": "link",
+      "rect": [
+        0.06,
+        0.06,
+        0.396,
+        0.0469
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 34,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "nav.leading"
+    },
+    {
+      "id": "title",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.4755,
+        0.88,
+        0.0569
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "display",
+        "size": 104,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "hero.title"
+    },
+    {
+      "id": "note",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.548,
+        0.88,
+        0.0508
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "subtitle",
+        "size": 40,
+        "lines": 2,
+        "align": "start"
+      },
+      "slot": "hero.subtitle"
+    }
+  ],
+  "diagnostics": []
+}

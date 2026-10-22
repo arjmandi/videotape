@@ -1,0 +1,184 @@
+{
+  "canvas": {
+    "w": 1080,
+    "h": 1920
+  },
+  "viewportClass": "phone",
+  "archetype": "form",
+  "safe": [
+    0.06,
+    0.06,
+    0.88,
+    0.88
+  ],
+  "regions": [
+    {
+      "id": "__panel",
+      "kind": "panel",
+      "rect": [
+        0.06,
+        0.1817,
+        0.88,
+        0.6299
+      ],
+      "mask": "surface",
+      "z": 1
+    },
+    {
+      "id": "home",
+      "kind": "link",
+      "rect": [
+        0.06,
+        0.06,
+        0.396,
+        0.0688
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "nav.leading"
+    },
+    {
+      "id": "title",
+      "kind": "text",
+      "rect": [
+        0.1109,
+        0.2103,
+        0.7781,
+        0.0461
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "title",
+        "size": 77,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "form.title"
+    },
+    {
+      "id": "username",
+      "kind": "input",
+      "rect": [
+        0.1109,
+        0.2794,
+        0.7781,
+        0.1101
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "form.field.1",
+      "labelSize": 38.5
+    },
+    {
+      "id": "password",
+      "kind": "input",
+      "rect": [
+        0.1109,
+        0.4124,
+        0.7781,
+        0.1101
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "form.field.2",
+      "labelSize": 38.5
+    },
+    {
+      "id": "error",
+      "kind": "text",
+      "rect": [
+        0.1109,
+        0.5397,
+        0.7781,
+        0.0541
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "caption",
+        "size": 38.5,
+        "lines": 2,
+        "align": "start"
+      },
+      "slot": "form.error"
+    },
+    {
+      "id": "submit",
+      "kind": "button",
+      "rect": [
+        0.1109,
+        0.6225,
+        0.7781,
+        0.0745
+      ],
+      "mask": "surface",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "form.primary",
+      "emphasis": "primary"
+    },
+    {
+      "id": "forgot",
+      "kind": "link",
+      "rect": [
+        0.1109,
+        0.7142,
+        0.7781,
+        0.0688
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "form.secondary"
+    },
+    {
+      "id": "hint",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.846,
+        0.88,
+        0.0812
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "caption",
+        "size": 38.5,
+        "lines": 3,
+        "align": "start"
+      },
+      "slot": "form.aside"
+    }
+  ],
+  "diagnostics": []
+}

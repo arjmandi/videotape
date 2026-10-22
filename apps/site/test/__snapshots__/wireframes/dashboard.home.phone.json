@@ -1,0 +1,180 @@
+{
+  "canvas": {
+    "w": 1080,
+    "h": 1920
+  },
+  "viewportClass": "phone",
+  "archetype": "grid",
+  "safe": [
+    0.06,
+    0.06,
+    0.88,
+    0.88
+  ],
+  "regions": [
+    {
+      "id": "__cell.1",
+      "kind": "panel",
+      "rect": [
+        0.06,
+        0.2493,
+        0.88,
+        0.1512
+      ],
+      "mask": "surface",
+      "z": 1
+    },
+    {
+      "id": "__cell.2",
+      "kind": "panel",
+      "rect": [
+        0.06,
+        0.4292,
+        0.88,
+        0.1512
+      ],
+      "mask": "surface",
+      "z": 1
+    },
+    {
+      "id": "__cell.3",
+      "kind": "panel",
+      "rect": [
+        0.06,
+        0.609,
+        0.88,
+        0.1512
+      ],
+      "mask": "surface",
+      "z": 1
+    },
+    {
+      "id": "__cell.4",
+      "kind": "panel",
+      "rect": [
+        0.06,
+        0.7888,
+        0.88,
+        0.1512
+      ],
+      "mask": "surface",
+      "z": 1
+    },
+    {
+      "id": "settings",
+      "kind": "link",
+      "rect": [
+        0.544,
+        0.06,
+        0.396,
+        0.0688
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "nav.trailing"
+    },
+    {
+      "id": "hello",
+      "kind": "text",
+      "rect": [
+        0.06,
+        0.1689,
+        0.88,
+        0.0461
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "title",
+        "size": 77,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "grid.title"
+    },
+    {
+      "id": "views",
+      "kind": "text",
+      "rect": [
+        0.1109,
+        0.3002,
+        0.7781,
+        0.0494
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "number",
+        "size": 82.5,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "grid.cell.1"
+    },
+    {
+      "id": "watch",
+      "kind": "text",
+      "rect": [
+        0.1109,
+        0.4801,
+        0.7781,
+        0.0494
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "number",
+        "size": 82.5,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "grid.cell.2"
+    },
+    {
+      "id": "subs",
+      "kind": "text",
+      "rect": [
+        0.1109,
+        0.6599,
+        0.7781,
+        0.0494
+      ],
+      "mask": "reserved",
+      "z": 2,
+      "type": {
+        "role": "number",
+        "size": 82.5,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "grid.cell.3"
+    },
+    {
+      "id": "report",
+      "kind": "button",
+      "rect": [
+        0.1109,
+        0.8272,
+        0.7781,
+        0.0745
+      ],
+      "mask": "surface",
+      "z": 2,
+      "type": {
+        "role": "control",
+        "size": 46.8,
+        "lines": 1,
+        "align": "start"
+      },
+      "slot": "grid.cell.4",
+      "emphasis": "secondary"
+    }
+  ],
+  "diagnostics": []
+}
