@@ -17,7 +17,7 @@ export const dusk: StylePack = {
   palette: { bg: "#14121a", fg: "#f3ede4", accent: "#ff6a3d", muted: "#8a8494" },
   fonts: { display: "Instrument Serif", body: "Inter" },
   prompt: {
-    prefix: "Cinematic UI backdrop, ",
+    prefix: "Cinematic backdrop, ",
     suffix: ", film grain, 35mm, no text, no letters",
     negative: "text, letters, words, typography, watermark, logo, user interface, buttons",
   },

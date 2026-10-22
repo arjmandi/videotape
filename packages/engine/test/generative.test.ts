@@ -3,7 +3,7 @@
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import {
-  type SceneAsset, type SceneRenderer, type SceneRequest, type ServerMessage, button, dusk, frame, input, layout, text,
+  type SceneAsset, type SceneRenderer, type SceneRequest, type ServerMessage, button, dusk, frame, input, layout, sceneSvg, text,
 } from "@videotape/core";
 import demo from "../../../apps/site/tapes";
 import { services } from "../../../apps/site/services";
@@ -74,24 +74,87 @@ describe("region validation (spec §7.3)", () => {
 
   it("fails a noisy field on variance", async () => {
     const stats = await regionStats(await noise(), wf, dusk);
-    expect(stats.every((s) => !s.ok && s.spread > 24)).toBe(true);
+    expect(stats.filter((s) => s.mask === "reserved").every((s) => !s.ok && s.spread! > 24)).toBe(true);
   });
 
   it("fails a mid-grey field on contrast with the light foreground", async () => {
     const stats = await regionStats(await solid("#8a8a8a"), wf, dusk);
-    expect(stats.every((s) => !s.ok && s.spread === 0 && s.contrast < 4.5)).toBe(true);
+    expect(stats.filter((s) => s.mask === "reserved").every((s) => !s.ok && s.spread === 0 && s.contrast! < 4.5)).toBe(true);
   });
 
-  it("checks only reserved content regions, not surfaces or panels", async () => {
-    const ids = (await regionStats(await solid("#101014"), wf, dusk)).map((s) => s.id).sort();
-    expect(ids).toEqual(["title", "user"]);
+  it("checks reserved regions for calm and contrast, and surfaces and panels for lettering only", async () => {
+    const stats = await regionStats(await solid("#101014"), wf, dusk);
+    expect(stats.map((s) => `${s.id}:${s.mask}`).sort()).toEqual(["__panel:surface", "go:surface", "title:reserved", "user:reserved"]);
+    expect(stats.find((s) => s.id === "go")).not.toHaveProperty("spread");
   });
+
+  it("finds fake lettering that spread and contrast miss, in text regions and on panels", async () => {
+    // Faint grey words on a dark field, like the fake fields fal painted on the first live run.
+    const { w, h } = wf.canvas;
+    const at = (id: string) => wf.regions.find((r) => r.id === id)!.rect;
+    const word = (id: string, text: string) => {
+      const [x, y, , rh] = at(id);
+      return `<text x="${(x + 0.01) * w}" y="${(y + rh * 0.75) * h}" font-family="Helvetica, Arial, sans-serif" font-size="${rh * h * 0.55}" fill="#6e6a74">${text}</text>`;
+    };
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><rect width="${w}" height="${h}" fill="#1c1a22"/>` +
+      `${word("user", "SUCCLATIONEL")}${word("go", "SIGN UP NOW")}</svg>`;
+    const stats = await regionStats(new Uint8Array(await sharp(Buffer.from(svg)).png().toBuffer()), wf, dusk);
+    const user = stats.find((s) => s.id === "user")!;
+    expect(user).toMatchObject({ ok: false, why: ["lettering"] });
+    expect(user.spread!).toBeLessThan(24); // the old checks alone would have passed it
+    expect(user.text).toContain("SUCCLATIONEL");
+    expect(stats.find((s) => s.id === "go")).toMatchObject({ mask: "surface", ok: false, why: ["lettering"] });
+    expect(stats.find((s) => s.id === "title")!.ok).toBe(true);
+  });
+
+  it("passes every flat scene of the demo, lettering included", async () => {
+    const h = harness(demo, services);
+    for (const t of demo.tapes) {
+      for (const f of t.frames) {
+        for (const cls of ["phone", "desktop"] as const) {
+          const plan = h.engine.plan({ tape: t.id, frame: f.id }, {}, cls);
+          const flat = await h.engine.host.drawFlat(plan);
+          const bytes = (await h.engine.cache.getAsset(flat.layer.url.slice(3)))!.bytes;
+          const failing = (await regionStats(bytes, plan.wireframe, dusk)).filter((s) => !s.ok);
+          expect(failing, `${t.id}/${f.id} ${cls}`).toEqual([]);
+        }
+      }
+    }
+  }, 60_000);
 
   it("patches the failing regions only", async () => {
     const patched = await patchRegions(await noise(), wf, dusk, ["user"], "png");
-    const after = await regionStats(patched, wf, dusk);
+    const after = (await regionStats(patched, wf, dusk)).filter((s) => s.mask === "reserved");
     expect(after.find((s) => s.id === "user")!.ok).toBe(true);
     expect(after.find((s) => s.id === "title")!.ok).toBe(false);
+  });
+});
+
+describe("what generators are shown", () => {
+  it("conditions on the scene drawing, not the wireframe with its text bars and controls", async () => {
+    const seen: string[] = [];
+    const r = { ...fakeRenderer([() => solid("#101014")]) };
+    const render = r.render.bind(r);
+    r.render = (req, signal) => (seen.push(req.condition.svg), render(req, signal));
+    const h = harness(demo, services, { renderers: [r], validator: sharpValidator(), budgets: { firstRenderMs: 30_000 } });
+    await h.hello();
+    const plan = h.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop");
+    expect(seen[0]).toBe(sceneSvg(plan.wireframe.regions, plan.wireframe.canvas, dusk));
+    expect(seen[0]).not.toBe(plan.wireframe.svg);
+    // The primary button face and text bars are in the wireframe only.
+    expect(plan.wireframe.svg).toContain(dusk.palette.accent);
+    expect(seen[0]).not.toMatch(new RegExp(`<rect[^>]*fill="${dusk.palette.accent}"`));
+  });
+
+  it("starts a fresh cache key when the style's prompt changes", async () => {
+    const r = fakeRenderer([() => solid("#101014")]);
+    const plain = harness(demo, services, { renderers: [r] });
+    const plan = plain.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop");
+    const edited = { ...plan, style: { ...plan.style, prompt: { ...plan.style.prompt, prefix: "Watercolour backdrop, " } } };
+    expect(plain.engine.host.keyFor(r, edited)).not.toBe(plain.engine.host.keyFor(r, plan));
+    // The flat renderer ignores the prompt, so its key does not move with it.
+    const flat = plain.engine.host.flat;
+    expect(plain.engine.host.keyFor(flat, { ...plan, prompt: "anything" })).toBe(plain.engine.host.keyFor(flat, plan));
   });
 });
 
@@ -114,7 +177,7 @@ describe("re-roll and patch", () => {
     expect(h.engine.host.stats.patched).toBeGreaterThanOrEqual(1);
     const dbg = h.render().debug as { rerolls: number; patched: string[] };
     expect(dbg.rerolls).toBe(3);
-    expect(dbg.patched.sort()).toEqual(["headline", "signin", "sub", "wordmark", "github"].sort());
+    expect(dbg.patched.filter((id) => !["docs"].includes(id)).sort()).toEqual(["headline", "signin", "sub", "wordmark", "github"].sort());
     // The stored scene now passes in exactly those regions.
     const file = h.render().layers[0]!.url.slice(3);
     const stored = (await h.engine.cache.getAsset(file))!;
@@ -140,8 +203,9 @@ describe("budgets and fallback (spec §7.5)", () => {
     const first = h.render();
     expect(first.fallback).toBe(true);
     const flatUrl = first.layers[0]!.url;
-    await settle(500);
-    const patch = h.sent.find((m): m is Extract<ServerMessage, { t: "patch" }> => m.t === "patch" && !!m.layers);
+    const isLayerPatch = (m: ServerMessage): m is Extract<ServerMessage, { t: "patch" }> => m.t === "patch" && !!m.layers;
+    for (let waited = 0; !h.sent.some(isLayerPatch) && waited < 10_000; waited += 50) await settle(50);
+    const patch = h.sent.find(isLayerPatch);
     expect(patch).toMatchObject({ render: first.seq, fallback: false });
     expect(patch!.layers![0]!.url).not.toBe(flatUrl);
   });

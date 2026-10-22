@@ -19,6 +19,12 @@ export interface ScenePlan {
   flavour: Flavour;
   wireframe: Wireframe;
   prompt: string;
+  /**
+   * The conditioning image's source: the scene drawing (panels and media frames on the
+   * palette gradient), not the full wireframe. Text bars, field strips, and button shapes
+   * read as a UI mock-up, and image models then paint fake controls and lettering.
+   */
+  condition: string;
 }
 
 export interface SceneResult {
@@ -46,11 +52,19 @@ export interface Attempt {
 
 export interface RegionCheck {
   id: string;
-  /** Standard deviation of luma, 0–255. */
-  spread: number;
-  /** Contrast of the region's mean colour against the style's foreground, 1–21. */
-  contrast: number;
+  /** reserved: must be calm, readable, and free of lettering. surface: free of lettering. */
+  mask: "reserved" | "surface";
+  /** Standard deviation of luma, 0–255 (reserved only). */
+  spread?: number;
+  /** Contrast of the region's mean colour against the style's foreground, 1–21 (reserved only). */
+  contrast?: number;
+  /** Words OCR read inside the region; anything above zero fails it. */
+  words: number;
+  /** What it read, for people reviewing the scene. */
+  text?: string;
   ok: boolean;
+  /** Why it failed: busy, contrast, lettering. */
+  why?: string[];
 }
 
 /** Region checks for generated scenes (spec §7.3). See ./validate. */
@@ -102,7 +116,10 @@ export class RendererHost {
   }
 
   keyFor(r: SceneRenderer, plan: ScenePlan): string {
-    return sceneKey({ renderer: r, frameHash: plan.frameHash, viewportClass: plan.viewportClass, style: plan.style, seed: plan.seed, flavour: plan.flavour });
+    return sceneKey({
+      renderer: r, frameHash: plan.frameHash, viewportClass: plan.viewportClass, style: plan.style, seed: plan.seed, flavour: plan.flavour,
+      condition: plan.condition, prompt: r.deterministic ? "" : plan.prompt,
+    });
   }
 
   /**
@@ -206,7 +223,7 @@ export class RendererHost {
       prompt: plan.prompt,
       ...(plan.style.prompt.negative ? { negative: plan.style.prompt.negative } : {}),
       // Rasterising the conditioning image and masks is wasted work for the flat renderer.
-      condition: { svg: wf.svg, png: generative ? rasterize(wf.svg) : empty },
+      condition: { svg: plan.condition, png: generative ? rasterize(plan.condition) : empty },
       masks: generative ? { reserved: maskPng(wf, "reserved"), surface: maskPng(wf, "surface") } : { reserved: empty, surface: empty },
       style: plan.style,
       wireframe: wf,

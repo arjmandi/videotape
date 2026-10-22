@@ -8,7 +8,7 @@ import {
   type Action, type App, type ClientMessage, type Content, type Data, type DataPatch, type Edge,
   type EventMessage, type Flavour, type Frame, type Head, type HelloMessage, type ReelInfo, type RenderMessage,
   type SceneRenderer, type ServerMessage, type Services, type StylePack, type Tape, type ViewportClass, type Wireframe,
-  CANVAS, ClientMessageSchema, KIND_EVENTS, ServerMessageSchema, VALUE_KINDS, applyPatch, check, decode, layout, setPath,
+  CANVAS, ClientMessageSchema, KIND_EVENTS, ServerMessageSchema, VALUE_KINDS, applyPatch, check, decode, layout, sceneSvg, setPath,
   styleById, tapeEntry, viewportClass,
 } from "@videotape/core";
 import { flatRenderer } from "@videotape/renderer-flat";
@@ -156,6 +156,7 @@ export class Engine {
       flavour,
       wireframe: wf,
       prompt: composePrompt(style, sceneText(frame, flavour), wf),
+      condition: sceneSvg(wf.regions, wf.canvas, style),
     };
   }
 

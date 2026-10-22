@@ -1,6 +1,6 @@
-// A contact sheet for reviewing generated scenes: each scene with its reserved
-// regions outlined (green passed, red failed, amber patched) and the numbers
-// region validation used. For people, not for players.
+// A contact sheet for reviewing generated scenes: each scene with its checked
+// regions outlined (green passed, red failed, amber patched; surfaces dashed)
+// and the numbers region validation used. For people, not for players.
 
 import sharp from "sharp";
 import type { Wireframe } from "@videotape/core";
@@ -26,14 +26,17 @@ const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&l
 function overlay(t: SheetTile, w: number, h: number): Buffer {
   const parts: string[] = [];
   for (const r of t.wireframe.regions) {
-    if (r.z !== 2 || r.mask !== "reserved") continue;
+    if (!((r.z === 2 && r.mask === "reserved") || r.mask === "surface")) continue;
     const check = t.regions?.find((c) => c.id === r.id);
     const patched = t.patched?.includes(r.id);
     const color = patched ? "#fbbf24" : !check ? "#9ca3af" : check.ok ? "#4ade80" : "#f87171";
     const [x, y, rw, rh] = [r.rect[0] * w, r.rect[1] * h, r.rect[2] * w, r.rect[3] * h];
-    parts.push(`<rect x="${x}" y="${y}" width="${rw}" height="${rh}" fill="none" stroke="${color}" stroke-width="1.5"/>`);
-    if (check) {
-      const label = `${r.id} σ${check.spread} c${check.contrast}`;
+    const dash = r.mask === "surface" ? ` stroke-dasharray="5 3"` : "";
+    parts.push(`<rect x="${x}" y="${y}" width="${rw}" height="${rh}" fill="none" stroke="${color}" stroke-width="1.5"${dash}/>`);
+    // Passing surfaces stay unlabelled so the sheet stays readable.
+    if (check && (r.mask === "reserved" || !check.ok)) {
+      const nums = r.mask === "reserved" ? ` σ${check.spread} c${check.contrast}` : "";
+      const label = `${r.id}${nums}${check.words ? ` “${check.text ?? ""}”` : ""}`;
       parts.push(`<text x="${x + 2}" y="${y + 10}" font-family="Menlo, monospace" font-size="9" fill="${color}" stroke="#000" stroke-width="2.5" paint-order="stroke">${esc(label)}</text>`);
     }
   }

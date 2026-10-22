@@ -5,6 +5,7 @@ export * from "./content";
 export * from "./engine";
 export * from "./host";
 export * from "./keys";
+export * from "./lettering";
 export * from "./log";
 export * from "./prompt";
 export * from "./server";

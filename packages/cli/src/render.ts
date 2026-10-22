@@ -21,8 +21,13 @@ function line(r: AheadResult): string {
     `  ${r.cache === "hit" ? "·" : "✚"} ${r.node.padEnd(18)} ${r.viewportClass.padEnd(7)} ${r.renderer.padEnd(10)} ${String(r.ms).padStart(6)} ms` +
     `${r.fallback ? "  FALLBACK" : ""}${r.rerolls ? `  rerolls ${r.rerolls}` : ""}${r.patched ? `  patched ${r.patched.join(",")}` : ""}` +
     `${r.flavour !== "{}" ? `  ${r.flavour}` : ""}`;
-  const tries = (r.attempts ?? []).map((a, i) =>
-    `      attempt ${i + 1} seed ${a.seed}: ${a.failing.length ? `failed ${a.failing.join(", ")}` : "passed"}`);
+  const tries = (r.attempts ?? []).map((a, i) => {
+    const why = (id: string) => {
+      const c = a.regions?.find((x) => x.id === id);
+      return c?.why ? ` (${c.why.join("+")}${c.text ? `: "${c.text}"` : ""})` : "";
+    };
+    return `      attempt ${i + 1} seed ${a.seed}: ${a.failing.length ? `failed ${a.failing.map((id) => id + why(id)).join(", ")}` : "passed"}`;
+  });
   return [head, ...tries].join("\n") + "\n";
 }
 

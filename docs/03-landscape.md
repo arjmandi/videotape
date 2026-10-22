@@ -85,6 +85,31 @@ conditioning image is the full wireframe (text bars, field strips, button shapes
 a UI mock-up; the `dusk` prefix says "Cinematic UI backdrop"; FLUX [dev] has no negative prompt.
 Landing and dashboard scenes, where the wireframe is mostly empty space, came out as intended.
 
+### 2.2 Fixes, and the login re-render (same day, measured)
+
+Three changes, then `--frames login --viewports desktop,phone` again:
+
+1. **Conditioning on the scene drawing** (panels and media frames on the palette gradient) instead
+   of the full wireframe.
+2. **"UI" dropped from the `dusk` prefix** ("Cinematic backdrop, …").
+3. **A lettering check** in region validation, covering reserved regions, button faces, and panels.
+   Edge density was tried first and rejected on this data: at its best setting it scored the fake
+   phone-login text at 0.019–0.054 and the good dashboard regions over city lights at 0.063–0.083,
+   so no threshold separated them. OCR (tesseract, local English model, words of three or more
+   letters at confidence ≥ 80) did: it read 7, 9, and 10 words in the three bad phone-login tries
+   and none in any scene judged good, at 50–400 ms per scene.
+
+Result: **2 fal calls, both scenes passed first time.** Desktop: a silhouetted figure beside a
+cassette in a teal glow, with no interface or lettering. Phone: a calm dark panel where the form
+goes; no fake fields, buttons, or text. Contrast-stretching the phone scene still shows ghost
+marks shaped like lettering inside the panel, within about 2 luma levels (the whole image spans
+32–53), far below anything readable, so OCR does not register it. The phone scene is now safe but
+close to the flat render; giving it more form without inviting a mock-up is the next prompt
+question.
+
+The cache key now also covers the style pack, the conditioning drawing, and the prompt, so these
+changes invalidated the old scenes instead of serving them.
+
 ## 3. Transitions (candidates for the `cut` renderer)
 
 First-and-last-frame video generation is exactly the cut problem: two scene stills in, a short clip

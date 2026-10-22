@@ -112,7 +112,8 @@ tablet 768 × 1024, and desktop 1440 × 900.
 
 | Area | Cases |
 |------|-------|
-| Region validation | Synthetic images: a flat dark field passes; a high-variance noise field fails on variance; a mid-grey field fails on contrast with a light foreground colour |
+| Region validation | Synthetic images: a flat dark field passes; a high-variance noise field fails on variance; a mid-grey field fails on contrast with a light foreground colour; faint fake words in a field and on a button face fail on lettering although their spread passes; every flat scene of the demo passes |
+| Conditioning | Generative renderers get the scene drawing, not the wireframe; editing a style's prompt changes the cache key |
 | Re-roll | A fake renderer that fails validation twice, then passes, is called three times with seeds `s`, `s+1`, `s+2`; one that always fails ends with a flat fill composited into the failing regions only, and the HUD counters say so |
 | Budgets | A fake renderer slower than 1.5 s on the first render gives a `flat` render with `fallback: true`, then a `patch` with `layers` when the asset lands |
 | Cache | A second session over the same frames is served at least 90 % from the cache (counting renderer calls); re-rolls coexist in the manifest |
@@ -123,8 +124,8 @@ tablet 768 × 1024, and desktop 1440 × 900.
 
 - Real-model quality (text crispness, region stability across reloads, the M2 ≥ 90 % hit rate on
   real renders) needs a key and is checked by hand with L6.
-- Region validation checks calm and contrast only. The first live run (03-landscape §2.1) showed a
-  scene with fake lettering and fake controls passing it; a lettering or edge-density check is
-  needed before generated scenes can be trusted unreviewed.
+- Lettering is checked with OCR, which reads text a person would read. Lettering faint enough to
+  slip past it (03-landscape §2.2) is also below what a person notices, but the check cannot rule
+  out fake controls drawn without any text; review the contact sheet for new styles.
 - Cuts (`renderer-cut-*`) and the 300 ms prefetched-click budget belong to M3.
 - Real screen-reader runs (VoiceOver, NVDA) are manual; CI checks names, roles, and axe rules only.

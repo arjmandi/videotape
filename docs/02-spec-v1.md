@@ -370,8 +370,13 @@ Rectangles are `[x, y, w, h]` as fractions of the canonical canvas. Masks:
 - everything else — free.
 
 The `svg` is the wireframe drawn with the style palette: panels as rounded rectangles, fields as
-lighter strips, buttons as filled shapes, text as grey bars. It is the `flat` renderer's input and
-the `still` renderer's conditioning image.
+lighter strips, buttons as filled shapes, text as grey bars. It is for snapshots and review.
+
+The **scene drawing** is what renderers get: the same regions with only what the content layer does
+not draw natively (panels and media frames) on a soft palette gradient. It is the `flat` renderer's
+picture and the `still` renderer's conditioning image. Conditioning on the full wireframe was tried
+first and was wrong: text bars, field strips, and button shapes read as a UI mock-up, and the model
+painted fake controls with gibberish lettering ([03-landscape §2.1](03-landscape.md)).
 
 ---
 
@@ -394,8 +399,14 @@ the `still` renderer's conditioning image.
 ```
 key = sha256(core.version, renderer.id, renderer.version,
              frame.specHash,            // scene text, layout, components (ids, kinds, slots, static labels)
-             viewportClass, style.id, style.seed, flavourHash)
+             viewportClass, style.id, style.seed, flavourHash,
+             styleHash,                 // the whole style pack: editing a prefix or a colour invalidates
+             conditionHash,             // the scene drawing the renderer is shown
+             prompt)                    // the composed prompt; empty for deterministic renderers
 ```
+
+The last three make the key cover everything a renderer is given, so no input can change while an
+old asset keeps being served.
 
 Reel **data is not part of the key**: facts live on the content layer, so one scene asset serves
 every user. The cache is a content-addressed store with a filesystem implementation and an S3-style
@@ -404,10 +415,19 @@ adapter. A manifest maps keys to asset hashes so re-rolls can coexist and one ca
 ### 7.3 Validation and re-roll
 
 For each `reserved` region: luminance variance below a threshold, and contrast between the region's
-mean colour and the style's foreground colour at or above 4.5:1 (WCAG AA). For each `surface` region:
-nothing enforced in v1. A failing asset is re-rolled with the next seed up to three times; if it
-still fails, the engine composites a flat fill from the style palette into the failing regions only
-and keeps the rest. The HUD shows re-roll and patch counts per frame.
+mean colour and the style's foreground colour at or above 4.5:1 (WCAG AA).
+
+For every `reserved` and `surface` region (button faces and panels included): **no lettering**. The
+engine runs OCR (tesseract, local model) on the whole scene; a word of three or more letters read
+at 80 % confidence or more, lying mostly inside a region, fails that region. Lettering is a fact the
+generator must never render (principle 2), and fake text usually comes with fake controls. An edge
+density measure was tried first and rejected: it could not tell lettering from city lights or
+console detail on the first live run, while OCR separated them cleanly.
+
+A failing asset is re-rolled with the next seed up to three times; if it still fails, the engine
+composites a flat fill from the style palette into the failing regions only and keeps the rest.
+Every attempt is kept in the cache with its region numbers; the HUD shows re-roll and patch counts
+per frame, and `videotape render --sheet` draws them.
 
 ### 7.4 Style packs
 
@@ -419,14 +439,15 @@ A style pack is a small JSON file in the app:
   "seed": 4210,
   "palette": { "bg": "#14121a", "fg": "#f3ede4", "accent": "#ff6a3d", "muted": "#8a8494" },
   "fonts":   { "display": "Instrument Serif", "body": "Inter" },
-  "prompt":  { "prefix": "Cinematic UI backdrop, ", "suffix": ", film grain, 35mm, no text, no letters" },
+  "prompt":  { "prefix": "Cinematic backdrop, ", "suffix": ", film grain, 35mm, no text, no letters" },
   "references": ["styles/dusk/ref-1.png"],
   "lora": null
 }
 ```
 
 Palette and fonts drive the content layer and the wireframe. Prefix, suffix, references, and LoRA
-drive the generator. "no text, no letters" belongs in every suffix.
+drive the generator. "no text, no letters" belongs in every suffix, and no prompt should name an
+interface ("UI backdrop", "dashboard", "app screen"): models take it literally and draw one.
 
 ### 7.5 Prefetch and budgets
 
@@ -460,7 +481,7 @@ export interface LiveRenderer {                       // v1: interface only
 export interface SceneRequest {
   key: string; canvas: { w: number; h: number }; seed: number;
   prompt: string; negative?: string;
-  condition: { svg: string; png: Uint8Array };        // the wireframe
+  condition: { svg: string; png: Uint8Array };        // the scene drawing (§6.3), not the wireframe
   masks: { reserved: Uint8Array; surface: Uint8Array };
   style: StylePack;
 }

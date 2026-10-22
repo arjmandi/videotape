@@ -1,12 +1,16 @@
 // Region validation for generated scenes (spec §7.3): every `reserved` region
 // must be calm (low luminance variance) and dark or light enough that the
-// style's foreground colour reads on it at WCAG AA. Failing regions are
-// re-rolled by the host; if they keep failing, a flat fill is composited into
-// those regions only.
+// style's foreground colour reads on it at WCAG AA. Every region, `surface`
+// ones (button faces, panels) included, must be free of lettering: image
+// models paint fake text and controls, and thin strokes barely move variance,
+// so lettering is found by OCR (see ./lettering). Failing regions are re-rolled
+// by the host; if they keep failing, a flat fill is composited into those
+// regions only.
 
 import sharp from "sharp";
 import { type Region, type SceneAsset, type StylePack, type Wireframe, contrast, hexToRgb, mix } from "@videotape/core";
 import type { RegionCheck, Validator } from "./host";
+import { type LetteringOptions, findLettering, overlap } from "./lettering";
 
 export type RegionStats = RegionCheck;
 
@@ -15,25 +19,45 @@ export interface ValidatorOptions {
   maxSpread?: number;
   /** Lowest contrast against the foreground colour (WCAG AA body text: 4.5). */
   minContrast?: number;
-  /** Validation runs on a downscaled copy; this is the divisor. */
+  /** Spread and contrast run on a copy downscaled by this divisor. */
   scale?: number;
+  /** Lettering detection; `false` turns it off. */
+  lettering?: LetteringOptions | false;
   /** Output format for stored generated scenes. */
   format?: "webp" | "png";
 }
 
-const reservedRegions = (wf: Wireframe): Region[] => wf.regions.filter((r) => r.z === 2 && r.mask === "reserved");
+export const DEFAULTS = { maxSpread: 24, minContrast: 4.5, scale: 4 } as const;
+
+/** Regions validation looks at: reserved content, and surfaces (button faces and panels). */
+const checkedRegions = (wf: Wireframe): Region[] => wf.regions.filter((r) => (r.z === 2 && r.mask === "reserved") || r.mask === "surface");
+
+/** Pixel bounds of a region on a w×h grid. */
+function bounds(r: Region, w: number, h: number): [number, number, number, number] {
+  const [rx, ry, rw, rh] = r.rect;
+  const x0 = Math.max(0, Math.floor(rx * w));
+  const y0 = Math.max(0, Math.floor(ry * h));
+  const x1 = Math.min(w, Math.max(x0 + 1, Math.ceil((rx + rw) * w)));
+  const y1 = Math.min(h, Math.max(y0 + 1, Math.ceil((ry + rh) * h)));
+  return [x0, y0, x1, y1];
+}
 
 export async function regionStats(bytes: Uint8Array, wf: Wireframe, style: StylePack, opts: ValidatorOptions = {}): Promise<RegionStats[]> {
-  const div = opts.scale ?? 4;
-  const w = Math.max(1, Math.round(wf.canvas.w / div));
-  const h = Math.max(1, Math.round(wf.canvas.h / div));
+  const o = { ...DEFAULTS, ...opts };
+  const w = Math.max(1, Math.round(wf.canvas.w / o.scale));
+  const h = Math.max(1, Math.round(wf.canvas.h / o.scale));
   const { data } = await sharp(bytes).resize(w, h, { fit: "fill" }).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const words = opts.lettering === false ? [] : await findLettering(bytes, wf.canvas, opts.lettering ?? {});
   const fg = hexToRgb(style.palette.fg);
-  return reservedRegions(wf).map((r) => {
-    const x0 = Math.max(0, Math.floor(r.rect[0] * w));
-    const y0 = Math.max(0, Math.floor(r.rect[1] * h));
-    const x1 = Math.min(w, Math.max(x0 + 1, Math.ceil((r.rect[0] + r.rect[2]) * w)));
-    const y1 = Math.min(h, Math.max(y0 + 1, Math.ceil((r.rect[1] + r.rect[3]) * h)));
+  return checkedRegions(wf).map((r): RegionStats => {
+    // A word belongs to the region that holds most of it.
+    const inside = words.filter((x) => overlap(x.rect, r.rect) >= 0.5);
+    const lettering = inside.length ? { words: inside.length, text: inside.map((x) => x.text).join(" ").slice(0, 80) } : { words: 0 };
+    if (r.mask === "surface") {
+      const ok = inside.length === 0;
+      return { id: r.id, mask: "surface", ...lettering, ok, ...(ok ? {} : { why: ["lettering"] }) };
+    }
+    const [x0, y0, x1, y1] = bounds(r, w, h);
     let n = 0, sr = 0, sg = 0, sb = 0, sl = 0, sl2 = 0;
     for (let y = y0; y < y1; y++) {
       for (let x = x0; x < x1; x++) {
@@ -46,8 +70,15 @@ export async function regionStats(bytes: Uint8Array, wf: Wireframe, style: Style
     const mean = sl / n;
     const spread = Math.sqrt(Math.max(0, sl2 / n - mean * mean));
     const c = contrast([sr / n, sg / n, sb / n], fg);
-    const ok = spread <= (opts.maxSpread ?? 24) && c >= (opts.minContrast ?? 4.5);
-    return { id: r.id, spread: Math.round(spread * 10) / 10, contrast: Math.round(c * 100) / 100, ok };
+    const why = [
+      ...(spread > o.maxSpread ? ["busy"] : []),
+      ...(c < o.minContrast ? ["contrast"] : []),
+      ...(inside.length ? ["lettering"] : []),
+    ];
+    return {
+      id: r.id, mask: "reserved", spread: Math.round(spread * 10) / 10, contrast: Math.round(c * 100) / 100,
+      ...lettering, ok: why.length === 0, ...(why.length ? { why } : {}),
+    };
   });
 }
 
