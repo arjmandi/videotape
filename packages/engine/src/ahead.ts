@@ -5,6 +5,7 @@
 
 import { type Data, VIEWPORT_CLASSES, type ViewportClass } from "@videotape/core";
 import type { Engine } from "./engine";
+import type { Attempt } from "./host";
 
 export interface AheadResult {
   node: string;
@@ -16,10 +17,16 @@ export interface AheadResult {
   ms: number;
   rerolls?: number;
   patched?: string[];
+  attempts?: Attempt[];
+  /** Asset URL of the scene as served. */
+  url: string;
+  prompt: string;
 }
 
 export interface AheadOptions {
   viewports?: ViewportClass[];
+  /** Tape ids or `tape/frame` nodes to render; default all. */
+  frames?: string[];
   samples?: Data[];
   onScene?(r: AheadResult): void;
 }
@@ -29,6 +36,8 @@ export async function renderAhead(engine: Engine, opts: AheadOptions = {}): Prom
   const seen = new Set<string>();
   for (const tape of engine.app.tapes) {
     for (const frame of tape.frames) {
+      const node = `${tape.id}/${frame.id}`;
+      if (opts.frames && !opts.frames.some((f) => f === tape.id || f === node)) continue;
       for (const cls of opts.viewports ?? [...VIEWPORT_CLASSES]) {
         for (const data of opts.samples ?? [{}]) {
           const plan = engine.plan({ tape: tape.id, frame: frame.id }, data, cls);
@@ -41,8 +50,11 @@ export async function renderAhead(engine: Engine, opts: AheadOptions = {}): Prom
           const r: AheadResult = {
             node: plan.node, viewportClass: cls, flavour, renderer: scene.renderer, cache: scene.cache, fallback: scene.fallback,
             ms: Math.round(performance.now() - t0),
+            url: scene.layer.url,
+            prompt: plan.prompt,
             ...(scene.rerolls !== undefined ? { rerolls: scene.rerolls } : {}),
             ...(scene.patched?.length ? { patched: scene.patched } : {}),
+            ...(scene.attempts ? { attempts: scene.attempts } : {}),
           };
           out.push(r);
           opts.onScene?.(r);

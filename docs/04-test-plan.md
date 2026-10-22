@@ -123,5 +123,8 @@ tablet 768 × 1024, and desktop 1440 × 900.
 
 - Real-model quality (text crispness, region stability across reloads, the M2 ≥ 90 % hit rate on
   real renders) needs a key and is checked by hand with L6.
+- Region validation checks calm and contrast only. The first live run (03-landscape §2.1) showed a
+  scene with fake lettering and fake controls passing it; a lettering or edge-density check is
+  needed before generated scenes can be trusted unreviewed.
 - Cuts (`renderer-cut-*`) and the 300 ms prefetched-click budget belong to M3.
 - Real screen-reader runs (VoiceOver, NVDA) are manual; CI checks names, roles, and axe rules only.

@@ -30,6 +30,8 @@ export interface EngineOptions {
   budgets?: Partial<Budgets>;
   /** How long a disconnected reel can be resumed. */
   resumeTtlMs?: number;
+  /** False: serve only scenes already in the cache, so serving never spends on generation. */
+  generate?: boolean;
 }
 
 interface Reel {
@@ -91,6 +93,7 @@ export class Engine {
     if (!renderers.some((r) => r.id === "flat")) renderers.push(flatRenderer());
     this.host = new RendererHost(renderers, {
       cache: this.cache, logger: this.log, ...(opts.validator ? { validator: opts.validator } : {}),
+      ...(opts.generate === false ? { generate: false } : {}),
     });
   }
 

@@ -7,7 +7,7 @@ import {
 } from "@videotape/core";
 import demo from "../../../apps/site/tapes";
 import { services } from "../../../apps/site/services";
-import { MemoryCache, patchRegions, regionStats, renderAhead, sharpValidator } from "../src";
+import { MemoryCache, contactSheet, patchRegions, regionStats, renderAhead, sharpValidator } from "../src";
 import { harness, settle } from "./harness";
 
 const wf = layout(frame("f", { layout: "form", components: [
@@ -156,6 +156,21 @@ describe("budgets and fallback (spec §7.5)", () => {
     expect(h.log.lines.some((l) => l.msg === "generation failed; using flat")).toBe(true);
   });
 
+  it("never calls the backend in cache-only mode, but serves what is cached", async () => {
+    const r = fakeRenderer([() => solid("#101014")]);
+    const cache = new MemoryCache();
+    const warm = harness(demo, services, { renderers: [r], validator: sharpValidator(), cache });
+    await renderAhead(warm.engine, { viewports: ["desktop"], frames: ["landing"] });
+    const calls = r.calls();
+    const h = harness(demo, services, { renderers: [r], validator: sharpValidator(), cache, generate: false, debug: true });
+    await h.hello();
+    expect(h.render()).toMatchObject({ fallback: false, debug: { renderer: "fake-gen", cache: "hit" } });
+    await h.press("signin");
+    await settle(200);
+    expect(h.render()).toMatchObject({ fallback: true, debug: { renderer: "flat" } });
+    expect(r.calls()).toBe(calls);
+  });
+
   it("uses flat when the preferred renderer is unavailable", async () => {
     const r = { ...fakeRenderer([() => solid("#101014")]), available: () => false };
     const h = harness(demo, services, { renderers: [r], validator: sharpValidator() });
@@ -221,6 +236,27 @@ describe("cache", () => {
 });
 
 describe("ahead-of-time rendering", () => {
+  it("renders only the frames asked for, and records every attempt with its region numbers", async () => {
+    const r = fakeRenderer([() => noise(3), () => solid("#101014")]);
+    const aot = harness(demo, services, { renderers: [r], validator: sharpValidator() });
+    const results = await renderAhead(aot.engine, { viewports: ["desktop"], frames: ["landing", "login/form"] });
+    expect(results.map((x) => x.node)).toEqual(["landing/home", "login/form"]);
+    const landing = results[0]!;
+    expect(landing.attempts!.map((a) => [a.seed, a.failing.length > 0])).toEqual([[dusk.seed, true], [dusk.seed + 1, false]]);
+    expect(landing.attempts![0]!.regions!.find((x) => x.id === "headline")).toMatchObject({ ok: false });
+    expect(await aot.engine.cache.getAsset(landing.attempts![0]!.file)).toBeDefined();
+    expect(landing.prompt).toContain("cassette tape");
+
+    // A cache hit reports how the scene was made.
+    const again = await renderAhead(aot.engine, { viewports: ["desktop"], frames: ["landing"] });
+    expect(again[0]).toMatchObject({ cache: "hit", rerolls: 1 });
+    expect(again[0]!.attempts).toHaveLength(2);
+
+    const wfLanding = aot.engine.plan({ tape: "landing", frame: "home" }, {}, "desktop").wireframe;
+    const png = await contactSheet(landing.attempts!.map((a) => ({ title: "t", subtitle: "s", file: a.file, wireframe: wfLanding, regions: a.regions! })), aot.engine.cache);
+    expect(await sharp(png).metadata()).toMatchObject({ format: "png", height: 20 + 360 + 54 + 20 });
+  });
+
   it("fills the cache so a later session generates nothing", async () => {
     const r = fakeRenderer([() => solid("#101014")]);
     const cache = new MemoryCache();

@@ -32,13 +32,32 @@ export interface SceneResult {
   pending?: Promise<SceneResult | undefined>;
   rerolls?: number;
   patched?: string[];
+  /** Every generation attempt for this key, kept for review. */
+  attempts?: Attempt[];
+}
+
+/** One generation attempt: its seed, the raw output as stored, and what failed. */
+export interface Attempt {
+  seed: number;
+  file: string;
+  failing: string[];
+  regions?: RegionCheck[];
+}
+
+export interface RegionCheck {
+  id: string;
+  /** Standard deviation of luma, 0–255. */
+  spread: number;
+  /** Contrast of the region's mean colour against the style's foreground, 1–21. */
+  contrast: number;
+  ok: boolean;
 }
 
 /** Region checks for generated scenes (spec §7.3). See ./validate. */
 export interface Validator {
   /** Brings a backend's output to the canonical canvas size and the stored format. */
   normalize?(asset: SceneAsset, wf: Wireframe): Promise<SceneAsset>;
-  check(asset: SceneAsset, wf: Wireframe, style: StylePack): Promise<{ failing: string[] }>;
+  check(asset: SceneAsset, wf: Wireframe, style: StylePack): Promise<{ failing: string[]; regions?: RegionCheck[] }>;
   patch(asset: SceneAsset, wf: Wireframe, style: StylePack, failing: string[]): Promise<SceneAsset>;
 }
 
@@ -50,6 +69,8 @@ export interface HostOptions {
   maxRerolls?: number;
   /** Hard cap on one generation call. */
   generateTimeoutMs?: number;
+  /** False serves cached generated scenes only and never calls a generative backend. Default true. */
+  generate?: boolean;
 }
 
 /** Counters for the HUD and for the cache hit-rate test. */
@@ -100,6 +121,10 @@ export class RendererHost {
       return this.result(key, hit, "hit");
     }
     count("misses");
+    if (this.opts.generate === false) {
+      count("fallbacks");
+      return { ...(await this.drawFlat(plan)), fallback: true };
+    }
     const gen = this.generate(r, plan, key);
     const safe = gen.catch((e: unknown) => {
       this.opts.logger.warn("generation failed; using flat", { node: plan.node, renderer: r.id, error: e instanceof Error ? e.message : String(e) });
@@ -129,6 +154,7 @@ export class RendererHost {
       const max = this.opts.maxRerolls ?? 3;
       let asset: SceneAsset | undefined;
       let failing: string[] = [];
+      const attempts: Attempt[] = [];
       let attempt = 0;
       for (; attempt <= max; attempt++) {
         const seed = plan.seed + attempt;
@@ -142,7 +168,11 @@ export class RendererHost {
         this.stats.generated++;
         if (!r.deterministic && this.opts.validator?.normalize) asset = await this.opts.validator.normalize(asset, plan.wireframe);
         if (r.deterministic || !this.opts.validator) break;
-        failing = (await this.opts.validator.check(asset, plan.wireframe, plan.style)).failing;
+        const verdict = await this.opts.validator.check(asset, plan.wireframe, plan.style);
+        failing = verdict.failing;
+        // Keep each raw attempt (content-addressed, so cheap) so a person can see why it was re-rolled.
+        const raw = await this.opts.cache.putAsset(asset.bytes, asset.mime);
+        attempts.push({ seed, file: raw.file, failing, ...(verdict.regions ? { regions: verdict.regions } : {}) });
         if (failing.length === 0) break;
         this.opts.logger.info("scene failed region validation", { node: plan.node, attempt, failing: failing.join(",") });
         if (attempt < max) this.stats.rerolls++;
@@ -152,8 +182,9 @@ export class RendererHost {
         asset = await this.opts.validator.patch(asset, plan.wireframe, plan.style, failing);
         this.stats.patched++;
       }
-      const entry = await this.store(key, asset!, r.id, plan.seed + rerolls, { rerolls, patched: failing });
-      return { ...this.result(key, entry, "miss"), rerolls, patched: failing };
+      const meta = { rerolls, patched: failing, prompt: plan.prompt, ...(attempts.length ? { attempts } : {}) };
+      const entry = await this.store(key, asset!, r.id, plan.seed + rerolls, meta);
+      return { ...this.result(key, entry, "miss"), rerolls, patched: failing, ...(attempts.length ? { attempts } : {}) };
     });
   }
 
@@ -190,7 +221,13 @@ export class RendererHost {
   }
 
   private result(key: string, entry: ManifestEntry, cache: "hit" | "miss"): SceneResult {
-    return { key, layer: { kind: "image", url: assetUrl(entry.file), z: 0 }, renderer: entry.renderer, cache, fallback: false };
+    const out: SceneResult = { key, layer: { kind: "image", url: assetUrl(entry.file), z: 0 }, renderer: entry.renderer, cache, fallback: false };
+    // A cache hit still reports how the scene was made, for the HUD and for `videotape render`.
+    const m = entry.meta;
+    if (typeof m?.rerolls === "number") out.rerolls = m.rerolls;
+    if (Array.isArray(m?.patched) && m.patched.length) out.patched = m.patched as string[];
+    if (Array.isArray(m?.attempts)) out.attempts = m.attempts as Attempt[];
+    return out;
   }
 }
 

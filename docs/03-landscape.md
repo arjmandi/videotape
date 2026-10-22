@@ -55,8 +55,35 @@ differ ("cinematic backdrop with a calm panel in the centre third" rather than "
 
 | Backend | Where | Notes |
 |---------|-------|-------|
-| fal.ai hosted image models with structural control | `renderer-still-fal` | **Chosen at M2 start (2026-10-22): `fal-ai/flux/dev/image-to-image`**, image-to-image over the wireframe raster. Inputs used: `image_url` (data URI), `prompt`, `strength` (default 0.82 here; fal's default 0.95), `seed`, `num_inference_steps` (28), `guidance_scale` (3.5), `output_format: png`, `sync_mode: true`. No negative prompt, so "no text, no letters" stays in the style suffix. The model id is configurable and part of the renderer version, so changing it invalidates cached scenes. Not yet run against the live API; the next check is a run with a real key. Better-documented alternative if strength or seed misbehave: `fal-ai/flux-differential-diffusion`. Source: fal model page `fal.ai/models/fal-ai/flux/dev/image-to-image`. |
+| fal.ai hosted image models with structural control | `renderer-still-fal` | **Chosen at M2 start (2026-10-22): `fal-ai/flux/dev/image-to-image`**, image-to-image over the wireframe raster. Inputs used: `image_url` (data URI), `prompt`, `strength` (default 0.82 here; fal's default 0.95), `seed`, `num_inference_steps` (28), `guidance_scale` (3.5), `output_format: png`, `sync_mode: true`. No negative prompt, so "no text, no letters" stays in the style suffix. The model id is configurable and part of the renderer version, so changing it invalidates cached scenes. First live run below (§2.1). Better-documented alternative if strength or seed misbehave: `fal-ai/flux-differential-diffusion`. Source: fal model page `fal.ai/models/fal-ai/flux/dev/image-to-image`. |
 | ComfyUI, local | `renderer-still-comfy` | SDXL or FLUX with a ControlNet (union or canny/depth). Export the workflow JSON into the repo and call ComfyUI's HTTP API. Open-weights path. |
+
+### 2.1 First live run (2026-10-22, measured)
+
+`videotape render --renderers still-fal --frames landing,login,dashboard --viewports desktop,phone`:
+8 scenes (dashboard in two moods), **20 fal calls**, about 10 s per call, 10–49 s per scene
+including re-rolls. No fallbacks, no patches: every scene passed region validation within three
+re-rolls. Every failure was on luma spread (bright consoles, lit screens, fake fields); contrast
+never failed on this dark style.
+
+| Scene | Tries | Failed regions before passing |
+|-------|-------|-------------------------------|
+| landing desktop | 2 | `sub` (σ 24.2) |
+| landing phone | 1 | — |
+| login desktop | 1 | — |
+| login phone | 3 | `title`, `forgot`, then `title`, `username`, `error` (σ 25–44) |
+| dashboard desktop, cool and warm | 4 each | stat cells `views`, `watch`, `subs`, and `hello` (σ 24–57) |
+| dashboard phone, cool | 4 | stat cells, `hello` (σ 26–52) |
+| dashboard phone, warm | 1 | — |
+
+**Finding: the generator draws UI, with fake text, and validation does not catch it.** The
+served phone login scene is a complete fake sign-in screen: an extra input, a "NORTE" button, and
+gibberish lettering ("SUCCLATIONEL", "SIGN M UP."). It passed because lettering is thin, so luma
+spread stays low, and button faces are `surface` regions that v1 does not check. Behind the real
+controls this shows controls that are not controls (risk R8). Likely causes, in order: the
+conditioning image is the full wireframe (text bars, field strips, button shapes), which reads as
+a UI mock-up; the `dusk` prefix says "Cinematic UI backdrop"; FLUX [dev] has no negative prompt.
+Landing and dashboard scenes, where the wireframe is mostly empty space, came out as intended.
 
 ## 3. Transitions (candidates for the `cut` renderer)
 

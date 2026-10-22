@@ -19,8 +19,13 @@ pnpm test                     # unit, engine, and wire tests
 pnpm test:e2e                 # Playwright walks every edge at three sizes
 ```
 
-Sign in with `ada` / `lovelace`. To try generated scenes, set `FAL_KEY` and run
-`node packages/cli/bin/videotape.mjs dev apps/site --renderers still-fal`.
+Sign in with `ada` / `lovelace`. To try generated scenes, put `FAL_KEY` in your environment or in a
+gitignored `.env` (see `.env.example`), then render and review them:
+
+```bash
+node packages/cli/bin/videotape.mjs render apps/site --renderers still-fal --frames landing,login --sheet scenes.png
+node packages/cli/bin/videotape.mjs dev apps/site --renderers still-fal
+```
 
 ## The idea
 

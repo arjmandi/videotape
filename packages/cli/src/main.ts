@@ -13,9 +13,10 @@ Usage: videotape <command> [dir] [options]
   check  [dir]                          validate the app; exit code 1 on errors
   graph  [dir] [--format mermaid|json]  print the journey graph
   schema [--out dir]                    print or write JSON Schemas for tapes and VTP
-  dev    [dir] [--port n] [--renderers a,b]   engine with reload and debug on
-  serve  [dir] [--port n] [--renderers a,b]   production engine
-  render [dir] [--viewports a,b] [--renderers a,b]   ahead-of-time render into the cache
+  dev    [dir] [--port n] [--renderers a,b] [--cache-only]   engine with reload and debug on
+  serve  [dir] [--port n] [--renderers a,b] [--cache-only]   production engine; --cache-only never generates
+  render [dir] [--viewports a,b] [--renderers a,b] [--frames tape,tape/frame] [--sheet out.png]
+                                        ahead-of-time render into the cache
 `;
 
 export async function main(argv: string[]): Promise<number> {
@@ -30,6 +31,9 @@ export async function main(argv: string[]): Promise<number> {
       host: { type: "string" },
       renderers: { type: "string" },
       viewports: { type: "string" },
+      frames: { type: "string" },
+      "cache-only": { type: "boolean" },
+      sheet: { type: "string" },
       debug: { type: "boolean" },
     },
   });
@@ -42,11 +46,14 @@ export async function main(argv: string[]): Promise<number> {
       case "schema": return runSchema(values.out);
       case "dev": case "serve": {
         const { runServer } = await import("./serve");
-        return await runServer(dir, { dev: command === "dev", port: values.port, host: values.host, renderers: values.renderers, debug: values.debug });
+        return await runServer(dir, {
+          dev: command === "dev", port: values.port, host: values.host, renderers: values.renderers, debug: values.debug,
+          cacheOnly: values["cache-only"],
+        });
       }
       case "render": {
         const { runRender } = await import("./render");
-        return await runRender(dir, { renderers: values.renderers, viewports: values.viewports });
+        return await runRender(dir, { renderers: values.renderers, viewports: values.viewports, frames: values.frames, sheet: values.sheet });
       }
       case undefined: case "help": case "--help": case "-h":
         process.stdout.write(HELP);

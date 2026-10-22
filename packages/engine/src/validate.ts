@@ -6,16 +6,9 @@
 
 import sharp from "sharp";
 import { type Region, type SceneAsset, type StylePack, type Wireframe, contrast, hexToRgb, mix } from "@videotape/core";
-import type { Validator } from "./host";
+import type { RegionCheck, Validator } from "./host";
 
-export interface RegionStats {
-  id: string;
-  /** Standard deviation of luma, 0–255. */
-  spread: number;
-  /** Contrast of the region's mean colour against the style's foreground, 1–21. */
-  contrast: number;
-  ok: boolean;
-}
+export type RegionStats = RegionCheck;
 
 export interface ValidatorOptions {
   /** Highest luma spread a reserved region may have. */
@@ -87,8 +80,8 @@ export function sharpValidator(opts: ValidatorOptions = {}): Validator {
       return { ...asset, mime, bytes };
     },
     async check(asset, wf, style) {
-      const stats = await regionStats(asset.bytes, wf, style, opts);
-      return { failing: stats.filter((s) => !s.ok).map((s) => s.id) };
+      const regions = await regionStats(asset.bytes, wf, style, opts);
+      return { failing: regions.filter((s) => !s.ok).map((s) => s.id), regions };
     },
     async patch(asset, wf, style, failing) {
       return { ...asset, mime, bytes: await patchRegions(asset.bytes, wf, style, failing, format) };

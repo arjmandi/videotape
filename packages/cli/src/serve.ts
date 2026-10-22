@@ -15,6 +15,7 @@ export interface ServeOptions {
   host?: string | undefined;
   renderers?: string | undefined;
   debug?: boolean | undefined;
+  cacheOnly?: boolean | undefined;
 }
 
 /** The built player, building it first if needed. */
@@ -40,6 +41,7 @@ export async function runServer(dir: string, opts: ServeOptions): Promise<number
     logger,
     renderers: renderers.scene,
     ...(renderers.validator ? { validator: renderers.validator } : {}),
+    ...(opts.cacheOnly ? { generate: false } : {}),
     debug,
   });
   const server = await startServer({
@@ -50,7 +52,7 @@ export async function runServer(dir: string, opts: ServeOptions): Promise<number
     publicDir: join(root, config.publicDir ?? "public"),
   });
   const scenes = renderers.scene.map((r) => `${r.id}${r.available?.() === false ? " (unavailable)" : ""}`).join(" → ");
-  process.stdout.write(`videotape ${debug ? "dev" : "serve"} · ${server.url}${debug ? "/?debug=1" : ""} · renderers ${scenes}\n`);
+  process.stdout.write(`videotape ${debug ? "dev" : "serve"} · ${server.url}${debug ? "/?debug=1" : ""} · renderers ${scenes}${opts.cacheOnly ? " · cache only" : ""}\n`);
   const stop = () => void server.close().then(() => process.exit(0));
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
@@ -63,7 +65,7 @@ async function runDev(dir: string, opts: ServeOptions): Promise<number> {
   await playerDir();
   const bin = fileURLToPath(new URL("../bin/videotape.mjs", import.meta.url));
   const args = [bin, "serve", root, "--debug", ...(opts.port ? ["--port", opts.port] : []), ...(opts.host ? ["--host", opts.host] : []),
-    ...(opts.renderers ? ["--renderers", opts.renderers] : [])];
+    ...(opts.renderers ? ["--renderers", opts.renderers] : []), ...(opts.cacheOnly ? ["--cache-only"] : [])];
   let child: ChildProcess | undefined;
   const start = () => {
     child = spawn(process.execPath, args, { stdio: "inherit" });
