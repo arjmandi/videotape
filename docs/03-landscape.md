@@ -110,6 +110,24 @@ question.
 The cache key now also covers the style pack, the conditioning drawing, and the prompt, so these
 changes invalidated the old scenes instead of serving them.
 
+### 2.3 Landing and dashboard under the fixed pipeline (same day, measured)
+
+`--frames landing,dashboard --viewports desktop,phone`: 6 scenes, **6 fal calls, every scene
+passed first time** (the same scenes took 16 calls before the fixes). No lettering anywhere.
+
+- **Dashboard improved.** The grid's cell panels are now the main structure in the conditioning
+  image, and the model built on them: on desktop each stat sits in its own monitor bezel (cool) or
+  window (warm), with an operator silhouetted at the consoles below. On phone the scene is a calm
+  room with a band of city lights. One stray yellow badge-like square was painted at the right edge,
+  outside the safe area and off screen in the player.
+- **Landing regressed.** The hero layout has no panels, so its conditioning image is only the
+  palette gradient, and at strength 0.82 the model repainted that gradient: a plain radial glow on
+  desktop, a flat field with a stray dot on phone. The cassette from the first run is gone.
+
+So conditioning on structure works where there is structure. Frames whose drawing is nearly empty
+need either more freedom (a higher strength) or a subject shape in the drawing; that is the next
+experiment. Total fal calls across the three runs: 28.
+
 ## 3. Transitions (candidates for the `cut` renderer)
 
 First-and-last-frame video generation is exactly the cut problem: two scene stills in, a short clip
