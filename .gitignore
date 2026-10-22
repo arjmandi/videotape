@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# caches and generated assets
+.cache/
+.videotape/
+coverage/
+
+# environment and secrets
+.env
+.env.*
+!.env.example
+
+# editors and OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.log
