@@ -128,7 +128,7 @@ So conditioning on structure works where there is structure. Frames whose drawin
 need either more freedom (a higher strength) or a subject shape in the drawing; that is the next
 experiment. Total fal calls across the three runs: 28.
 
-### 2.4 More freedom for empty drawings (built; live run blocked)
+### 2.4 More freedom for empty drawings
 
 The engine now sets `freedom: 0.95` (fal `strength`) when panels and media frames cover under 2 %
 of the canvas; in the demo that is landing and the two stub tapes. Login and dashboard keep their
@@ -137,6 +137,18 @@ connection reset) for desktop and then 403 `User is locked. Reason: TOP_UP.` for
 account needs credit before this can be judged. Both scenes fell back to flat, as designed; the
 renderer now also stops calling fal after a 401, 402, or 403, so a locked account costs one
 failed call rather than one per scene and prefetch.
+
+**After the top-up** (6 fal calls): the subject came back. Desktop tries painted a light streak, a
+moon, and a backlit cassette with reflections; the phone painted a small cassette. OCR found no
+lettering in any of them. But the model puts its subject dead centre, which on the landing page is
+where the headline and subtitle sit: all four desktop tries failed region validation as busy there,
+so the served scene is try 4 with flat fills patched into those two regions. In the player the
+patch reads as a dark card behind the headline, with the cassette's glow above it and its
+reflections below; most of the cassette is hidden. The phone scene passed on its second try.
+
+Next experiment: steer the subject into the layout's free space, either with a prompt hint naming
+the largest free area or with a soft glow drawn there in the scene drawing. Totals so far: 34 fal
+calls that returned an image, plus three refused (one 503, two 403s).
 
 ## 3. Transitions (candidates for the `cut` renderer)
 

@@ -33,6 +33,8 @@ export interface AheadOptions {
 
 export async function renderAhead(engine: Engine, opts: AheadOptions = {}): Promise<AheadResult[]> {
   const out: AheadResult[] = [];
+  // Asking for a generator and getting flat is a fallback, even when the generator was simply unavailable.
+  const preferred = engine.host.renderers[0]!.id;
   const seen = new Set<string>();
   for (const tape of engine.app.tapes) {
     for (const frame of tape.frames) {
@@ -48,7 +50,8 @@ export async function renderAhead(engine: Engine, opts: AheadOptions = {}): Prom
           const t0 = performance.now();
           const scene = await engine.host.scene(plan);
           const r: AheadResult = {
-            node: plan.node, viewportClass: cls, flavour, renderer: scene.renderer, cache: scene.cache, fallback: scene.fallback,
+            node: plan.node, viewportClass: cls, flavour, renderer: scene.renderer, cache: scene.cache,
+            fallback: scene.fallback || (preferred !== "flat" && scene.renderer !== preferred),
             ms: Math.round(performance.now() - t0),
             url: scene.layer.url,
             prompt: plan.prompt,

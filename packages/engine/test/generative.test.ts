@@ -257,6 +257,13 @@ describe("budgets and fallback (spec §7.5)", () => {
     expect(r.calls()).toBe(calls);
   });
 
+  it("reports flat as a fallback in ahead-of-time results when the generator is unavailable", async () => {
+    const r = { ...fakeRenderer([() => solid("#101014")]), available: () => false };
+    const h = harness(demo, services, { renderers: [r] });
+    const [res] = await renderAhead(h.engine, { viewports: ["desktop"], frames: ["landing"] });
+    expect(res).toMatchObject({ renderer: "flat", fallback: true });
+  });
+
   it("uses flat when the preferred renderer is unavailable", async () => {
     const r = { ...fakeRenderer([() => solid("#101014")]), available: () => false };
     const h = harness(demo, services, { renderers: [r], validator: sharpValidator() });
