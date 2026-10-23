@@ -1,6 +1,6 @@
 # Videotape: UI as a Game — Design v2
 
-**Date:** 2026-10-23 · **Status:** draft; core decisions taken (§2); no v2 code yet ·
+**Date:** 2026-10-23 · **Status:** draft; core decisions taken (§2, §18); no v2 code yet ·
 **Supersedes:** the concept of [02-spec-v1.md](02-spec-v1.md) · **Evidence:**
 [03-landscape.md](03-landscape.md) · **Prototype:** tag `prototype-0`
 
@@ -48,13 +48,15 @@ editors, and accessibility is first-class. A game engine has none of these.
 | # | Decision | Consequence |
 |---|----------|-------------|
 | A | The engine runs on servers, cloud-gaming style, and streams to clients. A client-side engine comes later. | Clients stay thin and identical across platforms; GPU cost per session and network latency are first-order concerns (§11, §17). |
-| B | Our own scene runtime, built on a TypeScript web engine. | One language with the TypeScript SDK; the same runtime can later run on devices; the engine choice is an experiment (E1). |
+| B | Our own scene runtime, built on Babylon.js, rendered on servers by Babylon Native. | One language with the TypeScript SDK; no browser per session; the same runtime can later run on devices through Babylon Native's mobile targets (E1 confirms Linux GPU servers). |
 | C | Platform text input and platform accessibility are first-class. | Clients host native editors and native accessibility trees; this is the differentiator from game engines. |
 | D | Not necessarily 3D. | Worlds come in three kinds (§7); most apps will start in 2D or 2.5D. |
 | E | Facts are drawn by the engine as real text in the world, from code. | Exact and immersive at once; generative layers never repaint them (§12). |
 | F | Touch and click are raycasts against declared objects. | Geometry decides interactivity, never pixels (§10). |
 | G | The first milestone delivers apps and user flows, without OS capabilities such as camera or files. The exporter compiles those later. | M1 scope (§15). |
 | H | SDKs for TypeScript and Python from the start; the app talks to the engine over a language-neutral protocol. | Handlers run in the app's own process, in its own language (§6). |
+| I | A release is a generation. Worlds and props are generated once per release and shared by every user until the next generation. | Generated-asset cost is per release, not per user; only live layers (L2, L3) cost per session (§7.1). |
+| J | Worlds start in 3D. | One world asset serves every screen shape: phones, watches, and wide screens get camera moves and recomposition, never regeneration. |
 
 ## 3. Goals, non-goals, success criteria
 
@@ -228,6 +230,33 @@ What the landscape says today ([03-landscape.md](03-landscape.md) §7, checked 2
 **Coherence.** Before generating, a critic compares the world with the intent (domain, density,
 tone) and warns about strained pairings. It warns; it does not block.
 
+### 7.1 When generation happens: releases
+
+A release in Videotape is what a front-end deploy is today, and it is the only time L1 generation
+runs:
+
+1. `videotape release` reads the app's intent and world.
+2. The coherence critic and the embodier (a Claude model) run once and produce the embodiment table.
+3. The world and any missing props are generated (Marble for 3D worlds), and the asset harness
+   checks them.
+4. The result is a versioned **world pack** (assets, colliders, embodiment table, harness report)
+   that every engine loads and every user shares.
+
+Generation runs again only when something gives it a reason:
+
+| Trigger | What regenerates |
+|---------|------------------|
+| A release that changes intent (new frames, new component kinds or roles) | Only the props and embodiments that changed |
+| A release that changes the world | The world pack |
+| A failed harness check or a reported glitch | That one asset, as a patch release |
+| A provider or model upgrade | Opt-in, as a new release |
+| Declared flavour variants (a night variant, a pro-plan mood) | Each variant once, at release |
+
+At runtime, L1 never generates: a missing or failing asset falls back to its plain prop until the
+next release. Screen changes never regenerate anything; the camera and the composer adapt the
+existing world. The costs that grow with users are the stream itself and the live layers (L2, L3),
+which are per session and per minute.
+
 ## 8. Context and composition
 
 The client measures and streams context; the engine detects nothing:
@@ -297,8 +326,9 @@ Our own runtime on a TypeScript web engine (the engine is chosen in E1). Its job
 - Produce render passes: colour, depth, object ids, a **facts-free** colour pass (for L2 and L3), and
   the text pass composited last.
 - Run headless on GPU servers, many sessions per GPU, at an adaptive frame rate (idle scenes drop
-  their rate). None of the candidate engines renders pixels in plain Node, so server rendering means
-  a GPU-backed headless Chromium, or Babylon Native ([03-landscape.md](03-landscape.md) §7.3).
+  their rate). None of the candidate engines renders pixels in plain Node; the runtime renders on
+  servers with Babylon Native ([03-landscape.md](03-landscape.md) §7.3), and E1 confirms it runs
+  headless on Linux GPU servers at the needed session density. Headless Chromium is the fallback.
 - Run deterministically in CI with L0 assets.
 
 ## 11. Streaming and the client
@@ -369,7 +399,7 @@ Experiments first, then milestones, each ending in something runnable.
 
 | # | Experiment | Answers |
 |---|------------|---------|
-| E1 | Engine bake-off: candidate TypeScript web engines rendering headless on a server GPU, with SDF text, raycasts, and render passes | Which engine; frame time; text quality |
+| E1 | Babylon.js on Babylon Native, headless on a Linux GPU server: SDF/MSDF text, raycasts, object-id and depth passes, splats; headless Chromium as the comparison | That Babylon Native works there; frame time; sessions per GPU; text quality |
 | E2 | Streaming: GPU encode and WebRTC to web, iOS, and Android test clients | Input-to-photon latency; sessions per GPU; cost per active hour |
 | E3 | Native editor over a stream on iOS, Android, and the web | IME, autofill, and password managers across the seam |
 | E4 | Native accessibility trees from intent on iOS, Android, and the web | VoiceOver and TalkBack parity |
@@ -379,7 +409,7 @@ Experiments first, then milestones, each ending in something runnable.
 | Milestone | Delivers | Done when |
 |-----------|----------|-----------|
 | **M1 Apps and flows** | Scene runtime (L0), continuous composer, streaming, clients exported for web, iOS, Android, desktop, native text and accessibility, TypeScript and Python SDKs, two sample apps, CI with generation off | S1–S7 |
-| **M2 Generated worlds** | L1 worlds and props (2D, 2.5D, then 3D), embodiment, coherence critic, asset harness | The demo runs in two worlds that both pass the harness |
+| **M2 Generated worlds** | `videotape release` and world packs; L1 3D worlds (Marble) and props, then 2.5D and 2D; embodiment; coherence critic; asset harness | The demo runs in two 3D worlds that both pass the harness, on every reference screen without regeneration |
 | **M3 Adaptive composition and live looks** | Breakdown and merge with hooks; L2 live restyle with grounding | A 20-field form breaks into steps on a watch-sized screen; L2 holds grounding |
 | **M4 Native capabilities** | Capabilities through the exporter's OS bridge; an on-device engine option | Camera and file flows work on iOS and Android |
 | Later | L3 world models; watch and TV clients | — |
@@ -420,24 +450,22 @@ back.
 | No WebRTC client for watchOS found | Watch clients come after M1, over another transport if needed (Q15) |
 | Provider terms change or conflict (World Labs' own documents disagree on commercial rights and credit expiry) | Confirm terms in writing before shipping; keep an open-weights alternative per layer |
 
-## 18. Open questions
+## 18. Decisions on the open questions (2026-10-23)
 
-Each has the default this document assumes.
-
-| # | Question | Default |
-|---|----------|---------|
-| Q1 | M1 clients: the web client inside native shells (system web views), or native players per platform from the start? | Web client in native shells for M1: fastest path to every store, and system web views give platform editors and accessibility; native players when performance or watches require them. |
-| Q2 | Server rendering: GPU-backed headless Chromium, or Babylon Native? (Plain Node renders no pixels with any candidate.) | Headless Chromium, so the same engine code can later run on devices; Babylon Native if E1 shows Chromium too costly per session. |
-| Q3 | Which TypeScript web engine? | Babylon.js unless E1 says otherwise: it ships an object-id and depth G-buffer, GPU picking, SDF and MSDF text, and SPZ splats. PlayCanvas is the runner-up; three.js needs add-ons for ids and text. |
-| Q4 | Who runs engines: a hosted Videotape cloud, self-hosted containers, or both? | Self-hosted container first; hosted later. |
-| Q5 | Sessions per GPU and cost per active hour to aim for? | Set by E2; L0 and L1 should allow many sessions per GPU. |
-| Q6 | Which world kind does M2 start with? | 2.5D: cheap to generate, fits most apps, already proven with image models; 3D next. |
-| Q7 | Which provider for L1 3D worlds, and for L2? | Marble for 3D worlds, after World Labs confirms commercial terms in writing; Decart's Lucy Restyle 2 for the L2 trial (E6); HunyuanWorld only where its licence applies (not the EU, UK, or South Korea). |
-| Q8 | Does the engine break frames down by default (opt-out with hooks) or only where developers opt in? | By default, with opt-out and hooks (M3). |
-| Q9 | May the composer infer merges from the graph? | No: declared merges only, for now. |
-| Q10 | One world per app, per tape, or per context? | Per app, overridable per tape. |
-| Q11 | Do Apple's and Google's current guidelines accept apps whose interface is streamed? | To be checked before M1 exports; the plan assumes yes with a native shell that owns text input, accessibility, and OS integration. |
-| Q12 | Which model proposes embodiments and runs the coherence critic? | A Claude model at build time, cached and reviewable. |
-| Q13 | Is a plain mode (plain props, no world) always available to users? | Yes, as an accessibility and trust feature. |
-| Q14 | With L2 on, where are text and controls composited: on the engine (an extra network leg, thin clients unchanged) or on the client (lower latency, a client that renders a UI layer)? | On the engine; revisit after E6 measures the latency. |
-| Q15 | Watches: no WebRTC client for watchOS was found. Which transport and client for watch apps? | Decided when watch clients are planned (after M1); a native watch client over a simpler transport is the likely path. |
+| # | Question | Decision |
+|---|----------|----------|
+| Q1 | How are the M1 clients built? | The web client inside native shells (system web views on iOS and Android, a desktop shell). Native players later, where performance or watches need them. |
+| Q2 | How does the engine render on servers? | Babylon Native, with headless Chromium as the fallback if E1 finds a blocker. |
+| Q3 | Which TypeScript web engine? | Babylon.js. |
+| Q4 | Who runs engines? | Self-hosted containers first; a hosted Videotape cloud later. |
+| Q5 | GPU density and cost targets for L0 and L1? | Measured in E2, then set. |
+| Q6 | Which world kind first? | 3D (decision J), generated once per release (decision I). |
+| Q7 | Providers for L1 3D worlds and L2? | Marble for 3D worlds, after World Labs confirms commercial terms in writing; Decart's Lucy Restyle 2 for the L2 trial (E6). |
+| Q8 | Breakdown policy (M3)? | By default, with opt-out and hooks. |
+| Q9 | Merges (M3)? | Declared merges only. |
+| Q10 | Worlds per app? | One per app, overridable per tape; each generated per release. |
+| Q11 | Do app stores accept streamed interfaces? | **Open**: being researched from official guidelines into [03-landscape.md](03-landscape.md) §8. |
+| Q12 | Which model for embodiment and coherence, and when? | A Claude model at release time; results live in the world pack; no language model in the click path. |
+| Q13 | Plain mode? | Always available to users, and the automatic fallback. |
+| Q14 | With L2 on, where are text and controls composited? | On the engine; revisited after E6 measures the extra leg. |
+| Q15 | Watch transport and client? | Decided when watch clients are planned, after M1. |
