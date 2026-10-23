@@ -22,3 +22,49 @@ records' JSON Schemas (Ajv, draft 2020-12) and keys the record items of lists.
 The tests read intents generated from the SDK's sample apps (`test/fixtures/*.intent.json`);
 `npx -y pnpm@9.15.0 --filter @videotape/engine intents` regenerates them, and a test fails when
 they are out of date.
+
+## The app protocol
+
+JSON text frames over a WebSocket; the app process connects out to the engine's `/app` endpoint
+(`videotape serve module:app --engine ws://host:port/app`). Every message has a type `t`. Every
+message from the app is validated (zod) before the engine reads it; a malformed one is answered
+with `error` and dropped, and its content is never echoed or logged.
+
+| Direction | Message | Carries |
+|-----------|---------|---------|
+| app → engine | `register` | `v` (1), `intent` (the intent JSON), `sdk` (`language`, `version`) |
+| engine → app | `registered` / `error` | the app's name / a `code` (`bad_intent`, `refused`, `bad_message`, `not_registered`) and a message; a refused app is disconnected |
+| engine → app | `load` | `id`, `loader`, `session`, `user`, `args` (the tape's arguments), `documents` (earlier frames' documents the loader takes, by parameter) |
+| engine → app | `page` | `id`, `loader`, `session`, `user`, `cursor`, `documents` |
+| engine → app | `decide` | `id`, `handler`, `session`, `user`, `documents` (by parameter), `values` (a call's `result`) |
+| app → engine | `result` | `id`, and one of `outcome`, `reject: {message}`, `documents: [{record, value}]`, `page: {items, next}`, `error: {type, message}` |
+| app → engine | `sync` | `changes: [{doc, ops}]`, and `decision` when they are tentative under a decision |
+| app → engine | `log` | `level`, `message`, `logger`: the app's log lines, scrubbed of secrets by the SDK and again by the engine |
+| app → engine | `ping` / engine → app `pong` | keepalive |
+
+**Documents on the wire.** A shared document is addressed as `{record, id}` (its `vt.Id`), a
+session's own as `{record, local}` with a key the engine chose. A document's value is its record's
+JSON, and each record item of a list carries its key as `"@key"`: its `vt.Id` when it has one, or a
+key the engine (`~e…`) or the SDK (`~<process>.<n>`) minted. A `documents` entry that is an item
+of a list also has `path` and `record`. `user` is `{record, id, value}`, the record `sign_in=`
+passed, and an outcome that signs in carries `sign_in` in that shape.
+
+**Ops.** A path is a list of field names and `{"key": ...}` segments for items of lists of records.
+
+| Op | Meaning |
+|----|---------|
+| `{op: "set", path, value}` | assignment; a list of plain values, or a reordered list, is set whole |
+| `{op: "insert", path, key, value, at}` | `append` (`at: "end"`), `prepend` (`"start"`), or `insert` (`{before: key}`); the key is the item's from now on |
+| `{op: "remove", path, key \| id}` | remove the item with this key, or with this `vt.Id` (from `vt.docs`) |
+| `{op: "replace", path, key \| id, value}` | replace an item; the new item keeps the old one's key |
+
+**Tentative and confirmed.** While a handler runs, the SDK sends each change as it is made: the
+changes of one event-loop turn travel as one `sync` with the decision's id. The decision's
+`result` confirms them; an `error` or a `reject` rolls them back. A `sync` without `decision`
+(`vt.docs` outside a handler) is confirmed at once. The SDK sends all of a decision's changes
+before its result, and the WebSocket keeps that order.
+
+**Secrets.** A secret travels from the client to the engine only with the press that submits it,
+is merged into the edited document of that one `decide`, and is dropped when the decision ends.
+The SDK never sends a secret field back (ops and dumps skip them), and both ends scrub the secret
+values in play from errors and log lines.

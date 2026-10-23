@@ -114,7 +114,7 @@ describe("records", () => {
     expect(records.validateField("Conversation", "title", 5)).toEqual(["/ must be string"]);
     expect(records.validateField("Conversation", "typing", null)).toEqual([]);
     expect(records.validateItem("Conversation", "messages", { ...message, [KEY]: "~e1" })).toEqual([]);
-    expect(records.validateItem("Conversation", "messages", { ...message, sent_at: "yesterday" })).toEqual(['/sent_at must match format "date-time"']);
+    expect(records.validateItem("Conversation", "messages", { ...message, sent_at: "yesterday" })).toContain('/sent_at must match format "date-time"');
   });
 
   it("keys the record items of lists by their Id, or with a fresh key", () => {

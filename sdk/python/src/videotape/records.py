@@ -534,6 +534,10 @@ class RecordMeta(ModelMetaclass):
         return super().__getattr__(name)  # type: ignore[misc]
 
 
+_tracked: dict[int, tuple[Any, Any]] = {}
+"""Records the app protocol tracks (`videotape.tracking`): id(record) → (record, its owner)."""
+
+
 class Record(BaseModel, metaclass=RecordMeta):
     """A typed record: what a frame shows or edits, and what handlers receive (05 §6.1).
 
@@ -553,6 +557,12 @@ class Record(BaseModel, metaclass=RecordMeta):
                 "or make the field an Enum whose members are message keys"
             )
         return value
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        entry = _tracked.get(id(self))
+        if entry is not None and entry[0] is self:
+            entry[1].field_set(self, name)
 
     def update(self, other: BaseModel | dict[str, Any] | None = None, /, **values: Any) -> Record:
         """Merges fields into this record: `msg.update(saved, pending=False)`."""

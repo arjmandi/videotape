@@ -148,6 +148,7 @@
                   {
                     "field": "Message.sent_at",
                     "type": "datetime",
+                    "nullable": true,
                     "importance": "optional",
                     "format": "time",
                     "affordances": [
@@ -578,11 +579,20 @@
           }
         },
         "sent_at": {
-          "format": "date-time",
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
           "title": "Sent At",
-          "type": "string",
           "x-vt": {
             "type": "datetime",
+            "nullable": true,
             "importance": "optional",
             "format": "time"
           }
@@ -599,8 +609,7 @@
       },
       "required": [
         "author",
-        "text",
-        "sent_at"
+        "text"
       ],
       "title": "Message",
       "type": "object",

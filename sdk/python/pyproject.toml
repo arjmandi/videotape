@@ -9,7 +9,7 @@ description = "Videotape's Python SDK: declare an app as types, places, and deci
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-dependencies = ["pydantic>=2.9,<3"]
+dependencies = ["pydantic>=2.9,<3", "websockets>=13"]
 
 [project.optional-dependencies]
 test = ["pytest>=8", "jsonschema>=4.20"]

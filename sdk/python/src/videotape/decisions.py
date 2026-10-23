@@ -484,13 +484,12 @@ def _check_identity(name: str, outcome: Outcome) -> None:
         raise TypeError(f"{name}() signs in with {user!r}; sign_in= takes the user's record, with its vt.Id set")
 
 
-async def invoke(handler: Callable[..., Any], ctx: Any, /, **documents: Any) -> dict[str, Any]:
-    """Calls a handler as `decide` will, and returns the outcome record the engine would get.
+async def call(handler: Callable[..., Any], ctx: Any, /, **documents: Any) -> Outcome:
+    """Calls a handler as `decide` does and returns its outcome; `vt.Reject` propagates.
 
     Documents are passed by parameter name, as records or as their JSON, and validated against
-    the parameter's type; so is a call's `result`. A `Reject` becomes `{"type": "reject",
-    "message": ...}`. An outcome the body and `@vt.outcomes` do not show raises
-    `UndeclaredOutcome`, because the graph did not know it.
+    the parameter's type; so is a call's `result`. An outcome the body and `@vt.outcomes` do not
+    show raises `UndeclaredOutcome`, because the graph did not know it.
     """
     sig = read(handler)
     declared, problem = sig.declared
@@ -506,16 +505,28 @@ async def invoke(handler: Callable[..., Any], ctx: Any, /, **documents: Any) -> 
             kwargs[p.name] = _coerce(p, documents[p.name])
         elif p.required:
             raise TypeError(f"{sig.name}() needs {p.name}")
-    try:
-        result = handler(ctx, **kwargs)
-        if inspect.isawaitable(result):
-            result = await result
-    except Reject as r:
-        return {"type": "reject", "message": encode(r.message)}
+    result = handler(ctx, **kwargs)
+    if inspect.isawaitable(result):
+        result = await result
     if not isinstance(result, Outcome):
         raise UndeclaredOutcome(f"{sig.name}() returned {result!r}, which is not an outcome")
     if not sig.allows(result):
         said = ", ".join(f"{d.type}({d.target})" if d.target else f"{d.type}()" for d in declared)
         raise UndeclaredOutcome(f"{sig.name}() returned {result.to_json()}, but its body shows only {said}")
     _check_identity(sig.name, result)
+    return result
+
+
+async def invoke(handler: Callable[..., Any], ctx: Any, /, **documents: Any) -> dict[str, Any]:
+    """Calls a handler as `decide` will, and returns the outcome record the engine would get.
+
+    Documents are passed by parameter name, as records or as their JSON, and validated against
+    the parameter's type; so is a call's `result`. A `Reject` becomes `{"type": "reject",
+    "message": ...}`. An outcome the body and `@vt.outcomes` do not show raises
+    `UndeclaredOutcome`, because the graph did not know it.
+    """
+    try:
+        result = await call(handler, ctx, **documents)
+    except Reject as r:
+        return {"type": "reject", "message": encode(r.message)}
     return result.to_json()
