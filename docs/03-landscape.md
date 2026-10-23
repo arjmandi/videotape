@@ -269,3 +269,218 @@ Transitions:
 - https://en.wikipedia.org/wiki/LTX-2 · https://www.mindstudio.ai/blog/what-is-ltx-2-19b-lightricks-video
 - https://www.floyo.ai/workflows/ltx-2-5-first-and-last-frame-to-vide-6ver4ls63no1
 - https://vast.ai/article/wan-2-2-vs-ltx-2-which-ai-video-model-should-you-use
+
+## 7. UI as a Game: providers and engines (checked 2026-10-23)
+
+For the "UI as a Game" redesign: a server-side scene runtime on a TypeScript web engine, streamed
+to thin clients over WebRTC, with L1 (generated assets), L2 (live neural restyle) and, later, L3
+(world models). Nothing here was measured; figures are vendor or paper claims.
+
+**Tags.** [C] confirmed on an official source (vendor docs, API reference, pricing page, repo,
+model card, official blog) on the date above. [S] secondary coverage only, unverified. [U] official
+sources disagree or are unclear. "Not found" means official sources turned up nothing.
+
+### 7.1 Real-time world models (L3) and real-time video-to-video (L2)
+
+| System | Access | Speed, resolution | Conditioning | Price | Licence |
+|--------|--------|-------------------|--------------|-------|---------|
+| Genie 3 / Project Genie (Google DeepMind) | Consumer only: Google Labs prototype for Google AI Ultra ($200 plan), 18+, rolling out globally since 2026-05-19 [C]. Developer API: not found (DeepMind model page, Google blog, Vertex release notes) | 720p, 20–24 fps; consistent for a few minutes, memory of changes about 1 min [C] | Text and image prompts; Street View grounding for US places [C]. Video-stream, depth or segmentation input: not found | Subscription only | Proprietary |
+| Odyssey-2 Pro (Odyssey) | **Public developer API**: account, API key, API License Agreement [C]. Interactive, broadcast and offline-simulation endpoints [C] | A new frame every 50 ms (about 20 fps) [C]. Output size not stated; input images resized to 1280×704 or 704×1280 [C]. Streams capped at 150 s, connections at 60 min by default [C] | Text, start image, mid-stream prompts via `interact()`; model is action-conditioned [C]. Video-stream, depth, segmentation input: not found | Not found. The 2025 Odyssey-1 demo cost $1–2 per user-hour in infrastructure [C, old] | Proprietary; JS SDK `@odysseyml/odyssey` MIT [C] |
+| Odyssey-3, 3 Pro, 3 Flash | Browser research preview; developers asked to get in touch [C]; announced 2026-10-08 [C] | 832×480 (3), 1280×720 (3 Pro) [C]; fps not stated | Text, actions and events, prior observations [C] | Not found | Not found |
+| GWM Worlds 2 (Runway) | Research preview behind a contact form; no public API [C]. Runway's API has one realtime model, Characters (`gwm1_avatars`, talking avatars, 2026-08-06) [C] | 720p at 24 fps with 48 kHz audio [C] | WorldPrompt (scene, subjects, laws, first frame), timestamped text actions, per-frame camera pose, prefilled-video continuation [C] | Worlds: not found. Characters: $0.02 to start, then $0.02 per 6 s [C] | Proprietary |
+| Lucy 2.5 (Decart) | Public self-serve API, free trial credits [C] | 1280×720 in docs [C]; fps not stated. Only official fps found: 720p at 20 fps for the Lucy 2 RT preview, 2026-01 [C]. 1080p and 30 fps appear in launch coverage [S] | Live video stream plus text prompt and/or reference image; self-anchoring on by default [C]. Depth or segmentation: not found | $0.02/s; fast mode $0.04/s [C] | Proprietary service; SDK `@decartai/sdk` MIT [C] |
+| Lucy Restyle 2 (Decart) | Same; Mirage was renamed "Lucy Restyle Live" in 2026-03, and MirageLSD is no longer on the price list [C] | 720p [C] | Live video stream plus text prompt [C] | $0.01/s realtime or batch [C] | As above |
+| Oasis 3 Preview (Decart) | API key; gRPC client `decart-oasis`; enterprise pricing on request [C] | 768×512, three camera views, 4 frames per `infer` call [C]; under 200 ms end-to-end [S] | Text scene prompt plus throttle and steering; driving only [C] | $0.02/s [C] | Proprietary. Older Oasis 500M weights: MIT [C] |
+| Cosmos 3 (NVIDIA) | Open weights; browser trials on build.nvidia.com; self-host via NIM or vLLM [C]. Hosted price: not found | Super 64B (H200/B200), Nano 16B (H100, RTX Pro 6000, B200), Edge 4B (Jetson Orin/Thor) [C]; real-time fps not stated | Nano-Sim-Transfer: autoregressive transfer from depth, segmentation, edge, blur [C]. Action-conditioned sim variants; "Interactive World Simulation" news 2026-10 [C] | Self-host | OpenMDW-1.1, code and models [C]. Transfer 2.5: code Apache-2.0, weights NVIDIA Open Model License; no longer developed [C] |
+| Waypoint-1.5 (Overworld) | Open weights; no hosted inference provider [C] | Up to 720p: 56 fps (4 steps, RTX 5090), 72 fps quantised (RTX 5090), 30 fps quantised (RTX 3090) [C] | Start image or video, keyboard and mouse; text in the diffusers example [C] | Self-host | Apache-2.0 [C] |
+| HY-World 1.5 WorldPlay (Tencent) | Open weights [C] | 24 fps streaming, 480p checkpoints [C]; GPU behind the real-time claim not stated | Image or text, keyboard, mouse, camera trajectory [C] | Self-host | Tencent community licence; not valid in the EU, UK or South Korea [C] |
+| RTFM (World Labs) | Research-preview demo; no API found [C] | "Interactive framerates" on one H100 [C] | Not found | Not found | Not found |
+| StreamDiffusion via Daydream | Hosted API on Livepeer GPUs [C, Livepeer docs] | Sub-second latency [S] | Input video stream; ControlNets including depth [S] | Not found | Not checked |
+
+Licences that §5 left open, from model-card metadata [C]: Matrix-Game 2.0 MIT; Krea Realtime 14B
+(`krea/krea-realtime-video`) Apache-2.0.
+
+**Findings.**
+
+- No Genie 3 developer API exists [C, by absence]. Odyssey-2 Pro does have a public API, which
+  corrects §1's "unclear developer access"; it has no published price and no structural input.
+- Decart is the only hosted, self-serve video-in, video-out service found. It takes a WebRTC
+  video stream, so the engine's render can be the input. No hosted service documents depth,
+  segmentation or object-ID conditioning; structure reaches the model only through the pixels we
+  send. Cosmos 3 Sim-Transfer is the only model found that takes depth and segmentation as explicit
+  controls; it is self-hosted and has no real-time figure.
+- Decart's realtime SDKs moved onto LiveKit in 2026-05, and its JS SDK has measured glass-to-glass
+  latency since 2026-08 [C]. Its public status page probes `lucy-2.1` with headless Chromium on
+  Cloud Run in several GCP regions; values are shown only as charts [C].
+- Open L3 weights that fit one consumer GPU now exist (Waypoint-1.5, Apache-2.0; vendor figures).
+
+### 7.2 Generated worlds as assets (L1)
+
+**World Labs Marble: the World API exists and is self-serve** [C unless marked].
+
+| Item | Detail |
+|------|--------|
+| Call | `POST /marble/v1/worlds:generate` returns an operation; poll `/operations/{id}`; "usually about 5 minutes" per world |
+| Models | `marble-1.0-draft`, `marble-1.0`, `marble-1.1` (default), `marble-1.1-plus` (sizes the world dynamically) |
+| Inputs | Text; image (panorama detected automatically); multi-image (4, or 8 with `reconstruct_images`); video up to 100 MB |
+| Price | $1 per 1,250 credits, $5 minimum, billed apart from the Marble app. Per world: draft $0.12–0.20, 1.0 and 1.1 $1.20–1.28, 1.1-plus $1.20–2.48. HQ GLB export 3,500 credits ($2.80); PLY export free |
+| Rate limit | About 3 starts a minute and 60 an hour by default; more on approval |
+| Assets | `splats.spz_urls`, `mesh.collider_mesh_url`, `mesh.full_res_mesh_url`, `mesh.hq_mesh_url`, `imagery.pano_url`, `thumbnail_url`, `caption`, and `semantics_metadata` (`metric_scale_factor`, `ground_plane_offset`) |
+| Export specs | SPZ and PLY about 2M splats (500k low-res); collider GLB 100–200k triangles; HQ GLB about 600k triangles textured or 1M vertex-coloured, up to an hour, 4 an hour; panorama 2560×1280 |
+| Axes | OpenCV convention; flip Y and Z for OpenGL or three.js; Marble's viewer rotates generated SPZ 180° about X |
+| Structure in | `pano:depth_to_rgb`: a depth panorama (EXR or PNG) plus a prompt gives an RGB panorama; price per call not stated |
+| Engines | Export guides for Unreal, Unity, Blender, Houdini, and Spark (three.js) |
+| Terms | ToS effective 2026-01-21: paid and API users own outputs and may use them commercially; free users are non-commercial only |
+
+[U] The Marble export docs say commercial rights "come with the Pro plan"; the ToS grants them to
+all paid accounts. The API pricing page says API credits do not expire; ToS §6.7(c) says they
+expire one year after purchase. Get World Labs to confirm in writing before relying on either.
+World Labs also announced Atlas (2026-09-01), an omni model that outputs splats, depth and video
+and "will power future versions of Marble"; early access by form only [C].
+
+**Tencent HunyuanWorld** [C].
+
+| Version | Date | Output |
+|---------|------|--------|
+| 1.0 | 2025-07-26 | Panorama proxy turned into a semantically layered mesh, foreground layers chosen by label; Draco export |
+| 1.0-lite | 2025-08-15 | Quantised for consumer GPUs such as the 4090 |
+| Voyager | 2025-09-02 | RGB-D video diffusion |
+| 1.1 WorldMirror | 2025-10-22 | 3D from video or multi-view images |
+| 1.5 WorldPlay | 2025-12-17 | Real-time interactive video (7.1) |
+| HY-World 2.0 | 2026-04-16; weights through 2026-05-18 | Meshes or Gaussian splats, plus depth, normals, cameras and point clouds, from text, images or video. Weights: WorldMirror-2 (~1.2B), HY-Pano-2 (~80B), WorldStereo-2 (~17B). A 2.1 update was announced for 2026-07; not checked |
+
+Every version ships under a Tencent community licence that "does not apply in the European Union,
+United Kingdom and South Korea" and needs Tencent's separate grant above 1M monthly active users
+[C]. Hosted: fal runs HunyuanWorld 1.0 as `fal-ai/hunyuan_world/image-to-world`, returning one
+`world_file` [C]; price not found.
+
+**Other world and scene generators.**
+
+| System | Output | Access | Terms |
+|--------|--------|--------|-------|
+| SpAItial Echo-2 | Gaussian-splat worlds (SPZ, SOG) from text or one image [C]; mesh export [S]; 5–10 min each [S] | REST API, docs.spaitial.ai [C] | Pricing not found |
+| NVIDIA Lyra 2.0 | Image plus camera path to video to 3DGS `.ply`; about 9 min per 80 frames on one H100, about 35 s distilled [C] | Open code and weights [C] | Code Apache-2.0; weights under NVIDIA's internal research licence, not for products [C] |
+| Blockade Labs Skybox AI | Equirectangular panoramas 1K–8K (16K on model 3), HDRI, cube maps, 2K depth-map PNG [C] | API; price via sales [C] | Not checked |
+| Hunyuan3D v3.1 on fal (props) | Image to 3D object [C] | fal API | Not checked |
+
+**Image models for 2.5D layered sets.**
+
+| Model | What it gives | Licence, access |
+|-------|---------------|-----------------|
+| Qwen-Image-Layered | Splits an image into a chosen number of RGBA layers (3–8 shown); 640 or 1024 buckets; 20B [C] | Apache-2.0 [C]; no Hugging Face inference provider; hosted on Replicate [C] |
+| OpenAI GPT Image | `background: "transparent"` with PNG or WebP; support varies by model, preview on gpt-image-2 [C]; a forum report of errors on gpt-image-2 [S] | Paid API |
+| Depth Anything 3 | Monocular and metric depth for parallax layers | Mono, metric, base, small: Apache-2.0; large any-view: CC BY-NC 4.0 [C] |
+| Apple Depth Pro, SHARP | Depth; single image to 3DGS | `apple-amlr` licence per model-card metadata [C]; terms not read |
+
+### 7.3 TypeScript web engines for the scene runtime
+
+| | Babylon.js | PlayCanvas | three.js |
+|-|------------|------------|----------|
+| Licence, version | Apache-2.0; `@babylonjs/core` 9.32.0; 9.0 announced 2026-03-26 [C] | MIT; `playcanvas` 2.23.3 [C] | MIT; r186, 2026-09-24 [C] |
+| WebGPU | WebGPU engine; 9.0 features (clustered lighting, volumetrics) on WebGPU and WebGL 2 [C] | Manual lists "WebGPU (Beta)" with automatic WebGL 2 fallback [C] | `WebGPURenderer` with WebGL 2 fallback [C]; `WebGLRenderer` gets no big new features [C]; a maintainer called `WebGPURenderer` experimental [S, forum, 2025] |
+| Headless, server | `NullEngine` "can be used in server side scenario or for testing": scene logic, no pixels [C]. Pixels need a browser (Puppeteer) [S] or Babylon Native (MIT; Windows, macOS, iOS, Android, Linux) [C] | `NullGraphicsDevice` or `backend="null"` for Node: no pixels [C] | No Node renderer. WebGL 1 removed in r163 [C]; headless-gl is WebGL 1 with experimental WebGL 2 [C] |
+| Text | SDF text in 9.0 [C]; MSDF `TextRenderer` in `@babylonjs/addons`, WebGL and WebGPU [C, official forum, 2025-05] | MSDF fonts: TTF and OTF converted to an MSDF atlas; `@playcanvas/font-tools` [C] | Mesh text only built in; troika-three-text (SDF, MIT, active) [C]; three-mesh-ui (MSDF) idle since 2023-12 [C] |
+| Picking | Ray picking; `GPUPicker` (unique-colour pass, async) [C] | `Picker`: ID-colour buffer, optional depth for the world point; works on splats [C] | `Raycaster`; three-mesh-bvh (MIT) for speed [C]; GPU ID picking only as an example [C] |
+| Depth, object-ID | `GeometryBufferRenderer` types include DEPTH, NORMAL, POSITION, VELOCITY and OBJECT_ID [C, source]; `DepthRenderer`; Frame Graph v1 in 9.0 [C] | `CameraComponent.requestSceneDepthMap()` and `requestSceneColorMap()` [C]; the Picker buffer gives IDs [C] | `RenderTarget` with `depthTexture` and `count` for MRT; `webgpu_mrt` example [C]. Object-ID pass is ours to write |
+| Gaussian splats | Built in: PLY, .splat, SPZ, SOG/SOGS; shadows; LOD streaming experimental; GPU picking through proxy meshes [C] | Built in: SOG recommended, SPZ via a shipped parser, PLY for interchange; streamed SOG LOD; WebGPU compute radix sort since 2.19.0 (2026-05-28) [C]; SuperSplat editor MIT [C] | Spark (MIT, World Labs, `@sparkjsdev/spark` 2.4.0): PLY, SPZ, SPLAT, KSPLAT, SOG; 2.0 (2026-04-14) adds LOD streaming and `.RAD`; targets WebGL 2 through `WebGLRenderer` [C]. `WebGPURenderer` support not stated |
+
+Engine layers on three.js: React Three Fiber (MIT) and pmndrs/uikit (MIT text in its LICENSE,
+though GitHub reports no SPDX id) [C]; not evaluated. Outside a browser, Dawn's Node binding
+(`webgpu` on npm, 0.6.2) exposes WebGPU on Vulkan, Metal, D3D12 or a null backend [C]; npm says
+MIT and GitHub says BSD-3-Clause [U]. Whether any of the three engines renders on it: not found.
+
+**Reading.** None of the three renders pixels in plain Node. For all three, server-side pixels
+mean a GPU-backed headless Chromium (7.4), or Babylon Native for Babylon. Babylon ships the most of
+what grounding and L2/L3 conditioning need: an object-ID and depth G-buffer, a GPU picker, SDF and
+MSDF text, and splats including SPZ. PlayCanvas leads on splats and WebGPU compute. three.js has
+the largest ecosystem, but the object-ID pass and crisp text are add-ons, and Spark ties splats to
+WebGL 2.
+
+### 7.4 Cloud-streaming building blocks
+
+| Block | What it is |
+|-------|------------|
+| Headless Chrome with GPU | Google's recipe for Linux with NVIDIA: `--headless=new --use-angle=vulkan --enable-features=Vulkan --disable-vulkan-surface --enable-unsafe-webgpu`; WebGL, WebGL 2 and WebGPU then report hardware acceleration "at reduced performance"; sandbox off; tested on Colab T4/V100 [C, 2024-01] |
+| Chrome's own WebRTC encoder on headless Linux with NVENC | Not found |
+| `@livekit/rtc-node` (Apache-2.0) | Publish raw frames from Node (`VideoSource`, `VideoFrame`) [C]. LiveKit's native WebRTC layer has NVENC (H.264, H.265, AV1) and VA-API encoders, picked with `LIVEKIT_PREFERRED_HW_ENCODER` [C, source]. Whether the npm binaries include NVENC: not verified |
+| werift (MIT) | WebRTC written in TypeScript; active [C] |
+| LiveKit Egress (Apache-2.0) | Opens Chrome on a URL and transcodes with GStreamer; built for recording and RTMP, Chrome sandbox off by default [C] |
+| Selkies (MPL-2.0) | GPU-accelerated Linux desktop streaming to HTML5, started by Google engineers; plain WebSockets by default, WebRTC opt-in [C] |
+| Neko (Apache-2.0) | Self-hosted virtual browser in Docker, streamed over WebRTC; calls itself an open alternative to Hyperbeam [C] |
+| Pixel Streaming infrastructure (Epic, MIT) | Signalling and web front end for Unreal; encoder estimates: H.264 about 9 ms at 1080p and 24 ms at 4K (RTX 3060), AV1 about 9 and 16 ms (RTX 6000 Ada) [C] |
+
+Client SDKs for the native shells: LiveKit Swift targets iOS 13+, macOS, Mac Catalyst and tvOS 17+,
+with no watchOS target [C]; Decart ships JS, Python, Swift and Android SDKs [C]; Odyssey ships JS and
+Python [C]. A WebRTC client for watchOS: not found.
+
+**Latency figures.**
+
+| Figure | Source | Kind |
+|--------|--------|------|
+| Just-noticeable touch latency: 69 ms direct, 96 ms indirect | Deber et al., as cited in Kämäräinen et al., MMSys 2017 | Lab study |
+| Phone plus access network alone, before the wired path: about 70–107 ms on 2016 Android phones | Kämäräinen et al., MMSys 2017 | Measured |
+| Going from 1 to 10 European server sites cut 90th-percentile network delay by about 20 ms | Same | Measured |
+| One-way delay under 150 ms is "essentially transparent" for most applications; 400 ms is the planning ceiling; highly interactive tasks suffer below 100 ms | ITU-T G.114 (05/2003) | Standard |
+| GeForce NOW with Reflex: click-to-pixel under 40 ms on RTX 4080 SuperPODs; method not stated | NVIDIA, CES 2023 | Vendor claim |
+| Odyssey-2 Pro: a frame every 50 ms (generation interval, not glass-to-glass) | Odyssey docs [C] | Vendor claim |
+
+### 7.5 Implications for Videotape
+
+**L1 is usable today.** Marble's World API gives a world in about 5 minutes for about $1.20–2.50,
+with SPZ splats, a collider GLB and metric-scale metadata, and commercial use on paid and API
+accounts. Spark, Babylon and PlayCanvas all load SPZ. HunyuanWorld weights are not licensed in the
+EU, UK or South Korea, so check where we operate before using them. For 2.5D sets,
+Qwen-Image-Layered (Apache-2.0), transparent GPT Image output and Depth Anything 3 mono
+(Apache-2.0) are usable now.
+
+**L2 is usable today, with a constraint.** Decart's Lucy 2.5 and Lucy Restyle 2 take a WebRTC
+stream at 720p for $0.01–0.04 a second ($36–144 per stream-hour). No hosted L2 takes depth or IDs,
+so the engine must render a conditioning view designed for the model, and crisp text and controls
+should be composited after L2, as §1 already concluded. That means either the server takes the
+restyled stream back and composites (an extra network leg) or the thin client overlays a UI layer
+itself. A self-hosted L2 with explicit depth and segmentation (Cosmos 3 Sim-Transfer) exists, but
+real-time is unproven.
+
+**L3 is not usable for products yet.** Genie 3 and GWM Worlds 2 have no public API; Odyssey-2 Pro
+has one but no published price; Waypoint-1.5 and WorldPlay are self-hostable. None takes engine
+state beyond a start image, actions and camera.
+
+**Engine.** All three engines cover the needs in a browser; none renders in plain Node. Plan on a
+GPU headless Chromium per session, or Babylon Native. Babylon has the most built in for grounding.
+
+**Main unknowns.** Glass-to-glass latency with L2 in the loop (two WebRTC legs); sessions per GPU
+for headless Chromium, and whether its encoder or NVENC through LiveKit does the encoding; whether
+restyling keeps controls readable; Odyssey pricing; World Labs' two term conflicts; a watchOS
+client.
+
+### 7.6 Sources
+
+L2 and L3:
+- https://deepmind.google/models/genie/ · https://blog.google/innovation-and-ai/models-and-research/google-deepmind/project-genie-expands/
+- https://documentation.api.odyssey.ml/ · https://documentation.api.odyssey.ml/odyssey-2-overview · https://documentation.api.odyssey.ml/api-quick-start · https://documentation.api.odyssey.ml/stream-duration-limits · https://odyssey.systems/meet-odyssey-3 · https://odyssey.ml/introducing-interactive-video
+- https://runway.com/research/introducing-gwm-worlds-2 · https://docs.dev.runwayml.com/guides/models/
+- https://docs.platform.decart.ai/getting-started/overview.md · https://docs.platform.decart.ai/getting-started/models · https://docs.platform.decart.ai/getting-started/pricing · https://docs.platform.decart.ai/models/realtime/lucy-2.5 · https://docs.platform.decart.ai/models/realtime/oasis-3 · https://docs.platform.decart.ai/changelog · https://docs.platform.decart.ai/resources/faq · https://lucy-status.decart.ai/
+- https://aireiter.com/blog/lucy-2-5-realtime-video-guide (secondary) · https://startupfortune.com/decart-opens-its-world-model-to-developers-for-two-cents-a-second-betting-it-can-own-physical-ais-simulation-layer-before-the-big-players-build-one-themselves/ (secondary)
+- https://github.com/NVIDIA/Cosmos · https://github.com/nvidia-cosmos/cosmos-transfer2.5
+- https://huggingface.co/Overworld/Waypoint-1.5-1B · https://github.com/Tencent-Hunyuan/HY-WorldPlay · https://www.worldlabs.ai/blog/rtfm · https://github.com/etched-ai/open-oasis
+- https://docs.livepeer.org/v2/gateways/using-gateways/gateway-providers/daydream-gateway · https://lobehub.com/ja/mcp/qianghan-ddmcp (secondary)
+- https://huggingface.co/krea/krea-realtime-video · https://huggingface.co/Skywork/Matrix-Game-2.0
+
+L1 and 2.5D:
+- https://docs.worldlabs.ai/api · https://docs.worldlabs.ai/api/reference/worlds/generate · https://docs.worldlabs.ai/api/reference/worlds/get.md · https://docs.worldlabs.ai/api/pricing · https://docs.worldlabs.ai/api/rate-limits.md · https://docs.worldlabs.ai/api/faq · https://docs.worldlabs.ai/api/rendering-spz.md · https://docs.worldlabs.ai/api/reference/pano/depth_to_rgb.md
+- https://docs.worldlabs.ai/marble/export/specs · https://docs.worldlabs.ai/marble/export/gaussian-splat/index.md · https://worldlabs.ai/terms-of-service · https://www.worldlabs.ai/blog/atlas · https://www.worldlabs.ai/blog/spark-2.0
+- https://github.com/Tencent-Hunyuan/HunyuanWorld-1.0 · https://github.com/Tencent-Hunyuan/HY-World-2.0 (and each repo's licence file) · https://fal.ai/models/fal-ai/hunyuan_world/image-to-world/api
+- https://docs.spaitial.ai/ · https://spaitial.ai/use-cases · https://radiancefields.com/spaitial-ai-unveils-first-frontier-model-echo (secondary)
+- https://github.com/nv-tlabs/lyra · https://api-documentation.blockadelabs.com/api/skybox-exports.html · https://skybox.blockadelabs.com/api-membership · https://fal.ai/models/fal-ai/hunyuan-3d/v3.1/rapid/image-to-3d
+- https://huggingface.co/Qwen/Qwen-Image-Layered · https://replicate.com/qwen/qwen-image-layered · https://developers.openai.com/api/docs/guides/image-generation · https://github.com/ByteDance-Seed/Depth-Anything-3 · https://huggingface.co/apple/DepthPro · https://huggingface.co/apple/Sharp
+
+Engines:
+- https://github.com/BabylonJS/Babylon.js (`packages/dev/core/src/Rendering/geometryBufferRenderer.pure.ts`, `Engines/nullEngine.pure.ts`) · https://blogs.windows.com/windowsdeveloper/2026/03/26/announcing-babylon-js-9-0/ · https://blogs.windows.com/windowsdeveloper/2026/04/02/part-3-babylon-js-9-0-openpbr-and-additional-engine-updates/ · https://doc.babylonjs.com/features/featuresDeepDive/mesh/gaussianSplatting · https://doc.babylonjs.com/features/featuresDeepDive/mesh/interactions/picking_collisions · https://forum.babylonjs.com/t/msdf-text-renderer/58406 · https://forum.babylonjs.com/t/nullengine-and-server-side-rendering/52907 · https://github.com/BabylonJS/BabylonNative
+- https://developer.playcanvas.com/user-manual/graphics/ · https://developer.playcanvas.com/user-manual/engine/running-in-node/ · https://developer.playcanvas.com/user-manual/gaussian-splatting/formats/ · https://developer.playcanvas.com/user-manual/editor/assets/inspectors/font/ · https://api.playcanvas.com/engine/classes/Picker.html · https://api.playcanvas.com/engine/classes/CameraComponent.html · https://github.com/playcanvas/engine/releases/tag/v2.19.0
+- https://threejs.org/docs/pages/WebGPURenderer.html · https://github.com/mrdoob/three.js/releases/tag/r163 · https://github.com/mrdoob/three.js/blob/dev/src/core/RenderTarget.js · https://discourse.threejs.org/t/webgpurenderer-forcewebgl-true-vs-webglrenderer/87805/2 (secondary) · https://github.com/sparkjsdev/spark · https://github.com/protectwise/troika · https://github.com/gkjohnson/three-mesh-bvh · https://github.com/stackgl/headless-gl · https://github.com/dawn-gpu/node-webgpu
+
+Streaming and latency:
+- https://developer.chrome.com/blog/supercharge-web-ai-testing
+- https://github.com/livekit/node-sdks · https://github.com/livekit/rust-sdks (`webrtc-sys/src/video_encoder_factory.cpp`) · https://github.com/livekit/egress · https://github.com/livekit/client-sdk-swift
+- https://github.com/shinyoshiaki/werift-webrtc · https://github.com/selkies-project/selkies · https://github.com/m1k1o/neko · https://github.com/EpicGamesExt/PixelStreamingInfrastructure · https://dev.epicgames.com/documentation/unreal-engine/unreal-engine-pixel-streaming-reference
+- https://users.aalto.fi/~siekkine/pub/kamarainen17mmsys.pdf · https://www.itu.int/dms_pubrec/itu-t/rec/g/T-REC-G.114-200305-I!!SUM-HTM-E.htm · https://www.nvidia.com/en-us/geforce/news/gfecnt/20231/ces-2023-reflex-games-1440p-360hz-monitors/

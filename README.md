@@ -1,62 +1,56 @@
 # videotape
 
-**Interfaces, played.** Generative UI by video, not by code: an interface is declared as journeys,
-played as a live generated picture of a world, and verified so that what you see is what you can
-operate.
+**UI as a Game.** A UI engine that plays apps the way a game engine plays games: declared as
+journeys, rendered live as generated worlds, streamed to native clients on every screen.
 
 > Status: design v2, before any v2 code. The v1 spec was built and measured as `prototype-0` (a git
 > tag); it showed that a server-driven UI with a generated backdrop works and is not new. The v2
-> design in [docs/05-design-v2.md](docs/05-design-v2.md) redesigns the concept; experiments come
-> before code.
+> design is [docs/05-design-v2.md](docs/05-design-v2.md); experiments come before code.
 
 ## The idea
 
-Generative-UI projects today write front-end code on the fly. Videotape writes no front-end code at
-all. There is a declaration of what the interface must do, and there is a picture; between them is
-an engine.
+Generative-UI projects write front-end code on the fly. Videotape writes no front-end code at all.
 
-- **Developers declare intent:** tapes (journeys) of frames, with components, their roles and
-  relations, data, and handlers. No layout, styling, screens, or routing.
-- **Designers declare a world:** the place the interface lives in, its mood and materials. A tree
-  trunk can be the button; a flag can be the field you write on.
-- **Devices declare context:** canvas size, orientation, input methods. Nothing is detected; it is
-  measured, continuously.
-- **The engine composes** each frame for the canvas (breaking it into steps on a watch, merging it
-  with its neighbours on a wall), **embodies** each component as an object of the world, **renders**
-  the world as live video, and **grounds** every frame: every declared control is really there,
-  where it should be, nothing else pretends to be one, and every fact is legible.
-- **The player** shows the picture, maps touches to the objects under them, draws the facts from
-  code onto the objects' surfaces, and keeps an accessibility tree that never depends on pixels.
+- **Developers declare intent** in TypeScript or Python: tapes (journeys) of frames, components with
+  their roles and relations, data, and handlers. No layout, styling, screens, or routing.
+- **Designers declare a world:** flat, layered, or 3D; its mood, materials, and props. A console key
+  can be the button; a tape reel can be a list item.
+- **Clients report context:** screen size, orientation, input methods, preferences. Nothing is
+  detected; it is measured, continuously.
+- **The engine plays the app.** It composes every frame for the real screen, embodies each component
+  as an object of the world, renders the scene live with in-world text drawn from code, hit-tests
+  touches against real geometry, and streams the result cloud-gaming style.
+- **One app, native everywhere.** `videotape export` produces clients for the web, iOS, Android, and
+  desktop from day one. Each client is thin: it plays the stream, gives immediate feedback, and hosts
+  the platform's own text editors and accessibility tree. That last part is what a game engine does
+  not give you.
 
-A canvas is a camera on a set larger than any screen. Rotate a phone and the camera reframes at
-once, the objects recompose a moment later, and the world re-renders shortly after.
+Generation owns the look in layers: worlds and props generated once and rendered live, a live neural
+restyle on top, and, as real-time world models mature, rendering from the engine's state. The engine
+stays the source of truth, and a harness checks that every control is real and every fact exact.
 
 ## The rules that keep it honest
 
-- **Facts come from code.** Every string, number, and value is exact, from the app, drawn onto the
-  world, never invented by the generator.
-- **Interactivity comes from the composition.** The picture must agree with it; a pixel can never
-  create a control.
-- **Everything works with the AI off.** A deterministic proxy of the world is always playable, and
-  it is how the engine is tested.
+- **Facts come from code.** Every string, number, and value is drawn by the engine, never by a model.
+- **Interactivity comes from geometry.** Touches hit declared objects; pixels never create controls.
+- **Everything works with generation off.** That is how the engine is tested.
 
 ## Documents
 
 | Document | What it is |
 |----------|------------|
-| [docs/05-design-v2.md](docs/05-design-v2.md) | **The current design**: intent, world, and context as inputs; the composition engine with breakdown and merge; embodiment; the grounding harness; set and camera; live video as the main path; open questions. |
-| [docs/03-landscape.md](docs/03-landscape.md) | Which models could sit behind each renderer, with sources, and the measured results of prototype-0's live runs. Goes stale; re-check before each experiment. |
-| [docs/02-spec-v1.md](docs/02-spec-v1.md) | The v1 specification, built as `prototype-0`. Superseded as a concept by v2; kept for its contracts and history. |
-| [docs/01-review-and-risks.md](docs/01-review-and-risks.md) | The first review of the idea and its risk register. Its risks still apply; its recommendation (a picture behind ordinary controls) is superseded by v2. |
+| [docs/05-design-v2.md](docs/05-design-v2.md) | **The current design**: decisions, the engine and its loops, SDKs, worlds and generation layers, composition, embodiment, streaming and native clients, the harness, milestones, and open questions. |
+| [docs/03-landscape.md](docs/03-landscape.md) | Providers for each generation layer and candidate engines, with sources, plus prototype-0's measured live runs. Goes stale; re-check before each experiment. |
+| [docs/02-spec-v1.md](docs/02-spec-v1.md) | The v1 specification, built as `prototype-0`. Superseded as a concept; kept for its contracts and history. |
+| [docs/01-review-and-risks.md](docs/01-review-and-risks.md) | The first review of the idea and its risk register. Its risks still apply; its recommendation (a picture behind ordinary controls) is superseded. |
 
 ## Plan
 
-Experiments first, each answering whether one part of v2 can work: the composer (breakdown and
-merge across canvases), embodiment in three worlds, stills with objects placed by inpainting, the
-live tier on a real-time video model, and camera reframing between watch, phone, and desktop. The
-build follows in order: composer, proxy tier, and player with the AI off; embodiment and stills with
-grounding; the live tier; breakdown and merge hooks and the demo. See
-[docs/05-design-v2.md](docs/05-design-v2.md) §17.
+Experiments first: the engine bake-off on a server GPU, streaming latency and sessions per GPU,
+native text editors over a stream, native accessibility from intent, and the Python SDK. Then M1
+delivers apps and user flows (engine, composer, streaming, exported clients, both SDKs) without OS
+capabilities; M2 generated worlds; M3 breakdown, merge, and live looks; M4 native capabilities
+through the exporter. See [docs/05-design-v2.md](docs/05-design-v2.md) §15.
 
 Packages will publish under the `@videotape/*` npm scope. The bare `videotape` name on npm belongs
 to an unrelated package last touched in 2017; the CLI's command is still `videotape`.
