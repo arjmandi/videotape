@@ -381,6 +381,12 @@ class App:
 
         return build(self).intent
 
+    def check(self) -> list[Any]:
+        """What `videotape check` finds: a list of `Diagnostic`, errors and warnings."""
+        from .check import check
+
+        return check(self)
+
 
 def app(
     name: str, *, entry: str, tapes: Sequence[Tape], hub: Hub | None = None, world: str | None = None

@@ -105,9 +105,15 @@ class _Names:
         name = name_of(fn)
         known = self.items.setdefault(name, fn)
         if known is not fn and not any(p.at == f"{name}()" for p in self.problems):
-            where = f"{getattr(known, '__module__', '?')} and {getattr(fn, '__module__', '?')}"
+            where = f"{_place(known)} and {_place(fn)}"
             self.problems.append(error("duplicate-id", f"two {self.what}s are named {name} ({where})", f"{name}()"))
         return name
+
+
+def _place(fn: Callable[..., Any]) -> str:
+    code = getattr(fn, "__code__", None)
+    module = getattr(fn, "__module__", "?")
+    return f"{module}:{code.co_firstlineno}" if code else module
 
 
 class Builder:
