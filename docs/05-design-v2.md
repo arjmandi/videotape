@@ -196,7 +196,9 @@ What a developer writes fits in three words:
 
 Intent keeps v1's tapes, frames, actions (`goto`, `jump`, `back`, `stay`), handlers, and enter
 hooks; drops every presentation field (`layout`, `slot`, `rect`, templates); and replaces the
-reel's string-addressed store with typed records and documents (decisions L and M).
+reel's string-addressed store with typed records and documents (decisions L and M). This section
+gives the model; the SDK's spellings (field options, `vt.show`, `vt.action`, loaders, the testing
+API) are shown in [06-getting-started.md](06-getting-started.md).
 
 ### 6.1 Records: types are the vocabulary
 
