@@ -59,7 +59,7 @@ def a_deal(**over):
 def test_a_field_on_the_class_is_a_reference():
     ref = Deal.amount
     assert isinstance(ref, vt.FieldRef)
-    assert (ref.record, ref.name, str(ref)) == (Deal, "amount", "Deal.amount")
+    assert (ref._record, ref._name, str(ref)) == (Deal, "amount", "Deal.amount")
     assert ref.to_json() == {"field": "Deal.amount"}
 
 

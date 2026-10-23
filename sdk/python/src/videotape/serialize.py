@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ._encode import encode, encode_target, name_of
-from .decisions import Declared, read, returns_kind
+from .decisions import Declared, read, returns_kinds
 from .derive import Use, components, frame_records, uses
 from .diagnostics import Diagnostic, error
 from .graph import Edge, journey
@@ -117,9 +117,8 @@ class Builder:
             out["address"] = f.address
         if f.public:
             out["public"] = True
-        record = f.shows_record
-        if record is not None:
-            out["shows"] = {"collection" if f.shows_many else "record": record.__name__}
+        if f.shown:
+            out["shows"] = [{"collection" if many else "record": r.__name__} for r, many in f.shown]
         if f.edit is not None:
             out["edit"] = {"record": f.edit.__name__}
         if f.enter is not None:
@@ -151,7 +150,7 @@ class Builder:
                     self.loaders.add(opts)
         for c in f.components:
             if isinstance(c, Show):
-                self.need(c.ref.record)
+                self.need(c.ref._record)
         for u in uses(f):
             if u.handler is not None:
                 self.handlers.add(u.handler)
@@ -162,7 +161,7 @@ class Builder:
         out: dict[str, Any] = {"label": encode(a.label), "target": self.target(a.target), "affordance": a.affordance}
         if isinstance(a.on, FieldRef):
             out["on"] = a.on.to_json()
-            self.need(a.on.record)
+            self.need(a.on._record)
         elif a.on is not None:
             out["on"] = a.on.__name__
             self.need(a.on)
@@ -260,8 +259,8 @@ class Builder:
     def loader(self, fn: Callable[..., Any]) -> dict[str, Any]:
         sig = read(fn)
         if not sig.problem and sig.returns is not inspect.Parameter.empty:
-            kind = returns_kind(sig.returns)
-            self.need(kind.record)
+            for kind in returns_kinds(sig.returns):
+                self.need(kind.record)
         return sig.loader_json()
 
 

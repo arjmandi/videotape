@@ -51,23 +51,53 @@ class RecordError(TypeError):
 
 @dataclass(frozen=True)
 class FieldRef:
-    """A field of a record, written `Deal.amount`. In an action's arguments it means this item's value."""
+    """A field of a record, written `Deal.amount`. In an action's arguments it means this item's value.
 
-    record: type[Record]
-    name: str
+    A reference reaches into a single nested record by chaining, `Deal.company.name` (Q41); a list's
+    items are reached with `on=` instead, as in `vt.show(Entry.title, on=Page.toc)`. The reference's
+    own attributes start with `_`, which no record field can, so any field name can follow it.
+    """
+
+    _record: type[Record]
+    _name: str
+    _via: FieldRef | None = None
+    """For a chained reference, the field that holds this field's record: `Deal.company`."""
 
     def __str__(self) -> str:
-        return f"{self.record.__name__}.{self.name}"
+        return f"{self._via}.{self._name}" if self._via is not None else f"{self._record.__name__}.{self._name}"
 
     def __repr__(self) -> str:
         return str(self)
+
+    def __getattr__(self, attr: str) -> FieldRef:
+        if attr.startswith("_"):
+            raise AttributeError(attr)
+        kind = self._spec.kind
+        if kind.type == "record" and attr in kind.target.model_fields:
+            return FieldRef(kind.target, attr, self)
+        if kind.type == "collection" and kind.record is not None and attr in kind.record.model_fields:
+            raise AttributeError(
+                f"{self} is a list; reach its items' fields with on=, as in "
+                f"vt.show({kind.record.__name__}.{attr}, on={self})"
+            )
+        raise AttributeError(f"{self} has no field {attr!r}")
 
     def to_json(self) -> dict[str, str]:
         return {"field": str(self)}
 
     @property
-    def spec(self) -> FieldSpec:
-        return next(f for f in fields_of(self.record) if f.name == self.name)
+    def _spec(self) -> FieldSpec:
+        return next(f for f in fields_of(self._record) if f.name == self._name)
+
+    @property
+    def _root(self) -> type[Record]:
+        """The record a chained reference starts at: `Deal` for `Deal.company.name`."""
+        return self._via._root if self._via is not None else self._record
+
+    @property
+    def _path(self) -> list[FieldRef]:
+        """The references from the root to this one: `[Deal.company, Deal.company.name]`."""
+        return [*(self._via._path if self._via is not None else []), self]
 
 
 # ── field options ────────────────────────────────────────────────────────────
@@ -556,11 +586,11 @@ def pages(ref: FieldRef) -> Any:
     def register(loader: Any) -> Any:
         if not callable(loader):
             raise TypeError("@vt.pages decorates the loader that fetches a page")
-        registered = dict(ref.record.__dict__.get("__vt_pages__", {}))
-        if ref.name in registered and registered[ref.name] is not loader:
-            raise ValueError(f"{ref} already has a pages loader, {name_of(registered[ref.name])}")
-        registered[ref.name] = loader
-        type.__setattr__(ref.record, "__vt_pages__", registered)
+        registered = dict(ref._record.__dict__.get("__vt_pages__", {}))
+        if ref._name in registered and registered[ref._name] is not loader:
+            raise ValueError(f"{ref} already has a pages loader, {name_of(registered[ref._name])}")
+        registered[ref._name] = loader
+        type.__setattr__(ref._record, "__vt_pages__", registered)
         return loader
 
     return register

@@ -181,22 +181,55 @@ def test_edited_lists_are_editable():
         product: str
         quantity: int = vt.Field(ge=1)
 
+    def everyone() -> list[Item]:
+        return []
+
     class Order(vt.Record):
         lines: list[Line] = vt.Field(min_items=1)
         stages: list[Stage]
-        watchers: list[Item]
-        found: list[Item] = vt.Field(select=vt.jump("item", item_id=Item.id))
+        watchers: list[Item] = vt.Field(options=everyone)
+        reviewers: list[Item] = vt.pick("pick_items")
+        extras: list[Item]
 
     async def place(ctx, o: Order):
         return vt.stay()
 
-    lines, stages, watchers, found = one_frame(edit=Order, submit=place)["components"]
+    lines, stages, watchers, reviewers, extras = one_frame(edit=Order, submit=place)["components"]
     assert lines["affordances"] == ["move", "add", "remove", "scroll"] and lines["min_items"] == 1
     assert [c["affordances"] for c in lines["item"]["components"]] == [["write"], ["write"]]
-    assert (stages["affordances"], stages["many"]) == (["choose"], True)
-    assert (watchers["affordances"], watchers["many"]) == (["choose"], True)  # records with an Id are references
-    assert found["affordances"] == ["read", "press", "scroll"] and "many" not in found  # a list to navigate
+    for chosen in (stages, watchers, reviewers):  # an Enum, options=, or vt.pick: a choice (Q43)
+        assert (chosen["affordances"], chosen["many"]) == (["choose"], True)
     assert [c["affordances"] for c in watchers["item"]["components"]] == [["read"], ["read"]]
+    # owned, though Item has a vt.Id: ownership is decided by spelling, never by ids
+    assert extras["affordances"] == ["move", "add", "remove", "scroll"] and "many" not in extras
+
+
+def test_shows_takes_a_list_of_records():
+    class Results(vt.Record):
+        hits: list[Item] = vt.Field([], select=vt.jump("item", item_id=Item.id))
+
+    f = one_frame(shows=[Basket, Results])
+    assert f["shows"] == [{"record": "Basket"}, {"record": "Results"}]
+    assert [c["field"] for c in f["components"]] == ["Basket.title", "Basket.items", "Results.hits"]
+    assert f["components"][-1]["affordances"] == ["read", "press", "scroll"]
+    with pytest.raises(TypeError):
+        vt.frame("x", shows=[Basket, "Results"])
+
+
+def test_show_on_names_the_list_and_chains_reach_nested_records():
+    class Shelf(vt.Record):
+        title: str
+        featured: Item
+        items: list[Item]
+
+    f = one_frame(shows=Shelf, components=[vt.show(Item.name, on=Shelf.items, role="supporting"),
+                                           vt.show(Shelf.featured.name, role="heading")])  # fmt: skip
+    title, featured, items = f["components"]
+    assert [c.get("role") for c in featured["components"]] == ["heading", None]
+    assert [c.get("role") for c in items["item"]["components"]] == ["supporting", None]
+    assert str(Shelf.featured.name) == "Shelf.featured.name"
+    with pytest.raises(AttributeError, match="is a list; reach its items' fields with on="):
+        Shelf.items.name  # noqa: B018
 
 
 def test_record_identity_is_marked():
@@ -208,7 +241,7 @@ def test_record_identity_is_marked():
 
 def test_a_list_shown_directly_is_wrapped():
     f = one_frame(shows=list[Item])
-    assert f["shows"] == {"collection": "Item"}
+    assert f["shows"] == [{"collection": "Item"}]
     (wrapper,) = f["components"]
     assert wrapper["type"] == "collection" and wrapper["item"]["record"] == "Item"
 

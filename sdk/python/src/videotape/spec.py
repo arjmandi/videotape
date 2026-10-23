@@ -229,7 +229,7 @@ class Frame(_Spec):
     title: Label | None = None
     address: str | None = None
     public: Literal[True] | None = None
-    shows: Shows | None = None
+    shows: list[Shows] | None = Field(None, description="The records the frame shows, which the user reads.")
     edit: Edits | None = None
     enter: LoaderRef | None = None
     submit: Submit | None = None
@@ -292,7 +292,7 @@ class Loader(_Spec):
     """A loader: what a frame shows (`enter=`), the next page of a list (`@vt.pages`), or a choice's options."""
 
     params: list[Param]
-    returns: Kind | None = None
+    returns: list[Kind] | None = Field(None, description="One document, or several when it returns a tuple.")
     unreadable: str | None = None
 
 

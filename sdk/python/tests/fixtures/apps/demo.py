@@ -50,9 +50,12 @@ class Page(vt.Record):
     toc: list[Entry] = vt.Field(role="navigation", select=vt.jump("docs", page=Entry.slug))
 
 
-class Search(vt.Record):
+class Search(vt.Record):                                   # edited: what the user types
     q: str = vt.Field(kind="search", label="Search the docs", commit="change", importance="optional")
-    results: list[Entry] = vt.Field(role="supporting", select=vt.jump("docs", page=Entry.slug))
+
+
+class Results(vt.Record):                                  # shown, without a vt.Id: this session's own
+    hits: list[Entry] = vt.Field([], role="supporting", select=vt.jump("docs", page=Entry.slug))
 
 
 async def load_page(ctx, page: str = "intro") -> Page:
@@ -60,14 +63,14 @@ async def load_page(ctx, page: str = "intro") -> Page:
     return Page(id=page, title=p.title, body=vt.RichText.from_markdown(p.markdown), toc=await docs_index.toc())
 
 
-async def search_docs(ctx, s: Search):
-    s.results = await docs_index.search(s.q, limit=8)
+async def search_docs(ctx, s: Search, r: Results):
+    r.hits = await docs_index.search(s.q, limit=8)
     return vt.stay()
 
 
 docs = vt.tape("docs", [
     vt.frame("Read one page of the docs", address="/docs/{page}", public=True,
-             shows=Page, enter=load_page, edit=Search, on_change={Search.q: search_docs}),
+             shows=[Page, Results], enter=load_page, edit=Search, on_change={Search.q: search_docs}),
 ])
 
 

@@ -102,15 +102,18 @@ home = vt.tape("home", [vt.frame("See what is new", address="/", public=True, sh
 
 class VideoSearch(vt.Record):
     q: str = vt.Field(kind="search", commit="change", label="Search videos")
-    results: list[VideoCard] = vt.Field(select=vt.jump("watch", video_id=VideoCard.id))
 
 
-async def search_videos(ctx, s: VideoSearch):
+class Found(vt.Record):
+    videos: list[VideoCard] = vt.Field([], select=vt.jump("watch", video_id=VideoCard.id))
+
+
+async def search_videos(ctx, s: VideoSearch, found: Found):
     return vt.stay()
 
 
 search = vt.tape("search", [
-    vt.frame("Find a video", edit=VideoSearch, on_change={VideoSearch.q: search_videos}),
+    vt.frame("Find a video", shows=Found, edit=VideoSearch, on_change={VideoSearch.q: search_videos}),
 ])
 
 

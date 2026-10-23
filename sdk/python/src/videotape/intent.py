@@ -91,11 +91,14 @@ class Show:
     ref: FieldRef
     options: FieldOptions
     events: dict[str, Callable[..., Any]] = field(default_factory=dict)
+    on: FieldRef | None = None
+    """The list whose items the field belongs to, where the frame holds its record more than once (Q41)."""
 
 
 def show(
     ref: FieldRef,
     *,
+    on: FieldRef | None = None,
     on_change: Callable[..., Any] | None = None,
     on_play: Callable[..., Any] | None = None,
     on_progress: Callable[..., Any] | None = None,
@@ -103,9 +106,14 @@ def show(
     on_error: Callable[..., Any] | None = None,
     **options: Any,
 ) -> Show:
-    """Overrides the derived component for `ref`, or adds one; `press=` makes it a control."""
+    """Overrides the derived component for `ref`, or adds one; `press=` makes it a control.
+
+    `on=` names the list whose items the field belongs to: `vt.show(Entry.title, on=Page.toc)`.
+    """
     if not isinstance(ref, FieldRef):
         raise TypeError(f"vt.show takes a field reference such as Deal.amount; got {ref!r}")
+    if on is not None and not isinstance(on, FieldRef):
+        raise TypeError(f"on= takes the list field that holds the items, such as Page.toc; got {on!r}")
     unknown = sorted(set(options) - set(OPTION_NAMES))
     if unknown:
         raise TypeError(f"vt.show got unknown options: {', '.join(unknown)}")
@@ -115,7 +123,7 @@ def show(
     for name, handler in events.items():
         if handler is not None and not callable(handler):
             raise TypeError(f"on_{name}= takes a handler")
-    return Show(ref, FieldOptions(**options), {k: v for k, v in events.items() if v is not None})
+    return Show(ref, FieldOptions(**options), {k: v for k, v in events.items() if v is not None}, on)
 
 
 @dataclass(eq=False)
@@ -142,7 +150,7 @@ class Action:
     def on_record(self) -> type[Record] | None:
         """The record of the items it acts on."""
         if isinstance(self.on, FieldRef):
-            return self.on.spec.kind.record
+            return self.on._spec.kind.record
         return self.on
 
 
@@ -251,15 +259,14 @@ class Frame:
         return f"{self.tape}/{self.key}" if self.key else self.tape
 
     @property
-    def shows_record(self) -> type[Record] | None:
-        """The record the frame shows; for `shows=list[Deal]`, `Deal`."""
-        if self.shows is None:
-            return None
-        return get_args(self.shows)[0] if get_origin(self.shows) is list else self.shows
+    def shown(self) -> list[tuple[type[Record], bool]]:
+        """The records the frame shows, each with whether it is shown as a list (`shows=list[Deal]`)."""
+        items = self.shows if isinstance(self.shows, (list, tuple)) else [] if self.shows is None else [self.shows]
+        return [(get_args(s)[0], True) if get_origin(s) is list else (s, False) for s in items]
 
     @property
-    def shows_many(self) -> bool:
-        return get_origin(self.shows) is list
+    def shown_roots(self) -> list[type[Record]]:
+        return [r for r, _ in self.shown]
 
     @property
     def address_params(self) -> list[str]:
@@ -302,7 +309,12 @@ def frame(
     if id is not None:
         _check_id("frame id", id)
     if shows is not None:
-        _check_record("shows=", get_args(shows)[0] if get_origin(shows) is list else shows)
+        for s in shows if isinstance(shows, (list, tuple)) else [shows]:
+            _check_record("shows=", get_args(s)[0] if get_origin(s) is list else s)
+        if isinstance(shows, (list, tuple)):
+            if not shows:
+                raise ValueError("shows= takes a record, or a list of the records the frame shows")
+            shows = list(shows)
     if edit is not None:
         _check_record("edit=", edit)
     if isinstance(submit, Action):

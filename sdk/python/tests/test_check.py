@@ -278,10 +278,13 @@ class _Page(vt.Record):
 
 class _Search(vt.Record):
     q: str = vt.Field(kind="search", commit="change")
-    results: list[_Entry] = vt.Field(select=vt.jump("docs", page=_Entry.slug))
 
 
-async def _find(ctx, s: _Search):
+class _Results(vt.Record):
+    hits: list[_Entry] = vt.Field([], select=vt.jump("docs", page=_Entry.slug))
+
+
+async def _find(ctx, s: _Search, r: _Results):
     return vt.stay()
 
 
@@ -289,7 +292,8 @@ async def _load_page(ctx, page: str = "intro") -> _Page: ...
 
 
 def _docs(**frame):
-    f = vt.frame("Read the docs", shows=_Page, edit=_Search, enter=_load_page, on_change={_Search.q: _find}, **frame)
+    f = vt.frame("Read the docs", shows=[_Page, _Results], edit=_Search, enter=_load_page,
+                 on_change={_Search.q: _find}, **frame)  # fmt: skip
     return vt.app("docs", entry="docs", tapes=[vt.tape("docs", [f])])
 
 
@@ -357,3 +361,44 @@ def test_pages_loaders_return_the_list_s_items_and_take_its_holder():
 
     assert [(d.code, d.at) for d in errors_of(app(Wall))] == [("loader-returns", "title_page()")]
     assert [d.code for d in errors_of(app(Other))] == ["loader-returns", "unknown-document", "unknown-document"]
+
+
+def test_show_on_a_list_names_which_items(  # Q41
+):
+    assert errors(_docs(components=[vt.show(_Entry.title, on=_Page.toc, role="heading")])) == []
+    [d] = errors_of(_docs(components=[vt.show(_Entry.title, on=_Page.title)]))
+    assert d.code == "unknown-field" and "on= names a list of records" in d.message
+    [d] = errors_of(_docs(components=[vt.show(_Page.title, on=_Page.toc)]))
+    assert d.code == "unknown-field" and "not a field of _Page.toc's items" in d.message
+
+
+def test_a_chained_reference_resolves_from_its_root():
+    class Address(vt.Record):
+        city: str
+
+    class Customer(vt.Record):
+        billing: Address
+        shipping: Address
+
+    async def load(ctx) -> Customer: ...
+
+    def app(ref):
+        f = vt.frame("See a customer", shows=Customer, enter=load, components=[vt.show(ref, role="heading")])
+        return vt.app("x", entry="c", tapes=[vt.tape("c", [f])])
+
+    assert errors(app(Customer.billing.city)) == []  # Address is held twice; the chain says which
+    assert errors(app(Address.city)) == ["ambiguous-record"]
+
+
+def test_a_loader_returns_one_document_or_a_tuple():  # Q42
+    async def both(ctx, page: str = "intro") -> tuple[_Page, _Results]: ...
+
+    async def wrong(ctx, page: str = "intro") -> tuple[_Page, _Entry]: ...
+
+    def app(loader):
+        f = vt.frame("Read", shows=[_Page, _Results], edit=_Search, enter=loader, on_change={_Search.q: _find})
+        return vt.app("docs", entry="docs", tapes=[vt.tape("docs", [f])])
+
+    assert errors(app(both)) == []
+    [d] = errors_of(app(wrong))
+    assert d.code == "loader-returns" and "returns _Entry" in d.message

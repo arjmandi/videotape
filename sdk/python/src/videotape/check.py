@@ -15,7 +15,7 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 from ._encode import name_of
-from .decisions import Declared, accepts, read, returns_kind
+from .decisions import Declared, accepts, read, returns_kind, returns_kinds
 from .derive import components, edited_records, field_context, held, input_records, uses
 from .diagnostics import Diagnostic, error, warning
 from .graph import closed_cycles, has_exit, journey, reachable
@@ -39,6 +39,7 @@ RULES: dict[str, tuple[str, str]] = {
     "on-unshown-record": ("error", "an action is on= a record its frame does not show"),
     "secret-shown": ("error", "a frame shows a field of secret type"),
     "hidden-required": ("error", "an edit frame hides a required field other than its vt.Id"),
+    "edited-select": ("error", "a list in an edited record has select=; lists the user navigates are shown"),
     "address-param": ("error", "an address has a parameter the frame's loader does not take"),
     "public-without-address": ("error", "a public frame has no address"),
     "loader-returns": ("error", "a loader returns something other than what its frame shows, or its list holds"),
@@ -270,10 +271,10 @@ class _Checker:
                 continue
             where = f'action "{_label(a.label)}" is on={a.on if isinstance(a.on, FieldRef) else a.on.__name__}'
             if isinstance(a.on, FieldRef):
-                if a.on.spec.kind.record is None:
+                if a.on._spec.kind.record is None:
                     self.report(error("on-unshown-record", f"{where}, which holds no records", f.node))
                     continue
-                self.resolve(f, counts, a.on.record, (), where, "on-unshown-record")
+                self.resolve(f, counts, a.on._record, (), where, "on-unshown-record")
             else:
                 self.resolve(f, counts, a.on, (), where, "on-unshown-record")
 
@@ -285,9 +286,14 @@ class _Checker:
                 self.report(error("secret-shown", message, f.node))
 
     def hidden(self, f: Frame) -> None:
-        """An edit frame whose form hides a required field can never be complete (Q35)."""
+        """An edit frame whose form hides a required field can never be complete (Q35); a list it edits
+        is edited, not navigated (Q42)."""
         for r in input_records(f):
             for spec in fields_of(r):
+                if spec.kind.type == "collection" and "select" in spec.options:
+                    message = (f"{spec.ref} is a list the frame edits, so it is not navigated; move it to a "
+                               f"record the frame shows, as in shows=[Page, Results]")  # fmt: skip
+                    self.report(error("edited-select", message, f.node))
                 if spec.required and not spec.shown and not spec.state and spec.kind.type != "id":
                     message = (f"the frame edits {r.__name__}, whose required {spec.name} is not shown, so the "
                                f"form can never be complete; show it, give it a default, or make it a vt.Id")  # fmt: skip
@@ -317,16 +323,15 @@ class _Checker:
             return
         if sig.returns is _EMPTY:
             return
-        expected = f.shows if f.shows is not None else f.edit
-        got = returns_kind(sig.returns)
-        if expected is None:
-            message = f"{sig.name}() returns {_kind_words(got)}, but the frame shows and edits nothing"
-            self.report(error("loader-returns", message, f.node))
-            return
-        want = kind_of(expected)
-        if {**got.to_json(), "nullable": None} != {**want.to_json(), "nullable": None}:
-            verb = "shows" if f.shows is not None else "edits"
-            message = f"{sig.name}() returns {_kind_words(got)}, but the frame {verb} {_kind_words(want)}"
+        documents = [kind_of(list[r] if many else r) for r, many in f.shown]
+        if f.edit is not None:
+            documents.append(kind_of(f.edit))
+        wanted = [{**k.to_json(), "nullable": None} for k in documents]
+        for got in returns_kinds(sig.returns):
+            if {**got.to_json(), "nullable": None} in wanted:
+                continue
+            has = ", ".join(_kind_words(k) for k in documents) or "nothing"
+            message = f"{sig.name}() returns {_kind_words(got)}, but the frame shows and edits {has}"
             self.report(error("loader-returns", message, f.node))
 
     def pages(self) -> None:
@@ -373,20 +378,24 @@ class _Checker:
                 refs.extend((r, (), f"vt.text({getattr(c.value, 'key', c.value)!r})") for r in _refs(c.value))
                 continue
             assert isinstance(c, Show)
-            refs.append((c.ref, (), f"vt.show({c.ref})"))
-            refs.extend((r, (c.ref.record,), f"vt.show({c.ref}) press=") for r in _refs(c.options.get("press")))
-            add_flags(f"vt.show({c.ref})", c.options.values, (c.ref.record,))
+            if c.on is None:
+                refs.append((c.ref, (), f"vt.show({c.ref})"))
+            elif self.on_list(f, c):
+                refs.append((c.on, (), f"vt.show({c.ref}, on={c.on})"))
+                refs.append((c.ref, (c.on._spec.kind.record,), f"vt.show({c.ref}, on={c.on})"))
+            refs.extend((r, (c.ref._record,), f"vt.show({c.ref}) press=") for r in _refs(c.options.get("press")))
+            add_flags(f"vt.show({c.ref})", c.options.values, (c.ref._record,))
             for event in c.events:
-                kind = c.ref.spec.kind.type
-                if event == "change" and c.ref.record not in edited:
-                    message = f"vt.show({c.ref}, on_change=...): this frame does not edit {c.ref.record.__name__}"
+                kind = c.ref._spec.kind.type
+                if event == "change" and c.ref._record not in edited:
+                    message = f"vt.show({c.ref}, on_change=...): this frame does not edit {c.ref._record.__name__}"
                     self.report(error("bad-event", message, f.node))
                 elif event != "change" and kind not in ("video", "audio"):
                     message = (f"vt.show({c.ref}, on_{event}=...): {c.ref} is {_a(kind)} field, and only "
                                f"video and audio report {event}")  # fmt: skip
                     self.report(error("bad-event", message, f.node))
         for ref in f.on_change:
-            if ref.record not in edited:
+            if ref._record not in edited:
                 self.report(error("unknown-field", f"on_change names {ref}, which this frame does not edit", f.node))
             else:
                 refs.append((ref, (), f"on_change {ref}"))
@@ -407,11 +416,26 @@ class _Checker:
                     refs.append((spec.options["group_by"], context, f"{spec.ref} group_by="))
                 add_flags(str(spec.ref), spec.options, context)
         for ref, context, where in refs:
-            self.resolve(f, counts, ref.record, context, f"{where} names {ref}", "unknown-field")
+            self.resolve(f, counts, ref._root, context, f"{where} names {ref}", "unknown-field")
         for ref, where in flags:
-            kind = ref.spec.kind.type
+            kind = ref._spec.kind.type
             if kind != "boolean":
                 self.report(error("not-bool", f"{where} takes a bool field; {ref} is {_a(kind)} field", f.node))
+
+    def on_list(self, f: Frame, c: Show) -> bool:
+        """`vt.show(ref, on=list)`: the list holds records, and `ref` is a field of its items (Q41)."""
+        assert c.on is not None
+        item = c.on._spec.kind.record if c.on._spec.kind.type == "collection" else None
+        if item is None:
+            message = (f"vt.show({c.ref}, on={c.on}): on= names a list of records; for a single nested record, "
+                       f"chain the reference, as in Deal.company.name")  # fmt: skip
+            self.report(error("unknown-field", message, f.node))
+            return False
+        if c.ref._root is not item:
+            message = f"vt.show({c.ref}, on={c.on}): {c.ref} is not a field of {c.on}'s items, which are {item.__name__}"
+            self.report(error("unknown-field", message, f.node))
+            return False
+        return True
 
     def primaries(self, f: Frame) -> None:
         count = (1 if f.submit is not None else 0) + sum(1 for a in f.actions if a.role == "primary")

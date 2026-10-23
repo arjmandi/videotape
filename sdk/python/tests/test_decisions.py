@@ -210,7 +210,7 @@ def test_loaders_take_arguments_by_name():
 
     assert read(load_page).loader_json() == {
         "params": [{"name": "page", "type": "string", "required": False, "default": "intro"}],
-        "returns": {"type": "record", "record": "Deal"},
+        "returns": [{"type": "record", "record": "Deal"}],
     }
 
 
@@ -235,8 +235,8 @@ def test_a_continuation_is_used_where_the_call_is_made():
 
 def test_loaders_in_the_intent():
     intent = load_sample("relay").app.intent()
-    assert intent["loaders"]["older_messages"]["returns"] == {
-        "type": "page", "item": {"type": "record", "record": "Message"}}  # fmt: skip
+    assert intent["loaders"]["older_messages"]["returns"] == [
+        {"type": "page", "item": {"type": "record", "record": "Message"}}]  # fmt: skip
     assert intent["loaders"]["older_messages"]["params"] == [
         {"name": "conv", "type": "record", "record": "Conversation", "required": True},
         {"name": "cursor", "type": "string", "nullable": True, "required": True},

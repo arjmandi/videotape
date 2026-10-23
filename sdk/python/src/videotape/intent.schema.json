@@ -969,7 +969,12 @@
           "type": "boolean"
         },
         "shows": {
-          "$ref": "#/$defs/Shows"
+          "description": "The records the frame shows, which the user reads.",
+          "title": "Shows",
+          "items": {
+            "$ref": "#/$defs/Shows"
+          },
+          "type": "array"
         },
         "edit": {
           "$ref": "#/$defs/Edits"
@@ -1262,7 +1267,12 @@
           "type": "array"
         },
         "returns": {
-          "$ref": "#/$defs/Kind"
+          "description": "One document, or several when it returns a tuple.",
+          "title": "Returns",
+          "items": {
+            "$ref": "#/$defs/Kind"
+          },
+          "type": "array"
         },
         "unreadable": {
           "title": "Unreadable",

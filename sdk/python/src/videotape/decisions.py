@@ -19,7 +19,7 @@ import typing
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import cached_property
-from typing import Any, TypeVar
+from typing import Any, TypeVar, get_args, get_origin
 
 from pydantic import TypeAdapter
 
@@ -346,8 +346,15 @@ class Signature:
         if self.problem:
             out["unreadable"] = self.problem
         elif self.returns is not _EMPTY:
-            out["returns"] = returns_kind(self.returns).to_json()
+            out["returns"] = [k.to_json() for k in returns_kinds(self.returns)]
         return out
+
+
+def returns_kinds(annotation: Any) -> list[Kind]:
+    """What a loader returns: one document, or several as a tuple (`-> tuple[Page, Results]`, Q42)."""
+    if get_origin(annotation) is tuple:
+        return [returns_kind(a) for a in get_args(annotation) if a is not Ellipsis]
+    return [returns_kind(annotation)]
 
 
 def returns_kind(annotation: Any) -> Kind:

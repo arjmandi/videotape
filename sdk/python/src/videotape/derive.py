@@ -12,7 +12,7 @@ from ._encode import encode, encode_target
 from .intent import Frame, Show, Text
 from .decisions import read
 from .outcomes import Call, Outcome, call
-from .records import FieldRef, FieldSpec, Record, fields_of, id_field, records_in
+from .records import FieldRef, FieldSpec, Record, fields_of, records_in
 
 AFFORDANCES = ("read", "write", "press", "choose", "adjust", "move", "add", "remove", "scroll", "play")
 """The engine's closed contract (05 §6.4), in canonical order; `pick` from the OS comes after M1."""
@@ -41,8 +41,11 @@ class Use:
 
 
 def shown_records(frame: Frame) -> list[type[Record]]:
-    """The record the frame shows and every record nested in it."""
-    return records_in(frame.shows_record) if frame.shows_record else []
+    """The records the frame shows and every record nested in them."""
+    out: list[type[Record]] = []
+    for root in frame.shown_roots:
+        out += [r for r in records_in(root) if r not in out]
+    return out
 
 
 def edited_records(frame: Frame) -> list[type[Record]]:
@@ -71,9 +74,9 @@ def uses(frame: Frame) -> list[Use]:
     for c in frame.components:
         if isinstance(c, Show):
             for event, handler in c.events.items():
-                out.append(Use(frame, {event: str(c.ref)}, handler, context=(c.ref.record,)))
+                out.append(Use(frame, {event: str(c.ref)}, handler, context=show_context(c)))
             if "press" in c.options.values:
-                out.append(Use(frame, {"press": str(c.ref)}, c.options.values["press"], context=(c.ref.record,)))
+                out.append(Use(frame, {"press": str(c.ref)}, c.options.values["press"], context=show_context(c)))
     for r in frame_records(frame):
         for f in fields_of(r):
             for key in ("select", "press"):
@@ -101,6 +104,11 @@ def uses(frame: Frame) -> list[Use]:
     return out
 
 
+def show_context(c: Show) -> tuple[type, ...]:
+    """In `vt.show(ref, ...)`, a reference to the field's record means the item that field is shown for."""
+    return (c.ref._record,)
+
+
 def field_context(spec: FieldSpec) -> tuple[type, ...]:
     """Inside a field's own options, its record and its item type mean this item (Q38)."""
     return tuple(r for r in (spec.record, spec.kind.record) if r is not None)
@@ -123,7 +131,7 @@ def held(frame: Frame) -> dict[type[Record], int]:
             if f.kind.record is not None:
                 visit(f.kind.record, stack | {r})
 
-    for root in (frame.shows_record, frame.edit):
+    for root in [*frame.shown_roots, frame.edit]:
         if root is not None:
             visit(root, frozenset())
     return counts
@@ -152,19 +160,15 @@ def input_records(frame: Frame) -> list[type[Record]]:
 # ── components ───────────────────────────────────────────────────────────────
 
 
-def list_mode(spec: FieldSpec) -> str | None:
-    """How a list in an edited record is edited (05 §6.4).
+def list_mode(spec: FieldSpec) -> str:
+    """How a list in an edited record is edited (05 §6.4, Q43): by its spelling, never by ids.
 
-    `"choose"`: a list of an Enum, of options, or of references (records with a `vt.Id`) is a
-    multiple choice. `"items"`: any other list takes add, remove, and move. A list with `select=`
-    is one to navigate, not to edit, so it has no mode.
+    `"choose"`: a list of an Enum (or Literal), or a list field with `vt.pick(...)` or `options=`,
+    is a multiple choice among existing values. `"items"`: any other list is owned, and takes add,
+    remove, and move.
     """
-    if "select" in spec.options:
-        return None
     item = spec.kind.item
     if {"options", "pick"} & set(spec.options) or (item is not None and item.type == "choice"):
-        return "choose"
-    if item is not None and item.type == "record" and id_field(item.target) is not None:
         return "choose"
     return "items"
 
@@ -250,6 +254,24 @@ def _walk(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+def _key(ref: FieldRef) -> str:
+    """How a derived component names its field: by its own record, `Company.name`."""
+    return f"{ref._record.__name__}.{ref._name}"
+
+
+def _matches(derived: list[dict[str, Any]], c: Show) -> list[dict[str, Any]]:
+    """The derived components `vt.show(ref, on=...)` overrides: every one for the field, or those under
+    the `on=` list's items, or along a chained reference's path (Q41)."""
+    if c.on is not None:
+        lists = [n for n in _walk(derived) if n.get("field") == _key(c.on)]
+        return [m for n in lists for m in _walk(n.get("item", {}).get("components", [])) if m.get("field") == _key(c.ref)]
+    path = c.ref._path
+    level = [n for n in _walk(derived) if n.get("field") == _key(path[0])]
+    for step in path[1:]:
+        level = [m for n in level for m in n.get("components", []) if m.get("field") == _key(step)]
+    return level
+
+
 def components(frame: Frame) -> tuple[list[dict[str, Any]], list[str]]:
     """The frame's components and states: what it adds first, then what its records derive.
 
@@ -259,10 +281,9 @@ def components(frame: Frame) -> tuple[list[dict[str, Any]], list[str]]:
     moved = {a.on_record for a in frame.actions if a.to is not None and a.on is not None}
     derived: list[dict[str, Any]] = []
     states: list[str] = []
-    shown = frame.shows_record
-    if shown is not None:
-        comps, st = _derive(shown, False, moved, [shown], None if frame.shows_many else "shows")
-        if frame.shows_many:
+    for shown, many in frame.shown:
+        comps, st = _derive(shown, False, moved, [shown], None if many else "shows")
+        if many:
             item: dict[str, Any] = {"type": "record", "record": shown.__name__, "components": comps}
             if st:
                 item["states"] = st
@@ -284,13 +305,13 @@ def components(frame: Frame) -> tuple[list[dict[str, Any]], list[str]]:
             continue
         options = c.options.to_json()
         events = {k: encode_target(v) for k, v in c.events.items()}
-        matches = [n for n in _walk(derived) if n.get("field") == str(c.ref)]
+        matches = _matches(derived, c)
         if not matches:
-            spec = c.ref.spec
+            spec = c.ref._spec
             node: dict[str, Any] = {"field": str(c.ref)}
-            if c.ref.record in shows_scope:
+            if c.ref._root in shows_scope:
                 node["from"] = "shows"
-            elif c.ref.record in edited_records(frame):
+            elif c.ref._root in edited_records(frame):
                 node["from"] = "edit"
             node.update(spec.to_json())
             node["affordances"] = affordances(spec, node.get("from") == "edit", moved)
