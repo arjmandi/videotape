@@ -47,7 +47,7 @@ editors, and accessibility is first-class. A game engine has none of these.
 
 | # | Decision | Consequence |
 |---|----------|-------------|
-| A | The engine runs on servers, cloud-gaming style, and streams to clients. A client-side engine comes later. | Clients stay thin and identical across platforms; GPU cost per session and network latency are first-order concerns (§11, §17). |
+| A | The engine runs on servers, cloud-gaming style, and streams to clients. A client-side engine comes later. | Clients stay thin and identical across platforms; GPU cost per session and network latency are first-order concerns (§11, §17). Apple's guideline 4.2.7(e) puts streaming at risk on iOS, where the client-side engine may have to come first (Q11). |
 | B | Our own scene runtime, built on Babylon.js, rendered on servers by Babylon Native. | One language with the TypeScript SDK; no browser per session; the same runtime can later run on devices through Babylon Native's mobile targets (E1 confirms Linux GPU servers). |
 | C | Platform text input and platform accessibility are first-class. | Clients host native editors and native accessibility trees; this is the differentiator from game engines. |
 | D | Not necessarily 3D. | Worlds come in three kinds (§7); most apps will start in 2D or 2.5D. |
@@ -252,6 +252,14 @@ Generation runs again only when something gives it a reason:
 | A provider or model upgrade | Opt-in, as a new release |
 | Declared flavour variants (a night variant, a pro-plan mood) | Each variant once, at release |
 
+**A release that adds features also needs a store update.** The stores accept server-side changes
+to content and presentation, not features switched on after review (§11.1). `videotape release`
+sorts each change. Presentation (worlds, props, composition, copy, style, and changes inside a
+reviewed tape) ships from the server alone. Features (new tapes, new capabilities, new kinds of
+purchase) go into the feature manifest and reach store users only with new shell builds and
+review notes. Where the stores draw the line is not written down; this default is conservative,
+and E7 asks Apple. Web clients have no store and take both at once.
+
 At runtime, L1 never generates: a missing or failing asset falls back to its plain prop until the
 next release. Screen changes never regenerate anything; the camera and the composer adapt the
 existing world. The costs that grow with users are the stream itself and the live layers (L2, L3),
@@ -348,6 +356,26 @@ Input, text, context, and accessibility actions come back on a data channel.
 | Resilience | Keeps the last frame and the accessibility tree on a dropped connection; reconnects and resumes the reel |
 | OS bridge (after M1) | Executes capability requests (camera, files, location, notifications, share, biometrics, payments) and returns results |
 
+### 11.1 Store rules for exported clients
+
+Exports pass store review. Apple's App Store, Google Play, and the Microsoft Store were checked
+against their current rules ([03-landscape.md](03-landscape.md) §8). Google Play and the Microsoft
+Store have no rule against streamed interfaces. Apple's 4.2.7(e) says "Thin clients for
+cloud-based apps are not appropriate for the App Store", and its 4.7 allows streaming only for
+games; whether a shell with native text, accessibility, and OS work passes is untested (E7, Q11).
+Every exported client follows these rules:
+
+| Rule | Design | Source |
+|------|--------|--------|
+| Bundled client | The web client ships inside the shell binary and updates through the store; the shell never loads our website. | Apple 4.2; Play Spam |
+| Feature manifest | Each shell build carries the list of features it was reviewed with (tapes, capabilities, purchase kinds) and sends it in `hello`. The engine serves only those features, to reviewers and users alike (§7.1). | Apple 2.3.1(a), 2.5.19; Play Deceptive Behavior; Microsoft 10.2.2 |
+| One app per shell | A shell plays one app. A catalogue of streamed apps in one binary is out of scope. | Apple 4.7.1–4.7.5 |
+| The owner submits | The exporter produces a project that the app's owner signs and submits from their own developer account. | Apple 4.2.6, 4.3(a); Play Repetitive Content |
+| Purchases | Digital goods are sold only through the shell (StoreKit, Play Billing) as a capability after M1; the streamed UI never takes payment for them. Storefront rules are server configuration. M1 apps sell nothing. | Apple 3.1.1; Play Payments; Microsoft 10.8.1 |
+| Accounts and privacy | Sign in with Apple wherever social sign-in is offered; in-app account deletion; a privacy policy link; consent before user content reaches a third-party model (L2 providers); a "report this screen" action. | Apple 4.8, 5.1.1, 5.1.2(i); Play account deletion, AI-generated content |
+| Offline | Native offline, reconnect, and error screens in the shell, never only in the stream. | Apple §4; Play functionality |
+| Mac | Distributed directly (Developer ID, notarised) by default. The Mac App Store's 2.4.5(iv) also forbids downloaded resources that significantly change the app, which a new world pack may do. | Apple 2.4.5 |
+
 ## 12. Facts
 
 - Every string and value is rendered by the engine from code, as real text on the prop that carries
@@ -378,7 +406,7 @@ progress.
 
 | Direction | Message | Carries |
 |-----------|---------|---------|
-| C→S | `hello`, `context` | Session resume token, context, then context deltas |
+| C→S | `hello`, `context` | Session resume token, shell build and feature manifest, context, then context deltas |
 | C→S | `input` | Pointer, touch, key, crown, and remote events in stream coordinates, with the frame they were made against |
 | C→S | `text` | Editor commits and changes per the commit policy; composition state for live preview |
 | C→S | `a11y` | Screen-reader actions on accessibility nodes |
@@ -405,13 +433,14 @@ Experiments first, then milestones, each ending in something runnable.
 | E4 | Native accessibility trees from intent on iOS, Android, and the web | VoiceOver and TalkBack parity |
 | E5 | Python SDK over the app protocol with the demo app | Ergonomics; handler latency |
 | E6 | L2 round trip: the engine's facts-free view through a hosted restyle and back, text composited, re-encoded | Added latency; legibility; whether controls stay recognisable; cost per stream-hour |
+| E7 | App Review probe: an iOS shell around the E2–E4 test client (streamed, with native text, accessibility, and offline screens) through an external TestFlight review, plus a written question to App Review on 4.2.7(e) and on where server-side change becomes a new feature | Whether iOS clients may stream; if not, the on-device engine comes first on iOS (Q11) |
 
 | Milestone | Delivers | Done when |
 |-----------|----------|-----------|
-| **M1 Apps and flows** | Scene runtime (L0), continuous composer, streaming, clients exported for web, iOS, Android, desktop, native text and accessibility, TypeScript and Python SDKs, two sample apps, CI with generation off | S1–S7 |
+| **M1 Apps and flows** | Scene runtime (L0), continuous composer, streaming, clients exported for web, iOS, Android, desktop under the store rules (§11.1), native text and accessibility, TypeScript and Python SDKs, two sample apps, CI with generation off | S1–S7 |
 | **M2 Generated worlds** | `videotape release` and world packs; L1 3D worlds (Marble) and props, then 2.5D and 2D; embodiment; coherence critic; asset harness | The demo runs in two 3D worlds that both pass the harness, on every reference screen without regeneration |
 | **M3 Adaptive composition and live looks** | Breakdown and merge with hooks; L2 live restyle with grounding | A 20-field form breaks into steps on a watch-sized screen; L2 holds grounding |
-| **M4 Native capabilities** | Capabilities through the exporter's OS bridge; an on-device engine option | Camera and file flows work on iOS and Android |
+| **M4 Native capabilities** | Capabilities through the exporter's OS bridge; an on-device engine option (earlier on iOS if E7 requires it) | Camera and file flows work on iOS and Android |
 | Later | L3 world models; watch and TV clients | — |
 
 ## 16. What carries over from prototype-0
@@ -442,7 +471,8 @@ back.
 | GPU cost per session | L0 and L1 are cheap to render; many sessions per GPU; adaptive frame rate; L2 and L3 only where they pay |
 | Data use and battery on mobile | Adaptive frame rate and bitrate; idle scenes nearly free to encode |
 | No offline use | Accepted for M1; the on-device engine removes it later |
-| App store acceptance of apps whose interface is streamed | Check Apple's and Google's current review guidelines before M1 exports (Q11) |
+| Apple rejects streamed non-game apps as thin clients (4.2.7(e)) | Shells do real native work (§11.1); E7 probes App Review early in M1; the on-device engine is the iOS fallback (Q11). Google Play and the Microsoft Store have no such rule. |
+| Server-side feature changes read as hidden features (Apple 2.5.19, Play Deceptive Behavior) | A feature manifest per shell build; feature releases ship with shell updates and review notes (§7.1, §11.1) |
 | Text input and accessibility gaps across platforms | E3 and E4 before M1; parity tests per client in CI |
 | Game-like interfaces are harder to learn | Affordance contracts and judge; consistent props per world; plain mode always available |
 | Vendor dependency for generation | Layers are plugins; L0 always works; open-weights paths tracked in the landscape |
@@ -464,7 +494,7 @@ back.
 | Q8 | Breakdown policy (M3)? | By default, with opt-out and hooks. |
 | Q9 | Merges (M3)? | Declared merges only. |
 | Q10 | Worlds per app? | One per app, overridable per tape; each generated per release. |
-| Q11 | Do app stores accept streamed interfaces? | **Open**: being researched from official guidelines into [03-landscape.md](03-landscape.md) §8. |
+| Q11 | Do app stores accept streamed interfaces? | Researched from the official guidelines ([03-landscape.md](03-landscape.md) §8). Google Play and the Microsoft Store: yes, under the rules in §11.1. Apple: unsettled, because 4.2.7(e) says thin clients for cloud apps do not belong on the App Store. On every store, server-side change covers presentation; new features need a store update (§7.1). **Proposed, to confirm:** probe Apple early in M1 (E7); if App Review rejects the streamed shell, iOS clients render on device with Babylon Native, the client-side engine of decision A brought forward for iOS only, with L0 and L1 but no L2. |
 | Q12 | Which model for embodiment and coherence, and when? | A Claude model at release time; results live in the world pack; no language model in the click path. |
 | Q13 | Plain mode? | Always available to users, and the automatic fallback. |
 | Q14 | With L2 on, where are text and controls composited? | On the engine; revisited after E6 measures the extra leg. |

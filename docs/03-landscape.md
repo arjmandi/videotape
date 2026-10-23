@@ -484,3 +484,119 @@ Streaming and latency:
 - https://github.com/livekit/node-sdks · https://github.com/livekit/rust-sdks (`webrtc-sys/src/video_encoder_factory.cpp`) · https://github.com/livekit/egress · https://github.com/livekit/client-sdk-swift
 - https://github.com/shinyoshiaki/werift-webrtc · https://github.com/selkies-project/selkies · https://github.com/m1k1o/neko · https://github.com/EpicGamesExt/PixelStreamingInfrastructure · https://dev.epicgames.com/documentation/unreal-engine/unreal-engine-pixel-streaming-reference
 - https://users.aalto.fi/~siekkine/pub/kamarainen17mmsys.pdf · https://www.itu.int/dms_pubrec/itu-t/rec/g/T-REC-G.114-200305-I!!SUM-HTM-E.htm · https://www.nvidia.com/en-us/geforce/news/gfecnt/20231/ces-2023-reflex-games-1440p-360hz-monitors/
+
+## 8. App stores and streamed interfaces (checked 2026-10-23)
+
+The question: will the stores accept a Videotape export, a thin native shell (a system web view
+running our web client on iOS and Android, a desktop shell elsewhere) whose screens are rendered on
+our server and streamed over WebRTC, and whose screens and flows can change without a store update?
+The shell owns native text input and the accessibility tree, and later camera, files,
+notifications and payments. Tags as in §7. Guideline wording is paraphrased under its number; one
+line is quoted. Apple's guidelines were last updated 2026-10-16 [C]; Microsoft Store Policies are
+version 7.20, dated 2026-09-14 [C]. Nothing here was tested by a submission.
+
+### 8.1 Apple App Store (iOS, iPadOS; Mac in 8.3)
+
+| Area | Guideline (paraphrased) | Bearing on Videotape |
+|------|-------------------------|----------------------|
+| Thin clients | 4.2.7 Remote Desktop Clients sets rules for apps that mirror specific software on a user-owned host over a LAN, and ends with (e): "Thin clients for cloud-based apps are not appropriate for the App Store." [C] | The one rule that reads directly on us. It sits under remote desktop apps, so whether it binds other apps is [U]. Read plainly, an app whose every screen is server-rendered video is a thin client for a cloud-based app. |
+| Streaming games | The old 4.9 "Streaming games" was deleted on 2024-01-25 and its subject moved into 4.7; 4.9 is now Apple Pay [C]. The 2020 requirement that each streamed game be its own App Store app went with it [C] | 4.7 permits software that is not in the binary: HTML5 or JavaScript mini apps and mini games, streaming games, chatbots, plug-ins, and emulator games [C]. Streamed apps that are not games are not on that list. |
+| Hosted software, 4.7.1–4.7.5 | The host is responsible for each piece: privacy (5.1) and purchase (3.1) rules, filtering, reporting and blocking (4.7.1); no exposing native APIs to it without Apple's prior permission (4.7.2); consent each time data or permissions are shared with it (4.7.3); an index of all of it with universal links (4.7.4); age gating above the app's rating (4.7.5) [C] | Applies when one binary offers several streamed titles. A shell that hands camera, files or notifications to third-party streamed apps needs Apple's permission first. The Mini Apps Partner Program (85 % of qualifying IAP) covers HTML5 or JavaScript mini apps under DPLA 3.3.1(B) [C]; video is not mentioned. |
+| Minimum functionality | 4.2: the app must offer more than a repackaged website and be useful and app-like [C]. 4.2.2: not mainly web clippings, aggregated content or links [C]. 4.2.6: apps from a commercial template or app generator are rejected unless the content owner submits them; one "picker" app hosting all clients is the alternative [C]. 4.3(a): no separate bundle IDs for variants of one app [C] | The web view must run a bundled client, not our website. If other companies build on Videotape, each export is submitted from the client's own account and must differ in substance. |
+| Code, and changes after review | 2.5.2: no downloading or running code that adds or changes features [C]. DPLA 3.3.1(B): interpreted code may be downloaded only if it keeps the app's advertised primary purpose, does not bypass OS security, and does not create a store for other apps [C]. 2.3.1(a): every new feature, function and product change must be described specifically in the review notes [C]. 2.3.12: significant changes go in What's New [C]. 2.5.19 (added 2026-10-16; the policy was formerly part of 2.3.1): no hidden, dormant or undocumented features [C] | A video stream is not code, so 2.5.2 does not touch the pixels. 2.3.1(a) and 2.5.19 are about features, not code: a flow switched on server-side after review is an undocumented feature. Changes to content, copy, layout and style inside reviewed features look safe; where Apple draws the line is [U]. |
+| Payments | 3.1.1: unlocking features, subscriptions or premium content requires in-app purchase [C]. 3.1.1(a), 3.1.3: buttons and links to other purchase methods are allowed on the US storefront, and elsewhere only by entitlement in some regions [C]. 3.1.3(e): physical goods and services used outside the app must not use IAP [C]. 3.1.2(a): a streaming-game subscription may be shared across apps if the games come from the App Store and nobody pays twice [C] | Pixels drawn by the server are still the app. A payment form painted in the stream for digital goods breaks 3.1.1 outside the US storefront. |
+| Login, privacy | 4.8: social or third-party login for the primary account needs an equivalent option that collects only name and email, can hide the email and does not track for ads; apps with only their own accounts are exempt [C]. 5.1.1(v): in-app account deletion when accounts can be created; no login without account-based features [C]. 5.1.1(i): privacy policy linked in metadata and in the app [C]. 5.1.2(i): disclose and get explicit permission before sharing personal data, with third-party AI named [C]. 2.5.14: consent plus a visible or audible indicator when recording camera, microphone or screen [C]. 2.1: demo account and a live backend during review [C] | The session is data collection: touches, typed text and camera frames go to our server, and on to Decart when L2 restyles frames that show user content. Privacy details and consent must cover both legs. |
+| Accessibility | No App Review guideline requires accessibility [C, by absence]. Accessibility Nutrition Labels (VoiceOver, Voice Control, Larger Text, Dark Interface, Differentiate Without Color Alone, Sufficient Contrast, Reduced Motion, Captions, Audio Descriptions) are voluntary for now; Apple says they will become required for new apps and updates over time [C]. A feature may be claimed only if every common task (first launch, login, purchase, settings, core function) works with it [C] | Not a blocker today. Video alone supports none of the nine; any claim depends on the shell's tree and on the server following the device's text size, contrast, motion and appearance settings. |
+| Upkeep | Section 4 intro: apps that stop working or degrade may be removed at any time [C] | A dead server or a bad network makes a degraded app; the shell needs its own offline and reconnect screens. |
+
+### 8.2 Google Play
+
+| Area | Policy (paraphrased) | Bearing on Videotape |
+|------|----------------------|----------------------|
+| Executable code | Device and Network Abuse: apps update only through Play and may not fetch executable code (dex, JAR, .so) from elsewhere; code running in a VM or interpreter, such as JavaScript in a web view, is exempt, but interpreted code loaded at run time must not enable policy violations [C] | Video is not code. A remotely loaded web client is allowed in principle; bundling it is simpler. |
+| Hidden features, changes | Deceptive Behavior §5: functionality must be reasonably clear; no hidden, dormant or undocumented features, including ones built to be switched on remotely; no remote code that adds features absent at review; the app must behave the same for users and reviewers [C]. §3: apps that change significantly between versions without telling users, and without updating the listing, violate it [C]. Metadata must describe and show the app's real functionality [C] | Same constraint as Apple 2.3.1(a) and 2.5.19: server-side changes are fine for content and presentation, not for undocumented new features. No review-only mode. |
+| Webviews, spam | Spam: no apps whose main purpose is affiliate traffic or a webview of a site without its owner's permission [C]; no apps that only repeat other apps' experience (Repetitive Content) [C] | We own the content, so the webview rule does not apply. Many near-identical exports risk Repetitive Content. |
+| Minimum functionality | Apps need basic, adequate utility as mobile apps; apps with only limited functionality and content are not allowed; no crashing, freezing or abnormal behaviour [C] | A lower bar than Apple 4.2. A blank stream on a bad network reads as broken; the shell needs native offline states. |
+| Cloud gaming, streamed apps | No Play policy specific to cloud gaming or streamed apps found [C, by absence]. Cloud gaming services such as GeForce NOW are distributed on Play [S] | Nothing comparable to Apple 4.2.7(e) found. |
+| Payments | Play Billing is required for paid downloads and in-app digital goods, including subscriptions (game, video and others) and cloud software and services; physical goods and services and peer-to-peer payments are exempt [C]. Alternative billing (§8) and external links (§9) by enrolment in eligible regions [C]. US: since 2025-10-29 Google does not require Play Billing or ban links out for US users; a revised settlement of 2026-03-04 awaits the court [C]. Billing choice in the US, EEA and UK from 2026-06-30, with a separate 5 % fee only on Play Billing [C] | Same design as Apple: the shell owns purchases. Outside the US and enrolled programmes, the streamed UI must not take payment for digital goods. |
+| Accessibility API | Applies to apps that implement an AccessibilityService: only tools that help people with disabilities may declare `isAccessibilityTool`; autonomous planning and acting through the API is banned; other uses need in-app disclosure and consent [C] | Exposing our own tree (virtual views, `AccessibilityNodeProvider`) needs no AccessibilityService, and the policy does not address it [U]. Do not ship a service. |
+| Accounts, AI content | Apps with account creation need an in-app deletion path and a web link to request deletion [C]. Apps that generate images or video from user prompts must let users report offensive output without leaving the app [C] | Applies when users prompt L1, L2 or L3 generation. A "report this screen" action in the shell also serves Apple 4.7.1. |
+
+### 8.3 Mac App Store and Microsoft Store
+
+- **Mac App Store.** The same guidelines apply, plus 2.4.5 [C]. 2.4.5(iv) is stricter than iOS: no
+  downloading code *or resources* that add functionality or significantly change the app from what
+  review saw; 2.4.5(vii): updates only through the Mac App Store [C]. Direct distribution
+  (Developer ID, notarisation) avoids App Review; not re-checked in this pass.
+- **Microsoft Store (Policies 7.20).** 10.2.2: no fundamentally changing or extending described
+  functionality by dynamically included code [C]. 10.1.1: web apps must be published by the site
+  owner, and the value must be clear on first run [C]. 10.1: remote-play and game-subscription
+  products are listed as games [C]. 10.8.1: non-game PC products may use a secure third-party
+  purchase API for digital items; games must use Microsoft's [C]. No rule against cloud thin
+  clients found [C, by absence].
+
+### 8.4 Risks and design responses
+
+| # | Rule | Blocks or constrains when | Design response |
+|---|------|---------------------------|-----------------|
+| S1 | Apple 4.2.7(e) | A reviewer reads the export as a thin client for a cloud app | The shell does real native work in every session: native text editing, the accessibility tree, notifications, share sheet, files, camera, StoreKit, Sign in with Apple, offline and reconnect screens, the last state cached. Ask Apple before building the iOS shell (8.5). |
+| S2 | Apple 4.7 | A non-game app leans on the streaming-games allowance | Do not present a non-game app as a game. Games rest on 4.7; other apps rest on S1. |
+| S3 | Apple 4.2, 4.2.2; Play Spam | The shell loads our website in a web view | Bundle the web client in the binary and update it through the stores. |
+| S4 | Apple 2.3.1(a), 2.3.12, 2.5.19, DPLA 3.3.1(B), Mac 2.4.5(iv); Play Deceptive Behavior; MS 10.2.2 | The server adds a feature or flow after review without an update | Each shell build carries a feature manifest, and the server serves only features in it. Content, copy, layout and style change freely; new features ship with a shell update and review notes. Same behaviour for reviewers and users. |
+| S5 | Apple 4.7.1–4.7.5 | One binary hosts several streamed apps or games (a catalogue) | Default to one shell per app; no catalogue is then required. A catalogue needs an index with universal links, age gating, report and block, and Apple's permission before exposing native APIs to hosted apps. |
+| S6 | Apple 4.2.6, 4.3(a); Play Repetitive Content | Videotape submits many template-like exports for clients | Each client submits from its own developer account; exports must differ in substance. |
+| S7 | Apple 3.1.1; Play Payments; MS 10.8.1 | The streamed UI sells digital goods through its own form | Purchases are a shell capability: the server asks, the shell runs StoreKit or Play Billing, the server verifies the receipt. Storefront rules (US links, EEA and UK programmes) are server configuration. Physical goods use Apple Pay, Google Pay or cards. |
+| S8 | Apple 4.8, 5.1.1, 5.1.2(i), 2.5.14; Play account deletion | The thin client skips duties the store checks on the device | The shell ships Sign in with Apple whenever social login is offered, in-app account deletion, a privacy policy link, consent before camera frames or user content reach third-party AI (Decart), and recording indicators. |
+| S9 | Apple Accessibility Nutrition Labels | Labels become mandatory and video UI fails common tasks | Native tree plus server-side respect for OS settings (text size, contrast, reduced motion, appearance); claim only features that pass every common task. |
+| S10 | Apple 2.1, Section 4; Play functionality | Review on a poor network, or a server outage | Servers up during review, a demo account, native error, offline and reconnect screens, and the latency budget met on cellular. |
+
+### 8.5 Implications for Videotape
+
+**Google Play: acceptable.** No Play rule against thin clients or streamed interfaces was found;
+the webview rule targets other people's sites, and a video stream is not code. The constraints
+are ordinary: Play Billing for digital goods outside the US and enrolled programmes, no remotely
+activated undocumented features, an accurate listing, account deletion, and AI-content reporting.
+**Microsoft Store: acceptable**, with the most permissive payment rules for non-game apps.
+
+**Apple: uncertain, and the deciding question.** 4.2.7(e) says thin clients for cloud apps do not
+belong on the App Store, and 4.7 allows streaming only for games. No Apple text supports the
+assumption "acceptable with a native shell that owns text input, accessibility, and OS
+integration"; it rests on a reviewer judging the shell to be more than a thin client. Native text
+input and accessibility make the stream usable but do not change what the app is; OS integration,
+native purchase and login, and offline behaviour carry more weight. A Videotape game is on firmer
+ground under 4.7. Separately, on both stores, "features change without a store update" holds only
+for content and presentation: new features switched on server-side conflict with Apple 2.3.1(a) and
+2.5.19 and with Play's Deceptive Behavior policy, and on the Mac 2.4.5(iv) also names resources.
+
+**The exported shell must include:** the bundled web client; native text input and the
+accessibility tree; the OS features each app needs (notifications, share, files, camera); StoreKit
+and Play Billing purchases; Sign in with Apple when social login is used; in-app account deletion;
+a privacy policy and consent covering streamed input and third-party AI; report and block; native
+offline and reconnect screens; and a feature manifest the server obeys.
+
+**Confirm directly.** With Apple, before building the iOS shell: whether 4.2.7(e) applies outside
+remote desktop apps; whether a non-game app streamed this way, with these native features, passes
+4.2; where server-side change becomes a new feature under 2.3.1(a) and 2.5.19; and, for any
+catalogue, what 4.7.2 permission involves. An external TestFlight build, which Apple reviews, is the
+cheapest real probe. With Google: that a virtual accessibility tree needs no declaration, and the
+US billing terms once the court rules on the settlement. In the EU, alternative distribution
+reviews only a subset of guidelines (Notarization); whether 4.2 is in that subset was not checked.
+
+### 8.6 Sources
+
+Apple:
+- https://developer.apple.com/app-store/review/guidelines/ (last updated 2026-10-16)
+- https://developer.apple.com/news/?id=92th7e5i (2026-10-16 changes) · https://developer.apple.com/news/?id=7j1f99yf (2024-01-25: 4.7 rewritten, 4.9 deleted) · https://developer.apple.com/news/?id=xqk627qu (2020-09-11: original 4.9) · https://developer.apple.com/news/?id=0kjli9o1 (2024-04-05) · https://developer.apple.com/news/?id=ty0avr2s (2024-08-01: 4.7, 4.7.2, 4.7.3 added to Notarization)
+- https://developer.apple.com/support/terms/apple-developer-program-license-agreement/ (3.3.1 A and B)
+- https://developer.apple.com/programs/mini-apps-partner/
+- https://developer.apple.com/help/app-store-connect/manage-app-accessibility/overview-of-accessibility-nutrition-labels
+
+Google:
+- https://support.google.com/googleplay/android-developer/answer/9888379 (Device and Network Abuse) · https://support.google.com/googleplay/android-developer/answer/17006354 (Deceptive Behavior)
+- https://support.google.com/googleplay/android-developer/answer/9899034 (Spam) · https://support.google.com/googleplay/android-developer/answer/9898783 (Functionality, Content, and User Experience)
+- https://support.google.com/googleplay/android-developer/answer/9858738 (Payments) · https://support.google.com/googleplay/android-developer/answer/15582165 (US users) · https://android-developers.googleblog.com/2026/06/play-expanded-billing.html
+- https://support.google.com/googleplay/android-developer/answer/10964491 (AccessibilityService API) · https://support.google.com/googleplay/android-developer/answer/13327111 (account deletion) · https://support.google.com/googleplay/android-developer/answer/13985936 (AI-Generated Content)
+- https://www.similarweb.com/app/google/com.nvidia.geforcenow/poland/ (secondary: GeForce NOW on Play)
+
+Microsoft:
+- https://learn.microsoft.com/en-us/windows/apps/publish/store-policies (version 7.20)

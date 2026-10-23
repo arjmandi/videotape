@@ -47,7 +47,8 @@ stays the source of truth, and a harness checks that every control is real and e
 ## Plan
 
 Experiments first: the engine bake-off on a server GPU, streaming latency and sessions per GPU,
-native text editors over a stream, native accessibility from intent, and the Python SDK. Then M1
+native text editors over a stream, native accessibility from intent, the Python SDK, and an App
+Review probe (Apple's rules read against streamed non-game apps). Then M1
 delivers apps and user flows (engine, composer, streaming, exported clients, both SDKs) without OS
 capabilities; M2 generated worlds; M3 breakdown, merge, and live looks; M4 native capabilities
 through the exporter. See [docs/05-design-v2.md](docs/05-design-v2.md) §15.
