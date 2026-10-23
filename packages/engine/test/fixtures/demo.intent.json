@@ -1,0 +1,1144 @@
+{
+  "format": "videotape.intent/2",
+  "app": "demo",
+  "entry": "landing",
+  "world": "studio",
+  "tapes": [
+    {
+      "id": "landing",
+      "frames": [
+        {
+          "purpose": "Say what Hello is and lead to sign-in",
+          "address": "/",
+          "public": true,
+          "components": [
+            {
+              "text": "Hello, team.",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "text": "Plans, notes, and decisions in one quiet place.",
+              "role": "supporting",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Sign in",
+              "target": {
+                "type": "jump",
+                "tape": "login"
+              },
+              "affordance": "press",
+              "role": "primary"
+            },
+            {
+              "label": "Read the docs",
+              "target": {
+                "type": "jump",
+                "tape": "docs",
+                "args": {
+                  "page": "intro"
+                }
+              },
+              "affordance": "press"
+            }
+          ],
+          "root": "sometimes"
+        }
+      ]
+    },
+    {
+      "id": "docs",
+      "frames": [
+        {
+          "purpose": "Read one page of the docs",
+          "address": "/docs/{page}",
+          "public": true,
+          "shows": [
+            {
+              "record": "Page"
+            },
+            {
+              "record": "Results"
+            }
+          ],
+          "edit": {
+            "record": "Search"
+          },
+          "enter": {
+            "loader": "load_page"
+          },
+          "components": [
+            {
+              "field": "Page.title",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Page.body",
+              "from": "shows",
+              "type": "richtext",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Page.toc",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Entry",
+                "components": [
+                  {
+                    "field": "Entry.title",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "role": "navigation",
+              "select": {
+                "type": "jump",
+                "tape": "docs",
+                "args": {
+                  "page": {
+                    "field": "Entry.slug"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            },
+            {
+              "field": "Results.hits",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Entry",
+                "components": [
+                  {
+                    "field": "Entry.title",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "role": "supporting",
+              "select": {
+                "type": "jump",
+                "tape": "docs",
+                "args": {
+                  "page": {
+                    "field": "Entry.slug"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            },
+            {
+              "field": "Search.q",
+              "from": "edit",
+              "type": "string",
+              "importance": "optional",
+              "kind": "search",
+              "commit": "change",
+              "label": "Search the docs",
+              "affordances": [
+                "write"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Hello",
+              "target": {
+                "type": "jump",
+                "tape": "landing"
+              },
+              "affordance": "press",
+              "role": "navigation"
+            }
+          ],
+          "on_change": [
+            {
+              "field": "Search.q",
+              "handler": "search_docs"
+            }
+          ],
+          "root": "sometimes"
+        }
+      ]
+    },
+    {
+      "id": "login",
+      "frames": [
+        {
+          "purpose": "Sign in",
+          "title": "Welcome back",
+          "edit": {
+            "record": "Credentials"
+          },
+          "submit": {
+            "label": "Sign in",
+            "handler": "sign_in"
+          },
+          "components": [
+            {
+              "field": "Credentials.username",
+              "from": "edit",
+              "type": "string",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Credentials.password",
+              "from": "edit",
+              "type": "secret",
+              "affordances": [
+                "write"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dashboard",
+      "frames": [
+        {
+          "purpose": "See how my projects are doing",
+          "address": "/projects",
+          "shows": [
+            {
+              "record": "Dashboard"
+            }
+          ],
+          "enter": {
+            "loader": "load_dashboard"
+          },
+          "components": [
+            {
+              "text": {
+                "t": "dashboard.hello",
+                "params": {
+                  "name": {
+                    "field": "Dashboard.first_name"
+                  }
+                }
+              },
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Dashboard.activity",
+              "from": "shows",
+              "type": "series",
+              "importance": "optional",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Dashboard.projects",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Project",
+                "components": [
+                  {
+                    "field": "Project.name",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Project.status",
+                    "type": "string",
+                    "role": "status",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Project.updated",
+                    "type": "datetime",
+                    "format": "relative-time",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "report",
+                "args": {
+                  "project_id": {
+                    "field": "Project.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "sometimes"
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "frames": [
+        {
+          "purpose": "Read one report",
+          "address": "/projects/{project_id}",
+          "shows": [
+            {
+              "record": "Report"
+            }
+          ],
+          "enter": {
+            "loader": "load_report"
+          },
+          "components": [
+            {
+              "field": "Report.title",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Report.chart",
+              "from": "shows",
+              "type": "series",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Report.summary",
+              "from": "shows",
+              "type": "richtext",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Export CSV",
+              "target": {
+                "handler": "export_csv"
+              },
+              "affordance": "press",
+              "role": "primary"
+            },
+            {
+              "label": "All projects",
+              "target": {
+                "type": "jump",
+                "tape": "dashboard"
+              },
+              "affordance": "press",
+              "role": "navigation"
+            }
+          ],
+          "root": "sometimes"
+        }
+      ]
+    }
+  ],
+  "records": {
+    "Credentials": {
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "title": "Username",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true,
+          "x-vt": {
+            "type": "secret"
+          }
+        }
+      },
+      "required": [
+        "username",
+        "password"
+      ],
+      "title": "Credentials",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Dashboard": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "first_name": {
+          "title": "First Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "show": false
+          }
+        },
+        "activity": {
+          "$ref": "#/types/vt.Series",
+          "x-vt": {
+            "type": "series",
+            "importance": "optional"
+          }
+        },
+        "projects": {
+          "items": {
+            "$ref": "#/records/Project"
+          },
+          "title": "Projects",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Project"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "report",
+              "args": {
+                "project_id": {
+                  "field": "Project.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "first_name",
+        "activity",
+        "projects"
+      ],
+      "title": "Dashboard",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Entry": {
+      "additionalProperties": false,
+      "properties": {
+        "slug": {
+          "default": null,
+          "title": "Slug",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "Entry",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "slug"
+      }
+    },
+    "Page": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "body": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext"
+          }
+        },
+        "toc": {
+          "items": {
+            "$ref": "#/records/Entry"
+          },
+          "title": "Toc",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Entry"
+            },
+            "role": "navigation",
+            "select": {
+              "type": "jump",
+              "tape": "docs",
+              "args": {
+                "page": {
+                  "field": "Entry.slug"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "title",
+        "body",
+        "toc"
+      ],
+      "title": "Page",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Project": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "status": {
+          "title": "Status",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "status"
+          }
+        },
+        "updated": {
+          "format": "date-time",
+          "title": "Updated",
+          "type": "string",
+          "x-vt": {
+            "type": "datetime",
+            "format": "relative-time"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "updated"
+      ],
+      "title": "Project",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Report": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "chart": {
+          "$ref": "#/types/vt.Series",
+          "x-vt": {
+            "type": "series"
+          }
+        },
+        "summary": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "chart",
+        "summary"
+      ],
+      "title": "Report",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Results": {
+      "additionalProperties": false,
+      "properties": {
+        "hits": {
+          "default": [],
+          "items": {
+            "$ref": "#/records/Entry"
+          },
+          "title": "Hits",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Entry"
+            },
+            "role": "supporting",
+            "select": {
+              "type": "jump",
+              "tape": "docs",
+              "args": {
+                "page": {
+                  "field": "Entry.slug"
+                }
+              }
+            }
+          }
+        }
+      },
+      "title": "Results",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Search": {
+      "additionalProperties": false,
+      "properties": {
+        "q": {
+          "title": "Q",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "importance": "optional",
+            "kind": "search",
+            "commit": "change",
+            "label": "Search the docs"
+          }
+        }
+      },
+      "required": [
+        "q"
+      ],
+      "title": "Search",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    }
+  },
+  "types": {
+    "vt.CodeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "code",
+          "default": "code",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "CodeBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.ListBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list",
+          "default": "list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ordered": {
+          "default": false,
+          "title": "Ordered",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "items": {
+              "$ref": "#/types/vt.Span"
+            },
+            "type": "array"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ListBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Paragraph": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/vt.Span"
+          },
+          "title": "Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "spans"
+      ],
+      "title": "Paragraph",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.RichText": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "code": "#/types/vt.CodeBlock",
+                "list": "#/types/vt.ListBlock",
+                "paragraph": "#/types/vt.Paragraph"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/types/vt.Paragraph"
+              },
+              {
+                "$ref": "#/types/vt.ListBlock"
+              },
+              {
+                "$ref": "#/types/vt.CodeBlock"
+              }
+            ]
+          },
+          "title": "Blocks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "blocks"
+      ],
+      "title": "RichText",
+      "type": "object",
+      "x-vt": {
+        "type": "richtext"
+      }
+    },
+    "vt.Series": {
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "x": {
+          "title": "X",
+          "type": "string"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Y"
+        }
+      },
+      "required": [
+        "rows",
+        "x",
+        "y"
+      ],
+      "title": "Series",
+      "type": "object",
+      "x-vt": {
+        "type": "series"
+      }
+    },
+    "vt.Span": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "emphasis": {
+          "anyOf": [
+            {
+              "enum": [
+                "em",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emphasis"
+        },
+        "code": {
+          "default": false,
+          "title": "Code",
+          "type": "boolean"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "mention": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mention"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Span",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    }
+  },
+  "handlers": {
+    "export_csv": {
+      "params": [
+        {
+          "name": "r",
+          "type": "record",
+          "record": "Report",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "download"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "search_docs": {
+      "params": [
+        {
+          "name": "s",
+          "type": "record",
+          "record": "Search",
+          "required": true
+        },
+        {
+          "name": "r",
+          "type": "record",
+          "record": "Results",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "sign_in": {
+      "params": [
+        {
+          "name": "c",
+          "type": "record",
+          "record": "Credentials",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "dashboard",
+          "resets_history": true,
+          "signs_in": true
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    }
+  },
+  "loaders": {
+    "load_dashboard": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Dashboard"
+        }
+      ]
+    },
+    "load_page": {
+      "params": [
+        {
+          "name": "page",
+          "type": "string",
+          "required": false,
+          "default": "intro"
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Page"
+        }
+      ]
+    },
+    "load_report": {
+      "params": [
+        {
+          "name": "project_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Report"
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "from": "landing",
+      "to": "login",
+      "type": "jump",
+      "tape": "login",
+      "via": {
+        "action": "Sign in"
+      }
+    },
+    {
+      "from": "landing",
+      "to": "docs",
+      "type": "jump",
+      "tape": "docs",
+      "via": {
+        "action": "Read the docs"
+      }
+    },
+    {
+      "from": "docs",
+      "to": "landing",
+      "type": "jump",
+      "tape": "landing",
+      "via": {
+        "action": "Hello"
+      }
+    },
+    {
+      "from": "docs",
+      "to": "docs",
+      "type": "jump",
+      "tape": "docs",
+      "via": {
+        "select": "Page.toc"
+      }
+    },
+    {
+      "from": "docs",
+      "to": "docs",
+      "type": "jump",
+      "tape": "docs",
+      "via": {
+        "select": "Results.hits"
+      }
+    },
+    {
+      "from": "login",
+      "to": "dashboard",
+      "type": "jump",
+      "tape": "dashboard",
+      "resets_history": true,
+      "signs_in": true,
+      "via": {
+        "submit": "Sign in",
+        "handler": "sign_in"
+      }
+    },
+    {
+      "from": "dashboard",
+      "to": "report",
+      "type": "jump",
+      "tape": "report",
+      "via": {
+        "select": "Dashboard.projects"
+      }
+    },
+    {
+      "from": "report",
+      "to": "dashboard",
+      "type": "jump",
+      "tape": "dashboard",
+      "via": {
+        "action": "All projects"
+      }
+    }
+  ]
+}

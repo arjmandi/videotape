@@ -1,0 +1,830 @@
+{
+  "format": "videotape.intent/2",
+  "app": "hello",
+  "entry": "landing",
+  "world": "studio",
+  "tapes": [
+    {
+      "id": "landing",
+      "frames": [
+        {
+          "purpose": "Say what Hello is and lead to sign-in",
+          "address": "/",
+          "public": true,
+          "components": [
+            {
+              "text": "Hello, team.",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "text": "Plans, notes, and decisions in one quiet place.",
+              "role": "supporting",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Sign in",
+              "target": {
+                "type": "jump",
+                "tape": "login"
+              },
+              "affordance": "press",
+              "role": "primary"
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "login",
+      "frames": [
+        {
+          "purpose": "Sign in",
+          "title": "Welcome back",
+          "edit": {
+            "record": "Credentials"
+          },
+          "submit": {
+            "label": "Sign in",
+            "handler": "sign_in"
+          },
+          "components": [
+            {
+              "field": "Credentials.username",
+              "from": "edit",
+              "type": "string",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Credentials.password",
+              "from": "edit",
+              "type": "secret",
+              "affordances": [
+                "write"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Forgot your password?",
+              "target": {
+                "type": "jump",
+                "tape": "reset"
+              },
+              "affordance": "press",
+              "role": "secondary"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "reset",
+      "frames": [
+        {
+          "id": "ask",
+          "purpose": "Reset your password",
+          "edit": {
+            "record": "ResetRequest"
+          },
+          "submit": {
+            "label": "Reset your password",
+            "handler": "request_reset"
+          },
+          "components": [
+            {
+              "field": "ResetRequest.email",
+              "from": "edit",
+              "type": "string",
+              "affordances": [
+                "write"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sent",
+          "purpose": "Say that the link is on its way",
+          "components": [
+            {
+              "text": "Check your email for a link.",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Back to sign in",
+              "target": {
+                "type": "jump",
+                "tape": "login"
+              },
+              "affordance": "press"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "workspace",
+      "frames": [
+        {
+          "purpose": "See your projects",
+          "shows": [
+            {
+              "record": "Workspace"
+            }
+          ],
+          "enter": {
+            "loader": "load_workspace"
+          },
+          "components": [
+            {
+              "field": "Workspace.projects",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Project",
+                "components": [
+                  {
+                    "field": "Project.name",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Project.status",
+                    "type": "string",
+                    "role": "status",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Project.updated",
+                    "type": "datetime",
+                    "format": "relative-time",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "report",
+                "args": {
+                  "project_id": {
+                    "field": "Project.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "sometimes"
+        }
+      ]
+    },
+    {
+      "id": "report",
+      "frames": [
+        {
+          "purpose": "Read one report",
+          "address": "/projects/{project_id}",
+          "shows": [
+            {
+              "record": "Report"
+            }
+          ],
+          "enter": {
+            "loader": "load_report"
+          },
+          "components": [
+            {
+              "field": "Report.title",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Report.chart",
+              "from": "shows",
+              "type": "series",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Report.summary",
+              "from": "shows",
+              "type": "richtext",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "All projects",
+              "target": {
+                "type": "jump",
+                "tape": "workspace"
+              },
+              "affordance": "press",
+              "role": "navigation"
+            }
+          ],
+          "root": "sometimes"
+        }
+      ]
+    }
+  ],
+  "records": {
+    "Credentials": {
+      "additionalProperties": false,
+      "properties": {
+        "username": {
+          "title": "Username",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true,
+          "x-vt": {
+            "type": "secret"
+          }
+        }
+      },
+      "required": [
+        "username",
+        "password"
+      ],
+      "title": "Credentials",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Project": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "status": {
+          "title": "Status",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "status"
+          }
+        },
+        "updated": {
+          "format": "date-time",
+          "title": "Updated",
+          "type": "string",
+          "x-vt": {
+            "type": "datetime",
+            "format": "relative-time"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "status",
+        "updated"
+      ],
+      "title": "Project",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Report": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "chart": {
+          "$ref": "#/types/vt.Series",
+          "x-vt": {
+            "type": "series"
+          }
+        },
+        "summary": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "chart",
+        "summary"
+      ],
+      "title": "Report",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "ResetRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "title": "Email",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "email"
+      ],
+      "title": "ResetRequest",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Workspace": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "projects": {
+          "items": {
+            "$ref": "#/records/Project"
+          },
+          "title": "Projects",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Project"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "report",
+              "args": {
+                "project_id": {
+                  "field": "Project.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "projects"
+      ],
+      "title": "Workspace",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    }
+  },
+  "types": {
+    "vt.CodeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "code",
+          "default": "code",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "CodeBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.ListBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list",
+          "default": "list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ordered": {
+          "default": false,
+          "title": "Ordered",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "items": {
+              "$ref": "#/types/vt.Span"
+            },
+            "type": "array"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ListBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Paragraph": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/vt.Span"
+          },
+          "title": "Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "spans"
+      ],
+      "title": "Paragraph",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.RichText": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "code": "#/types/vt.CodeBlock",
+                "list": "#/types/vt.ListBlock",
+                "paragraph": "#/types/vt.Paragraph"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/types/vt.Paragraph"
+              },
+              {
+                "$ref": "#/types/vt.ListBlock"
+              },
+              {
+                "$ref": "#/types/vt.CodeBlock"
+              }
+            ]
+          },
+          "title": "Blocks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "blocks"
+      ],
+      "title": "RichText",
+      "type": "object",
+      "x-vt": {
+        "type": "richtext"
+      }
+    },
+    "vt.Series": {
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "x": {
+          "title": "X",
+          "type": "string"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Y"
+        }
+      },
+      "required": [
+        "rows",
+        "x",
+        "y"
+      ],
+      "title": "Series",
+      "type": "object",
+      "x-vt": {
+        "type": "series"
+      }
+    },
+    "vt.Span": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "emphasis": {
+          "anyOf": [
+            {
+              "enum": [
+                "em",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emphasis"
+        },
+        "code": {
+          "default": false,
+          "title": "Code",
+          "type": "boolean"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "mention": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mention"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Span",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    }
+  },
+  "handlers": {
+    "request_reset": {
+      "params": [
+        {
+          "name": "r",
+          "type": "record",
+          "record": "ResetRequest",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "goto",
+          "frame": "sent"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "sign_in": {
+      "params": [
+        {
+          "name": "c",
+          "type": "record",
+          "record": "Credentials",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "workspace",
+          "resets_history": true,
+          "signs_in": true
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    }
+  },
+  "loaders": {
+    "load_report": {
+      "params": [
+        {
+          "name": "project_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Report"
+        }
+      ]
+    },
+    "load_workspace": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Workspace"
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "from": "landing",
+      "to": "login",
+      "type": "jump",
+      "tape": "login",
+      "via": {
+        "action": "Sign in"
+      }
+    },
+    {
+      "from": "login",
+      "to": "workspace",
+      "type": "jump",
+      "tape": "workspace",
+      "resets_history": true,
+      "signs_in": true,
+      "via": {
+        "submit": "Sign in",
+        "handler": "sign_in"
+      }
+    },
+    {
+      "from": "login",
+      "to": "reset/ask",
+      "type": "jump",
+      "tape": "reset",
+      "via": {
+        "action": "Forgot your password?"
+      }
+    },
+    {
+      "from": "reset/ask",
+      "to": "reset/sent",
+      "type": "goto",
+      "frame": "sent",
+      "via": {
+        "submit": "Reset your password",
+        "handler": "request_reset"
+      }
+    },
+    {
+      "from": "reset/sent",
+      "to": "login",
+      "type": "jump",
+      "tape": "login",
+      "via": {
+        "action": "Back to sign in"
+      }
+    },
+    {
+      "from": "workspace",
+      "to": "report",
+      "type": "jump",
+      "tape": "report",
+      "via": {
+        "select": "Workspace.projects"
+      }
+    },
+    {
+      "from": "report",
+      "to": "workspace",
+      "type": "jump",
+      "tape": "workspace",
+      "via": {
+        "action": "All projects"
+      }
+    }
+  ]
+}
