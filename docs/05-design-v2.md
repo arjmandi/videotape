@@ -66,7 +66,7 @@ A game engine has none of these.
 | I | A release is a generation. Worlds and props are generated once per release and shared by every user until the next generation. | Generated-asset cost is per release, not per user; only live layers (L2, L3) cost per session (§7.1). |
 | J | Worlds start in 3D. | One world asset serves every screen shape: phones, watches, and wide screens get camera moves and recomposition, never regeneration. |
 | K | Rendering on the device began as the iOS exception to the cloud-gaming default, after Apple's 4.2.7(e) (Q11); A now makes it the rule for every client. The engine keeps the journey, documents, composition, embodiment, and the app protocol, and sends scene state; the device renders, hit-tests, and animates it. | Apple's rule no longer reads on us; no server GPU per ordinary session. L2 and L3 remain server-rendered and streamed (§7). |
-| L | Types are the vocabulary. Components are projections of typed records (Pydantic in Python, Zod in TypeScript); a frame names the record it shows or edits and the engine derives inputs, lists, validation, labels, and the accessibility tree. Handlers declare their edges by return type and fail with `Reject`. | Intent stays data: the JSON carries the records' schemas and the edges. Explicit components remain for what differs (§6). |
+| L | Types are the vocabulary. Components are projections of typed records (Pydantic in Python, Zod in TypeScript); a frame names the record it shows or edits and the engine derives inputs, lists, validation, labels, and the accessibility tree. Handlers' edges are the outcomes their bodies return, read by the SDK, and handlers fail with `Reject`. | Intent stays data: the JSON carries the records' schemas and the edges. Explicit components remain for what differs (§6). |
 | M | Documents are the state. A frame shows typed documents the engine holds once and syncs to every session showing them; handlers mutate them with ordinary code; changes show at once and roll back if the handler raises. | The reel store, patches, placeholders, topics, and optimistic declarations are gone; the app protocol gains `sync` (§6.2, §14). |
 | N | The graph is the level. At release the journey graph is laid out in the world: frames are places, edges are camera paths. The composer chooses the shot (a camera) per context and moves props only when no camera will do. | Transitions are camera moves; object identity is stable; `size` in metres meets pixels in the camera solver (§8). |
 | O | The world reacts. The embodier writes a response table per release (journey event → world response), and the world's parameters may follow numbers from documents and context, never strings. L0 ships a default table. | The feedback of a game at the cost of animation on existing assets; runs on every client (§9.1). |
@@ -128,7 +128,8 @@ them; offline journeys; watch and TV clients.
 | **Context** | What a client reports: screen size and density, insets, orientation, input methods, preferences, network. |
 | **Engine** | The server: journey runtime, documents, composer, embodier, scene state, app protocol; for streamed sessions also the scene runtime, generation layers, grounder, and streamer. |
 | **Scene runtime** | Our runtime on Babylon: scene graph, cameras, text, input, render passes. On every client; on servers for streamed sessions. |
-| **Place** | Where a frame lives in the world, fixed per release by the level layout; edges between frames are camera paths. |
+| **Place** | Where a frame lives in the world, fixed per release by the level layout and identified by its tape and the frame's `id`; edges between frames are camera paths. |
+| **History root** | A frame with no back: the app's entry, a hub destination's first frame, or the target of a sign-in or sign-out. |
 | **Stage** and **shot** | The stage is a frame's place and props; the shot is the camera the composer chooses for a context. |
 | **Staging** | A reference arrangement and camera per frame and screen class, proposed at release; the composer interpolates between stagings. |
 | **Composition** | The composer's plan for a context: shot, camera, placements, derived steps. |
@@ -208,19 +209,23 @@ the intent JSON carries it) already says what the engine needs:
 | The type says | The engine derives |
 |---------------|--------------------|
 | Field names | Labels, as message keys named after the fields, with ICU plurals and the locale from context |
-| `str`, `vt.Text(lines=...)`, `vt.Secret`, `vt.Money`, `int`, `float`, `date`, `bool`, an `Enum` | The affordance (`write`, `choose`, `adjust`) and the input kind; a secret reaches the handler once and is never stored or drawn |
+| `str`, `vt.Text`, `vt.Secret`, `vt.Money`, `int`, `float`, `date`, `bool`, an `Enum` | The affordance (`write`, `choose`, `adjust`) and the input kind; `vt.Text` is multi-line, one to six lines unless `lines=` says otherwise; a secret reaches the handler once and is never stored or drawn |
+| `vt.Id` | The document's identity, by which the engine holds it, syncs it, and keys list items. Never shown, and not required until the app saves the record: an edited document, or an item a handler adds, has none until then and the engine keys it meanwhile. A shown record without an `Id` field is the session's own |
 | `Image`, `Video`, `Audio`, `RichText`, `Series` | Facts, shown exactly and never generated or restyled (decision E). `RichText` is a closed model (paragraphs, emphasis, links, lists, code, mentions) drawn by the text engine, with links as actions; `Series` is a chart drawn from data, with a table as its accessible form |
 | `\| None`; `Field(ge=, le=, pattern=, max_length=)` | Required or not; validation the engine runs without a handler |
 | A nested record | A group kept together |
 | A reference to another record | A pick: a call to a tape that returns one (§6.3) |
-| `list[X]` | A collection: item template, comparable fields, shape (table, cards, column, one at a time), empty state, paging, and an accessible table, all from `X`; `group_by=X.field` makes a board |
+| `list[X]` | A collection: item template, comparable fields, shape (table, cards, column, one at a time), empty state, paging, and an accessible table, all from `X`; `group_by=X.field` makes a board. In an edited record it is editable (§6.4) |
 | `vt.State(...)` fields | Item states props may show (`pending`, `unread`, `mine`), never drawn as text |
 
 A frame names the record it **shows** (shared data) or **edits** (the session's form), and the
 engine derives the components. Explicit components remain for what differs:
 `components=[vt.show(Deal.amount, role="heading")]` overrides the derived one for that field and
 adds anything the record does not carry. References are references (`Deal.amount`) and strings are
-text; nothing is a path. Components still declare what they are for: `role` (heading, primary,
+text; nothing is a path. A reference to a record type (`on=Entry`) means that record wherever the
+frame's documents hold it, which must be once; where they hold it twice, the reference names the
+field that holds it (`on=Page.toc`), and `check` reports an ambiguous one. Inside a field's own
+options, a reference to its item type means that item. Components still declare what they are for: `role` (heading, primary,
 secondary, navigation, status, supporting), `importance` (required, normal, optional), `group`,
 `order`, and `relations` (`labels`, `summarises`, `dependsOn`, `follows`); the record supplies
 defaults for all of them. `visible=` and `hidden=` take a `bool` field, never an expression.
@@ -233,13 +238,22 @@ fields, long text, and transcripts to surfaces and everything else to props; `su
 `False` overrides per component. Plain mode is the world in which every prop is a surface (Q17).
 
 A frame's **purpose** is one sentence that does three jobs: the frame's accessible title, the label
-of its primary action unless another is given, and the brief for the frame's place in the world
-(§7.1). A frame may declare an `address` (`"/c/{id}"`), which names it for the web's history,
+of its primary action unless `submit=vt.action(label, handler)` gives another, and the brief for
+the frame's place in the world (§7.1). The purpose is free text and can be reworded at will: a
+frame's identity is its tape and its `id`. A tape with one frame needs no frame id, since the tape
+is the place; a tape with several frames gives each an `id`, which `goto` needs anyway. A frame may declare an `address` (`"/c/{id}"`), which names it for the web's history,
 bookmarks, deep links, and app links; addresses count as features in the manifest (§11.1). A frame
 with an address may be `public`: reachable without sign-in and served to crawlers and link-preview
 bots as semantic HTML built from the same intent and documents as its accessibility tree, with its
 records as structured data, and, from M2, a preview image rendered from its staging at release
 (Q19).
+
+**Copy and data.** Documents hold data; copy lives in intent. A literal string in intent is the
+default text of a message key named after where it sits. `vt.t(key, **params)` is copy with
+parameters, and its parameters may be field references, which the engine fills:
+`vt.text(vt.t("dashboard.hello", name=Dashboard.first_name), role="heading")`. Copy that a
+handler chooses at runtime is an `Enum` field, whose members are message keys; `Reject` takes a
+string or `vt.t`. A `str` field is data, drawn as it is.
 
 ```python
 import videotape as vt
@@ -249,11 +263,11 @@ class Credentials(vt.Record):
     username: str
     password: vt.Secret
 
-async def sign_in(ctx, c: Credentials) -> vt.Jump["dashboard"]:
+async def sign_in(ctx, c: Credentials):
     user = await auth.login(c.username, c.password)
     if user is None:
         raise vt.Reject("Wrong credentials")       # stays; the frame shows the error; the secret is cleared
-    return vt.jump("dashboard", user=user, sign_in=user.id)
+    return vt.jump("dashboard", sign_in=user)       # the edge, read from this line; history starts here
 
 login = vt.tape("login", [vt.frame("Sign in", title="Welcome back", edit=Credentials, submit=sign_in)])
 ```
@@ -283,35 +297,43 @@ class Message(vt.Record):
 
 class Conversation(vt.Record):
     title: str = vt.Field(role="heading")
-    messages: list[Message] = vt.Field(anchor="end", pages=older_messages)
+    id: vt.Id
+    messages: list[Message] = vt.Field(anchor="end")
     typing: str | None = vt.Field(role="status", importance="optional")
 
 class Draft(vt.Record):
-    text: vt.Text(lines=(1, 6)) = ""
+    text: vt.Text = ""
 
-async def send(ctx, conv: Conversation, draft: Draft) -> vt.Stay:
+@vt.pages(Conversation.messages)
+async def older_messages(ctx, conv: Conversation, cursor: str | None) -> vt.Page[Message]:
+    msgs, next_cursor = await db.messages(conv.id, before=cursor, limit=50)
+    return vt.Page(msgs, next=next_cursor)
+
+async def send(ctx, conv: Conversation, draft: Draft):
     msg = conv.messages.append(Message(author=ctx.user, text=draft.text, pending=True))
     draft.text = ""                                   # both on screen now, in every session showing conv
     msg.update(await db.send(conv.id, ctx.user.id, msg.text), pending=False)
     return vt.stay()
 
 thread = vt.tape("thread", [
-    vt.frame("Read and reply", shows=Conversation, edit=Draft, submit=send,
+    vt.frame("Read and reply", shows=Conversation, edit=Draft, submit=vt.action("Send", send),
              address="/c/{id}", enter=load_thread, actions=[
                  vt.action("Reply", start_reply, on=Message, gesture="swipe-trailing"),
                  vt.action("Copy", vt.copy(Message.text), on=Message),
              ]),
 ])
 
-vt.docs[Conversation, cid].messages.append(incoming)   # from anywhere in the app process
+async def deliver(conversation_id: str, incoming: Message):    # called by your service, anywhere in the app process
+    vt.docs[Conversation, conversation_id].messages.append(incoming)
 ```
 
 What the document can answer, the engine answers without the app: sorting, filtering, selection,
 local search, validation, and every response of the world (§9.1). Only decisions and writes call
 the app. Frames may run timers (`after=vt.after(seconds=5, then=next_slide)`).
 
-**Identity.** An outcome may carry `sign_in=user_id` or `sign_out=True`. Handlers and loaders then
-see `ctx.user`; reels are keyed by user and device, so a journey resumes on another device; the app
+**Identity.** An outcome may carry `sign_in=user`, the user's record with its `vt.Id`, or
+`sign_out=True`; both reset the history (§6.3). Handlers and loaders then see `ctx.user`, that
+record; reels are keyed by user and device, so a journey resumes on another device; the app
 process can address a user's documents; a deleted account ends every session. Credentials stay with
 the app. A document carries the tape version it was loaded under, so a release never changes a
 journey under a user (§7.1).
@@ -321,28 +343,44 @@ journey under a user (§7.1).
 | Action | Meaning | Camera (§8) |
 |--------|---------|-------------|
 | `goto(frame)` | The next step in the same tape | A move along the stage |
-| `jump(tape, **data)` | Switch journey; the current place goes on the history | A dolly along the edge's path |
-| `back()` | Return to the previous place | The same path, reversed |
+| `jump(tape, **args)` | Switch journey; the current place goes on the history; the arguments reach the target's loader by name | A dolly along the edge's path |
+| `back()` | Return to the previous place; also the platform's back gesture or button, the browser's back, and Escape | The same path, reversed |
 | `stay()` | Remain; the document already carries any change | None |
 | `hub(destinations)` | Top-level destinations, each a tape with its own history | A hall whose doors are the destinations |
-| `call(tape)` and `done(result)` | A detour that returns a value to the caller as `ctx.result` | A lean toward a side table and back |
+| `call(tape, then=handler)` and `done(result)` | A detour that returns a value to `then=`'s handler, as its parameter `result`; without `then=` the value is dropped. `vt.pick(tape)` on a field is a call that fills the field and needs no handler | A lean toward a side table and back |
 | `open(url)` | Open a link in the system browser or the platform's in-app browser view; links in `RichText` use it | None; the world waits |
 | `download(name, data)` | Hand the user a file: the browser's download on the web (M1); the share sheet and Files elsewhere (M4) | None |
 
-The edges of the journey graph are the static actions on components and the handlers' return
-types: `-> vt.Jump["dashboard"] | vt.Goto["confirm"]`. Python reads the annotation at
-registration; the TypeScript SDK reads the inferred type at build, since `vt.jump("dashboard")` has
-the type `Jump<"dashboard">`. Any handler may `raise vt.Reject("...")`: the journey stays, the frame
-shows the message as its error status, and secrets are cleared, so a `Stay` edge is implied for
-every handler. `videotape check` knows every edge, finds unreachable frames and dead ends, and runs
-the composer on the reference screens (§8).
+The edges of the journey graph are the static actions and the outcomes handlers return. The Python
+SDK reads them from each handler's body at registration (`return vt.jump("dashboard")`), with
+their keyword arguments; the TypeScript SDK reads the inferred return type at build, since
+`vt.jump("dashboard")` has the type `Jump<"dashboard">`. Handlers carry no edge annotations, so
+linters and type checkers read them as ordinary functions. Where a body cannot be read (a tape
+named by a variable, an outcome built by a helper), the handler declares its edges with
+`@vt.outcomes(vt.jump("dashboard"))`, and `check` asks for it. Any handler may
+`raise vt.Reject("...")`: the journey stays, the frame shows the message as its error status, and
+secrets are cleared, so a `Stay` edge is implied for every handler.
+
+**History and the hub.** Every frame with history has a back edge to where the user came from. A
+**history root** has none: the app's entry, the first frame of each hub destination, and the
+target of an outcome that signs in or out, which resets the history. `frame(back=False)` removes
+back where returning would be wrong, such as after a payment. A frame shows the hub when its
+history root is a hub destination; calls never show it; `frame(hub=False)` hides it for
+full-screen moments such as stories.
+
+`videotape check` knows every edge. It counts back and the hub's doors as exits (the doors only
+where every root that reaches the frame is a destination), so a dead end is a root, or a frame
+without back, with no declared way out. It matches each outcome's arguments against the target
+frame's loader and address, flags an edit frame that hides a required field, ambiguous record
+references, and frames without an `id` in a tape of several, and runs the composer on the
+reference screens (§8).
 
 ```ts
 const Credentials = vt.record({ username: z.string(), password: vt.secret() });
 const signIn = vt.handler(async (ctx, c: z.infer<typeof Credentials>) => {
   const user = await auth.login(c.username, c.password);
   if (!user) throw vt.reject("Wrong credentials");
-  return vt.jump("dashboard", { user, signIn: user.id });   // Jump<"dashboard">, read at build
+  return vt.jump("dashboard", { signIn: user });            // Jump<"dashboard">, read at build
 });
 export const login = vt.tape("login", [vt.frame("Sign in", { title: "Welcome back", edit: Credentials, submit: signIn })]);
 ```
@@ -351,7 +389,10 @@ export const login = vt.tape("login", [vt.frame("Sign in", { title: "Welcome bac
 
 A component is a type, a role, and a set of affordances. The affordances are the engine's closed
 contract: `read`, `write`, `press`, `choose` (one or many), `adjust` (a range), `move` (an item to
-a target), `scroll`, `play`, and, after M1, `pick` (from the OS). Kinds are names for common
+a target, or within its list), `add` and `remove` (items of a list), `scroll`, `play`, and, after
+M1, `pick` (from the OS). A list in an edited record is editable: a list of an `Enum` or of
+references is `choose(many)`; a list of records takes `add`, `remove`, and `move`, with
+`min_items` and `max_items` as constraints (line items, attendees, tags). Kinds are names for common
 combinations: a slider is a number with `adjust`; a board is `list[Deal]` grouped by `Deal.stage`
 with `move(Deal → Stage)`; a seat picker is `list[Seat]` with `choose(many)` on a spatial prop.
 Named actions declare a label, the affordance they need (`to=Stage` makes a `move`), an optional
@@ -570,7 +611,7 @@ interface Embodiment {
   affordance: {
     read?: { maxChars: number }; write?: { lines: number }; press?: true;
     choose?: { options: number; many?: true }; adjust?: { min: number; max: number; step?: number };
-    move?: { to: string }; scroll?: true; play?: true;
+    move?: { to: string }; add?: true; remove?: true; scroll?: true; play?: true;
   };
   textSurface?: string;                  // which face of the prop carries the component's text
   surface?: true;                        // a flat, camera-facing prop the world styles (Q17)
@@ -853,13 +894,36 @@ back.
 | Q24 | Scene state on every client, with the stream as the bootstrap and premium path ([08](08-leverage-review.md) P8)? Trades against the first draft's decision A | Yes. Decision A rewritten, K generalised (§2, §5, §11, §14, §15). It also decides 07's Q16 (surfaces are drawn by the client) and Q22 (`videotape dev` renders scene state in the browser, as production does). |
 | Q25 | Typed records as the component vocabulary in both SDKs (P1)? | Yes. Decision L; §6.1. Absorbs 07's F4, F5, F9, F11, F13, F15, F17, F19, F27. |
 | Q26 | Documents replace the store, patches, placeholders, topics, and optimistic declarations (P2)? | Yes. Decision M; §6.2, §14. Absorbs F6, F7, F11, F24. |
-| Q27 | Return types declare outcomes; `Reject` replaces error patches (P3)? | Yes. §6.3. |
+| Q27 | Return types declare outcomes; `Reject` replaces error patches (P3)? | Yes, refined by Q33: the outcomes are read from the handler's body, not its annotation. §6.3. |
 | Q28 | The graph lays out the world; the composer gains stage and shot (P5)? | Yes. Decision N; §7.1, §8; measured in E8. |
 | Q29 | Response tables and atmosphere binds (P6)? | Yes. Decision O; §9.1; a default table in L0. |
 | Q30 | Stagings, baked look, and hand-built L0 worlds at release (P7)? | Yes. Decision P; §7.2; grade and panorama first, prop textures after E9. |
+
+### 18.1 Questions from the Python SDK (2026-10-23)
+
+The SDK skeleton (`sdk/python`, branch `claude/python-sdk-skeleton-9a995f`) built §6 as written and
+raised these. Its numbering is in brackets.
+
+| # | Question | Decision |
+|---|----------|----------|
+| Q31 | Is the platform's back an edge? [1] | Yes, from every frame with history; roots have none; `back=False` opts out; `check` counts it as an exit (§6.3). |
+| Q32 | Where is the hub? [2] | On frames whose history root is a hub destination; never on calls; `hub=False` hides it (§6.3). |
+| Q33 | Edge annotations such as `vt.Jump["dashboard"]` upset linters and type checkers. [3] | Edges are read from the handler's body; `@vt.outcomes(...)` where it cannot be read; the annotation is dropped (§6.3). |
+| Q34 | An outcome's arguments are invisible to `check`. [4] | Read from the body and matched against the target's loader and address. `sign_in=` takes the user's record, and `ctx.user` is that record (§6.2, §6.3). |
+| Q35 | An edit form whose record has a required hidden field can never validate. [5] | `vt.Id` is the identity type, not required in edited documents; `check` flags any other required field an edit frame hides (§6.1). |
+| Q36 | Frame ids derived from purposes change when a purpose is reworded. [6] | A place is its tape plus the frame's `id`; one-frame tapes need none; multi-frame tapes name every frame (§6.1). |
+| Q37 | What receives a call's result? [7] | `call(tape, then=handler)`, as the parameter `result`; `vt.pick` fills its field with no handler (§6.3). |
+| Q38 | Which document is meant when a record occurs twice on a frame? [8] | Reference the field that holds it (`Page.toc`); `check` reports ambiguity (§6.1). |
+| Q39 | How do documents hold translated copy with parameters? [9] | They don't: copy lives in intent, with field references as parameters; runtime copy is an `Enum` (§6.1). |
+| Q40 | Lists in edited records cannot be edited. [10] | `add` and `remove` join the affordances; lists of choices are `choose(many)` (§6.4). |
+
+The SDK's five deviations are settled too. A paging loader is registered after its record with
+`@vt.pages(Record.field)`, and `pages=` in a field is gone. `vt.Text` is a type, with `lines=` on
+`vt.Field`. `submit=` takes a labelled action. `vt.t` in a `str` field is replaced by Q39. `vt.docs`
+needs the engine, so the guide shows it inside the functions that receive outside events.
 
 Also folded from [08](08-leverage-review.md) without a question of their own: affordances (P4,
 §6.4), the agent surface (§6.5), and its corrections to §8, §9, and §14. From
 [07](07-review-from-apps.md): the findings P1–P4 absorb are in §6; F8 (addresses), F12 (insets),
 F14 (text shaping), and F18 (selection, now local) are folded as written; F1, F2, F20, and F26 are
-moot under Q24; Q16–Q23 are decided above. Nothing from 07 or 08 remains open.
+moot under Q24; Q16–Q23 are decided above. Nothing from 07, 08, or the SDK remains open.

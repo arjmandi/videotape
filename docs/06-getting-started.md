@@ -1,8 +1,8 @@
 # Getting started with Videotape (Python)
 
 **Date:** 2026-10-23 · **Status:** design draft, written against the decided design
-([05-design-v2.md](05-design-v2.md) with Q24–Q30 and 07's Q16–Q23 folded in). Nothing here runs
-yet. The first version of this guide was written before the design was settled and exposed the
+([05-design-v2.md](05-design-v2.md) with Q24–Q30, 07's Q16–Q23, and the Python SDK's Q31–Q40 folded
+in). A first SDK skeleton exists on a branch and predates Q31–Q40; nothing else runs yet. The first version of this guide was written before the design was settled and exposed the
 findings in [07-review-from-apps.md](07-review-from-apps.md); this version shows the API those
 findings produced.
 
@@ -89,11 +89,11 @@ landing = vt.tape("landing", [
              actions=[vt.action("Sign in", vt.jump("login"), role="primary")]),
 ])
 
-async def sign_in(ctx, c: Credentials) -> vt.Jump["workspace"]:
+async def sign_in(ctx, c: Credentials):
     user = await auth.login(c.username, c.password)
     if user is None:
         raise vt.Reject("That email and password do not match.")
-    return vt.jump("workspace", user=user.public(), sign_in=user.id)
+    return vt.jump("workspace", sign_in=user)
 
 login = vt.tape("login", [
     vt.frame("Sign in", title="Welcome back", edit=Credentials, submit=sign_in,
@@ -108,13 +108,15 @@ app = vt.app("hello", entry="landing", tapes=[landing, login, reset, workspace],
   their kinds (a text field and a secure one), and the rule that both are required come from the
   type. The engine validates before your handler runs.
 - A frame's first argument is its **purpose**. It is the frame's accessible title, the label of its
-  primary action unless you give another, and the brief for the frame's place in the world.
+  primary action unless `submit=vt.action("...", handler)` gives another, and the brief for the
+  frame's place in the world. Reword it freely: a one-frame tape's place is the tape itself.
 - `edit=Credentials` says the frame edits a session document of that type; `submit=sign_in` names
   the decision. The handler receives the document by annotation.
-- The handler's return type is the edge of your journey graph. `vt.Reject` stays on the frame,
-  shows the message as its error status, and clears the secret. A `Stay` edge is implied for every
-  handler.
-- `sign_in=user.id` tells the engine who the user is from here on (§5.4).
+- The `vt.jump` the handler returns is an edge of your journey graph. The SDK reads it from the
+  body, so handlers carry no annotations for it. `vt.Reject` stays on the frame, shows the message
+  as its error status, and clears the secret. A `Stay` edge is implied for every handler.
+- `sign_in=user` tells the engine who the user is from here on and starts a fresh history, so back
+  from the workspace never returns to the form (§5.4).
 - `type="secret"` is gone: `vt.Secret` is the type. Its values reach your handler once and are
   never stored, logged, or drawn; the engine draws masking dots.
 - Everything except handler bodies serialises to the JSON intent of the design (§6), so a
@@ -159,8 +161,8 @@ Then the types. What does the user see or type at each step? Write it as a recor
 types and constraints are most of what the engine needs; add `role`, `importance`, and `group`
 where the record alone does not say what matters.
 
-Last, the decisions. Handlers return where the journey goes; their return types are the edges, so
-`videotape check` can find dead ends without running anything.
+Last, the decisions. Handlers return where the journey goes; the outcomes they return are the
+edges, read from their bodies, so `videotape check` can find dead ends without running anything.
 
 ### 3.2 A journey map, and the level
 
@@ -181,17 +183,19 @@ camera path; `videotape release --dry-run` shows the layout without generating a
 ```
 $ videotape release --dry-run
 world      studio (3d): 5 places from 5 frames in 5 tapes
-  landing/intro        "Say what Hello is and lead to sign-in"   the lobby, console in view
-  login/sign-in        "Sign in"                                 the mixing console
-  workspace/overview   "See your projects"                       the control room, screens on the wall
-  report/view          "Read one report"                         a desk with one lamp
-  reset/ask            "Reset your password"                     the console, from the other side
+  landing      "Say what Hello is and lead to sign-in"   the lobby, console in view
+  login        "Sign in"                                 the mixing console
+  workspace    "See your projects"                       the control room, screens on the wall
+  report       "Read one report"                         a desk with one lamp
+  reset        "Reset your password"                     the console, from the other side
 paths      landing→login: walk to the console (2.1 s) · login→workspace: through the glass (1.6 s) · ...
 ```
 
 ### 3.3 Rules of thumb
 
 - **One purpose per frame.** Two purposes compete for the primary role.
+- **Name frames when a tape has several.** A one-frame tape is its own place. In a longer tape give
+  each frame an `id=`, so its place survives a reworded purpose and `goto` can name it.
 - **Types before components.** If you are writing `vt.show(...)` for every field, the record is
   missing a `role` or a `group`. Explicit components are for what differs.
 - **Don't design for a screen.** Mark what can go when room is short as `importance="optional"`.
@@ -212,10 +216,10 @@ paths      landing→login: walk to the console (2.1 s) · login→workspace: th
 |--------|---------|--------------|
 | `goto(frame)` | The next step in the same tape | A move along the stage |
 | `jump(tape, **args)` | Switch journey; the current place goes on the history | A dolly along the edge's path |
-| `back()` | Return to the previous place | The same path, reversed |
+| `back()` | Return to the previous place. The platform's back gesture or button, the browser's back, and Escape do the same | The same path, reversed |
 | `stay()` | Remain; the document already carries any change | Nothing moves |
 | `hub(destinations)` | Top-level destinations the user moves between freely, each a tape with its own history | A hall whose doors are the destinations: a tab bar on a phone, a sidebar on a desktop, a list on a watch |
-| `call(tape, **args)` and `done(result)` | A detour that returns a result to the caller as `ctx.result`: pick a company, confirm a deletion | A lean toward a side table and back; the sheet is a prop on it |
+| `call(tape, then=handler, **args)` and `done(result)` | A detour that returns a result to `then=`'s handler, as its parameter `result`: confirm a deletion. A field with `vt.pick(tape)` is a call that fills the field by itself | A lean toward a side table and back; the sheet is a prop on it |
 | `open(url)` | A link, in the system browser or the platform's in-app browser view | The world waits |
 | `download(name, data)` | A file: the browser's download on the web (M1); the share sheet and Files elsewhere (M4) | The world waits |
 
@@ -227,7 +231,14 @@ app = vt.app("relay", entry="chats", tapes=[chats, thread, contacts, settings],
 ```
 
 Arguments to `jump` and `call`, and the parts of an `address`, reach the frame's loader by name
-(§5.1).
+(§5.1), and `videotape check` matches them against the loader's parameters.
+
+**History and the hub.** Every frame remembers where the user came from, so back always works,
+except on a **history root**: the app's entry, the first frame of each hub destination, and wherever
+a sign-in or sign-out lands, which starts a fresh history. Say `back=False` on a frame where
+returning would be wrong, such as a receipt. The hub appears on every frame whose history began at
+one of its destinations, never on a call's sheet; `hub=False` hides it for a full-screen moment such
+as a story.
 
 ## 4. Types
 
@@ -237,21 +248,23 @@ needs:
 | You write | The engine derives |
 |-----------|--------------------|
 | A field name | Its label, as a message key named after the field, with ICU plurals; the locale comes from the device |
-| `str`, `vt.Text(lines=(1, 6))`, `vt.Secret`, `vt.Money`, `int`, `float`, `date`, `datetime`, `bool`, an `Enum` | The affordance and the input kind: write, write with a currency, choose, pick a day, toggle |
+| `str`, `vt.Text`, `vt.Secret`, `vt.Money`, `int`, `float`, `date`, `datetime`, `bool`, an `Enum` | The affordance and the input kind: write (`vt.Text` is multi-line, one to six lines unless `lines=` says otherwise), write with a currency, choose, pick a day, toggle |
+| `vt.Id` | The document's identity. Never shown; the engine holds and syncs the document by it and keys list items by it. A new record has none until your app saves it |
 | `vt.Image`, `vt.Video`, `vt.Audio` | Facts: shown exactly, never generated or restyled. An `Image` carries its own alt text; a `Video` plays in the platform's own player on a screen in the world |
 | `vt.RichText`, `vt.Series` | Formatted text (paragraphs, emphasis, links, lists, code, mentions) drawn by the text engine, with links that open; a chart drawn from data, with a table as its accessible form |
 | `| None`; `vt.Field(ge=0, max_length=80, pattern=...)` | Required or optional; validation the engine runs before any handler |
 | A nested record | A group kept together |
 | A field whose type is another record | A pick: a call to a tape that returns one (`vt.pick("pick_company")`) |
-| `list[X]` | A collection: item template, comparable fields, shape (table, cards, column, one at a time), empty state, paging, and an accessible table, all from `X` |
+| `list[X]` | A collection: item template, comparable fields, shape (table, cards, column, one at a time), empty state, paging, and an accessible table, all from `X`. In a record a frame edits, the user can add, remove, and reorder items; a list of an `Enum` or of references is a multiple choice |
 | `vt.State(False)` | An item state the embodier and the world may show (`pending`, `unread`, `mine`), never drawn as text |
 
 Field options say what the type cannot: `role` (heading, primary, secondary, navigation, status,
 supporting), `importance` (required, normal, optional), `group`, `order`, `format` (`time`,
-`relative-time`, `count`), `kind="search"`, `commit="change"`, `options=` for a choice, `select=`
-for a collection's default action, `pages=` and `anchor="end"` for long lists, `group_by=` for a
-board, `surface=True` or `False` to overrule the embodier, `show=False` for data that is never a
-component (ids), and `visible=` or `hidden=` with a `bool` field.
+`relative-time`, `count`), `lines=` for multi-line text, `kind="search"`, `commit="change"`,
+`options=` for a choice, `select=` for a collection's default action, `anchor="end"` for a
+transcript, `min_items=` and `max_items=` for an edited list, `group_by=` for a board,
+`surface=True` or `False` to overrule the embodier, `show=False` for data that is never a
+component, and `visible=` or `hidden=` with a `bool` field.
 
 ```python
 from enum import Enum
@@ -262,14 +275,14 @@ class Stage(Enum):
     LEAD = "lead"; QUALIFIED = "qualified"; PROPOSAL = "proposal"; WON = "won"
 
 class Deal(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str = vt.Field(role="heading")
     company: Company = vt.pick("pick_company")            # a call that returns a Company
     amount: vt.Money = vt.Field(ge=0)
     stage: Stage                                          # a choice
     close: date | None = vt.Field(group="dates")
     owner: User = vt.Field(group="people", options=team)
-    notes: vt.Text(lines=(3, 12)) | None = vt.Field(importance="optional")
+    notes: vt.Text | None = vt.Field(lines=(3, 12), importance="optional")
 ```
 
 Components still exist for what the record does not say. `vt.text("Hello, team.", role="heading")`
@@ -277,7 +290,9 @@ adds a static string; `vt.show(Deal.amount, role="heading")` changes how one fie
 `vt.show(Channel.name, press=vt.jump("channel", channel_id=Channel.id))` makes a shown value a
 navigation control. References are references (`Deal.amount`) and strings are text: there are no
 paths. A field reference inside an action's arguments means "this item's value", which is how a
-collection's `select` says where to go.
+collection's `select` says where to go. When a frame's documents hold the same record twice, such as
+`Entry` in both a table of contents and search results, name the field instead of the record
+(`on=Page.toc`); `videotape check` points out the ambiguous ones.
 
 **Surfaces.** The embodier decides at release whether each field is an object of the world (a key,
 a strip, a reel) or sits on a **surface**: a flat, camera-facing panel the world styles, itself a
@@ -285,9 +300,13 @@ prop (a glass pane, a clipboard). Collections with three or more comparable fiel
 transcripts go to surfaces; the rest becomes objects. The choice is in the embodiment table, where
 you and the designer can change it; `surface=` on a field overrules it.
 
-**Strings.** Every literal you write is the default text of a message key named after where it
-sits; `videotape strings` extracts the catalogue, and `vt.t("dashboard.hello", name=...)` is a
-string with parameters. The composer mirrors reading order for right-to-left locales.
+**Copy and data.** Every literal you write is the default text of a message key named after where
+it sits; `videotape strings` extracts the catalogue. `vt.t("dashboard.hello",
+name=Dashboard.first_name)` is copy with parameters, and its parameters may be field references,
+which the engine fills in the user's locale. Copy lives in intent and data lives in documents: a
+`str` field is data, drawn as it is, never a message key. Copy a handler chooses at runtime is an
+`Enum` field, whose members are message keys. The composer mirrors reading order for right-to-left
+locales.
 
 ## 5. Documents
 
@@ -298,6 +317,7 @@ fills it when the user arrives; the journey's arguments reach the loader by name
 
 ```python
 class Workspace(vt.Record):
+    id: vt.Id
     projects: list[Project] = vt.Field(select=vt.jump("report", project_id=Project.id))
 
 async def load_workspace(ctx) -> Workspace:
@@ -306,11 +326,12 @@ async def load_workspace(ctx) -> Workspace:
 async def load_report(ctx, project_id: str) -> Report:          # project_id came from the jump, or the address
     return await reports.load(project_id)
 
-vt.frame("See your projects", shows=Workspace, enter=load_workspace, ...)
-vt.frame("Read one report", address="/projects/{project_id}", shows=Report, enter=load_report, ...)
+vt.frame("See your projects", shows=Workspace, enter=load_workspace, actions=[...])
+vt.frame("Read one report", address="/projects/{project_id}", shows=Report, enter=load_report, actions=[...])
 ```
 
-The engine holds each document once, keyed by its type and id, for as long as someone shows it.
+The engine holds each document once, keyed by its type and its `vt.Id`, for as long as someone
+shows it; a record without an `Id` is the session's own.
 Your database stays yours; documents hold only what the current journeys show. A frame may show a
 list directly (`shows=list[Deal]`); the engine wraps it.
 
@@ -322,7 +343,7 @@ marked tentative until the handler returns. If the handler raises, the engine ro
 back.
 
 ```python
-async def like(ctx, post: Post) -> vt.Stay:
+async def like(ctx, post: Post):
     post.liked, post.likes = True, post.likes + 1          # on screen now
     await db.like(ctx.user.id, post.id)                    # if this fails, both are rolled back
     return vt.stay()
@@ -340,11 +361,11 @@ writes reach Python.
 Anything in your app process can change a document, and every session showing it follows:
 
 ```python
-# when a message arrives from another user
-vt.docs[Conversation, msg.conversation_id].messages.append(msg)
+async def deliver(conversation_id: str, msg: Message):   # your service calls this when a message arrives
+    vt.docs[Conversation, conversation_id].messages.append(msg)
 
-# when a colleague moves a deal
-vt.docs[Pipeline, team_id].deals.replace(deal)
+async def deal_moved(team_id: str, deal: Deal):          # and this when a colleague moves a deal
+    vt.docs[Pipeline, team_id].deals.replace(deal)
 ```
 
 There are no topics to subscribe to: showing a document is the subscription. Frames can also run
@@ -352,59 +373,71 @@ timers: `after=vt.after(seconds=5, then=next_story)`.
 
 ### 5.4 Who is signed in
 
-`sign_in=user.id` on an outcome tells the engine who the user is; `sign_out=True` forgets. From
-then on `ctx.user` is set in every handler and loader, the user's journey resumes on any of their
-devices, and documents keyed by the user (`Feed`, `Workspace`) are theirs. Credentials stay with
+`sign_in=user` on an outcome tells the engine who the user is: pass the user's record, with its
+`vt.Id`. `sign_out=True` forgets. Both start a fresh history, so back never returns to a sign-in
+form. From then on `ctx.user` is that record in every handler and loader, the user's journey
+resumes on any of their devices, and documents keyed by the user (`Feed`, `Workspace`) are theirs. Credentials stay with
 your app. A deleted account ends every session.
 
 ### 5.5 Long lists
 
 ```python
 class Feed(vt.Record):
-    posts: list[Post] = vt.Field(pages=feed_page)
+    id: vt.Id
+    posts: list[Post]
 
+@vt.pages(Feed.posts)
 async def feed_page(ctx, cursor: str | None) -> vt.Page[Post]:
     posts, next_cursor = await db.feed(ctx.user.id, after=cursor, limit=20)
     return vt.Page(posts, next=next_cursor)
 ```
 
-The engine fetches pages as the user nears the end and virtualises the list, so a shelf of ten
+`@vt.pages(Feed.posts)` makes the list paged; the loader comes after the record, so records read
+first. The engine fetches pages as the user nears the end and virtualises the list, so a shelf of ten
 thousand reels costs what the visible ones cost. `anchor="end"` keeps a transcript scrolled to the
 latest message.
 
 ## 6. Decisions
 
 A handler is an async function. Its parameters are `ctx` and the documents it needs, by
-annotation; for an action on an item, the item itself; for a `move`, the target. Its return type
-is its edges.
+annotation; for an action on an item, the item itself; for a `move`, the target; for the
+continuation of a call, the `result`. The outcomes it returns are its edges: the SDK reads them,
+with their arguments, from the body.
 
 ```python
-async def move_deal(ctx, deal: Deal, to: Stage) -> vt.Stay:
+async def move_deal(ctx, deal: Deal, to: Stage):
     deal.stage = to                                           # the card is in the new column now
     moved = await db.move(deal.id, to, by=ctx.user.id)
     vt.docs[Pipeline, moved.team].deals.replace(moved)        # the rest of the team sees it
     return vt.stay()
 
-async def company_picked(ctx, d: Deal) -> vt.Stay:
-    d.company = ctx.result                                    # what pick_company returned with done()
-    return vt.stay()
+async def ask_to_delete(ctx, d: Deal):
+    return vt.call("confirm_delete", then=delete_confirmed, deal_id=d.id)
 
-async def export_csv(ctx, p: Pipeline) -> vt.Download:
+async def delete_confirmed(ctx, d: Deal, result: bool):     # what confirm_delete returned with done()
+    if not result:
+        return vt.stay()
+    await db.delete(d.id)
+    return vt.jump("deals")
+
+async def export_csv(ctx, p: Pipeline):
     return vt.download("pipeline.csv", await reports.csv(p.id))
 ```
 
-| Outcome | Return type | Meaning |
-|---------|-------------|---------|
-| `vt.jump("deals", **args)` | `vt.Jump["deals"]` | Switch tape, with arguments for its loader |
-| `vt.goto("confirm")` | `vt.Goto["confirm"]` | Next frame in this tape (frames you `goto` need an `id=`) |
-| `vt.back()` | `vt.Back` | Return |
-| `vt.stay()` | `vt.Stay` | Remain |
-| `vt.call("pick_company", **args)`, `vt.done(result)` | `vt.Call["pick_company"]`, `vt.Done` | A detour, and its return |
-| `vt.open(url)`, `vt.download(name, data)` | `vt.Open`, `vt.Download` | A link; a file |
-| `raise vt.Reject("...")` | implied | Stay, show the message as the frame's error status |
+| Outcome | Meaning |
+|---------|---------|
+| `vt.jump("deals", **args)` | Switch tape, with arguments for its loader |
+| `vt.goto("confirm")` | Next frame in this tape, which has several, so each has an `id=` |
+| `vt.back()` | Return |
+| `vt.stay()` | Remain |
+| `vt.call("confirm_delete", then=handler, **args)`, `vt.done(result)` | A detour, and its return to `then=` |
+| `vt.open(url)`, `vt.download(name, data)` | A link; a file |
+| `raise vt.Reject("...")` | Stay, show the message as the frame's error status |
 
-Several edges are a union: `-> vt.Jump["dashboard"] | vt.Goto["verify"]`. Actions that need no
-decision are data: `vt.action("Comments", vt.jump("post", post_id=Post.id), on=Post)` never calls
+A handler may return different outcomes on different paths; each is an edge. When the SDK cannot
+read an outcome from the body, because a tape's name is in a variable or a helper builds the
+outcome, `videotape check` asks you to declare it with `@vt.outcomes(vt.jump("dashboard"),
+vt.goto("verify"))`. Actions that need no decision are data: `vt.action("Comments", vt.jump("post", post_id=Post.id), on=Post)` never calls
 Python.
 
 **Named actions.** `vt.action(label, target, on=Record, to=Record, gesture="double-tap", key="n",
@@ -454,7 +487,7 @@ async def test_wrong_password_stays_on_the_form(fake_services):
     s = await play(app, start="login", services=fake_services, screen="phone")
     await s.fill(username="ada@example.com", password="nope")
     await s.press("Sign in")
-    assert s.at("login", "Sign in")
+    assert s.at("login")
     assert s.error == "That email and password do not match."
     assert "rejected" in s.responses                    # the world answered
 
@@ -471,10 +504,12 @@ action being within reach.
 
 ### 8.2 Static checks
 
-`videotape check` finds unreachable frames, dead ends, handlers whose return types name unknown
-tapes, fields of secret type that a frame shows, and runs the composer on the reference screens
-(watch, phone in both orientations, tablet, desktop, wall) to check edges, reach, and minimum
-sizes. After a release it also renders a picture per reference screen from the stagings.
+`videotape check` finds unreachable frames and dead ends (back and the hub's doors count as ways
+out), outcomes that name unknown tapes or pass arguments the target's loader does not take,
+handlers whose outcomes it cannot read, fields of secret type that a frame shows, edit frames that
+hide a required field, ambiguous record references, and frames without an `id` in a tape of
+several. It runs the composer on the reference screens (watch, phone in both orientations, tablet,
+desktop, wall) to check edges, reach, and minimum sizes. After a release it also renders a picture per reference screen from the stagings.
 
 ### 8.3 Releases
 
@@ -522,10 +557,11 @@ not possible yet.
 
 ```python
 class Entry(vt.Record):
-    slug: str = vt.Field(show=False)
+    slug: vt.Id
     title: str
 
 class Page(vt.Record):
+    id: vt.Id
     title: str = vt.Field(role="heading")
     body: vt.RichText
     toc: list[Entry] = vt.Field(role="navigation", select=vt.jump("docs", page=Entry.slug))
@@ -538,7 +574,7 @@ async def load_page(ctx, page: str = "intro") -> Page:
     p = await docs_index.page(page)
     return Page(id=page, title=p.title, body=vt.RichText.from_markdown(p.markdown), toc=await docs_index.toc())
 
-async def search_docs(ctx, s: Search) -> vt.Stay:
+async def search_docs(ctx, s: Search):
     s.results = await docs_index.search(s.q, limit=8)
     return vt.stay()
 
@@ -548,33 +584,34 @@ docs = vt.tape("docs", [
 ])
 
 class Project(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str = vt.Field(role="heading")
     status: str = vt.Field(role="status")
     updated: datetime = vt.Field(format="relative-time")
 
 class Dashboard(vt.Record):
-    greeting: str = vt.Field(role="heading")
+    id: vt.Id
+    first_name: str = vt.Field(show=False)
     activity: vt.Series = vt.Field(importance="optional")
     projects: list[Project] = vt.Field(select=vt.jump("report", project_id=Project.id))
 
 async def load_dashboard(ctx) -> Dashboard:
-    return Dashboard(id=ctx.user.id,
-                     greeting=vt.t("dashboard.hello", name=ctx.user.first_name),
+    return Dashboard(id=ctx.user.id, first_name=ctx.user.first_name,
                      activity=vt.Series(await db.activity(ctx.user.id), x="week", y="events"),
                      projects=await db.projects(owner=ctx.user.id))
 
 dashboard = vt.tape("dashboard", [
-    vt.frame("See how my projects are doing", address="/projects", shows=Dashboard, enter=load_dashboard),
+    vt.frame("See how my projects are doing", address="/projects", shows=Dashboard, enter=load_dashboard,
+             components=[vt.text(vt.t("dashboard.hello", name=Dashboard.first_name), role="heading")]),
 ])
 
 class Report(vt.Record):
+    id: vt.Id
     title: str = vt.Field(role="heading")
     chart: vt.Series
     summary: vt.RichText
-    exported: str | None = vt.Field(role="status")
 
-async def export_csv(ctx, r: Report) -> vt.Download:
+async def export_csv(ctx, r: Report):
     return vt.download(f"{r.id}.csv", await reports.csv(r.id))
 
 report = vt.tape("report", [
@@ -605,7 +642,7 @@ and decide what next, visit a channel. Uploading needs the camera and files (M4)
 
 ```python
 class VideoCard(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     thumbnail: vt.Image = vt.Field(role="primary")        # an Image carries its own alt text
     title: str = vt.Field(role="heading")
     channel: str = vt.Field(role="supporting")
@@ -618,24 +655,29 @@ class Home(vt.Record):
     shelves: list[Shelf]                                   # a collection of collections
 
 class Channel(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str
     subscribed: bool = vt.State(False)
 
 class Watch(vt.Record):
+    id: vt.Id
     player: vt.Video = vt.Field(role="primary", importance="required")   # the platform's player, on a screen in the world
     title: str = vt.Field(role="heading")
     channel: Channel
     description: vt.RichText = vt.Field(importance="optional")
     up_next: list[VideoCard] = vt.Field(select=vt.jump("watch", video_id=VideoCard.id))
-    comments: list[Comment] = vt.Field(pages=comments_page, importance="optional")
+    comments: list[Comment] = vt.Field(importance="optional")
 
-async def subscribe(ctx, w: Watch) -> vt.Stay:
+@vt.pages(Watch.comments)
+async def comments_page(ctx, w: Watch, cursor: str | None) -> vt.Page[Comment]:
+    return vt.Page(*await db.comments(w.id, after=cursor, limit=20))
+
+async def subscribe(ctx, w: Watch):
     w.channel.subscribed = True
     await db.subscribe(ctx.user.id, w.channel.id)
     return vt.stay()
 
-async def play_next(ctx, w: Watch) -> vt.Jump["watch"]:
+async def play_next(ctx, w: Watch):
     return vt.jump("watch", video_id=w.up_next[0].id)
 
 watch = vt.tape("watch", [
@@ -680,25 +722,30 @@ platform-specific work belongs anyway.
 
 ```python
 class Author(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str
     avatar: vt.Image
 
 class Post(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     author: Author = vt.Field(press=vt.jump("profile", user_id=Author.id))
     photo: vt.Image = vt.Field(role="primary")
     liked: bool = vt.State(False)
     likes: int = vt.Field(format="count")
     caption: vt.RichText                                   # mentions and hashtags are links
 
-async def like(ctx, post: Post) -> vt.Stay:
+async def like(ctx, post: Post):
     post.liked, post.likes = True, post.likes + 1          # on screen now; rolled back if the call fails
     await db.like(ctx.user.id, post.id)
     return vt.stay()
 
 class Feed(vt.Record):
-    posts: list[Post] = vt.Field(pages=feed_page)
+    id: vt.Id
+    posts: list[Post]
+
+@vt.pages(Feed.posts)
+async def feed_page(ctx, cursor: str | None) -> vt.Page[Post]:
+    return vt.Page(*await db.feed(ctx.user.id, after=cursor, limit=20))
 
 feed = vt.tape("feed", [
     vt.frame("See what people I follow posted", shows=Feed, enter=load_feed, actions=[
@@ -713,14 +760,15 @@ class Story(vt.Record):
     who: str = vt.Field(role="supporting")
 
 stories = vt.tape("stories", [
-    vt.frame("Watch one story", shows=Story, enter=load_story,
+    vt.frame("Watch one story", shows=Story, enter=load_story, hub=False,
              actions=[vt.action("Next", next_story, gesture="tap-trailing"),
                       vt.action("Previous", previous_story, gesture="tap-leading")],
              after=vt.after(seconds=5, then=next_story)),
 ])
 ```
 
-**What the engine does.** A quiet darkroom world keeps the photos in front. On a phone the feed
+**What the engine does.** A quiet darkroom world keeps the photos in front, and a story fills the
+screen with the hub hidden. On a phone the feed
 is a single column that scrolls on the device; on a desktop the composer puts the feed in a
 column with the profile beside it; on a watch it shows one post at a time. Double-tap on a photo
 likes it, and the same action appears as "Like" in the screen reader's actions and as a key on a
@@ -749,33 +797,38 @@ class Message(vt.Record):
     pending: bool = vt.State(False)
 
 class Conversation(vt.Record):
+    id: vt.Id
     title: str = vt.Field(role="heading")
-    messages: list[Message] = vt.Field(anchor="end", pages=older_messages)
+    messages: list[Message] = vt.Field(anchor="end")
     typing: str | None = vt.Field(role="status", importance="optional")
 
 class Draft(vt.Record):
-    text: vt.Text(lines=(1, 6)) = ""
+    text: vt.Text = ""
 
-async def send(ctx, conv: Conversation, draft: Draft) -> vt.Stay:
+@vt.pages(Conversation.messages)
+async def older_messages(ctx, conv: Conversation, cursor: str | None) -> vt.Page[Message]:
+    return vt.Page(*await db.messages(conv.id, before=cursor, limit=50))
+
+async def send(ctx, conv: Conversation, draft: Draft):
     msg = conv.messages.append(Message(author=ctx.user, text=draft.text, pending=True))
     draft.text = ""                                       # both on screen now, in every session showing conv
     msg.update(await db.send(conv.id, ctx.user.id, msg.text), pending=False)
     return vt.stay()
 
-async def start_reply(ctx, msg: Message, draft: Draft) -> vt.Stay:
+async def start_reply(ctx, msg: Message, draft: Draft):
     draft.text = f"> {msg.text.plain}\n"
     return vt.stay()
 
 thread = vt.tape("thread", [
-    vt.frame("Read and reply", shows=Conversation, edit=Draft, submit=send,
+    vt.frame("Read and reply", shows=Conversation, edit=Draft, submit=vt.action("Send", send),
              address="/c/{id}", enter=load_thread, actions=[
                  vt.action("Reply", start_reply, on=Message, gesture="swipe-trailing"),
                  vt.action("Copy", vt.copy(Message.text), on=Message),
              ]),
 ])
 
-# when a message arrives from anyone, anywhere in your app process
-vt.docs[Conversation, msg.conversation_id].messages.append(msg)
+async def deliver(conversation_id: str, msg: Message):    # your service calls this when a message arrives
+    vt.docs[Conversation, conversation_id].messages.append(msg)
 ```
 
 **What the engine does.** The transcript sits on a surface the world styles and is anchored at
@@ -801,11 +854,12 @@ history, create a deal, read the forecast.
 
 ```python
 class Pipeline(vt.Record):
+    id: vt.Id
     deals: list[Deal] = vt.Field(group_by=Deal.stage, select=vt.jump("deal", deal_id=Deal.id))
     forecast: vt.Series = vt.Field(importance="optional")
     can_export: bool = vt.State(False)
 
-async def move_deal(ctx, deal: Deal, to: Stage) -> vt.Stay:
+async def move_deal(ctx, deal: Deal, to: Stage):
     deal.stage = to
     moved = await db.move(deal.id, to, by=ctx.user.id)
     vt.docs[Pipeline, moved.team].deals.replace(moved)
@@ -820,7 +874,7 @@ deals = vt.tape("deals", [
              ]),
 ])
 
-async def create_deal(ctx, d: Deal) -> vt.Jump["deals"]:
+async def create_deal(ctx, d: Deal):
     saved = await db.create(d, by=ctx.user.id)
     vt.docs[Pipeline, saved.team].deals.append(saved)
     return vt.jump("deals")
