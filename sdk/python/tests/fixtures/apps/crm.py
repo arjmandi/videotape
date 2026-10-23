@@ -214,7 +214,7 @@ confirm_delete = vt.tape("confirm_delete", [
              actions=[vt.action("Delete", vt.done(True), role="primary"), vt.action("Keep", vt.done(False))]),
 ])
 
-app = vt.app("pipeline", entry="deals", tapes=[deals, deal, new_deal, pick_company, confirm_delete, contacts, contact],
-             hub=vt.hub([vt.destination("deals", "Deals", symbol="board"),
-                         vt.destination("contacts", "Contacts", symbol="person")]),
+app = vt.app("pipeline", entry=deals, tapes=[deals, deal, new_deal, pick_company, confirm_delete, contacts, contact],
+             hub=vt.hub([vt.destination(deals, "Deals", symbol="board"),
+                         vt.destination(contacts, "Contacts", symbol="person")]),
              world="quiet-office")

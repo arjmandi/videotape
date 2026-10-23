@@ -8,7 +8,10 @@ class Account(vt.Record):
     password: vt.Secret
 
 
-account = vt.tape("account", [vt.frame("See my account", shows=Account, actions=[vt.action("More", vt.jump("more"))])])
+async def load_account(ctx) -> Account: ...
+
+
+account = vt.tape("account", [vt.frame("See my account", shows=Account, enter=load_account, actions=[vt.action("More", vt.jump("more"))])])
 
 more = vt.tape("more", [vt.frame("Read more")])
 

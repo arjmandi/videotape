@@ -4,8 +4,8 @@ The first v2 code. An app written as in [06-getting-started.md](../../docs/06-ge
 becomes intent JSON, and `videotape check` checks it. There is no engine, app-protocol
 transport, documents runtime, or composer yet.
 
-The SDK follows the design as decided on `design/v2` at `d54dcd6`: 05 §6.1–§6.4, and §18.1,
-which decides the questions and deviations this skeleton raised in two rounds (Q31–Q46). This
+The SDK follows the design as decided on `design/v2` at `48fa415`: 05 §6.1–§6.4, and §18.1,
+which decides the questions and deviations this skeleton raised in three rounds (Q31–Q50). This
 branch does not contain those commits, so `docs/` here still shows the earlier draft.
 
 ```bash
@@ -32,7 +32,7 @@ warnings, 1 on errors, and 2 when it cannot load the app.
 |--------|--------------|
 | `values` | The built-in types: `vt.Id`, `vt.Text`, `vt.Secret`, `vt.Money`, `vt.Image`, `vt.Video`, `vt.Audio`, `vt.RichText`, `vt.Series`, `vt.Page`, and `vt.t(...)` |
 | `records` | `vt.Record` on Pydantic v2; `vt.Field(...)` with the options of 06 §4, `vt.State(...)`, `vt.pick("tape")`, `@vt.pages(Record.field)`; `Deal.amount` on the class is a field reference, and `Deal.company.name` chains into a nested record |
-| `outcomes` | `jump`, `goto`, `back`, `stay`, `call(tape, then=)`, `done`, `open`, `download`, `copy`; a tape is named by its id or by the tape itself |
+| `outcomes` | `jump`, `goto`, `back`, `stay`, `call(tape, then=)`, `done`, `open`, `download`, `copy`. Wherever a tape is named (outcomes, `vt.destination`, `vt.app(entry=)`, `vt.pick`), the tape itself or its id works |
 | `intent` | `vt.tape`, `vt.frame` (`shows=` one record or a list, `back=`, `hub=`), `vt.text`, `vt.show` (with `on=`), `vt.action`, `vt.after`, `vt.hub`, `vt.destination`, `vt.app`. Builders raise at once on what they cannot hold (a wrong type, a malformed id or address) |
 | `derive` | What a frame derives from its records: components, affordances, states, how often it holds each record, and every place where something happens |
 | `decisions` | Reads handlers' parameters with `typing.get_type_hints` and their edges from their bodies; `@vt.outcomes`, `vt.Reject`, `vt.Context`, `vt.invoke` |
@@ -44,8 +44,9 @@ warnings, 1 on errors, and 2 when it cannot load the app.
 `shows=[Page, Results]`) and edits the one the user writes. A record with a `vt.Id` field is a
 document the engine holds once by that id; the id is never shown and not required until the app
 saves the record. A shown record without one is the session's own, such as a handler's search
-results. The `enter` loader returns one document or a tuple; shown records it does not return
-start from their defaults. `X | None` is not required. A record refuses copy: `vt.t(...)` lives in intent
+results. The `enter` loader returns one document or a tuple. Every shown record needs a source
+when its frame is entered: the loader, an earlier frame of the tape, or defaults for every
+required field (Q47). `X | None` is not required. A record refuses copy: `vt.t(...)` lives in intent
 (`vt.text(vt.t("dashboard.hello", name=Dashboard.first_name))`), where its parameters may be
 field references. `vt.Text` is multi-line text, one to six lines unless `vt.Field(lines=...)`
 says otherwise. A list's paging loader is registered after its record with `@vt.pages(Feed.posts)`
@@ -129,6 +130,8 @@ edges      [{from, to, type, tape | frame, resets_history, via}]
 | `hidden-required` | error | an edit frame hides a required field other than its `vt.Id` | Q35 |
 | `edited-select` | error | a list in an edited record has `select=`; lists the user navigates are shown | Q42 |
 | `address-param` | error | an address has a parameter no loader in its tape takes | v2, Q46 |
+| `address-standalone` | error | a frame opened by its address needs arguments or documents its address does not supply | Q48 |
+| `unsourced-record` | error | a shown record has no source: no loader returns it, no earlier frame has it, and it has required fields | Q47 |
 | `public-without-address` | error | a public frame has no address | v2 |
 | `loader-returns` | error | a loader returns a document its frame neither shows nor edits, or a page of something its list does not hold | v2, Q42 |
 | `unknown-field` | error | a field reference names a record the frame neither shows nor edits | v2 |
@@ -141,16 +144,20 @@ edges      [{from, to, type, tape | frame, resets_history, via}]
 | `multiple-primary` | warning | a frame has more than one primary action | v1 |
 | `unused-edit` | warning | a frame edits a record, but nothing receives it | v1 (`unused-values`) |
 | `unreachable-frame` | warning | a frame cannot be reached from the entry | v1 |
-| `no-exit` | warning | a frame has no declared way out, no back, and no hub doors (a dead end) | v1, Q31, Q32 |
+| `no-exit` | warning | a frame has no declared way out, no back, and no hub doors (a dead end) | v1, Q31, Q32, Q49 |
 | `closed-cycle` | warning | frames form a cycle the journey cannot leave | v1 |
 
-**History and the hub (Q31, Q32).** Every frame has the platform's back, as an exit, except
-history roots and frames with `back=False`. The roots are the app's entry, each hub
-destination's first frame, and wherever an outcome with `sign_in` or `sign_out` lands. A frame
-shows the hub's doors when every root its history can begin at is a hub destination. That root
-is reached along jumps and gotos that do not sign in or out, and never through a call. A frame
-with `hub=False` never shows them. A root is a root on every path when nothing enters it with
-history; an explicit `vt.back()` there is an error and no way out (Q44).
+**History and the hub (Q31, Q32, Q44, Q48, Q49).** The history roots are the app's entry, each
+hub destination's first frame, wherever an outcome with `sign_in` or `sign_out` lands, and a frame
+opened by its address when no hub destination reaches it. With a hub, the first destination in
+hub order that reaches a linked frame is put beneath it instead, so back and the hub work there.
+Back is a way out only where a frame has history on every path to it: never on a root, even one
+that is a root on some paths only, and never with `back=False`. One computation (`graph.journey`)
+serves dead ends and explicit backs alike: an explicit `vt.back()` on a frame that is a root on
+every path is an error and no way out, and on a root on some paths a warning. A frame shows the
+hub's doors when every root its history can begin at is a hub destination, reached along jumps and
+gotos that do not sign in or out, never through a call; `hub=False` hides them. Frames opened by
+their address count as reachable.
 
 Every rule has a broken fixture in `tests/fixtures/broken/` that trips that rule and no other.
 The 06 §2.2 sign-in app and the five §9 apps are in `tests/fixtures/`, written as 06 now writes
@@ -181,6 +188,19 @@ Where 05 or 06 leave a choice open, the SDK reads them like this:
 - **Tape names (Q45).** Only module-level names resolve: a local variable or a closure's variable
   needs `@vt.outcomes`, even when a global has the same name. A dotted name resolves through
   attributes (`Tapes.settings`). In a goto, a frame object with an `id` names that frame.
+- **Sources (Q47).** An earlier frame of the tape counts as a source when it shows, edits, or
+  loads the record. A loader whose return the SDK cannot read (no annotation) may return anything,
+  so its frame's records are taken as sourced. A list document (`shows=list[Deal]`) starts empty.
+- **Linked frames (Q48).** "Its loader may take only address parameters": the SDK lets a loader
+  also take parameters that have defaults, since the default supplies them when a link opens the
+  frame. A shown record only an earlier frame supplies is an `address-standalone` error there. A
+  destination "can reach" a linked frame along jumps and gotos that keep history, without passing
+  another root, the same walk that places the hub's doors.
+- **Closed cycles after a fresh start.** `closed-cycle` already ignores the component that holds the
+  entry. It also ignores one that holds a frame where history starts afresh (a sign-in or sign-out
+  target, or a hub destination): what follows a new beginning is the app, not a trap. Without this,
+  Q49 turns 06 §9.1's signed-in demo (dashboard and report, no sign-out) into a closed cycle. This is
+  provisional: see the open questions.
 - **Identity.** `vt.Id` takes a string or an integer and holds it as a string. `sign_in=` is
   checked when the handler runs (`vt.invoke`); statically, the SDK only sees that an outcome
   signs in. In `@vt.outcomes`, `sign_in=True` stands for the user.
@@ -211,7 +231,7 @@ The five deviations the first skeleton listed are settled in 05 §18.1 and imple
 - **`vt.docs[...]`** still raises `NotImplementedError` until the engine exists; 06 now shows it
   inside the functions that receive outside events, and so do the fixtures.
 
-There are no deviations from 05 or 06 as they stand at `d54dcd6`.
+There are no deviations from 05 or 06 as they stand at `48fa415`.
 
 ## The questions this skeleton raised, decided
 
@@ -233,20 +253,22 @@ There are no deviations from 05 or 06 as they stand at `d54dcd6`.
 | 2.4 `vt.back()` on a history root | Q44: an error where always a root, a warning where sometimes | `back-on-root`, `back-on-root-sometimes`; `root: "always" \| "sometimes"` |
 | 2.5 Tape names in constants | Q45: resolved against the handler's module; a tape object works | `place_name`; `vt.jump(tape)` |
 | 2.6 `goto` and loaders | Q46: arguments belong to the tape; `goto` takes none | tape-level argument checks; loaders take earlier frames' documents |
+| 3.1 Shown records nothing loads | Q47: every shown record needs a source | `unsourced-record` |
+| 3.2 Entering a tape by a later frame's address | Q48: the frame stands on its own; with a hub, the first destination that reaches it goes beneath it | `address-standalone`; `graph.journey` places address entries |
+| 3.3 Back on roots on some paths | Q49: back counts only where a frame has history on every path | one computation for dead ends and explicit backs |
+| 3.4 Tape objects beyond outcomes | Q50: the tape or its id wherever a tape is named | `vt.destination`, `vt.app(entry=)`, `vt.pick` take tapes |
 
 ## Open questions this work surfaced
 
-1. **Shown records nothing loads.** A shown record the loader does not return starts from its
-   defaults (Q42), so one with a required field can never start. `check` does not flag that yet;
-   with Q46 the record may also come from an earlier frame of the tape. Should it be a rule?
-2. **Entering a tape by a later frame's address.** Q46 checks the jumps that enter a tape at its
-   first frame. A deep link to the second frame of a wizard enters it there: do the first frame's
-   loader's arguments and documents apply, and which are missing?
-3. **Back on roots on some paths.** Should the platform's back count as a way out for a frame
-   that is a root on some paths only? The SDK says no for dead ends (it may be a root), and yes
-   for its explicit `vt.back()` (Q44's warning).
-4. **Tape objects beyond outcomes.** Q45 lets `vt.jump` and `vt.call` take the tape itself.
-   `vt.destination`, `vt.pick`, and `vt.app(entry=)` still take ids. Should they take tapes too?
+1. **Closed cycles after a fresh start.** Q49 makes the demo's signed-in part (dashboard and report,
+   with no sign-out) a terminal component with no way out, which `closed-cycle` would report. The
+   SDK reads a component that holds a sign-in target or a hub destination as a new beginning rather
+   than a trap, and so does not report it. I don't know whether that is the intent: the alternative
+   is to report it and have apps without a sign-out say so, or to give the demo a sign-out.
+2. **Where a linked frame's beneath-destination is decided.** The SDK computes which destination
+   goes beneath a linked frame (Q48), but the intent does not carry it; the engine would compute it
+   again from the hub order and the graph. Should the intent carry it, so both agree by
+   construction?
 
 ## Not built
 

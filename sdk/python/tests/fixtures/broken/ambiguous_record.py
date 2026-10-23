@@ -22,8 +22,11 @@ async def find(ctx, s: Search):
     return vt.stay()
 
 
+async def load_page(ctx) -> Page: ...
+
+
 docs = vt.tape("docs", [
-    vt.frame("Read the docs", shows=Page, edit=Search, on_change={Search.q: find},
+    vt.frame("Read the docs", shows=Page, enter=load_page, edit=Search, on_change={Search.q: find},
              actions=[vt.action("Open", vt.jump("more"), on=Entry),             # which Entry?
                       vt.action("Read", vt.jump("more"), on=Page.toc),          # this one is fine
                       vt.action("More", vt.jump("more"))]),

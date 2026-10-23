@@ -17,6 +17,15 @@ def name_of(fn: Any) -> str:
     return getattr(fn, "__name__", None) or repr(fn)
 
 
+def tape_id(tape: Any) -> str:
+    """A tape is named by its id or by the tape itself, wherever it is named (Q45, Q50)."""
+    if isinstance(tape, str):
+        return tape
+    if isinstance(getattr(tape, "id", None), str) and hasattr(tape, "frames"):
+        return tape.id
+    raise TypeError(f"a tape is named by its id or by the tape itself; got {tape!r}")
+
+
 def encode(value: Any) -> Any:
     """A value written in intent (an option, an argument, a label) as JSON."""
     if value is None or isinstance(value, (bool, int, float)):

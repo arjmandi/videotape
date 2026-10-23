@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, get_args, get_origin
 
+from ._encode import tape_id
 from .outcomes import Outcome
 from .records import OPTION_NAMES, FieldOptions, FieldRef, Record
 from .values import Phrase
@@ -206,8 +207,9 @@ class Destination:
     symbol: str | None = None
 
 
-def destination(tape: str, label: str | Phrase, *, symbol: str | None = None) -> Destination:
-    return Destination(_check_id("destination tape", tape), _check_label("vt.destination's label", label), symbol)
+def destination(tape: Any, label: str | Phrase, *, symbol: str | None = None) -> Destination:
+    """A hub destination: the tape itself, or its id (Q50)."""
+    return Destination(_check_id("destination tape", tape_id(tape)), _check_label("vt.destination's label", label), symbol)
 
 
 @dataclass(eq=False)
@@ -412,9 +414,11 @@ class App:
 
 
 def app(
-    name: str, *, entry: str, tapes: Sequence[Tape], hub: Hub | None = None, world: str | None = None
+    name: str, *, entry: Any, tapes: Sequence[Tape], hub: Hub | None = None, world: str | None = None
 ) -> App:
+    """The app: its entry is the tape itself, or its id (Q50)."""
     _check_id("app name", name)
+    entry = tape_id(entry)
     items = list(tapes)
     for t in items:
         if not isinstance(t, Tape):

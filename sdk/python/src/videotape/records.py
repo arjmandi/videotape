@@ -24,7 +24,7 @@ from pydantic.errors import PydanticUndefinedAnnotation
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
-from ._encode import encode, encode_target, name_of
+from ._encode import encode, encode_target, name_of, tape_id
 from .values import BUILTIN_TYPES, VT, Id, Phrase, Text
 
 ROLES = ("heading", "primary", "secondary", "navigation", "status", "supporting")
@@ -208,10 +208,13 @@ def State(default: Any = False, **constraints: Any) -> Any:
     return _field(default, FieldOptions(state=True), constraints)
 
 
-def pick(tape: str, *, default: Any = PydanticUndefined, **kwargs: Any) -> Any:
-    """A field filled by a call to `tape`, which returns the record with `done(...)` (06 §4)."""
+def pick(tape: Any, *, default: Any = PydanticUndefined, **kwargs: Any) -> Any:
+    """A field filled by a call to `tape`, which returns the record with `done(...)` (06 §4).
+
+    Inside a record, which comes before the tapes, the tape is named by its id (Q50).
+    """
     options = {k: kwargs.pop(k) for k in OPTION_NAMES if k in kwargs}
-    return _field(default, FieldOptions(pick=tape, **options), kwargs)
+    return _field(default, FieldOptions(pick=tape_id(tape), **options), kwargs)
 
 
 # ── what a type is ───────────────────────────────────────────────────────────

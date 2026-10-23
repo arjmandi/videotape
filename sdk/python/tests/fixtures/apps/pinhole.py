@@ -154,8 +154,8 @@ post = vt.tape("post", [
              shows=PostPage, enter=load_post),
 ])
 
-app = vt.app("pinhole", entry="feed", tapes=[feed, explore, activity, profile, stories, post],
-             hub=vt.hub([vt.destination("feed", "Feed", symbol="house"),
-                         vt.destination("explore", "Explore", symbol="magnifier"),
-                         vt.destination("activity", "Activity", symbol="heart")]),
+app = vt.app("pinhole", entry=feed, tapes=[feed, explore, activity, profile, stories, post],
+             hub=vt.hub([vt.destination(feed, "Feed", symbol="house"),
+                         vt.destination(explore, "Explore", symbol="magnifier"),
+                         vt.destination(activity, "Activity", symbol="heart")]),
              world="darkroom")

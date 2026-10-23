@@ -70,7 +70,8 @@ async def search_docs(ctx, s: Search, r: Results):
 
 docs = vt.tape("docs", [
     vt.frame("Read one page of the docs", address="/docs/{page}", public=True,
-             shows=[Page, Results], enter=load_page, edit=Search, on_change={Search.q: search_docs}),
+             shows=[Page, Results], enter=load_page, edit=Search, on_change={Search.q: search_docs},
+             actions=[vt.action("Hello", vt.jump("landing"), role="navigation")]),
 ])
 
 
@@ -120,7 +121,8 @@ async def load_report(ctx, project_id: str) -> Report:
 
 report = vt.tape("report", [
     vt.frame("Read one report", address="/projects/{project_id}", shows=Report, enter=load_report,
-             actions=[vt.action("Export CSV", export_csv, role="primary")]),
+             actions=[vt.action("Export CSV", export_csv, role="primary"),
+                      vt.action("All projects", vt.jump("dashboard"), role="navigation")]),
 ])
 
 # ── filled in: landing and sign-in, from 06 §2.2 ──
@@ -153,4 +155,4 @@ login = vt.tape("login", [
     vt.frame("Sign in", title="Welcome back", edit=Credentials, submit=sign_in),
 ])
 
-app = vt.app("demo", entry="landing", tapes=[landing, docs, login, dashboard, report], world="studio")
+app = vt.app("demo", entry=landing, tapes=[landing, docs, login, dashboard, report], world="studio")

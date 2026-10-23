@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from collections.abc import Callable
 from typing import Any, ClassVar
 
-from ._encode import encode, name_of
+from ._encode import encode, name_of, tape_id
 from .records import FieldRef, Record
 
 
@@ -160,20 +160,11 @@ class Copy(Outcome):
         return {"type": "copy", "text": self.value}
 
 
-def _tape_id(tape: Any) -> str:
-    """A tape is named by its id, or by the tape itself (Q45)."""
-    if isinstance(tape, str):
-        return tape
-    if isinstance(getattr(tape, "id", None), str) and hasattr(tape, "frames"):
-        return tape.id
-    raise TypeError(f"a tape is named by its id or by the tape itself; got {tape!r}")
-
-
 def jump(tape: Any, *, sign_in: Any = None, sign_out: bool = False, **args: Any) -> Jump:
     """Switch to another tape, with arguments for its loaders: `vt.jump("report", project_id=Project.id)`.
 
     The tape may be named by its id or by the tape itself: `vt.jump(report)`."""
-    return Jump(_tape_id(tape), args, sign_in=sign_in, sign_out=sign_out)
+    return Jump(tape_id(tape), args, sign_in=sign_in, sign_out=sign_out)
 
 
 def goto(frame: str, *, sign_in: Any = None, sign_out: bool = False) -> Goto:
@@ -197,7 +188,7 @@ def call(tape: Any, *, then: Callable[..., Any] | None = None, **args: Any) -> C
     it as its parameter `result`. Without `then=`, the result is dropped."""
     if then is not None and not callable(then):
         raise TypeError("then= takes the handler that receives the call's result")
-    return Call(_tape_id(tape), args, then)
+    return Call(tape_id(tape), args, then)
 
 
 def done(result: Any = None) -> Done:

@@ -7,7 +7,7 @@ class Order(vt.Record):
     total: vt.Money
 
 
-async def load_order(ctx, id: str) -> Order: ...
+async def load_order(ctx) -> Order: ...           # takes no order_id
 
 
 order = vt.tape("order", [

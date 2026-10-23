@@ -4,10 +4,13 @@
 `packages/core/src/graph.ts`. `back` and `done` leave a frame for a place decided by history, so
 they count as exits but add no node.
 
-`journey` adds what the engine does without being told (Q31, Q32): every frame with history has
-the platform's back, except history roots (the app's entry, each hub destination's first frame,
-and wherever an outcome that signs in or out lands) and frames with `back=False`; and a frame
-shows the hub's doors when every root its history can begin at is a hub destination.
+`journey` adds what the engine does without being told (Q31, Q32, Q48, Q49). History roots are the
+app's entry, each hub destination's first frame, wherever an outcome that signs in or out lands,
+and a frame opened by its address when no hub destination reaches it (with a hub, the first
+destination in hub order that reaches it is put beneath it instead). Back is a way out only where
+a frame has history on every path to it: never on a root, even one that is a root on some paths
+only, and never with `back=False`. A frame shows the hub's doors when every root its history can
+begin at is a hub destination.
 """
 
 from __future__ import annotations
@@ -55,17 +58,20 @@ class Graph:
     entry: str | None
     nodes: list[str]
     edges: list[Edge]
+    starts: tuple[str, ...] = ()
+    """Where else a journey can begin: frames opened by their address (Q48)."""
 
     def out(self, node: str) -> list[Edge]:
         return [e for e in self.edges if e.source == node]
 
 
 def reachable(g: Graph) -> set[str]:
-    """Nodes reachable from the entry. `back` only returns to visited nodes, so it adds none."""
+    """Nodes reachable from the entry, or from an address. `back` only returns to visited nodes, so it
+    adds none."""
     seen: set[str] = set()
     if g.entry is None:
         return seen
-    queue = deque([g.entry])
+    queue = deque([g.entry, *g.starts])
     while queue:
         n = queue.popleft()
         if n in seen:
@@ -114,16 +120,18 @@ def components(g: Graph) -> list[list[str]]:
     return out
 
 
-def closed_cycles(g: Graph) -> list[list[str]]:
+def closed_cycles(g: Graph, fresh: set[str] = frozenset()) -> list[list[str]]:  # type: ignore[assignment]
     """Cycles the journey can enter but never leave: a terminal component of more than one frame.
 
     The component that holds the entry is left out: when it is terminal, it is the whole
-    reachable app, which is no trap (an app whose frames all reach each other, as with a hub).
+    reachable app, which is no trap (an app whose frames all reach each other, as with a hub). So
+    is one that holds a frame in `fresh`, where history starts afresh (a sign-in target, a hub
+    destination): what follows a new beginning is the app, not a trap.
     """
     out = []
     for scc in components(g):
         inside = set(scc)
-        if len(scc) < 2 or g.entry in inside:
+        if len(scc) < 2 or g.entry in inside or inside & fresh:
             continue
         leaves = any(e.type in EXITS or (e.to is not None and e.to not in inside) for n in scc for e in g.out(n))
         if not leaves:
@@ -142,9 +150,15 @@ class Journey:
     nodes: list[str]
     declared: list[Edge]
     roots: set[str] = field(default_factory=set)
-    """History roots: no back (Q31)."""
+    """Frames that are a history root on some path, or on every path; back is no way out there (Q31, Q49)."""
     always: set[str] = field(default_factory=set)
     """Roots on every path: nothing enters them with history (Q44). The rest are roots on some paths."""
+    fresh: set[str] = field(default_factory=set)
+    """Where history starts afresh on purpose: the entry, hub destinations, sign-in and sign-out targets."""
+    beneath: dict[str, str] = field(default_factory=dict)
+    """For a frame opened by its address in a hub app, the destination put beneath it (Q48)."""
+    starts: tuple[str, ...] = ()
+    """Frames opened by their address."""
     backs: list[Edge] = field(default_factory=list)
     """The platform's back, from every frame with history that does not opt out."""
     doors: list[Edge] = field(default_factory=list)
@@ -161,7 +175,7 @@ class Journey:
         """Declared edges, the platform's back, and the hub's doors. An explicit back from a frame that is
         a root on every path has nowhere to go, so it is no exit (Q44)."""
         declared = [e for e in self.declared if not (e.type == "back" and e.source in self.always)]
-        return Graph(self.entry, self.nodes, [*declared, *self.backs, *self.doors])
+        return Graph(self.entry, self.nodes, [*declared, *self.backs, *self.doors], self.starts)
 
 
 def _walk(starts: set[str], edges: list[Edge], stop: set[str]) -> dict[str, set[str]]:
@@ -184,20 +198,35 @@ def journey(app: App, edges: list[Edge]) -> Journey:
     entry = tape.entry.node if tape else None
     frames = {f.node: f for f in app.frames}
     nodes = list(frames)
-    destinations = {}
+    destinations: dict[str, str] = {}
     if app.hub is not None:
         for d in app.hub.destinations:
             t = app.tape(d.tape)
             if t is not None:
-                destinations[d.tape] = t.entry.node
-    roots = {n for n in [entry, *destinations.values()] if n} | {e.to for e in edges if e.resets and e.to}
-    j = Journey(entry, nodes, edges, roots)
-    entered_with_history = {e.to for e in edges if e.to and e.type in ("goto", "jump", "call") and not e.resets}
-    j.always = {r for r in roots if r not in entered_with_history}
-    j.backs = [Edge(n, "back", {"back": "history"}) for n in nodes if n not in roots and frames[n].back]
+                destinations.setdefault(d.tape, t.entry.node)
     keeps = [e for e in edges if e.type in KEEPS_HISTORY and not e.resets]
-    j.began = _walk(roots, keeps, roots)
-    called = set(_walk({e.to for e in edges if e.type == "call" and e.to}, keeps, roots))
+    static = {n for n in [entry, *destinations.values()] if n} | {e.to for e in edges if e.resets and e.to}
+
+    # Q48: an address opens its frame directly. With a hub, the first destination in hub order whose
+    # history reaches the frame goes beneath it; otherwise the address entry is a history root.
+    reached = _walk(set(destinations.values()), keeps, static)
+    addressed = [n for n in nodes if frames[n].address]
+    j = Journey(entry, nodes, edges, fresh=set(static), starts=tuple(addressed))
+    for n in addressed:
+        if n in static:
+            continue
+        under = next((d for d in destinations.values() if d in reached.get(n, set())), None)
+        if under is not None:
+            j.beneath[n] = under
+    j.roots = static | {n for n in addressed if n not in static and n not in j.beneath}
+
+    entered_with_history = {e.to for e in edges if e.to and e.type in ("goto", "jump", "call") and not e.resets}
+    j.always = {r for r in j.roots if r not in entered_with_history}
+    j.backs = [Edge(n, "back", {"back": "history"}) for n in nodes if n not in j.roots and frames[n].back]
+    j.began = _walk(j.roots, keeps, j.roots)
+    for n, under in j.beneath.items():
+        j.began.setdefault(n, set()).add(under)
+    called = set(_walk({e.to for e in edges if e.type == "call" and e.to}, keeps, j.roots))
     homes = set(destinations.values())
     for n in nodes:
         began = j.began.get(n, set())

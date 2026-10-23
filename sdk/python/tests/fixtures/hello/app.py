@@ -58,8 +58,9 @@ async def load_report(ctx, project_id: str) -> Report:
 
 
 report = vt.tape("report", [
-    vt.frame("Read one report", address="/projects/{project_id}", shows=Report, enter=load_report),
+    vt.frame("Read one report", address="/projects/{project_id}", shows=Report, enter=load_report,
+             actions=[vt.action("All projects", vt.jump("workspace"), role="navigation")]),   # a link opens it as a root
 ])
 
-app = vt.app("hello", entry="landing", tapes=[landing, login, reset, workspace, report],
+app = vt.app("hello", entry=landing, tapes=[landing, login, reset, workspace, report],
              world="studio")

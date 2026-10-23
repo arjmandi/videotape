@@ -8,8 +8,11 @@ class Post(vt.Record):
     likes: int
 
 
+async def load_post(ctx) -> Post: ...
+
+
 post = vt.tape("post", [
-    vt.frame("Read a post", shows=Post,
+    vt.frame("Read a post", shows=Post, enter=load_post,
              actions=[vt.action("Like", vt.stay(), hidden=Post.likes), vt.action("More", vt.jump("more"))]),
 ])
 

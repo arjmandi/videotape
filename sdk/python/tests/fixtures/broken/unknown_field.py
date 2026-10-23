@@ -11,8 +11,11 @@ class Order(vt.Record):
     total: vt.Money
 
 
+async def load_order(ctx) -> Order: ...
+
+
 order = vt.tape("order", [
-    vt.frame("See one order", shows=Order, components=[vt.show(Customer.name, role="heading")],
+    vt.frame("See one order", shows=Order, enter=load_order, components=[vt.show(Customer.name, role="heading")],
              actions=[vt.action("More", vt.jump("more"))]),
 ])
 

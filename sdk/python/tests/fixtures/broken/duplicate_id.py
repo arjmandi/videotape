@@ -15,7 +15,7 @@ first = vt.tape("a", [vt.frame("Write a note", address="/notes", edit=Note, subm
 
 
 async def save(ctx, n: Note):  # noqa: F811 - the mistake under test
-    return vt.back()
+    return vt.jump("a")
 
 
 second = vt.tape("b", [vt.frame("Write another note", address="/notes", edit=Note, submit=save)])

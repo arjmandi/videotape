@@ -3,6 +3,7 @@ from conftest import BROKEN, SAMPLES, load_broken, load_sample
 
 import videotape as vt
 from videotape.check import RULES, check
+from videotape.records import fields_of
 from videotape.graph import Edge, Graph, closed_cycles, components, has_exit, journey, reachable
 from videotape.serialize import build
 
@@ -93,7 +94,7 @@ def test_a_move_target_is_a_valid_parameter():
         stage: Stage
 
     class Board(vt.Record):
-        cards: list[Card] = vt.Field(group_by=Card.stage)
+        cards: list[Card] = vt.Field([], group_by=Card.stage)
 
     async def move(ctx, card: Card, to: Stage):
         return vt.stay()
@@ -113,7 +114,7 @@ def test_on_change_must_name_an_edited_field():
         q: str
 
     class Results(vt.Record):
-        q: str
+        q: str = ""
 
     async def find(ctx, s: Search):
         return vt.stay()
@@ -179,7 +180,8 @@ async def _load_order(ctx, order_id: str) -> _Order: ...
 
 def _orders_app(handler):
     home = vt.tape("home", [vt.frame("Start here", actions=[vt.action("Open", handler), OUT])])
-    order = vt.tape("order", [vt.frame("See one order", address="/o/{order_id}", shows=_Order, enter=_load_order)])
+    order = vt.tape("order", [vt.frame("See one order", address="/o/{order_id}", shows=_Order, enter=_load_order,
+                                       actions=[OUT])])  # its address opens it as a root (Q48)
     return vt.app("orders", entry="home", tapes=[home, order, MORE])
 
 
@@ -345,8 +347,8 @@ def test_an_edit_frame_may_hide_only_the_id():
 def test_pages_loaders_return_the_list_s_items_and_take_its_holder():
     class Wall(vt.Record):
         id: vt.Id
-        posts: list[_Entry]
-        title: str
+        posts: list[_Entry] = []
+        title: str = ""
 
     @vt.pages(Wall.posts)
     async def wall_page(ctx, w: Wall, cursor: str | None) -> vt.Page[_Entry]: ...
@@ -356,7 +358,7 @@ def test_pages_loaders_return_the_list_s_items_and_take_its_holder():
 
     class Other(vt.Record):
         id: vt.Id
-        posts: list[_Entry]
+        posts: list[_Entry] = []
 
     @vt.pages(Other.posts)
     async def other_page(ctx, w: Wall, page: int) -> vt.Page[_Page]: ...
@@ -472,3 +474,133 @@ def test_back_on_a_sometimes_root_is_a_warning_and_the_intent_says_which():
     app = vt.app("x", entry="home", tapes=[home, more])
     assert [(d.code, d.level) for d in check(app)] == [("back-on-root-sometimes", "warning")]
     assert app.intent()["tapes"][0]["frames"][0]["root"] == "sometimes"
+
+
+# ── shown records need a source (Q47) ────────────────────────────────────────
+
+
+class _Profile(vt.Record):
+    name: str
+    bio: str = ""
+
+
+def test_a_shown_record_needs_a_loader_an_earlier_frame_or_defaults():
+    async def load(ctx) -> _Profile: ...
+
+    async def unread(ctx): ...
+
+    async def edit_it(ctx, p: _Profile):
+        return vt.goto("view")
+
+    def app(*frames):
+        return vt.app("x", entry="p", tapes=[vt.tape("p", list(frames)), MORE])
+
+    assert errors(app(vt.frame("See", shows=_Profile, enter=load, actions=[OUT]))) == []
+    assert errors(app(vt.frame("See", shows=_Profile, enter=unread, actions=[OUT]))) == []  # cannot tell: no error
+    assert errors(app(vt.frame("See", shows=_Draft, actions=[OUT]))) == []  # every field has a default
+    assert errors(app(vt.frame("See", shows=list[_Profile], actions=[OUT]))) == []  # a list starts empty
+    assert errors(app(vt.frame("Edit", id="edit", edit=_Profile, submit=edit_it, actions=[OUT]),
+                      vt.frame("View", id="view", shows=_Profile, actions=[OUT]))) == []  # an earlier frame has it
+    [d] = errors_of(app(vt.frame("See", shows=_Profile, actions=[OUT])))
+    assert d.code == "unsourced-record" and "name has no default" in d.message
+
+
+# ── addresses open frames directly (Q48, Q49) ────────────────────────────────
+
+
+async def _load_thread(ctx, id: str) -> _Profile: ...
+
+
+def _linked(hub: bool, **thread):
+    chats = vt.tape("chats", [vt.frame("See chats", actions=[vt.action("Open", vt.jump("thread", id="c1"))])])
+    settings = vt.tape("settings", [vt.frame("Change settings", actions=[vt.action("Open", vt.jump("thread", id="c1"))])])
+    t = vt.tape("thread", [vt.frame("Read a thread", address="/c/{id}", shows=_Profile, enter=_load_thread, **thread)])
+    destinations = vt.hub([vt.destination(settings, "Settings"), vt.destination(chats, "Chats")]) if hub else None
+    return vt.app("x", entry=chats, tapes=[chats, settings, t], hub=destinations)
+
+
+def test_with_a_hub_the_first_destination_that_reaches_a_linked_frame_goes_beneath_it():
+    app = _linked(hub=True)
+    j = journey(app, build(app).edges)
+    assert j.beneath == {"thread": "settings"}  # hub order, not the entry
+    assert "thread" not in j.roots and {e.source for e in j.backs} == {"thread"}
+    assert {e.source for e in j.doors} >= {"thread"}
+    assert errors(app) == [] and codes(app) == []
+
+
+def test_without_a_hub_a_linked_frame_is_a_root_on_that_path():
+    app = _linked(hub=False)
+    j = journey(app, build(app).edges)
+    assert "thread" in j.sometimes and "thread" not in {e.source for e in j.backs}
+    [d] = [d for d in check(app) if d.at == "thread"]  # settings is unreachable without the hub
+    assert d.code == "no-exit" and "a history root on some paths (its address opens it as one)" in d.message
+    assert app.intent()["tapes"][2]["frames"][0]["root"] == "sometimes"
+    linked = _linked(hub=False, actions=[vt.action("Back", vt.back())])
+    assert [(d.code, d.level) for d in check(linked) if d.at == "thread"] == [("back-on-root-sometimes", "warning")]
+
+
+def test_a_frame_only_a_link_opens_is_reachable_and_always_a_root():
+    home = vt.tape("home", [vt.frame("Start", actions=[OUT])])
+    linked = vt.tape("linked", [vt.frame("Read a thread", address="/c/{id}", shows=_Profile, enter=_load_thread,
+                                         actions=[vt.action("Back", vt.back())])])  # fmt: skip
+    diagnostics = check(vt.app("x", entry=home, tapes=[home, linked, MORE]))
+    assert [(d.code, d.at) for d in diagnostics] == [("back-on-root", "linked"), ("no-exit", "linked")]
+
+
+def test_a_linked_frame_stands_on_its_own():
+    async def needs_more(ctx, id: str, coupon: str) -> _Profile: ...
+
+    async def optional_more(ctx, id: str, coupon: str | None = None) -> _Profile: ...
+
+    async def edit_it(ctx, p: _Profile):
+        return vt.goto("view")
+
+    async def from_earlier(ctx, p: _Profile, id: str) -> _Profile: ...
+
+    def app(*frames, **args):
+        home = vt.tape("home", [vt.frame("Start", actions=[vt.action("Open", vt.jump("t", **(args or {"id": "c1", "coupon": "X"})))])])
+        return vt.app("x", entry=home, tapes=[home, vt.tape("t", list(frames)), MORE])
+
+    def linked(loader, **kw):
+        return vt.frame("Read", id="view", address="/c/{id}", shows=_Profile, enter=loader, actions=[OUT], **kw)
+
+    assert errors(app(linked(optional_more))) == []  # a default supplies what the address does not
+    [d] = errors_of(app(linked(needs_more)))
+    assert d.code == "address-standalone" and "needs coupon, which it does not carry" in d.message
+    first = vt.frame("Edit", id="edit", edit=_Profile, submit=edit_it, actions=[OUT])
+    [d] = errors_of(app(first, linked(from_earlier), id="c1"))
+    assert d.code == "address-standalone" and "takes p: _Profile" in d.message
+    first = vt.frame("Edit", id="edit", edit=_Profile, submit=edit_it, actions=[OUT])
+    view = vt.frame("Read", id="view", address="/read", shows=_Profile, actions=[OUT])
+    [d] = errors_of(vt.app("x", entry="t", tapes=[vt.tape("t", [first, view]), MORE]))
+    assert d.code == "address-standalone" and "which only an earlier frame of tape 't' has" in d.message
+
+
+def test_what_follows_a_fresh_start_is_no_closed_cycle():
+    async def sign_in(ctx):
+        return vt.jump("dashboard", sign_in=True)
+
+    landing = vt.tape("landing", [vt.frame("Welcome", actions=[vt.action("Sign in", sign_in)])])
+    dashboard = vt.tape("dashboard", [vt.frame("See projects", actions=[vt.action("Report", vt.jump("report"))])])
+    report = vt.tape("report", [vt.frame("Read a report", back=False, actions=[vt.action("All", vt.jump("dashboard"))])])
+    assert codes(vt.app("x", entry=landing, tapes=[landing, dashboard, report])) == []
+
+
+# ── a tape or its id, wherever a tape is named (Q50) ─────────────────────────
+
+
+def test_a_tape_or_its_id_wherever_a_tape_is_named():
+    home = vt.tape("home", [vt.frame("Start", actions=[vt.action("More", vt.jump(MORE))])])
+    app = vt.app("x", entry=home, tapes=[home, MORE], hub=vt.hub([vt.destination(home, "Home"), vt.destination("more", "More")]))
+    assert app.entry == "home" and [d.tape for d in app.hub.destinations] == ["home", "more"]
+    assert app.intent()["hub"] == [{"tape": "home", "label": "Home"}, {"tape": "more", "label": "More"}]
+
+    class Deal(vt.Record):
+        company: _Profile = vt.pick(MORE)                     # works when the tape exists first
+        owner: _Profile = vt.pick("more")                     # inside records, usually the id
+
+    assert {f.options["pick"] for f in fields_of(Deal)} == {"more"}
+    with pytest.raises(TypeError):
+        vt.destination(3, "Three")
+    with pytest.raises(TypeError):
+        vt.app("x", entry=None, tapes=[home])

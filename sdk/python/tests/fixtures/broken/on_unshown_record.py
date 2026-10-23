@@ -15,8 +15,11 @@ class Feed(vt.Record):
     posts: list[Post]
 
 
+async def load_feed(ctx) -> Feed: ...
+
+
 feed = vt.tape("feed", [
-    vt.frame("See what people posted", shows=Feed,
+    vt.frame("See what people posted", shows=Feed, enter=load_feed,
              actions=[vt.action("Hide", vt.stay(), on=Comment), vt.action("More", vt.jump("more"))]),
 ])
 

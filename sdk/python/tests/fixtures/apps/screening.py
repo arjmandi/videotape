@@ -144,8 +144,8 @@ channel = vt.tape("channel", [
 
 # ── 06 §9.2 ──
 
-app = vt.app("screening", entry="home", tapes=[home, search, subscriptions, watch, channel],
-             hub=vt.hub([vt.destination("home", "Home", symbol="house"),
-                         vt.destination("search", "Search", symbol="magnifier"),
-                         vt.destination("subscriptions", "Subscriptions", symbol="list")]),
+app = vt.app("screening", entry=home, tapes=[home, search, subscriptions, watch, channel],
+             hub=vt.hub([vt.destination(home, "Home", symbol="house"),
+                         vt.destination(search, "Search", symbol="magnifier"),
+                         vt.destination(subscriptions, "Subscriptions", symbol="list")]),
              world="screening-room")

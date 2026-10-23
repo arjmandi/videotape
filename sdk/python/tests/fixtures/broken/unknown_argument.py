@@ -15,7 +15,10 @@ class Orders(vt.Record):
 async def load_order(ctx, order_id: str) -> Order: ...
 
 
-orders = vt.tape("orders", [vt.frame("See my orders", shows=Orders)])
+async def load_orders(ctx) -> Orders: ...
+
+
+orders = vt.tape("orders", [vt.frame("See my orders", shows=Orders, enter=load_orders)])
 order = vt.tape("order", [
     vt.frame("See one order", shows=Order, enter=load_order, actions=[vt.action("More", vt.jump("more"))]),
 ])

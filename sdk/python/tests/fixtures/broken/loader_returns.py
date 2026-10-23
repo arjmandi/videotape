@@ -1,4 +1,4 @@
-"""loader-returns: the frame shows an Order; its loader returns a Customer."""
+"""loader-returns: the frame shows an Order; its loader returns an Order and a Customer."""
 
 import videotape as vt
 
@@ -11,7 +11,7 @@ class Customer(vt.Record):
     name: str
 
 
-async def load_order(ctx) -> Customer: ...
+async def load_order(ctx) -> tuple[Order, Customer]: ...
 
 
 order = vt.tape("order", [

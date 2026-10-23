@@ -134,7 +134,7 @@ settings = vt.tape("settings", [
 
 # ── 06 §3.4 ──
 
-app = vt.app("relay", entry="chats", tapes=[chats, thread, contacts, settings],
-             hub=vt.hub([vt.destination("chats", "Chats", symbol="chat"),
-                         vt.destination("contacts", "Contacts", symbol="person"),
-                         vt.destination("settings", "Settings", symbol="gear")]))
+app = vt.app("relay", entry=chats, tapes=[chats, thread, contacts, settings],
+             hub=vt.hub([vt.destination(chats, "Chats", symbol="chat"),
+                         vt.destination(contacts, "Contacts", symbol="person"),
+                         vt.destination(settings, "Settings", symbol="gear")]))

@@ -41,6 +41,8 @@ RULES: dict[str, tuple[str, str]] = {
     "hidden-required": ("error", "an edit frame hides a required field other than its vt.Id"),
     "edited-select": ("error", "a list in an edited record has select=; lists the user navigates are shown"),
     "address-param": ("error", "an address has a parameter no loader in its tape takes"),
+    "address-standalone": ("error", "a frame opened by its address needs arguments or documents its address does not supply"),
+    "unsourced-record": ("error", "a shown record has no source: no loader returns it, no earlier frame has it, and it has required fields"),
     "public-without-address": ("error", "a public frame has no address"),
     "loader-returns": ("error", "a loader returns a document its frame neither shows nor edits, or a page its list does not hold"),
     "unknown-field": ("error", "a field reference names a record the frame neither shows nor edits"),
@@ -154,6 +156,8 @@ class _Checker:
             self.secrets(f)
             self.hidden(f)
             self.address(f)
+            self.standalone(f)
+            self.sourced(f)
             self.loader(f)
             self.fields(f, counts)
             self.primaries(f)
@@ -315,6 +319,57 @@ class _Checker:
                 takes = "no loader in it takes it" if loaders else "the tape has no loader"
                 message = f"address {f.address} passes {p} to tape '{f.tape}', but {takes}"
                 self.report(error("address-param", message, f.node))
+
+    def loaded(self, f: Frame) -> list[type] | None:
+        """What a frame's loader returns, or None when that cannot be read (then it may return anything)."""
+        if f.enter is None:
+            return []
+        sig = read(f.enter)
+        if sig.problem or sig.returns is _EMPTY:
+            return None
+        return [k.record for k in returns_kinds(sig.returns) if k.record is not None]
+
+    def sourced(self, f: Frame) -> None:
+        """Every shown record needs a source when its frame is entered (Q47)."""
+        loaded = self.loaded(f)
+        if loaded is None:
+            return
+        earlier = earlier_documents(self.app, f)
+        for r, many in f.shown:
+            if many or r in loaded or r in earlier:
+                continue
+            required = [s.name for s in fields_of(r) if s.required]
+            if required:
+                message = (f"the frame shows {r.__name__}, but nothing gives it one when the frame is entered: "
+                           f"no loader returns it, no earlier frame of tape '{f.tape}' has it, and "
+                           f"{', '.join(required)} {'has' if len(required) == 1 else 'have'} no default")  # fmt: skip
+                self.report(error("unsourced-record", message, f.node))
+
+    def standalone(self, f: Frame) -> None:
+        """A frame opened by its address stands on its own: no earlier frame ran (Q48)."""
+        if not f.address:
+            return
+        params = set(f.address_params)
+        if f.enter is not None and not read(f.enter).problem:
+            sig = read(f.enter)
+            for p in sig.params:
+                if p.record is not None:
+                    message = (f"address {f.address} opens the frame directly, so no earlier frame ran, but "
+                               f"{sig.name}() takes {p.name}: {p.record.__name__}")  # fmt: skip
+                    self.report(error("address-standalone", message, f.node))
+                elif p.required and p.name not in params:
+                    message = f"address {f.address} opens the frame directly, but {sig.name}() needs {p.name}, which it does not carry"
+                    self.report(error("address-standalone", message, f.node))
+        loaded = self.loaded(f)
+        if loaded is None:
+            return
+        earlier = earlier_documents(self.app, f)
+        for r, many in f.shown:
+            if many or r in loaded or r not in earlier or not any(s.required for s in fields_of(r)):
+                continue
+            message = (f"address {f.address} opens the frame directly, but it shows {r.__name__}, which only an "
+                       f"earlier frame of tape '{f.tape}' has")  # fmt: skip
+            self.report(error("address-standalone", message, f.node))
 
     def loader(self, f: Frame) -> None:
         if f.enter is None:
@@ -516,11 +571,17 @@ class _Checker:
             if n not in live:
                 self.report(warning("unreachable-frame", "the frame cannot be reached from the entry", n))
             elif not has_exit(g, n):
-                why = "it is a history root" if n in j.roots else "it has back=False"
+                if n in j.always:
+                    why = "it is a history root on every path"
+                elif n in j.roots:
+                    opened = " (its address opens it as one)" if n in j.starts else ""
+                    why = f"it is a history root on some paths{opened}"
+                else:
+                    why = "it has back=False"
                 hub = ", and the hub does not show here" if self.app.hub is not None and frames[n].hub else ""
                 message = f"the frame has no way out: no declared exit, and no back because {why}{hub}"
                 self.report(warning("no-exit", message, n))
-        for scc in closed_cycles(g):
+        for scc in closed_cycles(g, j.fresh):
             if all(n in live for n in scc):
                 self.report(warning("closed-cycle", f"frames {', '.join(scc)} form a cycle with no way out", scc[0]))
 
