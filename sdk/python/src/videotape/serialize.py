@@ -17,7 +17,7 @@ from .derive import Use, components, frame_records, uses
 from .diagnostics import Diagnostic, error
 from .intent import Action, App, Frame, Show, Tape
 from .outcomes import Outcome
-from .records import Record, fields_of, records_in
+from .records import Record, fields_of, id_field, records_in
 from .values import VT
 
 FORMAT = "videotape.intent/2"
@@ -171,8 +171,8 @@ class Builder:
         for r in frame_records(f):
             self.need(r)
             for spec in fields_of(r):
-                if "pages" in spec.options:
-                    self.loaders.add(spec.options["pages"])
+                if spec.pages is not None:
+                    self.loaders.add(spec.pages)
                 opts = spec.options.get("options")
                 if callable(opts) and not isinstance(opts, type):
                     self.loaders.add(opts)
@@ -317,6 +317,9 @@ def _annotate(record: type[Record], schema: dict[str, Any]) -> dict[str, Any]:
                 x[key] = prop.pop(key)
         prop[VT] = x
     schema[VT] = {"type": "record"}
+    identity = id_field(record)
+    if identity is not None:
+        schema[VT]["id"] = identity
     return schema
 
 

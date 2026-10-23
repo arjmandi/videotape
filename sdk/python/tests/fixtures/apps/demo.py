@@ -40,11 +40,12 @@ docs_index, db, reports, auth = _Docs(), _Db(), _Reports(), _Auth()
 
 
 class Entry(vt.Record):
-    slug: str = vt.Field(show=False)
+    slug: vt.Id
     title: str
 
 
 class Page(vt.Record):
+    id: vt.Id
     title: str = vt.Field(role="heading")
     body: vt.RichText
     toc: list[Entry] = vt.Field(role="navigation", select=vt.jump("docs", page=Entry.slug))
@@ -73,35 +74,36 @@ docs = vt.tape("docs", [
 
 
 class Project(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str = vt.Field(role="heading")
     status: str = vt.Field(role="status")
     updated: datetime = vt.Field(format="relative-time")
 
 
 class Dashboard(vt.Record):
-    greeting: str = vt.Field(role="heading")
+    id: vt.Id
+    first_name: str = vt.Field(show=False)
     activity: vt.Series = vt.Field(importance="optional")
     projects: list[Project] = vt.Field(select=vt.jump("report", project_id=Project.id))
 
 
 async def load_dashboard(ctx) -> Dashboard:
-    return Dashboard(id=ctx.user.id,
-                     greeting=vt.t("dashboard.hello", name=ctx.user.first_name),
+    return Dashboard(id=ctx.user.id, first_name=ctx.user.first_name,
                      activity=vt.Series(await db.activity(ctx.user.id), x="week", y="events"),
                      projects=await db.projects(owner=ctx.user.id))
 
 
 dashboard = vt.tape("dashboard", [
-    vt.frame("See how my projects are doing", address="/projects", shows=Dashboard, enter=load_dashboard),
+    vt.frame("See how my projects are doing", address="/projects", shows=Dashboard, enter=load_dashboard,
+             components=[vt.text(vt.t("dashboard.hello", name=Dashboard.first_name), role="heading")]),
 ])
 
 
 class Report(vt.Record):
+    id: vt.Id
     title: str = vt.Field(role="heading")
     chart: vt.Series
     summary: vt.RichText
-    exported: str | None = vt.Field(role="status")
 
 
 async def export_csv(ctx, r: Report) -> vt.Download:

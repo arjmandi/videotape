@@ -1,8 +1,7 @@
 """06 §9.4, a chat app ("Relay"), with the app line from 06 §3.4.
 
-The guide's code is kept as written. Filled in: service stubs, `User`, `older_messages` (defined
-before `Conversation`, which names it), `load_thread`, and the chats, contacts, and settings tapes.
-The module-level `vt.docs[...]` line becomes a function, since it runs when a message arrives.
+The guide's code is kept as written. Filled in: service stubs, `User`, `load_thread`, and the
+chats, contacts, and settings tapes.
 """
 
 from __future__ import annotations
@@ -16,18 +15,15 @@ import videotape as vt
 
 class _Db:
     async def send(self, conversation_id, user_id, text): ...
+    async def messages(self, conversation_id, before, limit): ...
 
 
 db = _Db()
 
 
 class User(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str
-
-
-async def older_messages(ctx, cursor: str | None) -> vt.Page[Message]:
-    return vt.Page([], next=None)
 
 
 # ── 06 §9.4 ──
@@ -41,13 +37,19 @@ class Message(vt.Record):
 
 
 class Conversation(vt.Record):
+    id: vt.Id
     title: str = vt.Field(role="heading")
-    messages: list[Message] = vt.Field(anchor="end", pages=older_messages)
+    messages: list[Message] = vt.Field(anchor="end")
     typing: str | None = vt.Field(role="status", importance="optional")
 
 
 class Draft(vt.Record):
-    text: vt.Text(lines=(1, 6)) = ""
+    text: vt.Text = ""
+
+
+@vt.pages(Conversation.messages)
+async def older_messages(ctx, conv: Conversation, cursor: str | None) -> vt.Page[Message]:
+    return vt.Page(*await db.messages(conv.id, before=cursor, limit=50))
 
 
 async def send(ctx, conv: Conversation, draft: Draft) -> vt.Stay:
@@ -66,7 +68,7 @@ async def load_thread(ctx, id: str) -> Conversation: ...                     # f
 
 
 thread = vt.tape("thread", [
-    vt.frame("Read and reply", shows=Conversation, edit=Draft, submit=send,
+    vt.frame("Read and reply", shows=Conversation, edit=Draft, submit=vt.action("Send", send),
              address="/c/{id}", enter=load_thread, actions=[
                  vt.action("Reply", start_reply, on=Message, gesture="swipe-trailing"),
                  vt.action("Copy", vt.copy(Message.text), on=Message),
@@ -74,16 +76,15 @@ thread = vt.tape("thread", [
 ])
 
 
-# when a message arrives from anyone, anywhere in your app process
-def on_incoming(msg):
-    vt.docs[Conversation, msg.conversation_id].messages.append(msg)
+async def deliver(conversation_id: str, msg: Message):    # your service calls this when a message arrives
+    vt.docs[Conversation, conversation_id].messages.append(msg)
 
 
 # ── filled in: the other tapes ──
 
 
 class ConversationSummary(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     title: str = vt.Field(role="heading")
     last: str | None = vt.Field(role="supporting")
     unread: bool = vt.State(False)
@@ -100,7 +101,7 @@ chats = vt.tape("chats", [vt.frame("See my conversations", shows=Chats, enter=lo
 
 
 class Contact(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str
     conversation: str = vt.Field(show=False)
 

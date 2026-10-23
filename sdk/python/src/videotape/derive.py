@@ -11,9 +11,9 @@ from typing import Any
 from ._encode import encode, encode_target
 from .intent import Frame, Show, Text
 from .outcomes import Outcome, call
-from .records import FieldSpec, Record, fields_of, records_in
+from .records import FieldSpec, Record, fields_of, id_field, records_in
 
-AFFORDANCES = ("read", "write", "press", "choose", "adjust", "move", "scroll", "play")
+AFFORDANCES = ("read", "write", "press", "choose", "adjust", "move", "add", "remove", "scroll", "play")
 """The engine's closed contract (05 §6.4), in canonical order; `pick` from the OS comes after M1."""
 
 
@@ -86,11 +86,31 @@ def uses(frame: Frame) -> list[Use]:
 # ── components ───────────────────────────────────────────────────────────────
 
 
+def list_mode(spec: FieldSpec) -> str | None:
+    """How a list in an edited record is edited (05 §6.4).
+
+    `"choose"`: a list of an Enum, of options, or of references (records with a `vt.Id`) is a
+    multiple choice. `"items"`: any other list takes add, remove, and move. A list with `select=`
+    is one to navigate, not to edit, so it has no mode.
+    """
+    if "select" in spec.options:
+        return None
+    item = spec.kind.item
+    if {"options", "pick"} & set(spec.options) or (item is not None and item.type == "choice"):
+        return "choose"
+    if item is not None and item.type == "record" and id_field(item.target) is not None:
+        return "choose"
+    return "items"
+
+
 def affordances(spec: FieldSpec, editing: bool, moved: set[type]) -> list[str]:
-    """What the user can do with a field: read it, write it, choose, adjust, scroll, play, ..."""
+    """What the user can do with a field: read it, write it, choose, adjust, add, scroll, play, ..."""
     kind, opts, got = spec.kind.type, spec.options, set()
-    if editing and "options" in opts:
+    mode = list_mode(spec) if editing and kind == "collection" else None
+    if mode == "choose" or (editing and kind != "collection" and "options" in opts):
         got.add("choose")
+    elif mode == "items":
+        got |= {"move", "add", "remove", "scroll"}
     elif kind in ("video", "audio"):
         got.add("play")
     elif kind == "collection":
@@ -135,10 +155,17 @@ def _derive(
             node["from"] = source
         node.update(f.to_json())
         node["affordances"] = affordances(f, editing, moved)
+        mode = list_mode(f) if editing and f.kind.type == "collection" else None
+        if mode == "choose":
+            node["many"] = True
         nested = f.kind.record
         if nested is not None and nested not in stack:
-            # A picked or chosen record is not edited; nor are collection items, in M1.
-            child_editing = editing and f.kind.type == "record" and not {"pick", "options"} & set(f.options)
+            # A picked or chosen record is not edited, nor is a list to choose from or navigate;
+            # the items of an edited list are.
+            if f.kind.type == "record":
+                child_editing = editing and not {"pick", "options"} & set(f.options)
+            else:
+                child_editing = mode == "items"
             children, child_states = _derive(nested, child_editing, moved, [*stack, nested], None)
             holder = node if f.kind.type == "record" else node["item"]
             holder["components"] = children

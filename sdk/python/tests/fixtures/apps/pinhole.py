@@ -1,7 +1,6 @@
 """06 §9.3, a photo-sharing app ("Pinhole").
 
-The guide's code is kept as written. Filled in: service stubs, `feed_page` (defined before `Feed`,
-which names it), the loaders, `unlike`, the story handlers, a way into stories, and the explore,
+The guide's code is kept as written. Filled in: service stubs, the loaders, `unlike`, the story handlers, a way into stories, and the explore,
 activity, profile, and post tapes, with a hub.
 """
 
@@ -22,13 +21,13 @@ db = _Db()
 
 
 class Author(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str
     avatar: vt.Image
 
 
 class Post(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     author: Author = vt.Field(press=vt.jump("profile", user_id=Author.id))
     photo: vt.Image = vt.Field(role="primary")
     liked: bool = vt.State(False)
@@ -48,13 +47,14 @@ async def unlike(ctx, post: Post) -> vt.Stay:                                 # 
     return vt.stay()
 
 
-async def feed_page(ctx, cursor: str | None) -> vt.Page[Post]:                 # filled in: 06 §5.5
-    posts, next_cursor = await db.feed(ctx.user.id, after=cursor, limit=20)
-    return vt.Page(posts, next=next_cursor)
-
-
 class Feed(vt.Record):
-    posts: list[Post] = vt.Field(pages=feed_page)
+    id: vt.Id
+    posts: list[Post]
+
+
+@vt.pages(Feed.posts)
+async def feed_page(ctx, cursor: str | None) -> vt.Page[Post]:
+    return vt.Page(*await db.feed(ctx.user.id, after=cursor, limit=20))
 
 
 async def load_feed(ctx) -> Feed: ...                                         # filled in

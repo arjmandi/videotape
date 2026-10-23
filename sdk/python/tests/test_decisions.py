@@ -125,8 +125,10 @@ def test_loaders_in_the_intent():
     intent = load_sample("relay").app.intent()
     assert intent["loaders"]["older_messages"]["returns"] == {
         "type": "page", "item": {"type": "record", "record": "Message"}}  # fmt: skip
-    assert intent["loaders"]["older_messages"]["params"][0] == {
-        "name": "cursor", "type": "string", "nullable": True, "required": True}  # fmt: skip
+    assert intent["loaders"]["older_messages"]["params"] == [
+        {"name": "conv", "type": "record", "record": "Conversation", "required": True},
+        {"name": "cursor", "type": "string", "nullable": True, "required": True},
+    ]
 
 
 # ── invoke ───────────────────────────────────────────────────────────────────

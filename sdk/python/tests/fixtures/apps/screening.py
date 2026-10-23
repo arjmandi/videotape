@@ -1,7 +1,6 @@
 """06 §9.2, a video platform ("Screening").
 
-The guide's code is kept as written, without postponed annotations, so a loader named in a field
-(`pages=comments_page`) is defined before its record. Filled in: service stubs, `Comment`, the
+The guide's code is kept as written, without postponed annotations. Filled in: service stubs, `Comment`, the
 loaders, `unsubscribe`, and the home, search, subscriptions, and channel tapes.
 """
 
@@ -13,6 +12,7 @@ import videotape as vt
 class _Db:
     async def subscribe(self, user_id, channel_id): ...
     async def unsubscribe(self, user_id, channel_id): ...
+    async def comments(self, video_id, after, limit): ...
 
 
 db = _Db()
@@ -27,7 +27,7 @@ class Comment(vt.Record):
 
 
 class VideoCard(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     thumbnail: vt.Image = vt.Field(role="primary")        # an Image carries its own alt text
     title: str = vt.Field(role="heading")
     channel: str = vt.Field(role="supporting")
@@ -43,22 +43,24 @@ class Home(vt.Record):
 
 
 class Channel(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str
     subscribed: bool = vt.State(False)
 
 
-async def comments_page(ctx, cursor: str | None) -> vt.Page[Comment]:       # filled in
-    return vt.Page([], next=None)
-
-
 class Watch(vt.Record):
+    id: vt.Id
     player: vt.Video = vt.Field(role="primary", importance="required")   # the platform's player, on a screen in the world
     title: str = vt.Field(role="heading")
     channel: Channel
     description: vt.RichText = vt.Field(importance="optional")
     up_next: list[VideoCard] = vt.Field(select=vt.jump("watch", video_id=VideoCard.id))
-    comments: list[Comment] = vt.Field(pages=comments_page, importance="optional")
+    comments: list[Comment] = vt.Field(importance="optional")
+
+
+@vt.pages(Watch.comments)
+async def comments_page(ctx, w: Watch, cursor: str | None) -> vt.Page[Comment]:
+    return vt.Page(*await db.comments(w.id, after=cursor, limit=20))
 
 
 async def subscribe(ctx, w: Watch) -> vt.Stay:

@@ -28,12 +28,12 @@ db, reports = _Db(), _Reports()
 
 
 class Company(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str = vt.Field(role="heading")
 
 
 class User(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str
 
 
@@ -48,20 +48,21 @@ class Stage(Enum):
 
 
 class Deal(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str = vt.Field(role="heading")
     company: Company = vt.pick("pick_company")            # a call that returns a Company
     amount: vt.Money = vt.Field(ge=0)
     stage: Stage                                          # a choice
     close: date | None = vt.Field(group="dates")
     owner: User = vt.Field(group="people", options=team)
-    notes: vt.Text(lines=(3, 12)) | None = vt.Field(importance="optional")
+    notes: vt.Text | None = vt.Field(lines=(3, 12), importance="optional")
 
 
 # ── 06 §9.5 ──
 
 
 class Pipeline(vt.Record):
+    id: vt.Id
     deals: list[Deal] = vt.Field(group_by=Deal.stage, select=vt.jump("deal", deal_id=Deal.id))
     forecast: vt.Series = vt.Field(importance="optional")
     can_export: bool = vt.State(False)
@@ -129,7 +130,7 @@ pick_company = vt.tape("pick_company", [
 
 
 class Contact(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str = vt.Field(role="heading")
     company: str
     email: str

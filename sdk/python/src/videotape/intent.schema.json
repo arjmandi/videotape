@@ -551,6 +551,8 @@
               "choose",
               "adjust",
               "move",
+              "add",
+              "remove",
               "scroll",
               "play"
             ],

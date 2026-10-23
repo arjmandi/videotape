@@ -11,27 +11,27 @@ import ast
 import copy
 import sys
 import types
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time
 from decimal import Decimal
 from enum import Enum
 from typing import Annotated, Any, ClassVar, Literal, Union, get_args, get_origin
 
 import pydantic
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic.errors import PydanticUndefinedAnnotation
 from pydantic.fields import FieldInfo
 from pydantic_core import PydanticUndefined
 
 from ._encode import encode, encode_target, name_of
-from .values import BUILTIN_TYPES, VT, TextLines
+from .values import BUILTIN_TYPES, VT, Id, Phrase, Text
 
 ROLES = ("heading", "primary", "secondary", "navigation", "status", "supporting")
 IMPORTANCE = ("required", "normal", "optional")
 OPTION_NAMES = (
-    "role", "importance", "group", "order", "format", "kind", "commit", "options", "select", "pages",
-    "anchor", "group_by", "surface", "show", "visible", "hidden", "press", "label",
+    "role", "importance", "group", "order", "format", "lines", "kind", "commit", "options", "select",
+    "anchor", "min_items", "max_items", "group_by", "surface", "show", "visible", "hidden", "press", "label",
 )  # fmt: skip
 _CLOSED = {
     "role": ROLES,
@@ -42,7 +42,8 @@ _CLOSED = {
 
 
 class RecordError(TypeError):
-    """A record that cannot be read: an undefined name in an annotation, or a bad option."""
+    """A record that cannot be read: an undefined name in an annotation, two ids, or an option on a
+    field of the wrong type."""
 
 
 # ── field references ─────────────────────────────────────────────────────────
@@ -90,8 +91,15 @@ class FieldOptions:
         for key in ("visible", "hidden", "group_by"):
             if key in self.values and not isinstance(self.values[key], FieldRef):
                 raise TypeError(f"{key}= takes a field reference such as Post.liked, never an expression")
-        if "pages" in self.values and not callable(self.values["pages"]):
-            raise TypeError("pages= takes the loader that fetches the next page")
+        if "lines" in self.values:
+            lines = self.values["lines"]
+            low, high = (lines, lines) if isinstance(lines, int) else tuple(lines)
+            if not (isinstance(low, int) and isinstance(high, int) and 1 <= low <= high):
+                raise ValueError(f"lines={lines!r}: a number of lines, or (fewest, most), with 1 <= fewest <= most")
+            self.values["lines"] = (low, high)
+        for key in ("min_items", "max_items"):
+            if key in self.values and (not isinstance(self.values[key], int) or self.values[key] < 0):
+                raise TypeError(f"{key}= takes a count")
 
     def get(self, key: str, default: Any = None) -> Any:
         return self.values.get(key, default)
@@ -105,9 +113,7 @@ class FieldOptions:
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for key, value in self.values.items():
-            if key == "pages":
-                out[key] = {"loader": name_of(value)}
-            elif key == "options" and callable(value) and not isinstance(value, type):
+            if key == "options" and callable(value) and not isinstance(value, type):
                 out[key] = {"loader": name_of(value)}
             elif key in ("select", "press"):
                 out[key] = encode_target(value)
@@ -134,8 +140,10 @@ def Field(
     commit: str | None = None,
     options: Any = None,
     select: Any = None,
-    pages: Any = None,
     anchor: str | None = None,
+    lines: int | tuple[int, int] | None = None,
+    min_items: int | None = None,
+    max_items: int | None = None,
     group_by: Any = None,
     surface: bool | None = None,
     show: bool | None = None,
@@ -145,12 +153,23 @@ def Field(
     label: str | None = None,
     **constraints: Any,
 ) -> Any:
-    """A record field with Videotape's options (06 §4) and Pydantic's (`ge=`, `max_length=`, ...)."""
+    """A record field with Videotape's options (06 §4) and Pydantic's (`ge=`, `max_length=`, ...).
+
+    `min_items=` and `max_items=` bound an edited list and are enforced as Pydantic's `min_length`
+    and `max_length`. A paged list registers its loader with `@vt.pages(Record.field)`.
+    """
+    if "pages" in constraints:
+        raise TypeError("pages= is gone: register the loader after the record with @vt.pages(Record.field)")
     opts = FieldOptions(
-        role=role, importance=importance, group=group, order=order, format=format, kind=kind,
-        commit=commit, options=options, select=select, pages=pages, anchor=anchor, group_by=group_by,
-        surface=surface, show=show, visible=visible, hidden=hidden, press=press, label=label,
+        role=role, importance=importance, group=group, order=order, format=format, lines=lines, kind=kind,
+        commit=commit, options=options, select=select, anchor=anchor, min_items=min_items,
+        max_items=max_items, group_by=group_by, surface=surface, show=show, visible=visible, hidden=hidden,
+        press=press, label=label,
     )  # fmt: skip
+    if min_items is not None:
+        constraints.setdefault("min_length", min_items)
+    if max_items is not None:
+        constraints.setdefault("max_length", max_items)
     return _field(default, opts, constraints)
 
 
@@ -228,9 +247,6 @@ def kind_of(annotation: Any, metadata: list[Any] | tuple[Any, ...] = ()) -> Kind
             t = args[0]
         else:
             break
-    lines = next((m.lines for m in meta if isinstance(m, TextLines)), None)
-    if lines:
-        return Kind("text", lines=lines, nullable=nullable)
     origin = get_origin(t)
     if origin in _SEQUENCES or t in _SEQUENCES:
         args = [a for a in get_args(t) if a is not Ellipsis]
@@ -239,6 +255,8 @@ def kind_of(annotation: Any, metadata: list[Any] | tuple[Any, ...] = ()) -> Kind
     if origin is Literal:
         return Kind("choice", choices=get_args(t), nullable=nullable)
     if isinstance(t, type):
+        if t is Text:
+            return Kind("text", target=t, lines=Text.LINES, nullable=nullable)
         if t in BUILTIN_TYPES:
             return Kind(BUILTIN_TYPES[t], target=t, nullable=nullable)
         if issubclass(t, Record):
@@ -289,13 +307,20 @@ class FieldSpec:
 
     @property
     def shown(self) -> bool:
-        """Whether the field becomes a component: not `show=False`, and not a state."""
-        return self.options.get("show", True) and not self.state
+        """Whether the field becomes a component: not `show=False`, not a state, and not an `Id`."""
+        return self.options.get("show", True) and not self.state and self.kind.type != "id"
+
+    @property
+    def pages(self) -> Any:
+        """The loader `@vt.pages` registered for this field, if any."""
+        return self.record.__dict__.get("__vt_pages__", {}).get(self.name)
 
     def to_json(self) -> dict[str, Any]:
         """The field's `x-vt`: its kind, then its options."""
         out = self.kind.to_json()
         opts = FieldOptions(**self.options).to_json() if self.options else {}
+        if self.pages is not None:
+            opts["pages"] = {"loader": name_of(self.pages)}
         return {**out, **opts}
 
 
@@ -327,9 +352,24 @@ def fields_of(cls: type[Record]) -> list[FieldSpec]:
                 if value is not None:
                     constraints[key] = value
         kind = kind_of(info.annotation, info.metadata)
+        if "lines" in options:
+            if kind.type != "text":
+                raise RecordError(f"{cls.__name__}.{name}: lines= is for vt.Text fields")
+            kind = replace(kind, lines=options["lines"])
+        for key in ("min_items", "max_items"):
+            if key in options and kind.type != "collection":
+                raise RecordError(f"{cls.__name__}.{name}: {key}= is for lists")
         out.append(FieldSpec(cls, name, kind, info.is_required(), dict(options), constraints))
+    ids = [f.name for f in out if f.kind.type == "id"]
+    if len(ids) > 1:
+        raise RecordError(f"record {cls.__name__} has {len(ids)} vt.Id fields ({', '.join(ids)}); a record has one identity")
     _fields_cache[cls] = out
     return out
+
+
+def id_field(cls: type[Record]) -> str | None:
+    """The name of the record's `vt.Id` field: its identity as a document, if it has one."""
+    return next((f.name for f in fields_of(cls) if f.kind.type == "id"), None)
 
 
 def records_in(cls: type[Record]) -> list[type[Record]]:
@@ -348,8 +388,9 @@ def records_in(cls: type[Record]) -> list[type[Record]]:
     return seen
 
 
-# `| None` means not required (05 §6.1). Pydantic needs a default for that; it is added to the class
-# namespace before Pydantic reads it, from the annotations as written, so forward references work.
+# `| None` means not required (05 §6.1), and so does `vt.Id`, until the app saves the record. Pydantic
+# needs a default for that; it is added to the class namespace before Pydantic reads it, from the
+# annotations as written, so forward references work.
 
 
 def _raw_annotations(namespace: dict[str, Any]) -> dict[str, Any]:
@@ -399,6 +440,16 @@ def _node_allows_none(node: ast.expr) -> bool:
     return False
 
 
+def _is_id(annotation: Any) -> bool:
+    if isinstance(annotation, str):
+        try:
+            node = ast.parse(annotation, mode="eval").body
+        except SyntaxError:
+            return False
+        return (isinstance(node, ast.Name) and node.id == "Id") or (isinstance(node, ast.Attribute) and node.attr == "Id")
+    return annotation is Id
+
+
 def _is_classvar(annotation: Any) -> bool:
     if isinstance(annotation, str):
         return annotation.startswith(("ClassVar", "typing.ClassVar"))
@@ -407,7 +458,9 @@ def _is_classvar(annotation: Any) -> bool:
 
 def _default_optional_fields(namespace: dict[str, Any]) -> None:
     for name, annotation in _raw_annotations(namespace).items():
-        if name.startswith("_") or _is_classvar(annotation) or not _allows_none(annotation):
+        if name.startswith("_") or _is_classvar(annotation):
+            continue
+        if not (_allows_none(annotation) or _is_id(annotation)):
             continue
         value = namespace.get(name, PydanticUndefined)
         if value is PydanticUndefined:
@@ -451,13 +504,22 @@ class RecordMeta(ModelMetaclass):
 class Record(BaseModel, metaclass=RecordMeta):
     """A typed record: what a frame shows or edits, and what handlers receive (05 §6.1).
 
-    Every record has an `id`, so the engine can hold it once as a document; a record that is the
-    identity of something declares `id: str` itself. A field typed `X | None` is not required.
+    A record with a `vt.Id` field is a document the engine holds once, by that id; one without is the
+    session's own. A field typed `X | None` is not required, nor is the `vt.Id` until the app saves
+    the record. A record holds data: copy (`vt.t(...)`) lives in intent and is refused here.
     """
 
     model_config = ConfigDict(validate_assignment=True, extra="forbid")
 
-    id: str | None = Field(None, show=False)
+    @field_validator("*", mode="before")
+    @classmethod
+    def _no_copy(cls, value: Any) -> Any:
+        if _holds_phrase(value):
+            raise ValueError(
+                "vt.t(...) is copy, which lives in intent: show it with vt.text(vt.t(...)) on the frame, "
+                "or make the field an Enum whose members are message keys"
+            )
+        return value
 
     def update(self, other: BaseModel | dict[str, Any] | None = None, /, **values: Any) -> Record:
         """Merges fields into this record: `msg.update(saved, pending=False)`."""
@@ -470,3 +532,35 @@ class Record(BaseModel, metaclass=RecordMeta):
         for key, value in merged.items():
             setattr(self, key, value)
         return self
+
+
+def _holds_phrase(value: Any) -> bool:
+    if isinstance(value, Phrase):
+        return True
+    if isinstance(value, (list, tuple)):
+        return any(_holds_phrase(v) for v in value)
+    if isinstance(value, dict):
+        return any(_holds_phrase(v) for v in value.values())
+    return False
+
+
+def pages(ref: FieldRef) -> Any:
+    """Registers a list's paging loader, after its record: `@vt.pages(Feed.posts)` (06 §5.5).
+
+    The loader takes `ctx`, the `cursor` of the page it is asked for, and optionally the document
+    that holds the list; it returns `vt.Page[Item]`. The engine fetches pages as the user nears the end.
+    """
+    if not isinstance(ref, FieldRef):
+        raise TypeError("@vt.pages takes the list field it pages, such as @vt.pages(Feed.posts)")
+
+    def register(loader: Any) -> Any:
+        if not callable(loader):
+            raise TypeError("@vt.pages decorates the loader that fetches a page")
+        registered = dict(ref.record.__dict__.get("__vt_pages__", {}))
+        if ref.name in registered and registered[ref.name] is not loader:
+            raise ValueError(f"{ref} already has a pages loader, {name_of(registered[ref.name])}")
+        registered[ref.name] = loader
+        type.__setattr__(ref.record, "__vt_pages__", registered)
+        return loader
+
+    return register

@@ -17,17 +17,19 @@ class ResetRequest(vt.Record):
 
 
 class Project(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     name: str = vt.Field(role="heading")
     status: str = vt.Field(role="status")
     updated: datetime = vt.Field(format="relative-time")
 
 
 class Workspace(vt.Record):
+    id: vt.Id
     projects: list[Project] = vt.Field(select=vt.jump("report", project_id=Project.id))
 
 
 class Report(vt.Record):
+    id: vt.Id
     title: str = vt.Field(role="heading")
     chart: vt.Series
     summary: vt.RichText

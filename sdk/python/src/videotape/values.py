@@ -45,39 +45,47 @@ class Secret(str):
         return out
 
 
-class TextLines:
-    """Metadata that makes a `str` a text written over several lines."""
+class Text(str):
+    """Text written over several lines: one to six, unless `vt.Field(lines=(3, 12))` says otherwise.
 
-    __slots__ = ("lines",)
+    A type used bare, as an annotation (`notes: vt.Text`); its values are plain strings.
+    """
 
-    def __init__(self, low: int, high: int) -> None:
-        if not 1 <= low <= high:
-            raise ValueError(f"vt.Text(lines=({low}, {high})): need 1 <= low <= high")
-        self.lines = (low, high)
+    LINES = (1, 6)
 
-    def __repr__(self) -> str:
-        return f"TextLines{self.lines}"
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> cs.CoreSchema:
+        return cs.str_schema()
 
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, TextLines) and other.lines == self.lines
-
-    def __hash__(self) -> int:
-        return hash(self.lines)
-
-    def __get_pydantic_json_schema__(self, schema: cs.CoreSchema, handler: Any) -> dict[str, Any]:
+    @classmethod
+    def __get_pydantic_json_schema__(cls, schema: cs.CoreSchema, handler: Any) -> dict[str, Any]:
         out = handler(schema)
-        out[VT] = {"type": "text", "lines": list(self.lines)}
+        out[VT] = {"type": "text"}
         return out
 
 
-def Text(*, lines: int | tuple[int, int]) -> Any:
-    """A string written over several lines, as an annotation: `notes: vt.Text(lines=(3, 12))`."""
-    low, high = (lines, lines) if isinstance(lines, int) else lines
-    return Annotated[str, TextLines(low, high)]
+class Id(str):
+    """A document's identity (05 §6.1): never shown, and not required until the app saves the record.
+
+    The engine holds a document, syncs it, and keys list items by it. A record has at most one.
+    """
+
+    __slots__ = ()
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: Any) -> cs.CoreSchema:
+        return cs.no_info_after_validator_function(
+            lambda v: cls(str(v)), cs.union_schema([cs.str_schema(), cs.int_schema(strict=True)])
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, schema: cs.CoreSchema, handler: Any) -> dict[str, Any]:
+        return {"type": "string", VT: {"type": "id"}}
 
 
 class Phrase(str):
-    """A message key with parameters, from `vt.t(...)`; its string value is the key."""
+    """Copy with parameters, from `vt.t(...)`; its string value is the key. Copy lives in intent, so a
+    record refuses it: a document holds data (05 §6.1)."""
 
     key: str
     params: dict[str, Any]
@@ -94,7 +102,10 @@ class Phrase(str):
 
 
 def t(key: str, **params: Any) -> Phrase:
-    """A string with parameters, looked up in the catalogue: `vt.t("dashboard.hello", name=...)`."""
+    """Copy with parameters, looked up in the catalogue: `vt.t("dashboard.hello", name=Dashboard.first_name)`.
+
+    A parameter may be a field reference, which the engine fills in the user's locale.
+    """
     if not re.fullmatch(r"[A-Za-z][\w-]*(\.[A-Za-z0-9][\w-]*)*", key):
         raise ValueError(f"vt.t({key!r}): a message key is dotted words, such as 'dashboard.hello'")
     return Phrase(key, params)
@@ -407,18 +418,22 @@ ItemT = TypeVar("ItemT")
 
 
 class Page(BaseModel, Generic[ItemT]):
-    """One page of a long list, from a `pages=` loader: `return vt.Page(posts, next=cursor)`."""
+    """One page of a long list, from an `@vt.pages` loader: `vt.Page(posts, next_cursor)`."""
 
     items: list[ItemT]
     next: str | None = None
 
-    def __init__(self, items: list[ItemT] | None = None, /, **data: Any) -> None:
+    def __init__(self, items: list[ItemT] | None = None, next: str | None = None, /, **data: Any) -> None:  # noqa: A002
         if items is not None:
             data["items"] = items
+        if next is not None:
+            data["next"] = next
         super().__init__(**data)
 
 
 BUILTIN_TYPES: dict[type, str] = {
+    Id: "id",
+    Text: "text",
     Secret: "secret",
     Money: "money",
     Image: "image",

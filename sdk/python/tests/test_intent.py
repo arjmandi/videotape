@@ -16,7 +16,8 @@ SCHEMA_FILE = Path(vt.__file__).parent / "intent.schema.json"
 
 
 class Item(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
+    sku: str = vt.Field(show=False)
     name: str = vt.Field(role="heading")
     price: vt.Money
     done: bool = vt.State(False)
@@ -28,7 +29,7 @@ class Basket(vt.Record):
 
 
 class Note(vt.Record):
-    text: vt.Text(lines=(2, 8))
+    text: vt.Text = vt.Field(lines=(2, 8))
     volume: int = vt.Field(ge=0, le=10)
     secret: vt.Secret
 
@@ -92,7 +93,7 @@ def test_every_property_carries_its_kind_under_x_vt(sample):
     for name, schema in sample.app.intent()["records"].items():
         if "properties" not in schema:
             continue  # an enum
-        assert schema["x-vt"] == {"type": "record"}
+        assert schema["x-vt"]["type"] == "record"
         for prop in schema["properties"].values():
             assert "type" in prop["x-vt"], name
 
@@ -155,6 +156,39 @@ def test_shown_fields_derive_reading_and_collections():
     assert items["item"]["states"] == ["Item.done"]
 
 
+def test_edited_lists_are_editable():
+    class Stage(__import__("enum").Enum):
+        A = "a"
+
+    class Line(vt.Record):
+        product: str
+        quantity: int = vt.Field(ge=1)
+
+    class Order(vt.Record):
+        lines: list[Line] = vt.Field(min_items=1)
+        stages: list[Stage]
+        watchers: list[Item]
+        found: list[Item] = vt.Field(select=vt.jump("item", item_id=Item.id))
+
+    async def place(ctx, o: Order):
+        return vt.stay()
+
+    lines, stages, watchers, found = one_frame(edit=Order, submit=place)["components"]
+    assert lines["affordances"] == ["move", "add", "remove", "scroll"] and lines["min_items"] == 1
+    assert [c["affordances"] for c in lines["item"]["components"]] == [["write"], ["write"]]
+    assert (stages["affordances"], stages["many"]) == (["choose"], True)
+    assert (watchers["affordances"], watchers["many"]) == (["choose"], True)  # records with an Id are references
+    assert found["affordances"] == ["read", "press", "scroll"] and "many" not in found  # a list to navigate
+    assert [c["affordances"] for c in watchers["item"]["components"]] == [["read"], ["read"]]
+
+
+def test_record_identity_is_marked():
+    intent = vt.app("t", entry="a", tapes=[vt.tape("a", [vt.frame("See a basket", shows=Basket)]),
+                                           vt.tape("item", [vt.frame("x")])]).intent()  # fmt: skip
+    assert intent["records"]["Item"]["x-vt"] == {"type": "record", "id": "id"}
+    assert intent["records"]["Basket"]["x-vt"] == {"type": "record"}
+
+
 def test_a_list_shown_directly_is_wrapped():
     f = one_frame(shows=list[Item])
     assert f["shows"] == {"collection": "Item"}
@@ -166,11 +200,11 @@ def test_explicit_components_come_first_and_override_derived_ones():
     f = one_frame(shows=Basket, components=[
         vt.text(vt.t("basket.intro"), role="supporting"),
         vt.show(Item.price, role="heading"),
-        vt.show(Item.id),
+        vt.show(Item.sku),
     ])  # fmt: skip
-    intro, item_id, *derived = f["components"]
+    intro, sku, *derived = f["components"]
     assert intro == {"text": {"t": "basket.intro"}, "role": "supporting", "affordances": ["read"]}
-    assert item_id["field"] == "Item.id" and item_id["override"] is True
+    assert sku["field"] == "Item.sku" and sku["override"] is True
     price = derived[1]["item"]["components"][1]
     assert price["role"] == "heading" and price["override"] is True
 
