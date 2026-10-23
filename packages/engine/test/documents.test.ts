@@ -1,0 +1,220 @@
+import { describe, expect, it } from "vitest";
+import { type DocChange, DocumentStore } from "../src/documents";
+import { memoryLogger } from "../src/log";
+import type { Op } from "../src/protocol";
+import { KEY, Records } from "../src/records";
+import { SOMETHING_WENT_WRONG } from "../src/session";
+import { ADA, Client, fake, play } from "./harness";
+import { intent } from "./fixtures";
+import { NO_PYTHON } from "./python";
+
+const relay = new Records(intent("relay"));
+const user = { id: "u1", name: "Ada" };
+const text = (s: string) => ({ blocks: [{ kind: "paragraph", spans: [{ text: s }] }] });
+const message = (s: string, extra = {}) => ({ author: user, text: text(s), sent_at: null, pending: false, ...extra });
+const conversation = () => ({ id: "c1", title: "Launch", typing: null, messages: [message("first")] });
+
+function store() {
+  const log = memoryLogger();
+  const docs = new DocumentStore(relay, log);
+  const changes: DocChange[] = [];
+  docs.onChange((c) => changes.push({ ...c, doc: { ...c.doc } }));
+  return { docs, log, changes };
+}
+
+const texts = (value: any) => value.messages.map((m: any) => m.text.blocks[0].spans[0].text);
+const insert = (key: string, s: string, extra = {}): Op => ({ op: "insert", path: ["messages"], key, value: message(s, extra), at: "end" });
+
+describe("the document store", () => {
+  it("holds a document with an Id once, shared by every holder, until the last lets go", () => {
+    const { docs } = store();
+    const a = docs.load("Conversation", conversation(), "s1:1");
+    const b = docs.load("Conversation", conversation(), "s2:1");
+    expect(a).toEqual({ record: "Conversation", id: "c1" });
+    expect(b).toEqual(a);
+    expect(docs.size).toBe(1);
+    docs.release("s1:1");
+    expect(docs.get(a)).toBeDefined();
+    docs.release("s2:1");
+    expect(docs.get(a)).toBeUndefined();
+  });
+
+  it("makes documents without an Id, and edited ones, the holder's own", () => {
+    const { docs } = store();
+    const draft = docs.load("Draft", { text: "" }, "s1:1");
+    expect(draft).toEqual({ record: "Draft", local: "d1" });
+    const edited = docs.load("Conversation", conversation(), "s1:1", true);
+    expect("local" in edited).toBe(true);
+    const nullId = docs.load("Conversation", { ...conversation(), id: null }, "s1:1");
+    expect("local" in nullId).toBe(true);
+    expect(docs.size).toBe(3);
+  });
+
+  it("shows a decision's changes at once, and folds them in when it returns", () => {
+    const { docs, changes } = store();
+    const ref = docs.load("Conversation", conversation(), "s1:1");
+    docs.tentative("r1", ref, [insert("~a.1", "second", { pending: true })]);
+    expect(texts(docs.read(ref))).toEqual(["first", "second"]);
+    expect(docs.isTentative(ref)).toBe(true);
+    docs.tentative("r1", ref, [{ op: "set", path: ["messages", { key: "~a.1" }, "pending"], value: false }]);
+    docs.confirm("r1");
+    expect(docs.isTentative(ref)).toBe(false);
+    expect(docs.get(ref)!.confirmed).toEqual(docs.get(ref)!.value);
+    expect((docs.read(ref) as any).messages[1].pending).toBe(false);
+    expect(changes.map((c) => [c.state, c.decision])).toEqual([["tentative", "r1"], ["tentative", "r1"], ["confirmed", "r1"]]);
+  });
+
+  it("takes a failed decision's changes back, and keeps another decision's", () => {
+    const { docs, changes } = store();
+    const ref = docs.load("Conversation", conversation(), "s1:1");
+    docs.tentative("r1", ref, [insert("~a.1", "mine")]);
+    docs.tentative("r2", ref, [insert("~b.1", "theirs")]);
+    docs.tentative("r1", ref, [{ op: "set", path: ["title"], value: "Renamed" }]);
+    expect(texts(docs.read(ref))).toEqual(["first", "mine", "theirs"]);
+    docs.rollback("r1");
+    expect(texts(docs.read(ref))).toEqual(["first", "theirs"]);
+    expect((docs.read(ref) as any).title).toBe("Launch");
+    expect(docs.isTentative(ref)).toBe(true);
+    docs.confirm("r2");
+    expect(texts(docs.get(ref)!.confirmed)).toEqual(["first", "theirs"]);
+    expect(changes.map((c) => c.state)).toEqual(["tentative", "tentative", "tentative", "rolledback", "confirmed"]);
+  });
+
+  it("re-applies open decisions on top of a change confirmed meanwhile", () => {
+    const { docs } = store();
+    const ref = docs.load("Conversation", conversation(), "s1:1");
+    docs.tentative("r1", ref, [insert("~a.1", "pending")]);
+    docs.apply(ref, [insert("~app.1", "delivered")]);
+    expect(texts(docs.read(ref))).toEqual(["first", "delivered", "pending"]);
+    expect(texts(docs.get(ref)!.confirmed)).toEqual(["first", "delivered"]);
+    docs.load("Conversation", { ...conversation(), title: "Reloaded" }, "s2:1");
+    expect((docs.read(ref) as any).title).toBe("Reloaded");
+    expect(texts(docs.read(ref))).toEqual(["first", "pending"]);
+  });
+
+  it("keys the items a decision adds the same way every time it is applied again", () => {
+    const crm = new Records(intent("crm"));
+    const docs = new DocumentStore(crm, memoryLogger());
+    const ref = docs.load("Pipeline", { deals: [] }, "s1:1", true);
+    const deal = { id: null, name: "D", company: { id: "co1", name: "Acme" }, amount: { amount: "1", currency: "EUR" }, stage: "lead", owner: { id: "u1", name: "Ada" } };
+    docs.tentative("r1", ref, [{ op: "insert", path: ["deals"], key: "~a.1", value: deal }]);
+    const before = JSON.stringify(docs.get(ref)!.value);
+    docs.edit(ref, [{ op: "set", path: ["deals"], value: [] }]);
+    docs.apply(ref, []);
+    expect(JSON.stringify(docs.get(ref)!.value)).toBe(before);
+  });
+
+  it("finds items by key or by Id, and refuses what does not fit the record", () => {
+    const { docs, log } = store();
+    const ref = docs.load("Conversation", conversation(), "s1:1");
+    const key = (docs.get(ref)!.value as any).messages[0][KEY];
+    expect(docs.apply(ref, [{ op: "replace", path: ["messages"], key, value: message("edited") }])).toHaveLength(1);
+    expect(texts(docs.read(ref))).toEqual(["edited"]);
+    expect(docs.apply(ref, [{ op: "set", path: ["title"], value: 5 }])).toEqual([]);
+    expect(docs.apply(ref, [{ op: "set", path: ["nope"], value: 1 }])).toEqual([]);
+    expect(docs.apply(ref, [{ op: "remove", path: ["messages"], key: "missing" }])).toEqual([]);
+    expect(log.lines.filter((l) => l.msg === "an op was refused").map((l) => l.fields?.reason)).toEqual([
+      "title: / must be string", "Conversation has no nope", "no item missing in messages",
+    ]);
+    expect(docs.apply(ref, [{ op: "remove", path: ["messages"], key }])).toHaveLength(1);
+    expect(texts(docs.read(ref))).toEqual([]);
+  });
+});
+
+describe("documents across sessions", () => {
+  it("fans the app's own changes out to every session that shows the document", async () => {
+    const app = fake("journeys", (req) => {
+      if (req.t === "load") return { documents: [{ record: "Inbox", value: { id: "inbox-p1", items: [{ id: "i1", title: "First" }] } }] };
+      return { outcome: { type: "stay" } };
+    });
+    await app.engine.ready();
+    const a = await Client.open(app.engine, { tape: "inbox", user: ADA });
+    const b = await Client.open(app.engine, { tape: "inbox", user: ADA });
+    const elsewhere = await Client.open(app.engine, { user: ADA });
+    app.sync([{ doc: { record: "Inbox", id: "inbox-p1" }, ops: [{ op: "insert", path: ["items"], key: "i2", value: { id: "i2", title: "Second" } }] }]);
+    for (const c of [a, b]) {
+      expect(c.changes).toEqual([{ record: "Inbox", state: "confirmed", tentative: false, value: { id: "inbox-p1", items: [{ id: "i1", title: "First" }, { id: "i2", title: "Second" }] } }]);
+    }
+    expect(elsewhere.changes).toEqual([]);
+    app.sync([{ doc: { record: "Inbox", id: "nobody" }, ops: [{ op: "set", path: ["items"], value: [] }] }]);
+    expect(a.changes).toHaveLength(1);
+  });
+});
+
+describe.skipIf(NO_PYTHON)("documents with the Python app", () => {
+  it("relay: two sessions on one conversation see a sent message tentative, then confirmed", async () => {
+    const p = await play("relay");
+    try {
+      const ada = { record: "User", id: "u1", value: { id: "u1", name: "Ada" } };
+      const grace = { record: "User", id: "u2", value: { id: "u2", name: "Grace" } };
+      const a = await Client.open(p.engine, { address: "/c/c1", user: ada });
+      const b = await Client.open(p.engine, { address: "/c/c1", user: grace });
+      expect(a.session.ref("Conversation")).toEqual(b.session.ref("Conversation"));
+      expect(a.session.ref("Draft")).not.toEqual(b.session.ref("Draft"));
+
+      await a.fill("Draft.text", "On my way");
+      await a.press("Send");
+
+      const conv = (c: Client) => c.changes.filter((x) => x.record === "Conversation");
+      for (const c of [a, b]) {
+        const seen = conv(c);
+        expect(seen.map((x) => x.state)).toEqual(["tentative", "tentative", "confirmed"]);
+        const sent = seen[0]!.value.messages.at(-1);
+        expect(sent).toMatchObject({ author: { id: "u1", name: "Ada" }, pending: true, sent_at: null });
+        expect(sent.text.blocks[0].spans[0].text).toBe("On my way");
+        expect(seen[0]!.tentative).toBe(true);
+        const confirmed = seen[2]!.value.messages.at(-1);
+        expect(confirmed.pending).toBe(false);
+        expect(confirmed.sent_at).toMatch(/^2\d{3}-/);
+        expect(seen[2]!.tentative).toBe(false);
+        expect(c.doc("Conversation").messages).toHaveLength(2);
+        expect(c.view.tentative).toEqual([]);
+      }
+      expect(a.changes.filter((x) => x.record === "Draft").map((x) => [x.state, x.value.text])).toEqual([["confirmed", "On my way"], ["tentative", ""], ["confirmed", ""]]);
+      expect(b.changes.some((x) => x.record === "Draft")).toBe(false);
+      expect(a.doc("Draft")).toEqual({ text: "" });
+    } finally {
+      await p.stop();
+    }
+  }, 20_000);
+
+  it("relay: a handler that raises rolls the message back in both sessions", async () => {
+    const p = await play("relay");
+    try {
+      const ada = { record: "User", id: "u1", value: { id: "u1", name: "Ada" } };
+      const a = await Client.open(p.engine, { address: "/c/c1", user: ada });
+      const b = await Client.open(p.engine, { address: "/c/c1", user: ada });
+      await a.fill("Draft.text", "fail: on my way");
+      await a.press("Send");
+      for (const c of [a, b]) {
+        const seen = c.changes.filter((x) => x.record === "Conversation");
+        expect(seen.map((x) => x.state)).toEqual(["tentative", "rolledback"]);
+        expect(seen[0]!.value.messages).toHaveLength(2);
+        expect(seen[1]!.value.messages).toHaveLength(1);
+        expect(c.doc("Conversation").messages).toHaveLength(1);
+      }
+      expect(a.doc("Draft")).toEqual({ text: "fail: on my way" });
+      expect(a.view.status.error).toBe(SOMETHING_WENT_WRONG);
+      expect(b.view.status.error).toBeNull();
+    } finally {
+      await p.stop();
+    }
+  }, 20_000);
+
+  it("journeys: a Reject rolls back what the handler changed, in every session showing it", async () => {
+    const p = await play("journeys");
+    try {
+      const a = await Client.open(p.engine, { tape: "home", user: ADA });
+      const b = await Client.open(p.engine, { tape: "home", user: ADA });
+      await a.press("Wave");
+      await a.press("Wave too much");
+      expect(a.view.status.error).toBe("Too much waving.");
+      for (const c of [a, b]) {
+        expect(c.changes.map((x) => [x.state, x.value.visits])).toEqual([["tentative", 1], ["confirmed", 1], ["tentative", 11], ["rolledback", 1]]);
+        expect(c.doc("Home").visits).toBe(1);
+      }
+    } finally {
+      await p.stop();
+    }
+  }, 20_000);
+});

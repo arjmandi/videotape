@@ -110,3 +110,25 @@ outcome is checked against the outcomes its intent declares before it plays: any
 refused as an error. A `Reject` stays and shows its message as the frame's error status; a
 raised error or an app that is gone or too slow (30 s) stays with the engine's own message. After
 every press that carried secrets the session tells the client to clear those fields.
+
+## Documents
+
+`DocumentStore` (`src/documents.ts`) holds every document a reel holds. A loaded document whose
+record has a `vt.Id` that is set is held once, as `{record, id}`, shared by every session that
+loads it; anything else is a session's own (`{record, local}`): records without an Id, an Id not
+yet set, every edited document, and shown lists. A tape visit holds its documents, so they live
+while the visit is on the reel (the step, the history, a call's caller, a destination's saved
+history) and are dropped when the last holder lets go. A loader that returns a document already
+held refreshes it: the app is the source of truth.
+
+Each document keeps its **confirmed** value and, on top, the **tentative layers** of decisions
+still running, in the order their `sync`s arrived; readers see the confirmed value with every layer
+applied. When a decision returns, its layers fold into the confirmed value; when it raises or
+rejects, they are dropped. A change confirmed meanwhile (a user's edit, `vt.docs` from the app)
+lands in the confirmed value and the open layers are applied again on top, so interleaved
+decisions keep each other's changes. Every op is validated against the record before it lands
+(a user's own edit only for its shape: a constraint it breaks is reported as `invalid` instead).
+
+**Fan-out.** Showing a document is subscribing to it: every session whose frame shows (or edits) a
+changed document hears `{t: "doc", ref, record, state, version, decision}`, where `state` is
+`tentative`, `confirmed`, or `rolledback`. A session's own documents reach that session alone.

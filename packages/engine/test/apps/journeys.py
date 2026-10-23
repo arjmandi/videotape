@@ -84,6 +84,13 @@ async def wave(ctx, home: Home):
     return vt.stay()
 
 
+async def overdo(ctx, home: Home):
+    home.visits += 10
+    if home.visits > 5:
+        raise vt.Reject("Too much waving.")
+    return vt.stay()
+
+
 async def export(ctx, home: Home):
     return vt.download("home.txt", home.greeting)
 
@@ -93,6 +100,7 @@ home = vt.tape("home", [
         vt.action("Plan something", vt.jump("wizard", topic="garden"), role="primary"),
         vt.action("Confirm", ask),
         vt.action("Wave", wave),
+        vt.action("Wave too much", overdo),
         vt.action("Export", export),
         vt.action("Help", vt.open("https://example.com/help")),
         vt.action("Copy greeting", vt.copy(Home.greeting)),

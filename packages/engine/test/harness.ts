@@ -87,12 +87,19 @@ type Body<T> = T extends unknown ? Omit<T, "seq" | "frame"> : never;
 /** A thin client: numbers its inputs, names the frame it saw, and records what the session said. */
 export class Client {
   events: SessionEvent[] = [];
+  /** What each document looked like at each change this client heard of, by slot. */
+  changes: Array<{ record: string; state: string; tentative: boolean; value: any }> = [];
   private seq = 0;
 
   /** A client of a session; `events` are what it heard before (its first frame), if it listened. */
   constructor(readonly session: Session, events?: SessionEvent[]) {
     if (events) this.events = events;
     else session.on((e) => this.events.push(e));
+    session.on((e) => {
+      if (e.t !== "doc") return;
+      const docs = session["engine"].docs;
+      this.changes.push({ record: e.record, state: e.state, tentative: docs.isTentative(e.ref), value: docs.read(e.ref) });
+    });
   }
 
   /** Opens a session on `engine` and hears it from its first frame. */

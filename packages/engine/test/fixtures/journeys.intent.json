@@ -110,6 +110,13 @@
               "affordance": "press"
             },
             {
+              "label": "Wave too much",
+              "target": {
+                "handler": "overdo"
+              },
+              "affordance": "press"
+            },
+            {
               "label": "Export",
               "target": {
                 "handler": "export"
@@ -696,6 +703,21 @@
         {
           "type": "stay",
           "implied": true
+        }
+      ]
+    },
+    "overdo": {
+      "params": [
+        {
+          "name": "home",
+          "type": "record",
+          "record": "Home",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
         }
       ]
     },

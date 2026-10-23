@@ -2,6 +2,13 @@
 // keyed by its record and id, and shared by every session that holds it; a shown document without
 // one, and every edited document, is the session's own. Documents live in memory for as long as a
 // reel holds them, and are never persisted or logged (05 §12).
+//
+// A handler's changes are shown at once and marked tentative: each document keeps the value they
+// were confirmed into and, on top of it, the tentative layers of the decisions still running, in
+// the order they arrived. What a reader sees is the confirmed value with every layer applied. A
+// decision that returns folds its layers into the confirmed value; one that raises or rejects
+// drops them; and every change, from anywhere, re-applies the layers still open on top, so two
+// decisions and the app's own changes can interleave without losing one another.
 
 import type { Json } from "./intent";
 import type { Logger } from "./log";
@@ -9,24 +16,37 @@ import { applyOp, describe } from "./ops";
 import type { DocRef, Op } from "./protocol";
 import { type PathSegment, type Records, stripKeys } from "./records";
 
+export type DocState = "confirmed" | "tentative" | "rolledback";
+
+interface Layer {
+  decision: string;
+  ops: Op[];
+}
+
 export interface Doc {
   ref: DocRef;
   record: string;
-  /** The value every change has been confirmed into. */
+  /** The value every confirmed change has been folded into. */
+  confirmed: Json;
+  /** What readers see: the confirmed value with the open decisions' layers applied. */
   value: Json;
-  /** Who holds it: one entry per tape visit of a reel that has it. */
+  /** Tentative changes of decisions still running, in the order they arrived. */
+  layers: Layer[];
+  /** Who holds it: one entry per tape visit of a reel that has it (`<session>:<visit>`). */
   holders: Set<string>;
+  /** Grows with every change a reader can see, tentative or not. */
   version: number;
 }
 
 export interface DocChange {
   doc: Doc;
-  state: "confirmed";
+  state: DocState;
+  /** The ops that changed what readers see (none for a confirm or a rollback, which re-apply). */
   ops: Op[];
+  /** The decision the change belongs to. */
+  decision?: string;
   /** The whole value was replaced: a reload of a held document. */
   reset?: true;
-  /** The decision whose changes these are, if a decision made them. */
-  decision?: string;
 }
 
 export type DocListener = (change: DocChange) => void;
@@ -37,7 +57,8 @@ export function refKey(ref: DocRef): string {
 
 export class DocumentStore {
   private readonly docs = new Map<string, Doc>();
-  private readonly buffers = new Map<string, Array<{ key: string; ops: Op[] }>>();
+  /** The documents each open decision has layers on. */
+  private readonly decisions = new Map<string, Set<string>>();
   private readonly listeners = new Set<DocListener>();
   private minted = 0;
   private locals = 0;
@@ -55,10 +76,15 @@ export class DocumentStore {
     return this.docs.get(refKey(ref));
   }
 
-  /** The document's value without the engine's item keys, as a reader sees it. */
+  /** What a reader sees, without the engine's item keys. */
   read(ref: DocRef): Json | undefined {
     const d = this.get(ref);
     return d === undefined ? undefined : stripKeys(d.value);
+  }
+
+  /** Whether a document carries changes of decisions still running. */
+  isTentative(ref: DocRef): boolean {
+    return (this.get(ref)?.layers.length ?? 0) > 0;
   }
 
   onChange(listener: DocListener): () => void {
@@ -72,6 +98,12 @@ export class DocumentStore {
 
   // ── holding ────────────────────────────────────────────────────────────────
 
+  private create(ref: DocRef, record: string, value: Json, holder: string): Doc {
+    const doc: Doc = { ref, record, confirmed: value, value: structuredClone(value), layers: [], holders: new Set([holder]), version: 0 };
+    this.docs.set(refKey(ref), doc);
+    return doc;
+  }
+
   /** Holds a loaded document for `holder`: shared by its id when its record has one and the value
    *  sets it (and `own` is false), else the holder's own. A shared document already held is
    *  refreshed with the loaded value, since the app is the source of truth. */
@@ -80,14 +112,14 @@ export class DocumentStore {
     const id = idField && typeof value === "object" && value !== null && !Array.isArray(value) ? value[idField] : undefined;
     if (!own && (typeof id === "string" || typeof id === "number")) {
       const ref: DocRef = { record, id: String(id) };
-      const known = this.get(ref);
       const keyed = structuredClone(value);
       this.records.assignKeys(record, keyed, this.mint);
+      const known = this.get(ref);
       if (known) {
         known.holders.add(holder);
         this.refresh(known, keyed);
       } else {
-        this.docs.set(refKey(ref), { ref, record, value: keyed, holders: new Set([holder]), version: 0 });
+        this.create(ref, record, keyed, holder);
       }
       return ref;
     }
@@ -104,15 +136,15 @@ export class DocumentStore {
     } else {
       this.records.assignKeys(record, keyed, this.mint);
     }
-    this.docs.set(refKey(ref), { ref, record, value: keyed, holders: new Set([holder]), version: 0 });
+    this.create(ref, record, keyed, holder);
     return ref;
   }
 
-  /** Replaces a held document's value with a newer one from the app. */
-  protected refresh(doc: Doc, value: Json): void {
-    if (JSON.stringify(stripKeys(doc.value)) === JSON.stringify(stripKeys(value))) return;
-    doc.value = value;
-    doc.version += 1;
+  /** Replaces a held document's confirmed value with a newer one from the app; open layers stay on top. */
+  private refresh(doc: Doc, value: Json): void {
+    if (JSON.stringify(stripKeys(doc.confirmed)) === JSON.stringify(stripKeys(value))) return;
+    doc.confirmed = value;
+    this.recompute(doc);
     this.notify({ doc, state: "confirmed", ops: [], reset: true });
   }
 
@@ -136,52 +168,97 @@ export class DocumentStore {
 
   // ── changing ───────────────────────────────────────────────────────────────
 
-  /** A user's edit of a field (a local change): applied at once, confirmed, without the app. */
-  edit(ref: DocRef, ops: Op[]): Op[] {
-    return this.apply(ref, ops, undefined, true);
+  private applyAll(doc: Doc, target: Json, ops: Op[], edit: boolean, quiet = false): Op[] {
+    const applied: Op[] = [];
+    for (const op of ops) {
+      const r = applyOp(target, op, { records: this.records, record: doc.record, mint: this.mint, edit });
+      if (r.ok) applied.push(op);
+      else if (!quiet) this.log.warn("an op was refused", { record: doc.record, op: op.op, path: describe(op.path as PathSegment[]), reason: r.reason });
+    }
+    return applied;
   }
 
-  /** Applies ops at once, confirmed: the app's changes outside a decision, or a decision's on confirm. */
-  apply(ref: DocRef, ops: Op[], decision?: string, edit = false): Op[] {
+  /** The visible value again: the confirmed value with every open layer on top. */
+  private recompute(doc: Doc): void {
+    const value = structuredClone(doc.confirmed);
+    for (const layer of doc.layers) this.applyAll(doc, value, layer.ops, false, true);
+    doc.value = value;
+    doc.version += 1;
+  }
+
+  /** A user's edit of a field (a local change): confirmed at once, without the app. */
+  edit(ref: DocRef, ops: Op[]): Op[] {
+    return this.confirmNow(ref, ops, true);
+  }
+
+  /** The app's changes outside any decision (`vt.docs` from a service): confirmed at once. */
+  apply(ref: DocRef, ops: Op[]): Op[] {
+    return this.confirmNow(ref, ops, false);
+  }
+
+  private confirmNow(ref: DocRef, ops: Op[], edit: boolean): Op[] {
     const doc = this.get(ref);
     if (!doc) {
       this.log.debug("a change to a document nobody holds was dropped", { record: ref.record });
       return [];
     }
-    const applied: Op[] = [];
-    for (const op of ops) {
-      const r = applyOp(doc.value, op, { records: this.records, record: doc.record, mint: this.mint, edit });
-      if (r.ok) applied.push(op);
-      else this.log.warn("an op was refused", { record: doc.record, op: op.op, path: describe(op.path as PathSegment[]), reason: r.reason });
-    }
-    if (applied.length) {
+    const applied = this.applyAll(doc, doc.confirmed, ops, edit);
+    if (!applied.length) return applied;
+    if (doc.layers.length) this.recompute(doc);
+    else {
+      this.applyAll(doc, doc.value, applied, edit, true);
       doc.version += 1;
-      this.notify({ doc, state: "confirmed", ops: applied, ...(decision ? { decision } : {}) });
     }
+    this.notify({ doc, state: "confirmed", ops: applied });
     return applied;
   }
 
-  /** Changes a decision makes: kept until it returns (confirm) or fails (roll back). */
-  tentative(decision: string, ref: DocRef, ops: Op[]): void {
-    let buffer = this.buffers.get(decision);
-    if (!buffer) this.buffers.set(decision, (buffer = []));
-    buffer.push({ key: refKey(ref), ops });
+  /** A running decision's changes: shown at once, on top of everything else, until it ends. */
+  tentative(decision: string, ref: DocRef, ops: Op[]): Op[] {
+    const doc = this.get(ref);
+    if (!doc) {
+      this.log.debug("a tentative change to a document nobody holds was dropped", { record: ref.record });
+      return [];
+    }
+    const applied = this.applyAll(doc, doc.value, ops, false);
+    if (!applied.length) return applied;
+    const last = doc.layers[doc.layers.length - 1];
+    if (last && last.decision === decision) last.ops.push(...applied);
+    else doc.layers.push({ decision, ops: applied });
+    doc.version += 1;
+    let touched = this.decisions.get(decision);
+    if (!touched) this.decisions.set(decision, (touched = new Set()));
+    touched.add(refKey(ref));
+    this.notify({ doc, state: "tentative", ops: applied, decision });
+    return applied;
   }
 
+  /** The decision returned: its changes become confirmed, in the order they were made. */
   confirm(decision: string): void {
-    const buffer = this.buffers.get(decision) ?? [];
-    this.buffers.delete(decision);
-    for (const { key, ops } of buffer) {
+    this.end(decision, true);
+  }
+
+  /** The decision raised or rejected: its changes are taken back, everywhere they were shown. */
+  rollback(decision: string): void {
+    this.end(decision, false);
+  }
+
+  private end(decision: string, keep: boolean): void {
+    const touched = this.decisions.get(decision);
+    this.decisions.delete(decision);
+    for (const key of touched ?? []) {
       const doc = this.docs.get(key);
-      if (doc) this.apply(doc.ref, ops, decision);
+      if (!doc) continue;
+      const mine = doc.layers.filter((l) => l.decision === decision);
+      if (!mine.length) continue;
+      doc.layers = doc.layers.filter((l) => l.decision !== decision);
+      if (keep) for (const layer of mine) this.applyAll(doc, doc.confirmed, layer.ops, false, true);
+      this.recompute(doc);
+      this.notify({ doc, state: keep ? "confirmed" : "rolledback", ops: [], decision });
     }
   }
 
-  rollback(decision: string): void {
-    this.buffers.delete(decision);
-  }
-
-  /** Every document's value, for tests: never logged. */
+  /** Every document's visible value, for tests: never logged. */
   snapshot(): Record<string, Json> {
     const out: Record<string, Json> = {};
     for (const [k, d] of this.docs) out[k] = stripKeys(d.value);

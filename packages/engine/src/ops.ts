@@ -72,7 +72,15 @@ export function applyOp(doc: Json, op: Op, ctx: OpContext): Applied {
 
   if (op.op === "set") {
     if (op.value === undefined) return { ok: false, reason: "set without a value" };
-    const value = structuredClone(op.value) as Json;
+    // Keys go into the op's own value, so applying it again (over a newer base) keys items the same.
+    const value = op.value as Json;
+    const last = path[path.length - 1]!;
+    const itemRecord = located.item ? located.kind.item?.record : undefined;
+    if (typeof last === "string") keyValue(ctx, located.record, located.field, value);
+    else if (isObject(value)) {
+      value[KEY] = last.key;
+      if (itemRecord) records.assignKeys(itemRecord, value, ctx.mint);
+    }
     const problems = ctx.edit
       ? []
       : located.item
@@ -80,21 +88,14 @@ export function applyOp(doc: Json, op: Op, ctx: OpContext): Applied {
         : records.validateField(located.record, located.field, value);
     if (problems.length) return { ok: false, reason: `${describe(path)}: ${problems[0]}` };
     const parent = walk(doc, path.slice(0, -1));
-    const last = path[path.length - 1]!;
     if (typeof last === "string") {
       if (!isObject(parent)) return { ok: false, reason: `${describe(path)} is not in the document` };
-      keyValue(ctx, located.record, located.field, value);
-      parent[last] = value;
+      parent[last] = structuredClone(value);
     } else {
       if (!Array.isArray(parent)) return { ok: false, reason: `${describe(path)} is not in the document` };
       const i = itemIndex(parent, last.key);
       if (i < 0) return { ok: false, reason: `no item ${last.key}` };
-      const itemRecord = located.kind.item?.record;
-      if (isObject(value)) {
-        value[KEY] = last.key;
-        if (itemRecord) records.assignKeys(itemRecord, value, ctx.mint);
-      }
-      parent[i] = value;
+      parent[i] = structuredClone(value);
     }
     return { ok: true };
   }
@@ -104,9 +105,9 @@ export function applyOp(doc: Json, op: Op, ctx: OpContext): Applied {
   const holder = walk(doc, path.slice(0, -1));
   const field = path[path.length - 1] as string;
   if (!isObject(holder)) return { ok: false, reason: `${describe(path)} is not in the document` };
-  if (holder[field] === undefined || holder[field] === null) holder[field] = [];
-  const list = holder[field];
-  if (!Array.isArray(list)) return { ok: false, reason: `${describe(path)} is not a list` };
+  const current = holder[field];
+  if (current !== undefined && current !== null && !Array.isArray(current)) return { ok: false, reason: `${describe(path)} is not a list` };
+  const list: Json[] = Array.isArray(current) ? current : [];
   const itemRecord = located.kind.item?.type === "record" ? located.kind.item.record : undefined;
   if (!itemRecord) return { ok: false, reason: `${describe(path)} holds plain values, which change as a whole` };
   const idField = records.idField(itemRecord);
@@ -118,24 +119,24 @@ export function applyOp(doc: Json, op: Op, ctx: OpContext): Applied {
     return { ok: true };
   }
   if (op.value === undefined) return { ok: false, reason: `${op.op} without a value` };
-  const value = structuredClone(op.value) as Json;
+  const value = op.value as Json;
+  if (!isObject(value)) return { ok: false, reason: "an item of a list of records is an object" };
+  records.assignKeys(itemRecord, value, ctx.mint);
   const problems = records.validateItem(located.record, located.field, value);
   if (problems.length) return { ok: false, reason: `${describe(path)}: ${problems[0]}` };
-  if (!isObject(value)) return { ok: false, reason: "an item of a list of records is an object" };
 
   if (op.op === "insert") {
     if (itemIndex(list, op.key) >= 0) return { ok: false, reason: `${describe(path)} already has an item ${op.key}` };
     value[KEY] = op.key;
-    records.assignKeys(itemRecord, value, ctx.mint);
-    list.splice(position(list, op.at), 0, value);
+    list.splice(position(list, op.at), 0, structuredClone(value));
+    if (list !== current) holder[field] = list;
     return { ok: true };
   }
   const i = findItem(list, op.key, op.id, idField);
   if (i < 0) return { ok: false, reason: `no item ${op.key ?? op.id} in ${describe(path)}` };
-  const old = list[i] as JsonObject;
-  value[KEY] = old[KEY] as string;
-  records.assignKeys(itemRecord, value, ctx.mint);
-  list[i] = value;
+  const replaced = structuredClone(value);
+  replaced[KEY] = (list[i] as JsonObject)[KEY] as string;
+  list[i] = replaced;
   return { ok: true };
 }
 

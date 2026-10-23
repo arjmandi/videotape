@@ -4,7 +4,7 @@
 
 import { randomBytes } from "node:crypto";
 import { type AppHost, AppLink } from "./app-link";
-import { DocumentStore } from "./documents";
+import { type DocChange, DocumentStore } from "./documents";
 import { IntentError, type Intent, type JsonObject } from "./intent";
 import { Places } from "./journey";
 import { type Logger, consoleLogger } from "./log";
@@ -105,10 +105,13 @@ export class Engine implements AppHost {
       const records = new Records(intent);
       const places = new Places(intent, records);
       // A new intent keeps the documents only when the records are the same; sessions continue.
-      const docs = this.played && JSON.stringify(this.played.intent.records) === JSON.stringify(intent.records)
-        ? this.played.docs
-        : new DocumentStore(records, this.log);
+      const keep = this.played && JSON.stringify(this.played.intent.records) === JSON.stringify(intent.records);
+      const docs = keep ? this.played!.docs : new DocumentStore(records, this.log);
+      if (!keep) docs.onChange((change) => this.fanOut(change));
       this.played = { intent, records, places, docs };
+    }
+    for (const [name, h] of Object.entries(intent.handlers)) {
+      if (h.unreadable) this.log.warn("a handler's outcomes cannot be read; deciding with it will fail", { app: intent.app, handler: name });
     }
     this.current = link;
     const waiting = this.waiting;
@@ -131,6 +134,20 @@ export class Engine implements AppHost {
 
   closed(link: AppLink): void {
     if (this.current === link) this.current = undefined;
+  }
+
+  /** Every session that shows a changed document hears of it (05 §6.2: showing is subscribing). */
+  private fanOut(change: DocChange): void {
+    const ids = new Set<string>();
+    for (const holder of change.doc.holders) ids.add(holder.slice(0, holder.indexOf(":")));
+    for (const id of ids) {
+      const session = this.sessions.get(id);
+      if (!session || !session.shows(change.doc.ref)) continue;
+      session.emit({
+        t: "doc", ref: change.doc.ref, record: change.doc.record, state: change.state, version: change.doc.version,
+        ...(change.decision ? { decision: change.decision } : {}),
+      });
+    }
   }
 
   // ── sessions ───────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@
 
 import { z } from "zod";
 import { AppUnavailable } from "./app-link";
+import type { DocState } from "./documents";
 import type { Engine } from "./engine";
 import type { Declared, Frame, Json, JsonObject, Label, Outcome, Target } from "./intent";
 import { type FrameAction, type FrameField, type ReelView, Reel, type Step, type Visit, labelText } from "./journey";
@@ -59,6 +60,8 @@ export interface FrameView {
   actions: Array<{ id: string; label: string; kind: FrameAction["kind"]; on?: string; role?: string }>;
   fields: FrameField[];
   documents: Record<string, DocRef>;
+  /** The slots whose documents carry changes of decisions still running. */
+  tentative: string[];
   status: Status;
 }
 
@@ -66,8 +69,6 @@ export type Effect =
   | { type: "open"; url: Json }
   | { type: "download"; name: string; data: string; encoding?: "base64" }
   | { type: "copy"; value: Json };
-
-export type DocState = "confirmed" | "tentative" | "rolledback";
 
 export type SessionEvent =
   | { t: "frame"; view: FrameView }
@@ -154,6 +155,16 @@ export class Session {
     return this.reel.head.visit.docs.get(slot);
   }
 
+  /** Whether the frame on screen shows (or edits) this document. */
+  shows(ref: DocRef): boolean {
+    const key = JSON.stringify(ref);
+    const visit = this.reel.head.visit;
+    return this.engine.places.slots(this.frame).some((s) => {
+      const held = visit.docs.get(s.slot);
+      return held !== undefined && JSON.stringify(held) === key;
+    });
+  }
+
   view(): FrameView {
     const frame = this.frame;
     const places = this.engine.places;
@@ -177,6 +188,7 @@ export class Session {
       })),
       fields: places.fields(frame),
       documents,
+      tentative: Object.entries(documents).filter(([, ref]) => this.docs.isTentative(ref)).map(([slot]) => slot),
       status: this.copyStatus(),
     };
   }
