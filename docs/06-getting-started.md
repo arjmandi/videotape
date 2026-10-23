@@ -230,15 +230,18 @@ app = vt.app("relay", entry="chats", tapes=[chats, thread, contacts, settings],
                          vt.destination("settings", "Settings", symbol="gear")]))
 ```
 
-Arguments to `jump` and `call`, and the parts of an `address`, reach the frame's loader by name
-(§5.1), and `videotape check` matches them against the loader's parameters.
+Arguments to `jump` and `call`, and the parts of an `address`, belong to the tape they enter: any
+frame's loader in that tape may take them by name (§5.1). `goto` carries none, because a tape's
+frames share its arguments and the documents its earlier frames loaded, so a wizard's steps share
+one draft. `videotape check` matches every jump against the loaders of the tape it enters.
 
 **History and the hub.** Every frame remembers where the user came from, so back always works,
 except on a **history root**: the app's entry, the first frame of each hub destination, and wherever
 a sign-in or sign-out lands, which starts a fresh history. Say `back=False` on a frame where
 returning would be wrong, such as a receipt. The hub appears on every frame whose history began at
 one of its destinations, never on a call's sheet; `hub=False` hides it for a full-screen moment such
-as a story.
+as a story. An explicit `vt.back()` appears only where there is history; on a frame that is always
+a root, `videotape check` reports it.
 
 ## 4. Types
 
@@ -255,7 +258,7 @@ needs:
 | `| None`; `vt.Field(ge=0, max_length=80, pattern=...)` | Required or optional; validation the engine runs before any handler |
 | A nested record | A group kept together |
 | A field whose type is another record | A pick: a call to a tape that returns one (`vt.pick("pick_company")`) |
-| `list[X]` | A collection: item template, comparable fields, shape (table, cards, column, one at a time), empty state, paging, and an accessible table, all from `X`. In a record a frame edits, the user can add, remove, and reorder items; a list of an `Enum` or of references is a multiple choice |
+| `list[X]` | A collection: item template, comparable fields, shape (table, cards, column, one at a time), empty state, paging, and an accessible table, all from `X`. In a record a frame edits, a list of an `Enum`, or a list with `vt.pick(...)` or `options=`, is a multiple choice; any other list is owned, and the user can add, remove, and reorder its items |
 | `vt.State(False)` | An item state the embodier and the world may show (`pending`, `unread`, `mine`), never drawn as text |
 
 Field options say what the type cannot: `role` (heading, primary, secondary, navigation, status,
@@ -292,7 +295,9 @@ navigation control. References are references (`Deal.amount`) and strings are te
 paths. A field reference inside an action's arguments means "this item's value", which is how a
 collection's `select` says where to go. When a frame's documents hold the same record twice, such as
 `Entry` in both a table of contents and search results, name the field instead of the record
-(`on=Page.toc`); `videotape check` points out the ambiguous ones.
+(`on=Page.toc`); `videotape check` points out the ambiguous ones. To show a field of those items,
+say which list: `vt.show(Entry.title, on=Page.toc)`. A chained reference reaches into a single
+nested record: `Deal.company.name`.
 
 **Surfaces.** The embodier decides at release whether each field is an object of the world (a key,
 a strip, a reel) or sits on a **surface**: a flat, camera-facing panel the world styles, itself a
@@ -312,8 +317,10 @@ locales.
 
 ### 5.1 What a frame shows, and where it comes from
 
-A frame names the record it **shows** (shared data) or **edits** (the session's own form). A loader
-fills it when the user arrives; the journey's arguments reach the loader by name:
+A frame names the records it **shows**, which the user reads, and the one it **edits**, which the
+user writes; `shows=` takes one record or a list. A loader fills them when the user arrives,
+returning one document or a tuple; the others start from their defaults. The arguments of the jump
+that entered the tape reach the loader by name:
 
 ```python
 class Workspace(vt.Record):
@@ -434,9 +441,10 @@ async def export_csv(ctx, p: Pipeline):
 | `vt.open(url)`, `vt.download(name, data)` | A link; a file |
 | `raise vt.Reject("...")` | Stay, show the message as the frame's error status |
 
-A handler may return different outcomes on different paths; each is an edge. When the SDK cannot
-read an outcome from the body, because a tape's name is in a variable or a helper builds the
-outcome, `videotape check` asks you to declare it with `@vt.outcomes(vt.jump("dashboard"),
+A handler may return different outcomes on different paths; each is an edge. A tape may be named
+by a string, a module constant, or the tape itself (`return vt.jump(dashboard)`). When the SDK
+cannot read an outcome from the body, because a tape's name is in a local variable or a helper
+builds the outcome, `videotape check` asks you to declare it with `@vt.outcomes(vt.jump("dashboard"),
 vt.goto("verify"))`. Actions that need no decision are data: `vt.action("Comments", vt.jump("post", post_id=Post.id), on=Post)` never calls
 Python.
 
@@ -507,8 +515,8 @@ action being within reach.
 `videotape check` finds unreachable frames and dead ends (back and the hub's doors count as ways
 out), outcomes that name unknown tapes or pass arguments the target's loader does not take,
 handlers whose outcomes it cannot read, fields of secret type that a frame shows, edit frames that
-hide a required field, ambiguous record references, and frames without an `id` in a tape of
-several. It runs the composer on the reference screens (watch, phone in both orientations, tablet,
+hide a required field, ambiguous record references, frames without an `id` in a tape of several,
+explicit back actions on frames that are always roots, and `select=` on an edited list. It runs the composer on the reference screens (watch, phone in both orientations, tablet,
 desktop, wall) to check edges, reach, and minimum sizes. After a release it also renders a picture per reference screen from the stagings.
 
 ### 8.3 Releases
@@ -566,21 +574,23 @@ class Page(vt.Record):
     body: vt.RichText
     toc: list[Entry] = vt.Field(role="navigation", select=vt.jump("docs", page=Entry.slug))
 
-class Search(vt.Record):
+class Search(vt.Record):                                   # edited: what the user types
     q: str = vt.Field(kind="search", label="Search the docs", commit="change", importance="optional")
-    results: list[Entry] = vt.Field(role="supporting", select=vt.jump("docs", page=Entry.slug))
+
+class Results(vt.Record):                                  # shown, without a vt.Id: this session's own
+    hits: list[Entry] = vt.Field([], role="supporting", select=vt.jump("docs", page=Entry.slug))
 
 async def load_page(ctx, page: str = "intro") -> Page:
     p = await docs_index.page(page)
     return Page(id=page, title=p.title, body=vt.RichText.from_markdown(p.markdown), toc=await docs_index.toc())
 
-async def search_docs(ctx, s: Search):
-    s.results = await docs_index.search(s.q, limit=8)
+async def search_docs(ctx, s: Search, r: Results):
+    r.hits = await docs_index.search(s.q, limit=8)
     return vt.stay()
 
 docs = vt.tape("docs", [
     vt.frame("Read one page of the docs", address="/docs/{page}", public=True,
-             shows=Page, enter=load_page, edit=Search, on_change={Search.q: search_docs}),
+             shows=[Page, Results], enter=load_page, edit=Search, on_change={Search.q: search_docs}),
 ])
 
 class Project(vt.Record):

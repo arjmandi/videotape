@@ -218,14 +218,17 @@ the intent JSON carries it) already says what the engine needs:
 | `list[X]` | A collection: item template, comparable fields, shape (table, cards, column, one at a time), empty state, paging, and an accessible table, all from `X`; `group_by=X.field` makes a board. In an edited record it is editable (§6.4) |
 | `vt.State(...)` fields | Item states props may show (`pending`, `unread`, `mine`), never drawn as text |
 
-A frame names the record it **shows** (shared data) or **edits** (the session's form), and the
-engine derives the components. Explicit components remain for what differs:
+A frame names the records it **shows**, which the user reads, and the one it **edits**, which the
+user writes, and the engine derives the components. `shows=` takes one record or a list. A list in
+a shown record is navigated (`select=`); a list in an edited record is edited (§6.4). Explicit components remain for what differs:
 `components=[vt.show(Deal.amount, role="heading")]` overrides the derived one for that field and
 adds anything the record does not carry. References are references (`Deal.amount`) and strings are
 text; nothing is a path. A reference to a record type (`on=Entry`) means that record wherever the
 frame's documents hold it, which must be once; where they hold it twice, the reference names the
-field that holds it (`on=Page.toc`), and `check` reports an ambiguous one. Inside a field's own
-options, a reference to its item type means that item. Components still declare what they are for: `role` (heading, primary,
+field that holds it (`on=Page.toc`), and `check` reports an ambiguous one. The same `on=` says
+which items a shown field belongs to: `vt.show(Entry.title, on=Page.toc)`. A chained reference
+reaches into a single nested record (`Deal.company.name`); lists are reached with `on=`, which type
+checkers accept. Inside a field's own options, a reference to its item type means that item. Components still declare what they are for: `role` (heading, primary,
 secondary, navigation, status, supporting), `importance` (required, normal, optional), `group`,
 `order`, and `relations` (`labels`, `summarises`, `dependsOn`, `follows`); the record supplies
 defaults for all of them. `visible=` and `hidden=` take a `bool` field, never an expression.
@@ -278,9 +281,11 @@ Four lines of intent and a five-line handler; `videotape check` knows every edge
 
 A frame shows typed documents. The engine holds each document once, keyed by its record type and
 id; every session showing it is subscribed; a change made anywhere (a handler in any session, the
-app process, a timer) reaches every screen that shows it. `shows=` documents are shared by identity
-and live while someone shows them; `edit=` documents belong to the session. The `enter` loader
-returns the document, and the engine dedupes it by id.
+app process, a timer) reaches every screen that shows it. Shown documents with a `vt.Id` are shared by
+identity and live while someone shows them; shown documents without one, and `edit=` documents,
+belong to the session, such as a handler's search results. The `enter` loader returns the
+documents it loads (one, or a tuple), and the engine dedupes them by id; the others start from
+their defaults.
 
 A handler receives the documents its frame shows as typed objects, resolved by annotation (as
 FastAPI resolves parameters), and mutates them with ordinary code. The SDK sends each change as it
@@ -342,8 +347,8 @@ journey under a user (§7.1).
 
 | Action | Meaning | Camera (§8) |
 |--------|---------|-------------|
-| `goto(frame)` | The next step in the same tape | A move along the stage |
-| `jump(tape, **args)` | Switch journey; the current place goes on the history; the arguments reach the target's loader by name | A dolly along the edge's path |
+| `goto(frame)` | The next step in the same tape; it carries no arguments, since a tape's frames share its arguments and documents | A move along the stage |
+| `jump(tape, **args)` | Switch journey; the current place goes on the history; the arguments belong to the tape, and any frame's loader in it may take them by name | A dolly along the edge's path |
 | `back()` | Return to the previous place; also the platform's back gesture or button, the browser's back, and Escape | The same path, reversed |
 | `stay()` | Remain; the document already carries any change | None |
 | `hub(destinations)` | Top-level destinations, each a tape with its own history | A hall whose doors are the destinations |
@@ -355,9 +360,11 @@ The edges of the journey graph are the static actions and the outcomes handlers 
 SDK reads them from each handler's body at registration (`return vt.jump("dashboard")`), with
 their keyword arguments; the TypeScript SDK reads the inferred return type at build, since
 `vt.jump("dashboard")` has the type `Jump<"dashboard">`. Handlers carry no edge annotations, so
-linters and type checkers read them as ordinary functions. Where a body cannot be read (a tape
-named by a variable, an outcome built by a helper), the handler declares its edges with
-`@vt.outcomes(vt.jump("dashboard"))`, and `check` asks for it. Any handler may
+linters and type checkers read them as ordinary functions. A name in the tape's position is
+resolved against the handler's module at registration, so a string constant works, and so does the
+tape itself, a reference rather than a string (`return vt.jump(dashboard)`). Where a body still
+cannot be read (a local variable, an outcome built by a helper), the handler declares its edges
+with `@vt.outcomes(vt.jump("dashboard"))`, and `check` asks for it. Any handler may
 `raise vt.Reject("...")`: the journey stays, the frame shows the message as its error status, and
 secrets are cleared, so a `Stay` edge is implied for every handler.
 
@@ -366,12 +373,19 @@ secrets are cleared, so a `Stay` edge is implied for every handler.
 target of an outcome that signs in or out, which resets the history. `frame(back=False)` removes
 back where returning would be wrong, such as after a payment. A frame shows the hub when its
 history root is a hub destination; calls never show it; `frame(hub=False)` hides it for
-full-screen moments such as stories.
+full-screen moments such as stories. An explicit `vt.back()` is shown only where there is history:
+on a frame that is a root on every path, `check` reports it as an error and it is never an exit;
+on a frame that is a root on some paths, `check` warns and the client hides it there.
+
+**Tapes carry arguments.** A tape is one journey over the same documents. The jump that enters a
+tape passes its arguments, and any frame's loader in the tape may take them, and the documents
+its earlier frames loaded, by annotation. `goto` therefore carries no arguments, and a wizard's
+steps share one draft.
 
 `videotape check` knows every edge. It counts back and the hub's doors as exits (the doors only
 where every root that reaches the frame is a destination), so a dead end is a root, or a frame
-without back, with no declared way out. It matches each outcome's arguments against the target
-frame's loader and address, flags an edit frame that hides a required field, ambiguous record
+without back, with no declared way out. It matches each jump's arguments against the loaders and
+addresses of the tape it enters, flags an edit frame that hides a required field, ambiguous record
 references, and frames without an `id` in a tape of several, and runs the composer on the
 reference screens (§8).
 
@@ -390,9 +404,11 @@ export const login = vt.tape("login", [vt.frame("Sign in", { title: "Welcome bac
 A component is a type, a role, and a set of affordances. The affordances are the engine's closed
 contract: `read`, `write`, `press`, `choose` (one or many), `adjust` (a range), `move` (an item to
 a target, or within its list), `add` and `remove` (items of a list), `scroll`, `play`, and, after
-M1, `pick` (from the OS). A list in an edited record is editable: a list of an `Enum` or of
-references is `choose(many)`; a list of records takes `add`, `remove`, and `move`, with
-`min_items` and `max_items` as constraints (line items, attendees, tags). Kinds are names for common
+M1, `pick` (from the OS). A list in an edited record is editable, and its spelling says how. A
+list of an `Enum`, or a list field with `vt.pick(...)` or `options=`, is a choice among existing
+values: `choose(many)` (attendees, tags). Any other list of records is owned: `add`, `remove`, and
+`move`, with `min_items` and `max_items` as constraints (line items). Whether the item record has
+a `vt.Id` does not matter. `select=` on an edited list is a `check` error. Kinds are names for common
 combinations: a slider is a number with `adjust`; a board is `list[Deal]` grouped by `Deal.stage`
 with `move(Deal → Stage)`; a seat picker is `list[Seat]` with `choose(many)` on a spatial prop.
 Named actions declare a label, the affordance they need (`to=Stage` makes a `move`), an optional
@@ -902,7 +918,7 @@ back.
 ### 18.1 Questions from the Python SDK (2026-10-23)
 
 The SDK skeleton (`sdk/python`, branch `claude/python-sdk-skeleton-9a995f`) built §6 as written and
-raised these. Its numbering is in brackets.
+raised these in two rounds. Its numbering is in brackets, the second round as 2.n.
 
 | # | Question | Decision |
 |---|----------|----------|
@@ -916,6 +932,12 @@ raised these. Its numbering is in brackets.
 | Q38 | Which document is meant when a record occurs twice on a frame? [8] | Reference the field that holds it (`Page.toc`); `check` reports ambiguity (§6.1). |
 | Q39 | How do documents hold translated copy with parameters? [9] | They don't: copy lives in intent, with field references as parameters; runtime copy is an `Enum` (§6.1). |
 | Q40 | Lists in edited records cannot be edited. [10] | `add` and `remove` join the affordances; lists of choices are `choose(many)` (§6.4). |
+| Q41 | How does `vt.show` name a field of a record held twice? [2.1] | `vt.show(Entry.title, on=Page.toc)`; chained references only into single nested records (`Deal.company.name`), since type checkers reject them through lists (§6.1). |
+| Q42 | Does `select=` on a list in an edited record navigate or edit? [2.2] | Data the user reads is shown, data the user writes is edited; `shows=` takes a list; shown records without an Id are the session's own, so search results get their own shown record; `select=` on an edited list is an error (§6.1, §6.2). |
+| Q43 | How are references told from owned items in an edited list? [2.3] | By spelling: `vt.pick(...)`, `options=`, or an `Enum` make a choice; any other list of records is owned; Ids do not matter (§6.4). |
+| Q44 | Is an explicit back on a history root a way out? [2.4] | No: an error where the frame is always a root, a warning where it sometimes is; the client shows back only where there is history (§6.3). |
+| Q45 | Tape names held in constants need `@vt.outcomes`. [2.5] | Names are resolved against the handler's module at registration; a string constant or the tape itself works (§6.3). |
+| Q46 | `goto` carries no arguments, so a later frame's loader cannot get any. [2.6] | Arguments belong to the tape: the jump that enters it passes them, and every frame's loader in it may take them and earlier frames' documents (§6.3). |
 
 The SDK's five deviations are settled too. A paging loader is registered after its record with
 `@vt.pages(Record.field)`, and `pages=` in a field is gone. `vt.Text` is a type, with `lines=` on
