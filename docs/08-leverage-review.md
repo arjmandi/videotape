@@ -1,7 +1,7 @@
 # Review: where the leverage is in design v2
 
-**Date:** 2026-10-23 · **Status:** review and proposals; nothing here changes
-[05-design-v2.md](05-design-v2.md) until decided · **Reviews:** [05-design-v2.md](05-design-v2.md),
+**Date:** 2026-10-23 · **Status:** Q24–Q30 decided (yes to all seven) and folded into
+[05-design-v2.md](05-design-v2.md) the same day; kept for the argument · **Reviews:** [05-design-v2.md](05-design-v2.md),
 [06-getting-started.md](06-getting-started.md), [07-review-from-apps.md](07-review-from-apps.md), and
 the `prototype-0` code the intent model comes from
 
