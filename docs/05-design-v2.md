@@ -2,7 +2,8 @@
 
 **Date:** 2026-10-23 · **Status:** draft; core decisions taken (§2, §18); no v2 code yet ·
 **Supersedes:** the concept of [02-spec-v1.md](02-spec-v1.md) · **Evidence:**
-[03-landscape.md](03-landscape.md) · **Prototype:** tag `prototype-0`
+[03-landscape.md](03-landscape.md) · **Prototype:** tag `prototype-0` · **Open review:**
+[07-review-from-apps.md](07-review-from-apps.md)
 
 ---
 

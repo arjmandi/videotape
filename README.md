@@ -41,6 +41,8 @@ stays the source of truth, and a harness checks that every control is real and e
 | Document | What it is |
 |----------|------------|
 | [docs/05-design-v2.md](docs/05-design-v2.md) | **The current design**: decisions, the engine and its loops, SDKs, worlds and generation layers, composition, embodiment, streaming and native clients, the harness, milestones, and open questions. |
+| [docs/06-getting-started.md](docs/06-getting-started.md) | **Getting started (draft)**: how a Python developer builds an app, thinks in journeys, and how a web app, a video platform, a photo-sharing app, a chat app, and a CRM take shape. Written before the code, to test the design. |
+| [docs/07-review-from-apps.md](docs/07-review-from-apps.md) | **Open review**: the design gaps the getting-started guide exposed (F1–F27) and the questions to decide (Q16–Q23). |
 | [docs/03-landscape.md](docs/03-landscape.md) | Providers for each generation layer and candidate engines, with sources, plus prototype-0's measured live runs. Goes stale; re-check before each experiment. |
 | [docs/02-spec-v1.md](docs/02-spec-v1.md) | The v1 specification, built as `prototype-0`. Superseded as a concept; kept for its contracts and history. |
 | [docs/01-review-and-risks.md](docs/01-review-and-risks.md) | The first review of the idea and its risk register. Its risks still apply; its recommendation (a picture behind ordinary controls) is superseded. |
