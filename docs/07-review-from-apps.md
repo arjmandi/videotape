@@ -1,7 +1,9 @@
 # Review: what five apps showed about the design
 
-**Date:** 2026-10-23 · **Status:** findings and questions; nothing here changes
-[05-design-v2.md](05-design-v2.md) until decided · **Source:**
+**Date:** 2026-10-23 · **Status:** decided and folded into [05-design-v2.md](05-design-v2.md) the
+same day: Q16 and Q22 by Q24 of [08-leverage-review.md](08-leverage-review.md), Q17–Q21 and Q23 as
+recommended (05 §18); F4–F27 are in 05 in the form the leverage review gave them, and F1, F2, F20,
+and F26 are moot once every client renders · **Source:**
 [06-getting-started.md](06-getting-started.md)
 
 The getting-started guide was written as if Videotape existed, for a Python developer building

@@ -94,8 +94,9 @@ A game engine has none of these.
   judgement lands in the world pack.
 
 ### 3.2 Non-goals for M1
-OS capabilities (camera, files, location, notifications, payments); the live neural layers (L2, L3)
-and the streamed paths that carry them; offline journeys; watch and TV clients.
+OS capabilities (camera, files, location, notifications, payments; opening a link and a web download
+are in M1, §6.3); DRM and casting; the live neural layers (L2, L3) and the streamed paths that carry
+them; offline journeys; watch and TV clients.
 
 ### 3.3 Success criteria for M1
 - **S1** A Python developer writes the demo app (landing, docs, sign-in, dashboard, report) as
@@ -132,6 +133,8 @@ and the streamed paths that carry them; offline journeys; watch and TV clients.
 | **Staging** | A reference arrangement and camera per frame and screen class, proposed at release; the composer interpolates between stagings. |
 | **Composition** | The composer's plan for a context: shot, camera, placements, derived steps. |
 | **Embodiment** | The world object (prop) a component appears as, with its affordance contract and responses. |
+| **Surface** | A flat, camera-facing prop the world styles, for dense content; plain mode is a world of surfaces. |
+| **Native surface** | A platform view the client places on a prop's face: the text editor, the media player; later web views and maps. |
 | **Response table** | Journey event → world response, written at release: the world's answers to the journey. |
 | **Scene state** | What the scene runtime is built from: places, camera, props by world-pack id, placements, text, states, responses. Sent to every client; in process on servers for streamed sessions. |
 | **World pack** | The versioned result of a release: assets, colliders, places and camera paths, embodiment table, stagings, response table, baked looks, harness report. |
@@ -218,14 +221,23 @@ adds anything the record does not carry. References are references (`Deal.amount
 text; nothing is a path. Components still declare what they are for: `role` (heading, primary,
 secondary, navigation, status, supporting), `importance` (required, normal, optional), `group`,
 `order`, and `relations` (`labels`, `summarises`, `dependsOn`, `follows`); the record supplies
-defaults for all of them. `visible=` and `hidden=` take a `bool` field, never an expression. A
-collection's shape is embodied as a prop of the world; whether dense shapes default to flat surfaces
-the world styles is open (07 Q17).
+defaults for all of them. `visible=` and `hidden=` take a `bool` field, never an expression.
+
+A component is embodied as a prop of the world or placed on a **surface**: a flat, camera-facing
+panel that the world styles and that is itself a prop (a glass pane, a clipboard, a monitor on the
+console). The embodier assigns prop or surface per component at release, so the choice is in the
+embodiment table and reviewable; the defaults send collections with three or more comparable
+fields, long text, and transcripts to surfaces and everything else to props; `surface=True` or
+`False` overrides per component. Plain mode is the world in which every prop is a surface (Q17).
 
 A frame's **purpose** is one sentence that does three jobs: the frame's accessible title, the label
 of its primary action unless another is given, and the brief for the frame's place in the world
 (§7.1). A frame may declare an `address` (`"/c/{id}"`), which names it for the web's history,
-bookmarks, deep links, and app links; addresses count as features in the manifest (§11.1).
+bookmarks, deep links, and app links; addresses count as features in the manifest (§11.1). A frame
+with an address may be `public`: reachable without sign-in and served to crawlers and link-preview
+bots as semantic HTML built from the same intent and documents as its accessibility tree, with its
+records as structured data, and, from M2, a preview image rendered from its staging at release
+(Q19).
 
 ```python
 import videotape as vt
@@ -312,6 +324,8 @@ journey under a user (§7.1).
 | `stay()` | Remain; the document already carries any change | None |
 | `hub(destinations)` | Top-level destinations, each a tape with its own history | A hall whose doors are the destinations |
 | `call(tape)` and `done(result)` | A detour that returns a value to the caller as `ctx.result` | A lean toward a side table and back |
+| `open(url)` | Open a link in the system browser or the platform's in-app browser view; links in `RichText` use it | None; the world waits |
+| `download(name, data)` | Hand the user a file: the browser's download on the web (M1); the share sheet and Files elsewhere (M4) | None |
 
 The edges of the journey graph are the static actions on components and the handlers' return
 types: `-> vt.Jump["dashboard"] | vt.Goto["confirm"]`. Python reads the annotation at
@@ -342,8 +356,14 @@ Named actions declare a label, the affordance they need (`to=Stage` makes a `mov
 gesture hint, an optional key, and the record they act on (`on=Message`). Clients map hints to their
 platform; every action is also an accessibility action and appears in a menu, so nothing is
 gesture-only. A custom component is a new prop with known affordances (a world-pack entry, no code)
-or, rarely, a new affordance: an engine plugin compiled into the engine and the shells, so it is a
-reviewed feature and not downloaded code.
+or, rarely, a new affordance, which is a **plugin**: it declares the affordance (its name, the
+events it emits, the value it commits, its accessibility role and actions, gesture hints, a minimum
+footprint) and ships TypeScript for the scene runtime that draws it and handles its input under the
+runtime's rules: text only through the text renderer, interactivity only by raycast on declared
+geometry, facts never generated. Plugins are compiled into the engine and into every shell, so they
+are reviewed features in the manifest and never downloaded code; Python apps use them by name; the
+embodier proposes a prop for a plugin's affordance like any other. The contract is designed in M2
+and the first plugins (a timeline scrubber, a whiteboard) ship in M3 (Q23).
 
 ### 6.5 Intent is an agent surface
 
@@ -371,6 +391,7 @@ world("dusk-studio", {
   palette: { base: "#1c1612", ink: "#f4ead9", accent: "#ff8a3d" },
   references: ["worlds/studio/ref-1.jpg"],
   embody: { "button.primary": "a lit console key", list: "tape reels on a shelf, one per item" },
+  surfaces: { reading: "warm paper under a lamp", data: "a glass pane over the console" },  // Q17
 });
 ```
 
@@ -524,6 +545,9 @@ The composer is a function of (the stage, context, the previous shot) and return
   with hooks.
 - **Merge** when there is room (after M1): declared neighbours share a wider shot that holds both
   places; an edge between them becomes a change of focus, not a cut.
+- **Surfaces.** A surface is a prop whose face always turns to the shot's camera; the camera solver
+  sizes it to the screen, and its text gets the world's type and a backing when the material would
+  not carry it (§12).
 - **Right-to-left.** The composer mirrors reading order for right-to-left locales; the world does
   not mirror; text follows its script's direction.
 - **Static guarantees.** `videotape check` runs the composer for reference screens (watch, phone
@@ -547,6 +571,7 @@ interface Embodiment {
     move?: { to: string }; scroll?: true; play?: true;
   };
   textSurface?: string;                  // which face of the prop carries the component's text
+  surface?: true;                        // a flat, camera-facing prop the world styles (Q17)
   size: { w: number; h: number };        // metres, in the world; the shot's camera turns them into pixels (§8)
   states: Partial<Record<"hover" | "pressed" | "focused" | "disabled" | "error", string>>; // animations or variants
   responses: Partial<Record<JourneyEvent, string>>;   // from the response table (§9.1)
@@ -624,11 +649,16 @@ version, so the picture does not change. **Premium:** sessions with L2 or L3, wh
 server's render. **Weak devices:** chosen from the context. Sessions per GPU count these sessions
 only.
 
+**Public frames.** The web client's accessibility tree is DOM, so crawlers that run JavaScript read
+the content as it is; for the rest, and for link previews, the engine serves `public` frames as
+HTML (§6.1). Marketing sites that need more than that stay ordinary websites.
+
 | Duty | How |
 |------|-----|
 | Show the app | Render scene state on the device; on the streamed paths, hardware video decode. Letterbox nothing: the composer composes for the real screen |
 | Immediate feedback | Raycast locally and play the pressed or focused response at once; scroll and drag locally; on the streamed paths, highlight from the object map until the local renderer takes over |
 | Text input | While a field is focused, a **native editor** sits on the field's input surface (position, size, and transform from the local scene, or from the object map on the streamed paths), styled to the world. Caret, selection, IME, autofill, and password managers are the platform's own. Values travel per the commit policy; the engine renders committed text in the world. Secret fields use secure entry; the engine only ever draws masking dots. |
+| Native surfaces | The editor is one of a family. A **media surface** (video and audio, with captions, full screen, picture-in-picture, and background audio) sits on its prop's face, a screen in the world, as a flat rectangle with a perspective transform, never hidden behind world objects, and reports `play`, `progress`, `ended`, and `error` to the engine as actions. DRM and casting need entitlements and arrive with the M4 capabilities; web views and maps are M4 surfaces. |
 | Selection, copy, find | Native selection over the local text runs; copy takes the exact string from the facts, never from pixels; find is an engine action bound to the platform's shortcut |
 | Accessibility | A **native accessibility tree** from intent (roles, names, states, actions) with bounds from the local scene (or the object map): virtual views on Android, accessibility elements on iOS, ARIA on the web, platform APIs on desktop. Screen-reader actions become engine events. |
 | Context | Measures and streams screen, insets, input methods, preferences, and network |
@@ -652,7 +682,7 @@ rules:
 | Feature manifest | Each shell build carries the list of features it was reviewed with (tapes, addresses, capabilities, purchase kinds) and sends it in `hello`. The engine serves only those features, to reviewers and users alike (§7.1). | Apple 2.3.1(a), 2.5.19; Play Deceptive Behavior; Microsoft 10.2.2 |
 | One app per shell | A shell plays one app. A catalogue of apps in one binary is out of scope. | Apple 4.7.1–4.7.5 |
 | The owner submits | The exporter produces a project that the app's owner signs and submits from their own developer account. | Apple 4.2.6, 4.3(a); Play Repetitive Content |
-| Purchases | Digital goods are sold only through the shell (StoreKit, Play Billing) as a capability after M1; the engine's UI never takes payment for them. Storefront rules are server configuration. M1 apps sell nothing. | Apple 3.1.1; Play Payments; Microsoft 10.8.1 |
+| Purchases | Digital goods are sold only through the shell (StoreKit, Play Billing) as a capability after M1; the engine's UI never takes payment for them. Storefront rules are server configuration. M1 apps sell nothing. A link that leads to a purchase outside the store is a purchase kind in the manifest, subject to each storefront's rules. | Apple 3.1.1, 3.1.1(a), 3.1.3; Play Payments; Microsoft 10.8.1 |
 | Accounts and privacy | Sign in with Apple wherever social sign-in is offered; in-app account deletion; a privacy policy link; consent before user content reaches a third-party model (L2 providers); a "report this screen" action. | Apple 4.8, 5.1.1, 5.1.2(i); Play account deletion, AI-generated content |
 | Offline | Native offline, reconnect, and error screens in the shell, never only in the engine's UI. | Apple §4; Play functionality |
 | Mac | Distributed directly (Developer ID, notarised) by default. The Mac App Store's 2.4.5(iv) also forbids downloaded resources that significantly change the app, which a new world pack may do. | Apple 2.4.5 |
@@ -670,6 +700,14 @@ rules:
   the client. That adds a network leg to every frame while L2 is on (Q14, E6).
 - If a surface cannot carry text legibly, the engine adds a backing to that surface and the harness
   records it.
+- Every document a frame shows passes through the engine, so end-to-end encryption is not possible
+  in this design: the engine reads what it composes. This is a stated limit (Q20). The engine keeps
+  documents in memory for the duration of a journey, never persists or logs them, and never sends
+  them to generation or to the bake; self-hosted engines (Q4) keep data residency with the app's
+  owner, and privacy labels say so. Because clients render (decision A), a later path exists:
+  documents could travel encrypted with keys only on devices, the client decrypting to render and
+  reporting the metrics composition needs, which moves part of composition to the client. Not
+  before M4.
 
 ## 13. Grounding harness
 
@@ -695,13 +733,14 @@ WebRTC media and an object map):
 | C→S | `hello`, `context` | Session resume token, shell build and feature manifest, world-pack version, context (screen, insets, inputs, preferences, network, render capability), then context deltas |
 | C→S | `input` | Actions on object ids from the local raycast, with the scene version they were made against; on the streamed paths, pointer, touch, key, crown, and remote events in stream coordinates with the frame they were made against |
 | C→S | `text` | Editor commits and changes per the commit policy; composition state for live preview |
+| C→S | `surface` | Events from native surfaces: `play`, `progress`, `ended`, `error` |
 | C→S | `a11y` | Screen-reader actions on accessibility nodes |
 | S→C | `scene` | Scene state, a snapshot and then deltas: places, camera and camera paths, props by world-pack id, placements, text, states, responses to play |
 | S→C | `pack` | The world pack's version and where to fetch it |
 | S→C | `objects` | Object map for the current frame (streamed paths only): bounds, input surfaces, feedback hints |
 | S→C | `handoff` | The bootstrap stream ends; the client's renderer takes over at this scene version |
 | S→C | `tree` | The accessibility tree and its changes |
-| S→C | `editor` | Open, style, move, and close the native editor for a focused field |
+| S→C | `surface` | Open, style, move, and close a native surface: the editor for a focused field, the media player for a `Video` or `Audio` |
 | S↔C | `capability` (after M1) | Requests to the OS bridge and their results |
 
 **App protocol** (WebSocket or HTTP/2, JSON): `register` (intent: records, tapes, handler names,
@@ -719,7 +758,7 @@ Experiments first, then milestones, each ending in something runnable.
 |---|------------|---------|--------|
 | E1 | Babylon.js on Babylon Native, headless on a Linux GPU server: SDF text, raycasts, object-id and depth passes, splats; headless Chromium as the comparison | That the streamed paths work there; frame time; sessions per GPU; text quality | M2 |
 | E2 | Streaming: GPU encode and WebRTC to web, Android, and desktop test clients, and the bootstrap handoff to the local renderer | Input-to-photon latency; sessions per GPU; cost per active hour; a handoff the eye does not see | M2 |
-| E3 | Native editor over the local scene on the web, iOS, Android, and desktop | IME, autofill, and password managers across the seam | M1 |
+| E3 | Native editor and media surface over the local scene on the web, iOS, Android, and desktop | IME, autofill, and password managers across the seam; captions, full screen, and picture-in-picture on a world prop | M1 |
 | E4 | Native accessibility trees from intent on iOS, Android, the web, and desktop | VoiceOver and TalkBack parity | M1 |
 | E5 | Python SDK over the app protocol with the demo app: records, return-type edges, `Reject` | Ergonomics; decision latency | M1 |
 | E6 | L2 round trip: the engine's facts-free view through a hosted restyle and back, text composited, re-encoded | Added latency; legibility; whether controls stay recognisable; cost per stream-hour | M3 |
@@ -730,11 +769,11 @@ Experiments first, then milestones, each ending in something runnable.
 
 | Milestone | Delivers | Done when |
 |-----------|----------|-----------|
-| **M1 Apps and flows** | Engine (journey runtime, documents, composer with stage and shot, embodier, scene state); scene runtime (L0) on the web, iOS, Android, and desktop, with hand-built L0 worlds; clients exported for all four under the store rules (§11.1); native text and accessibility; TypeScript and Python SDKs with records, documents, and return-type edges; two sample apps; CI with generation off; the iOS client passes an external TestFlight review | S1–S8 |
-| **M2 Generated worlds** | `videotape release` and world packs: level layout, embodiment, stagings, response tables, Marble worlds and props, then 2.5D and 2D; coherence critic; asset harness; the baked look (grade and panorama); the bootstrap stream (E1, E2) for heavy packs; device-weight variants | The demo runs in two 3D worlds that both pass the harness, on every reference screen and device without regeneration; every transition is a camera move |
-| **M3 Adaptive composition and live looks** | Breakdown and merge with hooks; L2 live restyle with grounding on streamed sessions; prop-texture baking | A 20-field form breaks into steps on a watch-sized screen; L2 holds grounding; the baked look passes the harness |
-| **M4 Native capabilities** | Capabilities through the exporter's OS bridge | Camera and file flows work on iOS and Android |
-| Later | L3 world models; watch and TV clients | — |
+| **M1 Apps and flows** | Engine (journey runtime, documents, composer with stage and shot, embodier, scene state); scene runtime (L0) on the web, iOS, Android, and desktop, with hand-built L0 worlds; clients exported for all four under the store rules (§11.1); native text, native surfaces (editor, media), and accessibility; public frames served as HTML; `open` and web downloads; TypeScript and Python SDKs with records, documents, and return-type edges; two sample apps; CI with generation off; the iOS client passes an external TestFlight review | S1–S8 |
+| **M2 Generated worlds** | `videotape release` and world packs: level layout, embodiment, stagings, response tables, Marble worlds and props, then 2.5D and 2D; coherence critic; asset harness; the baked look (grade and panorama); the bootstrap stream (E1, E2) for heavy packs; device-weight variants; preview images for public frames; the plugin contract for new affordances | The demo runs in two 3D worlds that both pass the harness, on every reference screen and device without regeneration; every transition is a camera move |
+| **M3 Adaptive composition and live looks** | Breakdown and merge with hooks; L2 live restyle with grounding on streamed sessions; prop-texture baking; the first plugins (a timeline scrubber, a whiteboard) | A 20-field form breaks into steps on a watch-sized screen; L2 holds grounding; the baked look passes the harness |
+| **M4 Native capabilities** | Capabilities through the exporter's OS bridge: camera, files, location, notifications, share, biometrics, payments; DRM and casting for media surfaces; web-view and map surfaces | Camera and file flows work on iOS and Android |
+| Later | L3 world models; watch and TV clients; client-held keys for documents (§12) | — |
 
 ## 16. What carries over from prototype-0
 
@@ -773,6 +812,7 @@ back.
 | The world generator yields too few distinct stations for the graph | The brief asks for stations by name; multi-image and panorama inputs; a world per tape as rooms (Q10); E8 |
 | A camera-first composer fails on extreme aspect ratios (watch, wall) | Props move within the stage when no camera will do; breakdown and merge in M3; `check` runs the reference screens |
 | The document store becomes a database | Documents live in memory for the duration of a journey; the app's services remain the source of truth; the engine never persists facts |
+| Every document passes through the engine: no end-to-end encryption; retention, residency, and privacy labels apply to the engine | A stated limit (§12); documents in memory only; self-hosting; the client-held-key path under Later |
 | Server-side feature changes read as hidden features (Apple 2.5.19, Play Deceptive Behavior) | A feature manifest per shell build; feature releases ship with shell updates and review notes (§7.1, §11.1) |
 | Text input and accessibility gaps across platforms | E3 and E4 before M1; parity tests per client in CI |
 | Game-like interfaces are harder to learn | Affordance contracts and judge; consistent props per world; one world as the app's map (decision N); plain mode always available |
@@ -800,6 +840,14 @@ back.
 | Q13 | Plain mode? | Always available to users, and the automatic fallback; the plain L0 world is hand-built to look finished (§7.2). |
 | Q14 | With L2 on, where are text and controls composited? | On the engine; revisited after E6 measures the extra leg. |
 | Q15 | Watch transport and client? | Decided when watch clients are planned, after M1. |
+| Q16 | On streamed clients, are surfaces drawn in the stream or by the client? ([07](07-review-from-apps.md)) | Decided by Q24: every client renders scene state, so surfaces are drawn by the client; the streamed paths carry them in the stream until the handoff. |
+| Q17 | Should the composer place components on surfaces as well as props? | Yes. A surface is a flat, camera-facing prop the world styles; the embodier assigns prop or surface per component at release; collections with three or more comparable fields, long text, and transcripts default to surfaces; `surface=` overrides; plain mode is the world where every prop is a surface (§6.1, §8, §9). |
+| Q18 | Native media surfaces in M1? | Yes: a media surface for `Video` and `Audio` with captions, full screen, picture-in-picture, and background audio, on the prop's face, reporting events as actions (§11, §14). DRM, casting, web views, and maps come with the M4 capabilities. |
+| Q19 | Public pages and search engines? | Yes: `public` frames are served to crawlers and link-preview bots as semantic HTML from the same intent and documents as the accessibility tree, in M1; preview images from stagings in M2 (§6.1, §11). Marketing sites that need more stay ordinary websites. |
+| Q20 | End-to-end encryption is impossible: accept it as a stated limit? | Yes, through M3: documents in memory only, never logged, persisted, or sent to generation or the bake; self-hosting keeps residency with the app's owner. A client-held-key path is recorded under Later (§12). |
+| Q21 | Links and web downloads in M1? | Yes: `open(url)` on every client and `download` on the web (§6.3); files elsewhere with M4. A purchase link is a purchase kind in the manifest (§11.1). |
+| Q22 | Does `videotape dev` render scene state in the browser? | Decided by Q24: yes, as production does. |
+| Q23 | Custom components as TypeScript plugins compiled into the engine and the shells? | Yes, for new affordances only; a new prop needs no code (§6.4). The contract is designed in M2 and the first plugins ship in M3. |
 | Q24 | Scene state on every client, with the stream as the bootstrap and premium path ([08](08-leverage-review.md) P8)? Trades against the first draft's decision A | Yes. Decision A rewritten, K generalised (§2, §5, §11, §14, §15). It also decides 07's Q16 (surfaces are drawn by the client) and Q22 (`videotape dev` renders scene state in the browser, as production does). |
 | Q25 | Typed records as the component vocabulary in both SDKs (P1)? | Yes. Decision L; §6.1. Absorbs 07's F4, F5, F9, F11, F13, F15, F17, F19, F27. |
 | Q26 | Documents replace the store, patches, placeholders, topics, and optimistic declarations (P2)? | Yes. Decision M; §6.2, §14. Absorbs F6, F7, F11, F24. |
@@ -812,7 +860,4 @@ Also folded from [08](08-leverage-review.md) without a question of their own: af
 §6.4), the agent surface (§6.5), and its corrections to §8, §9, and §14. From
 [07](07-review-from-apps.md): the findings P1–P4 absorb are in §6; F8 (addresses), F12 (insets),
 F14 (text shaping), and F18 (selection, now local) are folded as written; F1, F2, F20, and F26 are
-moot under Q24. **Still open from 07:** Q17 (flat surfaces as the default for dense collections),
-Q18 (native media surfaces in M1), Q19 (public pages and crawlers), Q20 (end-to-end encryption as a
-stated limit), Q21 (`open_url` and web downloads in M1), and the plugin case of Q23 (P4 covers the
-rest).
+moot under Q24; Q16–Q23 are decided above. Nothing from 07 or 08 remains open.
