@@ -17,6 +17,8 @@ SAMPLES = {
 """The 06 §2.2 sign-in app and the five §9 apps: directory and module."""
 
 BROKEN = FIXTURES / "broken"
+CLEAN = FIXTURES / "clean"
+"""Apps that check clean because of a rule's exception, one per exception."""
 
 
 def load_module(directory: Path, module: str):
@@ -41,6 +43,10 @@ def load_sample(name: str):
 
 def load_broken(name: str):
     return load_module(BROKEN, name)
+
+
+def load_clean(name: str):
+    return load_module(CLEAN, name)
 
 
 @pytest.fixture(params=sorted(SAMPLES))

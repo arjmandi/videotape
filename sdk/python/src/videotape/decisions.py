@@ -67,6 +67,8 @@ class Declared:
     """It passes `**kwargs`, so the names of its arguments are not known."""
     resets: bool = False
     """It carries `sign_in` or `sign_out`, so history starts again at its target (Q31)."""
+    signs_in: bool = False
+    """It carries `sign_in`, so its target is a fresh start (Q51)."""
     then: Callable[..., Any] | None = None
     """For a call, the handler that receives its result."""
     implied: bool = False
@@ -82,6 +84,8 @@ class Declared:
             out["args_open"] = True
         if self.resets:
             out["resets_history"] = True
+        if self.signs_in:
+            out["signs_in"] = True
         if self.then is not None:
             out["then"] = {"handler": name_of(self.then)}
         if self.implied:
@@ -102,6 +106,7 @@ class Declared:
             getattr(outcome, _NAMED[kind]) if kind in _NAMED else None,
             tuple(getattr(outcome, "args", {}) or ()),
             resets=bool(getattr(outcome, "resets", False)),
+            signs_in=getattr(outcome, "sign_in", None) is not None,
             then=getattr(outcome, "then", None),
         )
 
@@ -255,13 +260,14 @@ def _read(expr: ast.expr, names: _Names, line: int) -> Declared | str:
             shown = ast.unparse(node) if node is not None else "nothing"
             return f"line {line} names the {what} of vt.{kind}(...) with {shown}, not a name the SDK can read"
     args: list[str] = []
-    open_args = resets = False
+    open_args = resets = signs_in = False
     then = None
     for k in expr.keywords:
         if k.arg is None:
             open_args = True
         elif k.arg in ("sign_in", "sign_out"):
             resets = resets or not _is_off(k.value)
+            signs_in = signs_in or (k.arg == "sign_in" and not _is_off(k.value))
         elif k.arg == "then" and kind == "call":
             try:
                 then = names.value(k.value)
@@ -271,7 +277,7 @@ def _read(expr: ast.expr, names: _Names, line: int) -> Declared | str:
             args.append(k.arg)
         elif kind == "goto" and k.arg != "frame":
             return f"line {line} passes {k.arg}= to vt.goto(...), which takes no arguments; they belong to the tape"
-    return Declared(kind, target, tuple(args), open_args, resets, then, line=line)
+    return Declared(kind, target, tuple(args), open_args, resets, signs_in, then, line=line)
 
 
 def read_body(fn: Callable[..., Any]) -> tuple[list[Declared], list[str]]:

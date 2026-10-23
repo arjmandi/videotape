@@ -4,8 +4,8 @@ The first v2 code. An app written as in [06-getting-started.md](../../docs/06-ge
 becomes intent JSON, and `videotape check` checks it. There is no engine, app-protocol
 transport, documents runtime, or composer yet.
 
-The SDK follows the design as decided on `design/v2` at `48fa415`: 05 §6.1–§6.4, and §18.1,
-which decides the questions and deviations this skeleton raised in three rounds (Q31–Q50). This
+The SDK follows the design as decided on `design/v2` at `df3e343`: 05 §6.1–§6.4, and §18.1,
+which decides the questions and deviations this skeleton raised in four rounds (Q31–Q52). This
 branch does not contain those commits, so `docs/` here still shows the earlier draft.
 
 ```bash
@@ -33,7 +33,7 @@ warnings, 1 on errors, and 2 when it cannot load the app.
 | `values` | The built-in types: `vt.Id`, `vt.Text`, `vt.Secret`, `vt.Money`, `vt.Image`, `vt.Video`, `vt.Audio`, `vt.RichText`, `vt.Series`, `vt.Page`, and `vt.t(...)` |
 | `records` | `vt.Record` on Pydantic v2; `vt.Field(...)` with the options of 06 §4, `vt.State(...)`, `vt.pick("tape")`, `@vt.pages(Record.field)`; `Deal.amount` on the class is a field reference, and `Deal.company.name` chains into a nested record |
 | `outcomes` | `jump`, `goto`, `back`, `stay`, `call(tape, then=)`, `done`, `open`, `download`, `copy`. Wherever a tape is named (outcomes, `vt.destination`, `vt.app(entry=)`, `vt.pick`), the tape itself or its id works |
-| `intent` | `vt.tape`, `vt.frame` (`shows=` one record or a list, `back=`, `hub=`), `vt.text`, `vt.show` (with `on=`), `vt.action`, `vt.after`, `vt.hub`, `vt.destination`, `vt.app`. Builders raise at once on what they cannot hold (a wrong type, a malformed id or address) |
+| `intent` | `vt.tape`, `vt.frame` (`shows=` one record or a list, `back=`, `hub=`, `under=`), `vt.text`, `vt.show` (with `on=`), `vt.action`, `vt.after`, `vt.hub`, `vt.destination`, `vt.app`. Builders raise at once on what they cannot hold (a wrong type, a malformed id or address) |
 | `derive` | What a frame derives from its records: components, affordances, states, how often it holds each record, and every place where something happens |
 | `decisions` | Reads handlers' parameters with `typing.get_type_hints` and their edges from their bodies; `@vt.outcomes`, `vt.Reject`, `vt.Context`, `vt.invoke` |
 | `serialize` | `app.intent()`: the deterministic intent JSON |
@@ -77,12 +77,12 @@ with its `vt.Id` set raises `TypeError`.
 format     "videotape.intent/2"
 app, entry, world, hub
 tapes      [{id, frames: [{id?, purpose, title, address, public, shows: [...], edit, enter, submit,
-                           components, states, actions, on_change, after, back, hub, root}]}]
+                           components, states, actions, on_change, after, back, hub, root, under}]}]
 records    {Name: JSON Schema with x-vt}     references: #/records/Name, #/types/vt.Name
 types      {vt.RichText: ..., vt.Series: ...}
 handlers   {name: {params, outcomes: [{type, tape | frame, args, resets_history, then}]}}
 loaders    {name: {params, returns: [...]}}
-edges      [{from, to, type, tape | frame, resets_history, via}]
+edges      [{from, to, type, tape | frame, resets_history, signs_in, via}]
 ```
 
 - **Records** are Pydantic's JSON Schema. Each property's `x-vt` carries its kind
@@ -106,7 +106,9 @@ edges      [{from, to, type, tape | frame, resets_history, via}]
   `{"submit": "Sign in", "handler": "sign_in"}`, `{"then": "confirm_delete", "handler": "delete_confirmed"}`.
   `back` and `done` have no `to`. The platform's back and the hub's doors are implied, not
   listed: frames carry `root` (`"always"`, or `"sometimes"` where something also enters them
-  with history), `back: false`, and `hub: false` instead.
+  with history), `back: false`, and `hub: false` instead. A frame opened by its address in a hub
+  app carries `under`, the destination tape the engine puts beneath it, which the engine uses as
+  given (Q52).
 - The output is deterministic, across processes and hash seeds. Tapes, frames, components,
   actions, and edges keep the order they were written in. Records, handlers, and loaders are
   sorted by name.
@@ -130,6 +132,7 @@ edges      [{from, to, type, tape | frame, resets_history, via}]
 | `hidden-required` | error | an edit frame hides a required field other than its `vt.Id` | Q35 |
 | `edited-select` | error | a list in an edited record has `select=`; lists the user navigates are shown | Q42 |
 | `address-param` | error | an address has a parameter no loader in its tape takes | v2, Q46 |
+| `bad-under` | error | `under=` on a frame without an address or in an app without a hub, or naming a tape that is not a hub destination that reaches the frame | Q52 |
 | `address-standalone` | error | a frame opened by its address needs arguments or documents its address does not supply | Q48 |
 | `unsourced-record` | error | a shown record has no source: no loader returns it, no earlier frame has it, and it has required fields | Q47 |
 | `public-without-address` | error | a public frame has no address | v2 |
@@ -145,12 +148,14 @@ edges      [{from, to, type, tape | frame, resets_history, via}]
 | `unused-edit` | warning | a frame edits a record, but nothing receives it | v1 (`unused-values`) |
 | `unreachable-frame` | warning | a frame cannot be reached from the entry | v1 |
 | `no-exit` | warning | a frame has no declared way out, no back, and no hub doors (a dead end) | v1, Q31, Q32, Q49 |
-| `closed-cycle` | warning | frames form a cycle the journey cannot leave | v1 |
+| `closed-cycle` | warning | frames form a group the journey cannot leave, unless it holds the entry, a sign-in target, or a hub destination | v1, Q51 |
 
 **History and the hub (Q31, Q32, Q44, Q48, Q49).** The history roots are the app's entry, each
 hub destination's first frame, wherever an outcome with `sign_in` or `sign_out` lands, and a frame
-opened by its address when no hub destination reaches it. With a hub, the first destination in
-hub order that reaches a linked frame is put beneath it instead, so back and the hub work there.
+opened by its address when no hub destination reaches it. With a hub, a destination is put beneath
+a linked frame instead, so back and the hub work there: its `under=`, or else the first destination
+in hub order that reaches it. The SDK writes that destination into the intent as the frame's
+`under`, so `check` and the engine agree by construction.
 Back is a way out only where a frame has history on every path to it: never on a root, even one
 that is a root on some paths only, and never with `back=False`. One computation (`graph.journey`)
 serves dead ends and explicit backs alike: an explicit `vt.back()` on a frame that is a root on
@@ -159,7 +164,12 @@ hub's doors when every root its history can begin at is a hub destination, reach
 gotos that do not sign in or out, never through a call; `hub=False` hides them. Frames opened by
 their address count as reachable.
 
-Every rule has a broken fixture in `tests/fixtures/broken/` that trips that rule and no other.
+**Closed cycles (Q51).** A group of frames with no way out of the group is reported, except where
+it holds the entry, a sign-in target, or a hub destination: after a fresh start, that group is the
+app the user came for, not a trap. A group that only a sign-out leads into is reported.
+
+Every rule has a broken fixture in `tests/fixtures/broken/` that trips that rule and no other;
+`tests/fixtures/clean/` holds apps that check clean because of an exception (Q51's fresh starts).
 The 06 §2.2 sign-in app and the five §9 apps are in `tests/fixtures/`, written as 06 now writes
 them on `design/v2` and completed just enough to import. Each completion is marked "filled in".
 All six serialise, validate against the published schema, and check clean.
@@ -196,11 +206,6 @@ Where 05 or 06 leave a choice open, the SDK reads them like this:
   frame. A shown record only an earlier frame supplies is an `address-standalone` error there. A
   destination "can reach" a linked frame along jumps and gotos that keep history, without passing
   another root, the same walk that places the hub's doors.
-- **Closed cycles after a fresh start.** `closed-cycle` already ignores the component that holds the
-  entry. It also ignores one that holds a frame where history starts afresh (a sign-in or sign-out
-  target, or a hub destination): what follows a new beginning is the app, not a trap. Without this,
-  Q49 turns 06 §9.1's signed-in demo (dashboard and report, no sign-out) into a closed cycle. This is
-  provisional: see the open questions.
 - **Identity.** `vt.Id` takes a string or an integer and holds it as a string. `sign_in=` is
   checked when the handler runs (`vt.invoke`); statically, the SDK only sees that an outcome
   signs in. In `@vt.outcomes`, `sign_in=True` stands for the user.
@@ -231,7 +236,7 @@ The five deviations the first skeleton listed are settled in 05 §18.1 and imple
 - **`vt.docs[...]`** still raises `NotImplementedError` until the engine exists; 06 now shows it
   inside the functions that receive outside events, and so do the fixtures.
 
-There are no deviations from 05 or 06 as they stand at `48fa415`.
+There are no deviations from 05 or 06 as they stand at `df3e343`.
 
 ## The questions this skeleton raised, decided
 
@@ -257,18 +262,13 @@ There are no deviations from 05 or 06 as they stand at `48fa415`.
 | 3.2 Entering a tape by a later frame's address | Q48: the frame stands on its own; with a hub, the first destination that reaches it goes beneath it | `address-standalone`; `graph.journey` places address entries |
 | 3.3 Back on roots on some paths | Q49: back counts only where a frame has history on every path | one computation for dead ends and explicit backs |
 | 3.4 Tape objects beyond outcomes | Q50: the tape or its id wherever a tape is named | `vt.destination`, `vt.app(entry=)`, `vt.pick` take tapes |
+| 4.1 Closed cycles after a fresh start | Q51: a group holding a sign-in target or a hub destination is no trap | `closed_cycles(g, fresh)`; sign-out targets are not fresh starts |
+| 4.2 Where the linked frame's destination is decided | Q52: by the SDK, carried in the intent as `under`; `under=` overrides | `vt.frame(under=)`; `under` in the intent and schema; `bad-under` |
 
-## Open questions this work surfaced
+## Open questions
 
-1. **Closed cycles after a fresh start.** Q49 makes the demo's signed-in part (dashboard and report,
-   with no sign-out) a terminal component with no way out, which `closed-cycle` would report. The
-   SDK reads a component that holds a sign-in target or a hub destination as a new beginning rather
-   than a trap, and so does not report it. I don't know whether that is the intent: the alternative
-   is to report it and have apps without a sign-out say so, or to give the demo a sign-out.
-2. **Where a linked frame's beneath-destination is decided.** The SDK computes which destination
-   goes beneath a linked frame (Q48), but the intent does not carry it; the engine would compute it
-   again from the hub order and the graph. Should the intent carry it, so both agree by
-   construction?
+None. Every question the skeleton raised is decided in 05 §18.1 (Q31–Q52), and this work surfaced
+no new ones.
 
 ## Not built
 

@@ -76,7 +76,7 @@ def test_sign_in_and_sign_out_reset_history():
     async def c(ctx):
         return vt.jump("landing", sign_out=False)
 
-    assert declared(a)[0] == [{"type": "jump", "tape": "dashboard", "resets_history": True}]
+    assert declared(a)[0] == [{"type": "jump", "tape": "dashboard", "resets_history": True, "signs_in": True}]
     assert declared(b)[0] == [{"type": "jump", "tape": "landing", "resets_history": True}]
     assert declared(c)[0] == [{"type": "jump", "tape": "landing"}]
 
@@ -218,7 +218,8 @@ def test_handlers_in_the_intent():
     intent = load_sample("hello").app.intent()
     assert intent["handlers"]["sign_in"] == {
         "params": [{"name": "c", "type": "record", "record": "Credentials", "required": True}],
-        "outcomes": [{"type": "jump", "tape": "workspace", "resets_history": True}, {"type": "stay", "implied": True}],
+        "outcomes": [{"type": "jump", "tape": "workspace", "resets_history": True, "signs_in": True},
+                     {"type": "stay", "implied": True}],
     }
     edges = [e for e in intent["edges"] if e["via"].get("handler")]
     assert [(e["from"], e["to"], e.get("resets_history")) for e in edges] == [

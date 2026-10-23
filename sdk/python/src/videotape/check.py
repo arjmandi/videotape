@@ -42,6 +42,7 @@ RULES: dict[str, tuple[str, str]] = {
     "edited-select": ("error", "a list in an edited record has select=; lists the user navigates are shown"),
     "address-param": ("error", "an address has a parameter no loader in its tape takes"),
     "address-standalone": ("error", "a frame opened by its address needs arguments or documents its address does not supply"),
+    "bad-under": ("error", "under= on a frame without an address or in an app without a hub, or naming a tape that is not a destination that reaches it"),
     "unsourced-record": ("error", "a shown record has no source: no loader returns it, no earlier frame has it, and it has required fields"),
     "public-without-address": ("error", "a public frame has no address"),
     "loader-returns": ("error", "a loader returns a document its frame neither shows nor edits, or a page its list does not hold"),
@@ -550,10 +551,30 @@ class _Checker:
 
     # ── the journey (Q31, Q32) ──
 
+    def under(self, j: Any) -> None:
+        """`under=` names the destination a link opens beneath its frame (Q52)."""
+        hub = self.app.hub
+        for f in self.app.frames:
+            if f.under is None:
+                continue
+            where = f"under={f.under!r}"
+            if not f.address:
+                self.report(error("bad-under", f"{where} is for a frame opened by its address, and this one has none", f.node))
+            elif hub is None:
+                self.report(error("bad-under", f"{where} names a hub destination, but the app has no hub", f.node))
+            elif f.under not in [d.tape for d in hub.destinations]:
+                message = f"{where} is not a hub destination; the destinations are {', '.join(d.tape for d in hub.destinations)}"
+                self.report(error("bad-under", message, f.node))
+            elif f.under not in j.reaching.get(f.node, []):
+                reach = ", ".join(j.reaching.get(f.node, [])) or "none"
+                message = f"{where} cannot reach this frame, so back from it could not return there; the destinations that do: {reach}"
+                self.report(error("bad-under", message, f.node))
+
     def journey(self) -> None:
         if self.app.tape(self.app.entry) is None:
             return
         j = journey(self.app, self.built.edges)
+        self.under(j)
         for e in self.built.edges:
             if e.type != "back" or e.source not in j.roots:
                 continue

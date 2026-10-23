@@ -250,6 +250,9 @@ class Frame:
     """Whether the platform's back leaves this frame when it has history (Q31)."""
     hub: bool = True
     """Whether the hub shows here when the frame's history began at a destination (Q32)."""
+    under: str | None = None
+    """For a frame opened by its address in a hub app, the destination to put beneath it, overriding
+    the first one in hub order that reaches it (Q52)."""
     key: str = ""
     """The frame's name within its tape: its `id`; empty for a tape's only frame without one; `#n`
     for an unnamed frame in a tape of several, which `check` reports."""
@@ -300,11 +303,14 @@ def frame(
     after: After | None = None,
     back: bool = True,
     hub: bool = True,
+    under: Any = None,
 ) -> Frame:
     """A frame. Its purpose is its accessible title, its primary action's label, and its place's brief.
 
     `back=False` removes the platform's back where returning would be wrong, such as after a
-    payment; `hub=False` hides the hub for a full-screen moment, such as a story.
+    payment; `hub=False` hides the hub for a full-screen moment, such as a story. `under=` names the
+    hub destination (the tape or its id) a link to this frame opens beneath it, where the first one
+    in hub order that reaches it is not its natural home.
     """
     if not isinstance(purpose, str) or not purpose.strip():
         raise TypeError("a frame's first argument is its purpose: one sentence")
@@ -347,7 +353,7 @@ def frame(
             raise TypeError(f"{flag}= takes True or False")
     return Frame(
         purpose, id, title, shows, edit, submit, enter, address, bool(public), list(components), list(actions),
-        changes, after, back, hub,
+        changes, after, back, hub, None if under is None else _check_id("under=", tape_id(under)),
     )  # fmt: skip
 
 

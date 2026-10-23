@@ -240,6 +240,11 @@ class Frame(_Spec):
     after: After | None = None
     back: Literal[False] | None = Field(None, description="back=False: no platform back here.")
     hub: Literal[False] | None = Field(None, description="hub=False: the hub never shows here.")
+    under: Name | None = Field(
+        None,
+        description="For a frame opened by its address in a hub app, the destination tape the engine puts "
+        "beneath it: its under=, or the first destination in hub order that reaches it.",
+    )
     root: Literal["always", "sometimes"] | None = Field(
         None,
         description="A history root (the entry, a hub destination's first frame, or where a sign-in or "
@@ -278,6 +283,7 @@ class Declared(_Spec):
     args: list[str] | None = Field(None, description="The names of its keyword arguments.")
     args_open: Literal[True] | None = Field(None, description="It passes **kwargs, so not every name is known.")
     resets_history: Literal[True] | None = Field(None, description="It signs in or out: history starts again.")
+    signs_in: Literal[True] | None = Field(None, description="It signs in: its target is a fresh start.")
     then: HandlerRef | None = None
     implied: Literal[True] | None = None
 
@@ -311,6 +317,7 @@ class Edge(_Spec):
     tape: Name | None = None
     frame: Name | None = None
     resets_history: Literal[True] | None = None
+    signs_in: Literal[True] | None = None
     via: dict[str, Any]
 
 

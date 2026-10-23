@@ -1,5 +1,5 @@
 import pytest
-from conftest import BROKEN, SAMPLES, load_broken, load_sample
+from conftest import BROKEN, SAMPLES, load_broken, load_clean, load_sample
 
 import videotape as vt
 from videotape.check import RULES, check
@@ -576,6 +576,25 @@ def test_a_linked_frame_stands_on_its_own():
     assert d.code == "address-standalone" and "which only an earlier frame of tape 't' has" in d.message
 
 
+@pytest.mark.parametrize("name", ["fresh_start_sign_in", "fresh_start_hub"])
+def test_a_closed_cycle_that_holds_a_fresh_start_is_not_reported(name):  # Q51, decided
+    app = load_clean(name).app
+    assert check(app) == []
+    j = journey(app, build(app).edges)
+    assert closed_cycles(j.graph) != []  # without the exception it would be one
+    assert closed_cycles(j.graph, j.fresh) == []
+
+
+def test_a_closed_cycle_after_a_sign_out_is_reported():  # Q51: sign-out targets are no fresh start
+    async def leave(ctx):
+        return vt.jump("bye", sign_out=True)
+
+    start = vt.tape("start", [vt.frame("Start", actions=[vt.action("Sign out", leave)])])
+    bye = vt.tape("bye", [vt.frame("Say goodbye", actions=[vt.action("Why", vt.jump("why"))])])
+    why = vt.tape("why", [vt.frame("Say why", back=False, actions=[vt.action("Bye", vt.jump("bye"))])])
+    assert [d.code for d in check(vt.app("x", entry=start, tapes=[start, bye, why]))] == ["closed-cycle"]
+
+
 def test_what_follows_a_fresh_start_is_no_closed_cycle():
     async def sign_in(ctx):
         return vt.jump("dashboard", sign_in=True)
@@ -604,3 +623,40 @@ def test_a_tape_or_its_id_wherever_a_tape_is_named():
         vt.destination(3, "Three")
     with pytest.raises(TypeError):
         vt.app("x", entry=None, tapes=[home])
+
+
+# ── the destination beneath a linked frame (Q52) ─────────────────────────────
+
+
+def _two_ways(under=None, address="/c/{id}", hub=True):
+    chats = vt.tape("chats", [vt.frame("See chats", actions=[vt.action("Open", vt.jump("thread", id="c1"))])])
+    people = vt.tape("people", [vt.frame("See people", actions=[vt.action("Open", vt.jump("thread", id="c1"))])])
+    settings = vt.tape("settings", [vt.frame("Change settings")])
+    thread = vt.tape("thread", [vt.frame("Read a thread", address=address, shows=_Profile, enter=_load_thread,
+                                         under=under, actions=[OUT])])  # fmt: skip
+    destinations = [vt.destination(chats, "Chats"), vt.destination(people, "People"), vt.destination(settings, "Settings")]
+    return vt.app("x", entry=chats, tapes=[chats, people, settings, thread, MORE],
+                  hub=vt.hub(destinations) if hub else None)
+
+
+def test_the_intent_carries_the_destination_beneath_a_linked_frame():
+    def under(app):
+        return next(t for t in app.intent()["tapes"] if t["id"] == "thread")["frames"][0].get("under")
+
+    assert under(_two_ways()) == "chats"  # the first in hub order that reaches it
+    app = _two_ways(under="people")
+    assert under(app) == "people" and check(app) == []
+    people = next(t for t in app.tapes if t.id == "people")
+    assert under(_two_ways(under=people)) == "people"  # the tape itself works too
+    assert under(_two_ways(hub=False)) is None
+
+
+@pytest.mark.parametrize("make, words", [
+    (lambda: _two_ways(under="settings"), "cannot reach this frame"),
+    (lambda: _two_ways(under="landing"), "is not a hub destination"),
+    (lambda: _two_ways(under="people", hub=False), "the app has no hub"),
+    (lambda: _two_ways(under="people", address=None), "has none"),
+])  # fmt: skip
+def test_under_must_be_a_destination_that_reaches_a_linked_frame(make, words):
+    [d] = errors_of(make())
+    assert d.code == "bad-under" and words in d.message

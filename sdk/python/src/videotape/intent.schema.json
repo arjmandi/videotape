@@ -752,6 +752,12 @@
           "const": true,
           "type": "boolean"
         },
+        "signs_in": {
+          "description": "It signs in: its target is a fresh start.",
+          "title": "Signs In",
+          "const": true,
+          "type": "boolean"
+        },
         "then": {
           "$ref": "#/$defs/HandlerRef"
         },
@@ -884,6 +890,11 @@
         },
         "resets_history": {
           "title": "Resets History",
+          "const": true,
+          "type": "boolean"
+        },
+        "signs_in": {
+          "title": "Signs In",
           "const": true,
           "type": "boolean"
         },
@@ -1029,6 +1040,12 @@
           "title": "Hub",
           "const": false,
           "type": "boolean"
+        },
+        "under": {
+          "description": "For a frame opened by its address in a hub app, the destination tape the engine puts beneath it: its under=, or the first destination in hub order that reaches it.",
+          "title": "Under",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
         },
         "root": {
           "description": "A history root (the entry, a hub destination's first frame, or where a sign-in or sign-out lands): on every path, or only on some, where something also enters it with history.",

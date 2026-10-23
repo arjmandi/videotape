@@ -52,7 +52,7 @@ def resolve(app: App, frame: Frame, kind: str, name: str | None) -> str | None:
 def outcome_edge(app: App, use: Use, d: Declared, via: dict[str, Any]) -> Edge | None:
     if d.type not in MOVES:
         return None
-    return Edge(use.frame.node, d.type, via, d.target, resolve(app, use.frame, d.type, d.target), d.resets)
+    return Edge(use.frame.node, d.type, via, d.target, resolve(app, use.frame, d.type, d.target), d.resets, d.signs_in)
 
 
 def declared_at(use: Use) -> list[Declared]:
@@ -234,6 +234,9 @@ class Builder:
         for node in sorted(j.roots):
             if node in self.frames:
                 self.frames[node]["root"] = "always" if node in j.always else "sometimes"
+        for node, tape in j.beneath.items():
+            if node in self.frames:
+                self.frames[node]["under"] = tape
         out: dict[str, Any] = {"format": FORMAT, "app": app.name, "entry": app.entry}
         if app.world is not None:
             out["world"] = app.world
