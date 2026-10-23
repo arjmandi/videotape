@@ -1,0 +1,33 @@
+# records.py: 06 §2.2, with the records of the tapes it leaves out (06 §3.2, §5.1).
+from datetime import datetime
+
+import videotape as vt
+
+
+class Credentials(vt.Record):
+    username: str
+    password: vt.Secret
+
+
+# ── filled in: reset, workspace, report ──
+
+
+class ResetRequest(vt.Record):
+    email: str
+
+
+class Project(vt.Record):
+    id: str = vt.Field(show=False)
+    name: str = vt.Field(role="heading")
+    status: str = vt.Field(role="status")
+    updated: datetime = vt.Field(format="relative-time")
+
+
+class Workspace(vt.Record):
+    projects: list[Project] = vt.Field(select=vt.jump("report", project_id=Project.id))
+
+
+class Report(vt.Record):
+    title: str = vt.Field(role="heading")
+    chart: vt.Series
+    summary: vt.RichText
