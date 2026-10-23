@@ -100,7 +100,7 @@ login = vt.tape("login", [
              actions=[vt.action("Forgot your password?", vt.jump("reset"), role="secondary")]),
 ])
 
-app = vt.app("hello", entry="landing", tapes=[landing, login, reset, workspace],   # reset and workspace
+app = vt.app("hello", entry=landing, tapes=[landing, login, reset, workspace],   # reset and workspace
              world="studio")                                                       # are left out here
 ```
 
@@ -224,10 +224,10 @@ paths      landing→login: walk to the console (2.1 s) · login→workspace: th
 | `download(name, data)` | A file: the browser's download on the web (M1); the share sheet and Files elsewhere (M4) | The world waits |
 
 ```python
-app = vt.app("relay", entry="chats", tapes=[chats, thread, contacts, settings],
-             hub=vt.hub([vt.destination("chats", "Chats", symbol="chat"),
-                         vt.destination("contacts", "Contacts", symbol="person"),
-                         vt.destination("settings", "Settings", symbol="gear")]))
+app = vt.app("relay", entry=chats, tapes=[chats, thread, contacts, settings],
+             hub=vt.hub([vt.destination(chats, "Chats", symbol="chat"),
+                         vt.destination(contacts, "Contacts", symbol="person"),
+                         vt.destination(settings, "Settings", symbol="gear")]))
 ```
 
 Arguments to `jump` and `call`, and the parts of an `address`, belong to the tape they enter: any
@@ -241,7 +241,14 @@ a sign-in or sign-out lands, which starts a fresh history. Say `back=False` on a
 returning would be wrong, such as a receipt. The hub appears on every frame whose history began at
 one of its destinations, never on a call's sheet; `hub=False` hides it for a full-screen moment such
 as a story. An explicit `vt.back()` appears only where there is history; on a frame that is always
-a root, `videotape check` reports it.
+a root, `videotape check` reports it. Back counts as a way out only where a frame has history on
+every path to it, so a frame that is a root on any path needs a declared way out.
+
+**Links into the app.** An address opens its frame directly, so that frame must stand on its own:
+its address and its loader supply what it needs, since no earlier frame ran. In an app with a hub,
+the engine puts the first destination that can reach the frame beneath it, so a linked conversation
+opens with Chats behind it, back returns there, and the hub is in place. In an app without a hub, a
+frame opened by its address is a history root, so give it a way out, such as a link home.
 
 ## 4. Types
 
@@ -319,8 +326,10 @@ locales.
 
 A frame names the records it **shows**, which the user reads, and the one it **edits**, which the
 user writes; `shows=` takes one record or a list. A loader fills them when the user arrives,
-returning one document or a tuple; the others start from their defaults. The arguments of the jump
-that entered the tape reach the loader by name:
+returning one document or a tuple; the others start from their defaults. Every shown record needs
+a source: the loader, an earlier frame of the tape, or defaults for all its required fields, and
+`videotape check` reports one without. The arguments of the jump that entered the tape reach the
+loader by name:
 
 ```python
 class Workspace(vt.Record):
@@ -442,7 +451,10 @@ async def export_csv(ctx, p: Pipeline):
 | `raise vt.Reject("...")` | Stay, show the message as the frame's error status |
 
 A handler may return different outcomes on different paths; each is an edge. A tape may be named
-by a string, a module constant, or the tape itself (`return vt.jump(dashboard)`). When the SDK
+by a string, a module constant, or the tape itself (`return vt.jump(dashboard)`), and so can every
+other place that names a tape: `entry=landing`, `vt.destination(chats, ...)`. The tape itself
+catches a typo when the module loads; inside a record, which comes before the tapes, use the id.
+When the SDK
 cannot read an outcome from the body, because a tape's name is in a local variable or a helper
 builds the outcome, `videotape check` asks you to declare it with `@vt.outcomes(vt.jump("dashboard"),
 vt.goto("verify"))`. Actions that need no decision are data: `vt.action("Comments", vt.jump("post", post_id=Post.id), on=Post)` never calls
@@ -590,7 +602,8 @@ async def search_docs(ctx, s: Search, r: Results):
 
 docs = vt.tape("docs", [
     vt.frame("Read one page of the docs", address="/docs/{page}", public=True,
-             shows=[Page, Results], enter=load_page, edit=Search, on_change={Search.q: search_docs}),
+             shows=[Page, Results], enter=load_page, edit=Search, on_change={Search.q: search_docs},
+             actions=[vt.action("Hello", vt.jump("landing"), role="navigation")]),
 ])
 
 class Project(vt.Record):
@@ -626,7 +639,8 @@ async def export_csv(ctx, r: Report):
 
 report = vt.tape("report", [
     vt.frame("Read one report", address="/projects/{project_id}", shows=Report, enter=load_report,
-             actions=[vt.action("Export CSV", export_csv, role="primary")]),
+             actions=[vt.action("Export CSV", export_csv, role="primary"),
+                      vt.action("All projects", vt.jump("dashboard"), role="navigation")]),
 ])
 ```
 
@@ -699,10 +713,10 @@ watch = vt.tape("watch", [
                       vt.action("Subscribed", unsubscribe, visible=Channel.subscribed)]),
 ])
 
-app = vt.app("screening", entry="home", tapes=[home, search, subscriptions, watch, channel],
-             hub=vt.hub([vt.destination("home", "Home", symbol="house"),
-                         vt.destination("search", "Search", symbol="magnifier"),
-                         vt.destination("subscriptions", "Subscriptions", symbol="list")]),
+app = vt.app("screening", entry=home, tapes=[home, search, subscriptions, watch, channel],
+             hub=vt.hub([vt.destination(home, "Home", symbol="house"),
+                         vt.destination(search, "Search", symbol="magnifier"),
+                         vt.destination(subscriptions, "Subscriptions", symbol="list")]),
              world="screening-room")
 ```
 

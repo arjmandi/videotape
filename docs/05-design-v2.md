@@ -285,7 +285,9 @@ app process, a timer) reaches every screen that shows it. Shown documents with a
 identity and live while someone shows them; shown documents without one, and `edit=` documents,
 belong to the session, such as a handler's search results. The `enter` loader returns the
 documents it loads (one, or a tuple), and the engine dedupes them by id; the others start from
-their defaults.
+their defaults. Every shown record needs a source when its frame is entered: the frame's loader, an
+earlier frame of the same tape, or defaults for each required field; `check` reports one with
+none.
 
 A handler receives the documents its frame shows as typed objects, resolved by annotation (as
 FastAPI resolves parameters), and mutates them with ordinary code. The SDK sends each change as it
@@ -364,27 +366,39 @@ linters and type checkers read them as ordinary functions. A name in the tape's 
 resolved against the handler's module at registration, so a string constant works, and so does the
 tape itself, a reference rather than a string (`return vt.jump(dashboard)`). Where a body still
 cannot be read (a local variable, an outcome built by a helper), the handler declares its edges
-with `@vt.outcomes(vt.jump("dashboard"))`, and `check` asks for it. Any handler may
+with `@vt.outcomes(vt.jump("dashboard"))`, and `check` asks for it. Wherever a tape is named
+(outcomes, actions, `vt.pick`, `vt.destination`, `vt.app(entry=)`), the tape itself or its id works;
+the object catches a typo when the module loads, and inside a record, which comes before the tapes,
+the id is what works. Any handler may
 `raise vt.Reject("...")`: the journey stays, the frame shows the message as its error status, and
 secrets are cleared, so a `Stay` edge is implied for every handler.
 
 **History and the hub.** Every frame with history has a back edge to where the user came from. A
-**history root** has none: the app's entry, the first frame of each hub destination, and the
-target of an outcome that signs in or out, which resets the history. `frame(back=False)` removes
+**history root** has none: the app's entry, the first frame of each hub destination, the target
+of an outcome that signs in or out, which resets the history, and a frame opened by its address in
+an app without a hub (below). `frame(back=False)` removes
 back where returning would be wrong, such as after a payment. A frame shows the hub when its
 history root is a hub destination; calls never show it; `frame(hub=False)` hides it for
 full-screen moments such as stories. An explicit `vt.back()` is shown only where there is history:
 on a frame that is a root on every path, `check` reports it as an error and it is never an exit;
-on a frame that is a root on some paths, `check` warns and the client hides it there.
+on a frame that is a root on some paths, `check` warns and the client hides it there. One rule
+covers both cases: back is a way out only where the frame has history on every path to it.
+
+**Addresses open frames directly.** A frame opened by its address stands on its own: its address
+and its loader supply everything it needs, since no earlier frame ran, and `check` reports one that
+relies on other arguments or on earlier frames' documents. In an app with a hub, the engine puts
+the first hub destination (in hub order) that can reach the frame beneath it, so back and the hub
+work as if the user had navigated there, which is how phone apps open a linked conversation. In an
+app without a hub, or where no destination reaches the frame, the frame is a history root.
 
 **Tapes carry arguments.** A tape is one journey over the same documents. The jump that enters a
 tape passes its arguments, and any frame's loader in the tape may take them, and the documents
 its earlier frames loaded, by annotation. `goto` therefore carries no arguments, and a wizard's
 steps share one draft.
 
-`videotape check` knows every edge. It counts back and the hub's doors as exits (the doors only
-where every root that reaches the frame is a destination), so a dead end is a root, or a frame
-without back, with no declared way out. It matches each jump's arguments against the loaders and
+`videotape check` knows every edge. It counts back as an exit only where the frame has history on
+every path to it, and the hub's doors only where every root that reaches the frame is a
+destination; a dead end is a frame with neither and with no declared way out. It matches each jump's arguments against the loaders and
 addresses of the tape it enters, flags an edit frame that hides a required field, ambiguous record
 references, and frames without an `id` in a tape of several, and runs the composer on the
 reference screens (§8).
@@ -918,7 +932,7 @@ back.
 ### 18.1 Questions from the Python SDK (2026-10-23)
 
 The SDK skeleton (`sdk/python`, branch `claude/python-sdk-skeleton-9a995f`) built §6 as written and
-raised these in two rounds. Its numbering is in brackets, the second round as 2.n.
+raised these in three rounds. Its numbering is in brackets, the later rounds as 2.n and 3.n.
 
 | # | Question | Decision |
 |---|----------|----------|
@@ -938,6 +952,10 @@ raised these in two rounds. Its numbering is in brackets, the second round as 2.
 | Q44 | Is an explicit back on a history root a way out? [2.4] | No: an error where the frame is always a root, a warning where it sometimes is; the client shows back only where there is history (§6.3). |
 | Q45 | Tape names held in constants need `@vt.outcomes`. [2.5] | Names are resolved against the handler's module at registration; a string constant or the tape itself works (§6.3). |
 | Q46 | `goto` carries no arguments, so a later frame's loader cannot get any. [2.6] | Arguments belong to the tape: the jump that enters it passes them, and every frame's loader in it may take them and earlier frames' documents (§6.3). |
+| Q47 | A shown record that nothing loads, with a required field, can never start. [3.1] | Every shown record needs a source: the loader, an earlier frame of the tape, or defaults; `check` reports one without (§6.2). |
+| Q48 | What does a deep link into a later frame of a tape get? [3.2] | The frame must stand on its own; in a hub app the first destination that reaches it goes beneath it; otherwise it is a root (§6.3). |
+| Q49 | Is back a way out where a frame is a root on some paths only? [3.3] | No: back counts only where the frame has history on every path, for dead ends and explicit backs alike (§6.3). |
+| Q50 | Should `vt.destination`, `vt.pick`, and `vt.app(entry=)` take tapes? [3.4] | Yes: the tape or its id wherever a tape is named; ids inside records, which come before tapes (§6.3). |
 
 The SDK's five deviations are settled too. A paging loader is registered after its record with
 `@vt.pages(Record.field)`, and `pages=` in a field is gone. `vt.Text` is a type, with `lines=` on
