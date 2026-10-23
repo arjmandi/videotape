@@ -582,6 +582,10 @@ cheapest real probe. With Google: that a virtual accessibility tree needs no dec
 US billing terms once the court rules on the settlement. In the EU, alternative distribution
 reviews only a subset of guidelines (Notarization); whether 4.2 is in that subset was not checked.
 
+**Design response (2026-10-23).** iOS clients render on the device from M1, fed scene state by the
+engine; streaming stays on the web, Android, and desktop ([05-design-v2.md](05-design-v2.md),
+decision K and §11.1).
+
 ### 8.6 Sources
 
 Apple:

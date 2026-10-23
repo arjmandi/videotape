@@ -19,11 +19,12 @@ Generative-UI projects write front-end code on the fly. Videotape writes no fron
   detected; it is measured, continuously.
 - **The engine plays the app.** It composes every frame for the real screen, embodies each component
   as an object of the world, renders the scene live with in-world text drawn from code, hit-tests
-  touches against real geometry, and streams the result cloud-gaming style.
+  touches against real geometry, and streams the result cloud-gaming style. On iOS, where Apple's
+  rules read against thin clients, the server sends the scene and the device renders it.
 - **One app, native everywhere.** `videotape export` produces clients for the web, iOS, Android, and
-  desktop from day one. Each client is thin: it plays the stream, gives immediate feedback, and hosts
-  the platform's own text editors and accessibility tree. That last part is what a game engine does
-  not give you.
+  desktop from day one. Each client is thin: it plays the stream (on iOS, renders the scene), gives
+  immediate feedback, and hosts the platform's own text editors and accessibility tree. That last
+  part is what a game engine does not give you.
 
 Generation owns the look in layers: worlds and props generated once and rendered live, a live neural
 restyle on top, and, as real-time world models mature, rendering from the engine's state. The engine
@@ -47,8 +48,8 @@ stays the source of truth, and a harness checks that every control is real and e
 ## Plan
 
 Experiments first: the engine bake-off on a server GPU, streaming latency and sessions per GPU,
-native text editors over a stream, native accessibility from intent, the Python SDK, and an App
-Review probe (Apple's rules read against streamed non-game apps). Then M1
+native text editors over a stream, native accessibility from intent, the Python SDK, and the iOS
+on-device renderer. Then M1
 delivers apps and user flows (engine, composer, streaming, exported clients, both SDKs) without OS
 capabilities; M2 generated worlds; M3 breakdown, merge, and live looks; M4 native capabilities
 through the exporter. See [docs/05-design-v2.md](docs/05-design-v2.md) §15.
