@@ -132,3 +132,104 @@ decisions keep each other's changes. Every op is validated against the record be
 **Fan-out.** Showing a document is subscribing to it: every session whose frame shows (or edits) a
 changed document hears `{t: "doc", ref, record, state, version, decision}`, where `state` is
 `tentative`, `confirmed`, or `rolledback`. A session's own documents reach that session alone.
+
+## The headless driver
+
+`Headless` (`src/driver.ts`) plays journeys without a client, standing where a client will: it
+numbers its inputs, names the frame it saw, keeps secrets in a client-side buffer (as a platform's
+secure editor does) until the submit that sends them, and clears them when the session says so.
+
+```ts
+const engine = new Engine();
+await engine.listen({ port: 8787 });          // then: videotape serve app:app --engine ws://127.0.0.1:8787/app
+await engine.ready();
+const s = await Headless.open(engine, { tape: "login" });
+await s.fill({ username: "ada@example.com", password: "nope" });
+await s.press("Sign in");
+s.at("login"); s.error; s.secret("password"); s.doc("Credentials"); s.reel;
+```
+
+It reads the reel (`reel`, `place`, `at`), the frame (`view`: actions, fields, documents,
+status), the documents (`doc`, `items`, `tentative`, and `changes`, each document as it was at every
+change the session heard), the status (`error`, `invalid`, `pending`), `user`, `effects`, and
+`dropped`; it acts with `fill`, `press` (by label or id, with `item` for actions on items),
+`select`, `back`, and `door`. `Headless.open` takes `address`, `tape` and `args`, and `user` (start
+signed in, as 06 §8.1's `play(..., user=)`). `test/done.test.ts` plays the brief's "done when"
+with it.
+
+## Latency (E5, E10)
+
+`npx -y pnpm@9.15.0 --filter @videotape/engine latency` (bench/latency.ts) plays the sample apps'
+Python processes over a local WebSocket, 300 times after 30 warm-ups. On an Apple-silicon Mac,
+Node 20.18, Python 3.14 (2026-10-24):
+
+| What | p50 | p95 | p99 |
+|------|-----|-----|-----|
+| A local change: a fill until the session hears the document change | 0.024 ms | 0.047 ms | 0.070 ms |
+| A decision (journeys' Wave, no service call): press → change shown, tentative | 0.32 ms | 0.46 ms | 0.85 ms |
+| The same: press → outcome played, confirmed | 0.36 ms | 0.52 ms | 0.90 ms |
+| relay's Send (its fake service waits 1 ms), 32–131 messages: press → shown in the other session | 2.1 ms | 3.5 ms | 3.6 ms |
+| The same: press → confirmed in the other session | 3.6 ms | 5.2 ms | 5.5 ms |
+| relay's Send, 232–331 messages: press → shown in the other session | 6.5 ms | 8.3 ms | 12.7 ms |
+| The same: press → confirmed in the other session | 8.7 ms | 11.9 ms | 15.4 ms |
+
+The engine's own work is small; a decision costs what moving its documents costs. A `decide` carries
+every document the handler takes, whole, and the SDK validates them into records, so Send slows
+as the conversation grows (Q-E below).
+
+## Decisions this engine took, as questions for the design
+
+05 leaves these open; the engine decided them as written here, and they are open to the design.
+
+- **Q-A Engine → app `sync`.** 05 §6.6 says `sync` goes both ways. The engine sends documents
+  whole with each `load` and `decide` and never sends `sync` to the app, so the app process keeps
+  no copy and `vt.docs[...]` is a write-only handle (reading a field raises). Should the app keep a
+  mirror of the documents it touches, kept current by engine → app `sync`, so decides carry refs?
+- **Q-B Confirmation.** A decision's tentative changes are confirmed by its `result` (an outcome),
+  not by a `sync` of its own; an error or a `Reject` rolls them back. Changes after the result
+  (a handler's background task) are not sent.
+- **Q-C Keys.** List items of records are keyed by their `vt.Id`, else by a key the engine (`~e…`)
+  or the SDK (`~<process>.<n>`) mints; ops address items by key (or by Id from `vt.docs`); lists
+  of plain values change whole. An item keeps the key it was added with, even after the app saves
+  it with an Id. A reload whose value differs re-keys items without an Id.
+- **Q-D Lifetime.** Documents live while a reel holds their tape visit (the step, the history,
+  calls, saved hub histories), not only while shown, so back returns to documents kept current,
+  without running the loader again. Loaders run on entering a frame by jump, goto, call, address,
+  or a destination's first door; not on back, done, or a door that restores a saved history.
+- **Q-E Cost of a decide.** Each decide sends its documents whole both ways in JSON (see the
+  latency table). Paging (`@vt.pages`) bounds a list, but nothing yet bounds what a decide carries.
+- **Q-F Secrets.** A secret travels only with the submit press, merged into that decide's edited
+  document, and the session tells the client to clear every secret field after any press that
+  carried secrets (success, reject, or error). Should a validation failure before the app clear
+  them too? Here it does not: they never left the client's editor.
+- **Q-G Undeclared outcomes.** A handler's outcome that its intent does not declare is refused as
+  an error and its changes rolled back (05 §6.3: `check` and the engine agree by construction).
+- **Q-H Hub.** Each destination keeps its own history; the current destination's door starts it
+  over (as tab bars do); a jump into a destination's tape keeps history and the hub. A press on a
+  hub door inside a call, or on a `hub=False` frame, is dropped.
+- **Q-I Calls.** Back from a call's first frame ends the call without a result and without calling
+  `then=`. `done` outside a call is ignored.
+- **Q-J Identity without moving.** `sign_in=`/`sign_out=` on `stay`, `goto`, or `back` reset the
+  history where the reel lands. Reels are resumable by token (prototype-0's resume); keying reels by
+  user and device so a journey resumes on another device (05 §6.2) is not built.
+- **Q-K Validation.** A submit validates the edited record with its secrets before the app, and
+  reports problems by field; other handler actions do not. A fill of the wrong JSON shape is
+  dropped; a fill that breaks a constraint is kept and reported (`invalid`).
+- **Q-L Inputs.** Until the client protocol exists, sessions take `fill`, `press`, `back`, and
+  `hub` with a `seq` and the frame version (the scene version's stand-in), and say `dropped` with a
+  reason. Action ids are `submit`, `action:<n>`, `select:<field>`, `press:<field>`.
+- **Q-M Errors.** A raised handler, a failed loader, and an app that is gone or slower than 30 s
+  show the engine's own message as the frame's error status, never the app's exception text. A
+  failed loader enters the frame with defaults.
+- **Q-N One app.** An engine plays one app. A new connection from the same app replaces the old
+  one; another app is refused while sessions exist. A new intent keeps the sessions and, when the
+  records did not change, the documents.
+- **Q-O `Message.sent_at`.** 06 §9.4's `send` builds a `Message` without `sent_at`, which the
+  guide declares required; the relay fixture makes it optional. Should a record a handler creates
+  be allowed to lack required fields until the app saves it, as `vt.Id` is?
+
+**Not built** (per the brief): the composer, embodiment, scene state, rendering, streaming,
+clients and the client protocol, release, and the TypeScript SDK. Also not built here: timers
+(`after=`), `on_change` handlers, moves (`to=`), picks (`vt.pick`), paging requests from a client
+(the protocol's `page` message and the SDK's answer exist), list documents in handlers, and
+cross-device resume.

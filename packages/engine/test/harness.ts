@@ -1,11 +1,10 @@
 // Plays a sample app for tests: an engine, its /app endpoint, and the app's Python process; or an
-// engine with a fake app in memory. `Client` is a thin client over a session, by action ids.
+// engine with a fake app in memory. Sessions are driven with the headless driver (src/driver.ts).
 
 import { AppLink } from "../src/app-link";
-import { Engine, type OpenOptions } from "../src/engine";
+import { Engine } from "../src/engine";
 import { type LogLine, memoryLogger } from "../src/log";
 import type { AppRequest, ResultMessage } from "../src/protocol";
-import type { FrameView, Input, Session, SessionEvent } from "../src/session";
 import { rawIntent } from "./fixtures";
 import { type AppProcess, startApp } from "./python";
 
@@ -80,84 +79,6 @@ export function fake(name: string, answer: (req: AppRequest, app: FakeApp) => Re
   });
   link.receive(JSON.stringify({ t: "register", v: 1, intent: rawIntent(name), sdk: { language: "test", version: "0" } }));
   return app;
-}
-
-type Body<T> = T extends unknown ? Omit<T, "seq" | "frame"> : never;
-
-/** A thin client: numbers its inputs, names the frame it saw, and records what the session said. */
-export class Client {
-  events: SessionEvent[] = [];
-  /** What each document looked like at each change this client heard of, by slot. */
-  changes: Array<{ record: string; state: string; tentative: boolean; value: any }> = [];
-  private seq = 0;
-
-  /** A client of a session; `events` are what it heard before (its first frame), if it listened. */
-  constructor(readonly session: Session, events?: SessionEvent[]) {
-    if (events) this.events = events;
-    else session.on((e) => this.events.push(e));
-    session.on((e) => {
-      if (e.t !== "doc") return;
-      const docs = session["engine"].docs;
-      this.changes.push({ record: e.record, state: e.state, tentative: docs.isTentative(e.ref), value: docs.read(e.ref) });
-    });
-  }
-
-  /** Opens a session on `engine` and hears it from its first frame. */
-  static async open(engine: Engine, opts: OpenOptions = {}): Promise<Client> {
-    const events: SessionEvent[] = [];
-    const session = await engine.open({ ...opts, listener: (e) => events.push(e) });
-    return new Client(session, events);
-  }
-
-  get view(): FrameView {
-    return this.session.view();
-  }
-
-  get place(): string {
-    return this.session.reel.place;
-  }
-
-  send(body: Body<Input>, frame = this.session.version): Promise<void> {
-    return this.session.input({ ...body, seq: ++this.seq, frame } as Input);
-  }
-
-  fill(field: string, value: unknown) {
-    return this.send({ t: "fill", field, value });
-  }
-
-  /** Presses an action by id, or by its label. */
-  press(action: string, extra: { item?: string; secrets?: Record<string, string> } = {}) {
-    const found = this.view.actions.find((a) => a.id === action || a.label === action);
-    return this.send({ t: "press", action: found?.id ?? action, ...extra });
-  }
-
-  back() {
-    return this.send({ t: "back" });
-  }
-
-  door(tape: string) {
-    return this.send({ t: "hub", tape });
-  }
-
-  doc(slot: string): any {
-    const ref = this.session.ref(slot);
-    return ref ? this.session["engine"].docs.read(ref) : undefined;
-  }
-
-  dropped(): string[] {
-    return this.events.flatMap((e) => (e.t === "dropped" ? [e.reason] : []));
-  }
-
-  effects() {
-    return this.events.flatMap((e) => (e.t === "effect" ? [e.effect] : []));
-  }
-
-  /** The key of the item at `index` in a list field of a slot's document, as the engine keyed it. */
-  key(slot: string, field: string, index: number): string {
-    const ref = this.session.ref(slot)!;
-    const value = this.session["engine"].docs.get(ref)!.value as any;
-    return (field ? value[field] : value)[index]["@key"];
-  }
 }
 
 export const ADA = { record: "Person", id: "p1", value: { id: "p1", name: "Ada" } };

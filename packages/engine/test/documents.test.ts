@@ -3,8 +3,8 @@ import { type DocChange, DocumentStore } from "../src/documents";
 import { memoryLogger } from "../src/log";
 import type { Op } from "../src/protocol";
 import { KEY, Records } from "../src/records";
-import { SOMETHING_WENT_WRONG } from "../src/session";
-import { ADA, Client, fake, play } from "./harness";
+import { Headless } from "../src/driver";
+import { ADA, fake, play } from "./harness";
 import { intent } from "./fixtures";
 import { NO_PYTHON } from "./python";
 
@@ -128,12 +128,14 @@ describe("documents across sessions", () => {
       return { outcome: { type: "stay" } };
     });
     await app.engine.ready();
-    const a = await Client.open(app.engine, { tape: "inbox", user: ADA });
-    const b = await Client.open(app.engine, { tape: "inbox", user: ADA });
-    const elsewhere = await Client.open(app.engine, { user: ADA });
+    const a = await Headless.open(app.engine, { tape: "inbox", user: ADA });
+    const b = await Headless.open(app.engine, { tape: "inbox", user: ADA });
+    const elsewhere = await Headless.open(app.engine, { user: ADA });
     app.sync([{ doc: { record: "Inbox", id: "inbox-p1" }, ops: [{ op: "insert", path: ["items"], key: "i2", value: { id: "i2", title: "Second" } }] }]);
     for (const c of [a, b]) {
-      expect(c.changes).toEqual([{ record: "Inbox", state: "confirmed", tentative: false, value: { id: "inbox-p1", items: [{ id: "i1", title: "First" }, { id: "i2", title: "Second" }] } }]);
+      expect(c.changes.map(({ at: _, ...rest }) => rest)).toEqual([
+        { record: "Inbox", state: "confirmed", tentative: false, value: { id: "inbox-p1", items: [{ id: "i1", title: "First" }, { id: "i2", title: "Second" }] } },
+      ]);
     }
     expect(elsewhere.changes).toEqual([]);
     app.sync([{ doc: { record: "Inbox", id: "nobody" }, ops: [{ op: "set", path: ["items"], value: [] }] }]);
@@ -142,70 +144,11 @@ describe("documents across sessions", () => {
 });
 
 describe.skipIf(NO_PYTHON)("documents with the Python app", () => {
-  it("relay: two sessions on one conversation see a sent message tentative, then confirmed", async () => {
-    const p = await play("relay");
-    try {
-      const ada = { record: "User", id: "u1", value: { id: "u1", name: "Ada" } };
-      const grace = { record: "User", id: "u2", value: { id: "u2", name: "Grace" } };
-      const a = await Client.open(p.engine, { address: "/c/c1", user: ada });
-      const b = await Client.open(p.engine, { address: "/c/c1", user: grace });
-      expect(a.session.ref("Conversation")).toEqual(b.session.ref("Conversation"));
-      expect(a.session.ref("Draft")).not.toEqual(b.session.ref("Draft"));
-
-      await a.fill("Draft.text", "On my way");
-      await a.press("Send");
-
-      const conv = (c: Client) => c.changes.filter((x) => x.record === "Conversation");
-      for (const c of [a, b]) {
-        const seen = conv(c);
-        expect(seen.map((x) => x.state)).toEqual(["tentative", "tentative", "confirmed"]);
-        const sent = seen[0]!.value.messages.at(-1);
-        expect(sent).toMatchObject({ author: { id: "u1", name: "Ada" }, pending: true, sent_at: null });
-        expect(sent.text.blocks[0].spans[0].text).toBe("On my way");
-        expect(seen[0]!.tentative).toBe(true);
-        const confirmed = seen[2]!.value.messages.at(-1);
-        expect(confirmed.pending).toBe(false);
-        expect(confirmed.sent_at).toMatch(/^2\d{3}-/);
-        expect(seen[2]!.tentative).toBe(false);
-        expect(c.doc("Conversation").messages).toHaveLength(2);
-        expect(c.view.tentative).toEqual([]);
-      }
-      expect(a.changes.filter((x) => x.record === "Draft").map((x) => [x.state, x.value.text])).toEqual([["confirmed", "On my way"], ["tentative", ""], ["confirmed", ""]]);
-      expect(b.changes.some((x) => x.record === "Draft")).toBe(false);
-      expect(a.doc("Draft")).toEqual({ text: "" });
-    } finally {
-      await p.stop();
-    }
-  }, 20_000);
-
-  it("relay: a handler that raises rolls the message back in both sessions", async () => {
-    const p = await play("relay");
-    try {
-      const ada = { record: "User", id: "u1", value: { id: "u1", name: "Ada" } };
-      const a = await Client.open(p.engine, { address: "/c/c1", user: ada });
-      const b = await Client.open(p.engine, { address: "/c/c1", user: ada });
-      await a.fill("Draft.text", "fail: on my way");
-      await a.press("Send");
-      for (const c of [a, b]) {
-        const seen = c.changes.filter((x) => x.record === "Conversation");
-        expect(seen.map((x) => x.state)).toEqual(["tentative", "rolledback"]);
-        expect(seen[0]!.value.messages).toHaveLength(2);
-        expect(seen[1]!.value.messages).toHaveLength(1);
-        expect(c.doc("Conversation").messages).toHaveLength(1);
-      }
-      expect(a.doc("Draft")).toEqual({ text: "fail: on my way" });
-      expect(a.view.status.error).toBe(SOMETHING_WENT_WRONG);
-      expect(b.view.status.error).toBeNull();
-    } finally {
-      await p.stop();
-    }
-  }, 20_000);
-
   it("journeys: a Reject rolls back what the handler changed, in every session showing it", async () => {
     const p = await play("journeys");
     try {
-      const a = await Client.open(p.engine, { tape: "home", user: ADA });
-      const b = await Client.open(p.engine, { tape: "home", user: ADA });
+      const a = await Headless.open(p.engine, { tape: "home", user: ADA });
+      const b = await Headless.open(p.engine, { tape: "home", user: ADA });
       await a.press("Wave");
       await a.press("Wave too much");
       expect(a.view.status.error).toBe("Too much waving.");

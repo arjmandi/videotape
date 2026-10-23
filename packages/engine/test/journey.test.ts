@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { APP_UNAVAILABLE, SOMETHING_WENT_WRONG } from "../src/session";
-import { ADA, Client, type Played, fake, play } from "./harness";
+import { Headless } from "../src/driver";
+import { ADA, type Played, fake, play } from "./harness";
 import { NO_PYTHON } from "./python";
 
 describe.skipIf(NO_PYTHON)("the journey runtime, with the journeys app", () => {
@@ -10,7 +11,7 @@ describe.skipIf(NO_PYTHON)("the journey runtime, with the journeys app", () => {
   }, 20_000);
   afterAll(() => p?.stop());
 
-  const open = (opts = {}) => Client.open(p.engine, opts);
+  const open = (opts = {}) => Headless.open(p.engine, opts);
   const signedIn = async () => {
     const c = await open();
     await c.fill("Login.name", "Ada");
@@ -197,7 +198,7 @@ describe("when the app fails", () => {
       return { documents: [] };
     });
     await app.engine.ready();
-    const c = await Client.open(app.engine);
+    const c = await Headless.open(app.engine);
     await c.fill("Login.name", "Ada");
     await c.press("Sign in", { secrets: { password: "pw" } });
     expect(c.view.status.error).toBe(SOMETHING_WENT_WRONG);
@@ -208,7 +209,7 @@ describe("when the app fails", () => {
   it("refuses an outcome the handler's intent does not declare", async () => {
     const app = fake("journeys", (req) => (req.t === "decide" ? { outcome: { type: "jump", tape: "inbox" } } : { documents: [] }));
     await app.engine.ready();
-    const c = await Client.open(app.engine);
+    const c = await Headless.open(app.engine);
     await c.fill("Login.name", "Ada");
     await c.press("Sign in", { secrets: { password: "pw" } });
     expect(c.place).toBe("welcome");
@@ -218,13 +219,12 @@ describe("when the app fails", () => {
   it("fails a decision when the app goes away or takes too long", async () => {
     const app = fake("journeys", (req) => (req.t === "decide" ? "hang" : { documents: [] }), { timeoutMs: 50 });
     await app.engine.ready();
-    const c = await Client.open(app.engine);
+    const c = await Headless.open(app.engine);
     await c.fill("Login.name", "Ada");
     await c.press("Sign in", { secrets: { password: "pw" } });
     expect(c.view.status).toMatchObject({ pending: false, error: APP_UNAVAILABLE });
     const pending = c.press("Sign in", { secrets: { password: "pw" } });
-    await new Promise((r) => setTimeout(r, 5));
-    expect(c.view.status.pending).toBe(true);
+    await vi.waitFor(() => expect(c.view.status.pending).toBe(true));
     app.disconnect();
     await pending;
     expect(c.view.status).toMatchObject({ pending: false, error: APP_UNAVAILABLE });
@@ -236,7 +236,7 @@ describe("when the app fails", () => {
   it("enters a frame with defaults when its loader fails", async () => {
     const app = fake("journeys", (req) => (req.t === "load" ? { error: { type: "OSError", message: "db down" } } : { documents: [] }));
     await app.engine.ready();
-    const c = await Client.open(app.engine, { tape: "inbox", user: ADA });
+    const c = await Headless.open(app.engine, { tape: "inbox", user: ADA });
     expect(c.place).toBe("inbox");
     expect(c.view.status.error).toBe(SOMETHING_WENT_WRONG);
     expect(c.doc("Inbox")).toEqual({ id: null });
@@ -247,7 +247,7 @@ describe.skipIf(NO_PYTHON)("the journey runtime, with the sample apps", () => {
   it("hello: signs in to the workspace as a history root; a linked report is a root of its own", async () => {
     const p = await play("hello");
     try {
-      const c = await Client.open(p.engine);
+      const c = await Headless.open(p.engine);
       expect(c.view.reel).toMatchObject({ head: "landing", root: true, hub: null });
       await c.press("Sign in");
       expect(c.view.reel).toMatchObject({ head: "login", history: ["landing"], back: true });
@@ -257,7 +257,7 @@ describe.skipIf(NO_PYTHON)("the journey runtime, with the sample apps", () => {
       expect(c.session.user).toEqual({ record: "User", id: "u1", value: { id: "u1", first_name: "Ada" } });
       expect(c.doc("Workspace")).toEqual({ id: "u1", projects: [] });
 
-      const linked = await Client.open(p.engine, { address: "/projects/p7" });
+      const linked = await Headless.open(p.engine, { address: "/projects/p7" });
       expect(linked.view.reel).toMatchObject({ head: "report", history: [], root: true, back: false, args: { project_id: "p7" } });
       expect(linked.doc("Report")).toMatchObject({ id: "p7", title: "Q3" });
       await linked.press("All projects");
@@ -271,13 +271,13 @@ describe.skipIf(NO_PYTHON)("the journey runtime, with the sample apps", () => {
     const p = await play("relay");
     try {
       const user = { record: "User", id: "u1", value: { id: "u1", name: "Ada" } };
-      const c = await Client.open(p.engine, { user });
+      const c = await Headless.open(p.engine, { user });
       expect(c.view.reel).toMatchObject({ head: "chats", root: true, hub: { current: "chats" } });
       await c.press("select:Chats.conversations", { item: c.key("Chats", "conversations", 0) });
       expect(c.view.reel).toMatchObject({ head: "thread", history: ["chats"], hub: { current: "chats" }, args: { id: "c1" } });
       expect(c.doc("Conversation")).toMatchObject({ id: "c1", title: "Launch" });
 
-      const linked = await Client.open(p.engine, { address: "/c/c2", user });
+      const linked = await Headless.open(p.engine, { address: "/c/c2", user });
       expect(linked.view.reel).toMatchObject({ head: "thread", history: ["chats"], hub: { current: "chats" } });
       await linked.back();
       expect(linked.view.reel).toMatchObject({ head: "chats", root: true });

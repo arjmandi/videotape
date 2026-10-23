@@ -5,6 +5,7 @@ export * from "./protocol";
 export * from "./records";
 export * from "./server";
 export * from "./documents";
+export * from "./driver";
 export * from "./engine";
 export * from "./journey";
 export * from "./ops";

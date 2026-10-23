@@ -1,8 +1,8 @@
 # Videotape Python SDK (skeleton)
 
 The first v2 code. An app written as in [06-getting-started.md](../../docs/06-getting-started.md)
-becomes intent JSON, and `videotape check` checks it. There is no engine, app-protocol
-transport, documents runtime, or composer yet.
+becomes intent JSON, `videotape check` checks it, and `videotape serve` serves it to the engine
+core in [`packages/engine`](../../packages/engine) over the app protocol. There is no composer yet.
 
 The SDK follows the design as decided on `design/v2` at `df3e343`: 05 §6.1–§6.4, and §18.1,
 which decides the questions and deviations this skeleton raised in four rounds (Q31–Q52). This
@@ -20,6 +20,7 @@ python3 -m venv .venv                 # Python 3.11 or later
 .venv/bin/videotape check app:app --app-dir tests/fixtures/hello    # diagnostics; exit 1 on errors
 .venv/bin/videotape check crm --app-dir tests/fixtures/apps --json  # diagnostics as JSON
 .venv/bin/videotape schema                                          # the intent document's JSON Schema
+.venv/bin/videotape serve app:app --app-dir tests/fixtures/hello --engine ws://127.0.0.1:8787/app
 ```
 
 `module:app` names a module and the `vt.app(...)` in it (`app` when left out). The module is
@@ -39,6 +40,9 @@ warnings, 1 on errors, and 2 when it cannot load the app.
 | `serialize` | `app.intent()`: the deterministic intent JSON |
 | `spec` | The intent document's JSON Schema, published as [`intent.schema.json`](src/videotape/intent.schema.json) |
 | `graph`, `check`, `cli` | The journey graph (ported from prototype-0) with history roots, back, and the hub; the check rules; the `videotape` command |
+| `serve` | The app protocol's client: `register`, then `load`, `page`, and `decide` answered with the app's loaders and handlers (as `vt.invoke` calls them), `sync` for document changes, `log` for the app's log lines, scrubbed of secrets. The shapes are in [`packages/engine/README.md`](../../packages/engine/README.md) |
+| `tracking` | The documents a handler receives are tracked: each assignment and list change (`append` returns the item; `prepend`, `insert`, `remove`, `pop`, `replace` by `vt.Id`) becomes a `sync` op in the same event-loop turn, tentative under the decision; secret fields are never sent |
+| `documents` | `vt.docs[Record, id]`: a write handle on a document the engine holds, for code outside handlers; its changes are confirmed at once (tentative inside a handler) |
 
 **Records and frames.** A frame shows the records the user reads (`shows=Page`, or
 `shows=[Page, Results]`) and edits the one the user writes. A record with a `vt.Id` field is a
@@ -272,7 +276,6 @@ no new ones.
 
 ## Not built
 
-Per the brief: the engine, the app protocol's transport (`register`, `load`, `decide`, `sync`),
-the documents runtime (`vt.docs`, list `append` returning the item, `prepend`, `replace`), the
-composer and its reference screens, `vt.testing.play`, `vt.world`, `videotape new`, `dev`,
-`graph`, `release`, `export`, and `serve`, and the TypeScript SDK.
+The composer and its reference screens, `vt.testing.play` (the engine's headless driver plays
+journeys from TypeScript for now), `vt.world`, `videotape new`, `dev`, `graph`, `release`, and
+`export`, and the TypeScript SDK. `vt.docs` writes and does not read (engine question Q-A).
