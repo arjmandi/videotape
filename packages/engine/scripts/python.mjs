@@ -22,4 +22,5 @@ export const APPS = {
   demo: ["sdk/python/tests/fixtures/apps", "demo"],
   pinhole: ["sdk/python/tests/fixtures/apps", "pinhole"],
   screening: ["sdk/python/tests/fixtures/apps", "screening"],
+  journeys: ["packages/engine/test/apps", "journeys"],
 };

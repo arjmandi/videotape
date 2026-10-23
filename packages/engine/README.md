@@ -68,3 +68,45 @@ before its result, and the WebSocket keeps that order.
 is merged into the edited document of that one `decide`, and is dropped when the decision ends.
 The SDK never sends a secret field back (ops and dumps skip them), and both ends scrub the secret
 values in play from errors and log lines.
+
+## The journey runtime
+
+`Engine` plays one app: it listens for the app process (`engine.listen()`), and `engine.open()`
+starts a session at the entry, at a tape (tests), or at the frame an address opens. A session
+walks a **reel** (`src/journey.ts`): the step it is on (a frame of a *tape visit*, which carries the
+tape's arguments and the documents its frames share), the history back to its root, the calls it
+is inside, and each hub destination's saved history.
+
+| Outcome | What the reel does |
+|---------|--------------------|
+| `jump(tape, **args)` | pushes the step on the history and starts a new visit of `tape` with `args` |
+| `goto(frame)` | pushes the step and moves to `frame` in the same visit: same arguments, same documents |
+| `back()` | pops the history; from a call's first frame it leaves the call without a result |
+| `stay()` | nothing moves; the documents already carry the change |
+| `call(tape, then=)` | keeps the caller, its history, and its root aside, and starts `tape` with an empty history and no hub |
+| `done(result)` | returns to the caller, then calls `then=` with `result` at the caller's frame |
+| `sign_in=` / `sign_out=` | sets or clears the session's user (`ctx.user`) and starts a fresh history at the target |
+| `open`, `download`, `copy` | hands the client an effect; nothing moves |
+
+**History roots.** The entry, a sign-in or sign-out target, a hub destination's first frame (by
+its door), and a frame opened by its address, which gets the destination its intent names
+(`under`) beneath it, entered when the user goes back to it. Back is offered only where there is
+history (or a call to leave) and the frame does not say `back=False`. The hub shows where the
+history began at a destination, outside calls, unless the frame says `hub=False`. Each
+destination keeps its own history; the current destination's door starts it over.
+
+**Inputs** stand in for the client protocol until it exists: `fill` (a field of the edited
+record), `press` (an action by id: `submit`, `action:<n>`, `select:<field>`, `press:<field>`; an
+`item` key for actions on items; `secrets` for the secret fields it submits), `back`, and `hub`.
+Each carries a `seq`, which must grow, and the frame version it was made against; a replayed or
+stale input, an unknown action or field, a value of the wrong shape, an item that is not in the
+list, or a secret for a field that is not secret is dropped, logged without its content, and
+reported to the session as `dropped`. Fills are answered at once; presses run one at a time.
+
+**Decisions.** A submit first validates the edited record (with the secrets it carries) against
+its schema, and reports problems by field without calling the app. A handler receives the
+frame's documents by parameter (an item for an action on items, `result` for a `then=`), and its
+outcome is checked against the outcomes its intent declares before it plays: anything else is
+refused as an error. A `Reject` stays and shows its message as the frame's error status; a
+raised error or an app that is gone or too slow (30 s) stays with the engine's own message. After
+every press that carried secrets the session tells the client to clear those fields.

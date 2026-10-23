@@ -106,6 +106,17 @@ export class Records {
     return this.run(`${base}/anyOf/${i}/items`, value);
   }
 
+  /**
+   * Whether a value has the JSON shape a field takes: the gate for what a user may type into it.
+   * A value of the right shape that breaks a constraint (too long, out of range) is kept and
+   * reported; a value of the wrong shape is refused.
+   */
+  fits(record: string, field: string, value: unknown): boolean {
+    const kind = this.kind(record, field);
+    if (!kind) return false;
+    return fitsKind(this, kind, value);
+  }
+
   // ── keys ───────────────────────────────────────────────────────────────────
 
   /**
@@ -166,6 +177,32 @@ export class Records {
       return undefined;
     }
     return undefined;
+  }
+}
+
+function fitsKind(records: Records, kind: Kind, value: unknown): boolean {
+  if (value === null) return kind.nullable === true;
+  switch (kind.type) {
+    case "string": case "text": case "secret": case "id": case "date": case "datetime": case "time":
+      return typeof value === "string";
+    case "integer":
+      return Number.isInteger(value);
+    case "number":
+      return typeof value === "number" && Number.isFinite(value);
+    case "boolean":
+      return typeof value === "boolean";
+    case "choice": {
+      const options = kind.enum ? records.intent.records[kind.enum]?.enum : kind.choices;
+      return Array.isArray(options) && options.some((o) => o === value);
+    }
+    case "money":
+      return typeof value === "object" && typeof (value as { amount?: unknown }).amount === "string" && typeof (value as { currency?: unknown }).currency === "string";
+    case "collection":
+      return Array.isArray(value);
+    case "data":
+      return true;
+    default:
+      return typeof value === "object" && !Array.isArray(value);
   }
 }
 
