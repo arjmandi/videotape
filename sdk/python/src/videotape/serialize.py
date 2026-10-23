@@ -1,0 +1,312 @@
+"""The intent JSON (05 §6): what `register` will send, and what `videotape check` reads.
+
+The output is deterministic: tapes, frames, components, actions, and edges keep the order they
+were written in; records, handlers, and loaders are sorted by name.
+"""
+
+from __future__ import annotations
+
+import inspect
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
+
+from ._encode import encode, encode_target, name_of
+from .decisions import Declared, read, returns_kinds
+from .derive import Use, components, frame_records, uses
+from .diagnostics import Diagnostic, error
+from .graph import Edge, journey
+from .intent import Action, App, Frame, Show, Tape
+from .outcomes import Outcome
+from .records import FieldRef, Record, fields_of, id_field, records_in
+from .values import VT
+
+FORMAT = "videotape.intent/2"
+
+MOVES = ("goto", "jump", "back", "call", "done")
+"""Outcome types that are edges of the journey graph; `stay`, `open`, `download`, `copy` stay put."""
+
+
+@dataclass
+class Built:
+    intent: dict[str, Any]
+    edges: list[Edge]
+    """The declared edges: static outcomes and the outcomes handlers return."""
+    records: list[type[Record]] = field(default_factory=list)
+    problems: list[Diagnostic] = field(default_factory=list)
+    """What building found: two handlers, loaders, or records with one name."""
+
+
+def resolve(app: App, frame: Frame, kind: str, name: str | None) -> str | None:
+    """The node an outcome reaches from `frame`."""
+    if kind in ("jump", "call"):
+        t = app.tape(name) if name else None
+        return t.entry.node if t else None
+    if kind == "goto":
+        t = app.tape(frame.tape)
+        f = t.frame(name) if t and name else None
+        return f.node if f else None
+    return None
+
+
+def outcome_edge(app: App, use: Use, d: Declared, via: dict[str, Any]) -> Edge | None:
+    if d.type not in MOVES:
+        return None
+    return Edge(use.frame.node, d.type, via, d.target, resolve(app, use.frame, d.type, d.target), d.resets, d.signs_in)
+
+
+def declared_at(use: Use) -> list[Declared]:
+    """What a use can do: its static outcome, or the outcomes its handler returns."""
+    if isinstance(use.target, Outcome):
+        return [Declared.of(use.target)]
+    return read(use.target).outcomes
+
+
+class _Names:
+    """Handlers and loaders by name; two functions with one name are a problem."""
+
+    def __init__(self, what: str, problems: list[Diagnostic]) -> None:
+        self.what, self.problems, self.items = what, problems, {}
+
+    def add(self, fn: Callable[..., Any]) -> str:
+        name = name_of(fn)
+        known = self.items.setdefault(name, fn)
+        if known is not fn and not any(p.at == f"{name}()" for p in self.problems):
+            where = f"{_place(known)} and {_place(fn)}"
+            self.problems.append(error("duplicate-id", f"two {self.what}s are named {name} ({where})", f"{name}()"))
+        return name
+
+
+def _place(fn: Callable[..., Any]) -> str:
+    code = getattr(fn, "__code__", None)
+    module = getattr(fn, "__module__", "?")
+    return f"{module}:{code.co_firstlineno}" if code else module
+
+
+class Builder:
+    def __init__(self, app: App) -> None:
+        self.app = app
+        self.problems: list[Diagnostic] = []
+        self.handlers = _Names("handler", self.problems)
+        self.loaders = _Names("loader", self.problems)
+        self.records: list[type[Record]] = []
+        self.edges: list[Edge] = []
+        self.frames: dict[str, dict[str, Any]] = {}
+
+    def need(self, record: type[Record] | None) -> None:
+        if record is None:
+            return
+        for r in records_in(record):
+            if r not in self.records:
+                self.records.append(r)
+
+    # ── tapes and frames ──
+
+    def tape(self, t: Tape) -> dict[str, Any]:
+        return {"id": t.id, "frames": [self.frame(f) for f in t.frames]}
+
+    def frame(self, f: Frame) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if f.id is not None:
+            out["id"] = f.id
+        out["purpose"] = f.purpose
+        self.frames[f.node] = out
+        if f.title is not None:
+            out["title"] = encode(f.title)
+        if f.address:
+            out["address"] = f.address
+        if f.public:
+            out["public"] = True
+        if f.shown:
+            out["shows"] = [{"collection" if many else "record": r.__name__} for r, many in f.shown]
+        if f.edit is not None:
+            out["edit"] = {"record": f.edit.__name__}
+        if f.enter is not None:
+            out["enter"] = {"loader": self.loaders.add(f.enter)}
+        if f.submit is not None:
+            out["submit"] = {"label": encode(f.submit_label), "handler": self.handlers.add(f.submit_handler)}
+        comps, states = components(f)
+        out["components"] = comps
+        if states:
+            out["states"] = states
+        if f.actions:
+            out["actions"] = [self.action(a) for a in f.actions]
+        if f.on_change:
+            out["on_change"] = [{"field": str(ref), "handler": self.handlers.add(h)} for ref, h in f.on_change.items()]
+        if f.after is not None:
+            out["after"] = {"seconds": f.after.seconds, "then": self.target(f.after.then)}
+        if not f.back:
+            out["back"] = False
+        if not f.hub:
+            out["hub"] = False
+
+        for r in frame_records(f):
+            self.need(r)
+            for spec in fields_of(r):
+                if spec.pages is not None:
+                    self.loaders.add(spec.pages)
+                opts = spec.options.get("options")
+                if callable(opts) and not isinstance(opts, type):
+                    self.loaders.add(opts)
+        for c in f.components:
+            if isinstance(c, Show):
+                self.need(c.ref._record)
+        for u in uses(f):
+            if u.handler is not None:
+                self.handlers.add(u.handler)
+            self.edges.extend(self.use_edges(u))
+        return out
+
+    def action(self, a: Action) -> dict[str, Any]:
+        out: dict[str, Any] = {"label": encode(a.label), "target": self.target(a.target), "affordance": a.affordance}
+        if isinstance(a.on, FieldRef):
+            out["on"] = a.on.to_json()
+            self.need(a.on._record)
+        elif a.on is not None:
+            out["on"] = a.on.__name__
+            self.need(a.on)
+        if a.to is not None:
+            out["to"] = a.to.__name__
+            if issubclass(a.to, Record):
+                self.need(a.to)
+        for key in ("gesture", "key", "role", "importance"):
+            if getattr(a, key) is not None:
+                out[key] = getattr(a, key)
+        for key in ("hidden", "visible"):
+            if getattr(a, key) is not None:
+                out[key] = encode(getattr(a, key))
+        return out
+
+    def target(self, t: Any) -> Any:
+        if isinstance(t, Outcome):
+            return t.to_json()
+        self.handlers.add(t)
+        return encode_target(t)
+
+    # ── edges ──
+
+    def use_edges(self, u: Use) -> list[Edge]:
+        """A static outcome's edge, or the edges of the outcomes a handler returns."""
+        via = u.via if u.handler is None else {**u.via, "handler": name_of(u.handler)}
+        edges = (outcome_edge(self.app, u, d, via) for d in declared_at(u))
+        return [e for e in edges if e is not None]
+
+    # ── records ──
+
+    def record_schemas(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Each record's JSON Schema with `x-vt`, and the built-in types they use (`vt.RichText`, ...)."""
+        by_name: dict[str, type[Record]] = {}
+        for r in self.records:
+            other = by_name.setdefault(r.__name__, r)
+            if other is not r:
+                self.problems.append(error(
+                    "duplicate-id",
+                    f"two records are named {r.__name__} ({other.__module__} and {r.__module__})",
+                    r.__name__,
+                ))  # fmt: skip
+        records: dict[str, Any] = {}
+        named: dict[str, Any] = {}
+        builtins: dict[str, Any] = {}
+        for name in sorted(by_name):
+            record = by_name[name]
+            schema = record.model_json_schema(ref_template="#/records/{model}")
+            for def_name, d in schema.pop("$defs", {}).items():
+                if _is_builtin(d):
+                    d.pop("description", None)
+                    builtins[def_name] = d
+                elif def_name not in by_name:
+                    if named.setdefault(def_name, d) != d:
+                        self.problems.append(error("duplicate-id", f"two types are named {def_name}", def_name))
+            records[name] = _annotate(record, schema)
+        records.update(named)
+        moved = {f"#/records/{n}": f"#/types/vt.{n}" for n in builtins}
+        return (
+            {k: _retarget(records[k], moved) for k in sorted(records)},
+            {f"vt.{k}": _retarget(builtins[k], moved) for k in sorted(builtins)},
+        )
+
+    # ── the document ──
+
+    def build(self) -> Built:
+        app = self.app
+        tapes = [self.tape(t) for t in app.tapes]
+        j = journey(app, self.edges)
+        for node in sorted(j.roots):
+            if node in self.frames:
+                self.frames[node]["root"] = "always" if node in j.always else "sometimes"
+        for node, tape in j.beneath.items():
+            if node in self.frames:
+                self.frames[node]["under"] = tape
+        out: dict[str, Any] = {"format": FORMAT, "app": app.name, "entry": app.entry}
+        if app.world is not None:
+            out["world"] = app.world
+        if app.hub is not None:
+            out["hub"] = [
+                {"tape": d.tape, "label": encode(d.label), **({"symbol": d.symbol} if d.symbol else {})}
+                for d in app.hub.destinations
+            ]
+        out["tapes"] = tapes
+        handlers = {name: self.handler(fn) for name, fn in sorted(self.handlers.items.items())}
+        loaders = {name: self.loader(fn) for name, fn in sorted(self.loaders.items.items())}
+        out["records"], out["types"] = self.record_schemas()
+        out["handlers"], out["loaders"] = handlers, loaders
+        out["edges"] = [e.to_json() for e in self.edges]
+        return Built(out, self.edges, self.records, self.problems)
+
+    def handler(self, fn: Callable[..., Any]) -> dict[str, Any]:
+        sig = read(fn)
+        for p in sig.params:
+            if p.kind is not None:
+                self.need(p.kind.record)
+        return sig.handler_json()
+
+    def loader(self, fn: Callable[..., Any]) -> dict[str, Any]:
+        sig = read(fn)
+        if not sig.problem and sig.returns is not inspect.Parameter.empty:
+            for kind in returns_kinds(sig.returns):
+                self.need(kind.record)
+        return sig.loader_json()
+
+
+def build(app: App) -> Built:
+    return Builder(app).build()
+
+
+# ── JSON Schema post-processing ──────────────────────────────────────────────
+
+_NONSTANDARD = ("gt", "ge", "lt", "le")  # what Pydantic writes for constraints on custom types such as Money
+
+
+def _is_builtin(schema: dict[str, Any]) -> bool:
+    x = schema.get(VT, {})
+    return "part" in x or x.get("type") in ("image", "video", "audio", "richtext", "series")
+
+
+def _annotate(record: type[Record], schema: dict[str, Any]) -> dict[str, Any]:
+    """Each property's `x-vt` gets the field's kind and options; the record is marked as one."""
+    props = schema.get("properties", {})
+    for spec in fields_of(record):
+        prop = props.get(spec.name)
+        if prop is None:
+            continue
+        x = spec.to_json()
+        for key in _NONSTANDARD:
+            if key in prop:
+                x[key] = prop.pop(key)
+        prop[VT] = x
+    schema[VT] = {"type": "record"}
+    identity = id_field(record)
+    if identity is not None:
+        schema[VT]["id"] = identity
+    return schema
+
+
+def _retarget(node: Any, moved: dict[str, str]) -> Any:
+    """Points references to built-in types at `#/types/vt.Name`."""
+    if isinstance(node, list):
+        return [_retarget(n, moved) for n in node]
+    if isinstance(node, dict):
+        return {k: _retarget(v, moved) for k, v in node.items()}
+    if isinstance(node, str):
+        return moved.get(node, node)
+    return node

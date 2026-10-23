@@ -1,0 +1,1597 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Intent",
+  "$defs": {
+    "Action": {
+      "additionalProperties": false,
+      "description": "A named action; `on` makes it an action on each item of that record (or of the items a field\nholds, where the frame holds the record more than once), `to` a move.",
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Phrase"
+            },
+            {
+              "$ref": "#/$defs/FieldRef"
+            }
+          ],
+          "title": "Label"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "back": "#/$defs/Back",
+                  "call": "#/$defs/Call",
+                  "copy": "#/$defs/Copy",
+                  "done": "#/$defs/Done",
+                  "download": "#/$defs/Download",
+                  "goto": "#/$defs/Goto",
+                  "jump": "#/$defs/Jump",
+                  "open": "#/$defs/Open",
+                  "stay": "#/$defs/Stay"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Jump"
+                },
+                {
+                  "$ref": "#/$defs/Goto"
+                },
+                {
+                  "$ref": "#/$defs/Back"
+                },
+                {
+                  "$ref": "#/$defs/Stay"
+                },
+                {
+                  "$ref": "#/$defs/Call"
+                },
+                {
+                  "$ref": "#/$defs/Done"
+                },
+                {
+                  "$ref": "#/$defs/Open"
+                },
+                {
+                  "$ref": "#/$defs/Download"
+                },
+                {
+                  "$ref": "#/$defs/Copy"
+                }
+              ]
+            },
+            {
+              "$ref": "#/$defs/HandlerRef"
+            }
+          ],
+          "title": "Target"
+        },
+        "affordance": {
+          "enum": [
+            "press",
+            "move"
+          ],
+          "title": "Affordance",
+          "type": "string"
+        },
+        "on": {
+          "title": "On",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/FieldRef"
+            }
+          ]
+        },
+        "to": {
+          "title": "To",
+          "type": "string"
+        },
+        "gesture": {
+          "title": "Gesture",
+          "type": "string"
+        },
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "role": {
+          "title": "Role",
+          "enum": [
+            "heading",
+            "primary",
+            "secondary",
+            "navigation",
+            "status",
+            "supporting"
+          ],
+          "type": "string"
+        },
+        "importance": {
+          "title": "Importance",
+          "enum": [
+            "required",
+            "normal",
+            "optional"
+          ],
+          "type": "string"
+        },
+        "hidden": {
+          "$ref": "#/$defs/FieldRef"
+        },
+        "visible": {
+          "$ref": "#/$defs/FieldRef"
+        }
+      },
+      "required": [
+        "label",
+        "target",
+        "affordance"
+      ],
+      "title": "Action",
+      "type": "object"
+    },
+    "After": {
+      "additionalProperties": false,
+      "properties": {
+        "seconds": {
+          "title": "Seconds",
+          "type": "number"
+        },
+        "then": {
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "back": "#/$defs/Back",
+                  "call": "#/$defs/Call",
+                  "copy": "#/$defs/Copy",
+                  "done": "#/$defs/Done",
+                  "download": "#/$defs/Download",
+                  "goto": "#/$defs/Goto",
+                  "jump": "#/$defs/Jump",
+                  "open": "#/$defs/Open",
+                  "stay": "#/$defs/Stay"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Jump"
+                },
+                {
+                  "$ref": "#/$defs/Goto"
+                },
+                {
+                  "$ref": "#/$defs/Back"
+                },
+                {
+                  "$ref": "#/$defs/Stay"
+                },
+                {
+                  "$ref": "#/$defs/Call"
+                },
+                {
+                  "$ref": "#/$defs/Done"
+                },
+                {
+                  "$ref": "#/$defs/Open"
+                },
+                {
+                  "$ref": "#/$defs/Download"
+                },
+                {
+                  "$ref": "#/$defs/Copy"
+                }
+              ]
+            },
+            {
+              "$ref": "#/$defs/HandlerRef"
+            }
+          ],
+          "title": "Then"
+        }
+      },
+      "required": [
+        "seconds",
+        "then"
+      ],
+      "title": "After",
+      "type": "object"
+    },
+    "Back": {
+      "additionalProperties": false,
+      "properties": {
+        "sign_in": {
+          "title": "Sign In"
+        },
+        "sign_out": {
+          "title": "Sign Out",
+          "const": true,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "back",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Back",
+      "type": "object"
+    },
+    "Call": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "call",
+          "title": "Type",
+          "type": "string"
+        },
+        "tape": {
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "title": "Tape",
+          "type": "string"
+        },
+        "then": {
+          "description": "The handler that receives done()'s result as `result`.",
+          "$ref": "#/$defs/HandlerRef"
+        },
+        "args": {
+          "title": "Args",
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "tape"
+      ],
+      "title": "Call",
+      "type": "object"
+    },
+    "Change": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "A field reference: Record.field",
+          "pattern": "^[A-Za-z_]\\w*\\.[A-Za-z_]\\w*$",
+          "title": "Field",
+          "type": "string"
+        },
+        "handler": {
+          "title": "Handler",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "handler"
+      ],
+      "title": "Change",
+      "type": "object"
+    },
+    "Component": {
+      "additionalProperties": false,
+      "description": "A component: a field of a record the frame shows or edits, or a string the frame adds.\n\nDerived components nest: a record field's `components` are its fields, and a collection's\n`item` holds the components of each item. Only top-level derived components carry `from`.",
+      "properties": {
+        "field": {
+          "title": "Field",
+          "description": "A field reference: Record.field",
+          "pattern": "^[A-Za-z_]\\w*\\.[A-Za-z_]\\w*$",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Phrase"
+            }
+          ]
+        },
+        "from": {
+          "title": "From",
+          "enum": [
+            "shows",
+            "edit"
+          ],
+          "type": "string"
+        },
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "record": {
+          "title": "Record",
+          "type": "string"
+        },
+        "enum": {
+          "title": "Enum",
+          "type": "string"
+        },
+        "choices": {
+          "title": "Choices",
+          "items": {},
+          "type": "array"
+        },
+        "lines": {
+          "title": "Lines",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "item": {
+          "$ref": "#/$defs/Item"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "const": true,
+          "type": "boolean"
+        },
+        "role": {
+          "title": "Role",
+          "enum": [
+            "heading",
+            "primary",
+            "secondary",
+            "navigation",
+            "status",
+            "supporting"
+          ],
+          "type": "string"
+        },
+        "importance": {
+          "title": "Importance",
+          "enum": [
+            "required",
+            "normal",
+            "optional"
+          ],
+          "type": "string"
+        },
+        "group": {
+          "title": "Group",
+          "type": "string"
+        },
+        "order": {
+          "title": "Order",
+          "type": "integer"
+        },
+        "format": {
+          "title": "Format",
+          "type": "string"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "commit": {
+          "title": "Commit",
+          "enum": [
+            "submit",
+            "blur",
+            "change"
+          ],
+          "type": "string"
+        },
+        "options": {
+          "title": "Options"
+        },
+        "select": {
+          "title": "Select",
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "back": "#/$defs/Back",
+                  "call": "#/$defs/Call",
+                  "copy": "#/$defs/Copy",
+                  "done": "#/$defs/Done",
+                  "download": "#/$defs/Download",
+                  "goto": "#/$defs/Goto",
+                  "jump": "#/$defs/Jump",
+                  "open": "#/$defs/Open",
+                  "stay": "#/$defs/Stay"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Jump"
+                },
+                {
+                  "$ref": "#/$defs/Goto"
+                },
+                {
+                  "$ref": "#/$defs/Back"
+                },
+                {
+                  "$ref": "#/$defs/Stay"
+                },
+                {
+                  "$ref": "#/$defs/Call"
+                },
+                {
+                  "$ref": "#/$defs/Done"
+                },
+                {
+                  "$ref": "#/$defs/Open"
+                },
+                {
+                  "$ref": "#/$defs/Download"
+                },
+                {
+                  "$ref": "#/$defs/Copy"
+                }
+              ]
+            },
+            {
+              "$ref": "#/$defs/HandlerRef"
+            }
+          ]
+        },
+        "pages": {
+          "$ref": "#/$defs/LoaderRef"
+        },
+        "anchor": {
+          "title": "Anchor",
+          "enum": [
+            "start",
+            "end"
+          ],
+          "type": "string"
+        },
+        "min_items": {
+          "title": "Min Items",
+          "type": "integer"
+        },
+        "max_items": {
+          "title": "Max Items",
+          "type": "integer"
+        },
+        "group_by": {
+          "$ref": "#/$defs/FieldRef"
+        },
+        "surface": {
+          "title": "Surface",
+          "type": "boolean"
+        },
+        "visible": {
+          "$ref": "#/$defs/FieldRef"
+        },
+        "hidden": {
+          "$ref": "#/$defs/FieldRef"
+        },
+        "press": {
+          "title": "Press",
+          "anyOf": [
+            {
+              "discriminator": {
+                "mapping": {
+                  "back": "#/$defs/Back",
+                  "call": "#/$defs/Call",
+                  "copy": "#/$defs/Copy",
+                  "done": "#/$defs/Done",
+                  "download": "#/$defs/Download",
+                  "goto": "#/$defs/Goto",
+                  "jump": "#/$defs/Jump",
+                  "open": "#/$defs/Open",
+                  "stay": "#/$defs/Stay"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/$defs/Jump"
+                },
+                {
+                  "$ref": "#/$defs/Goto"
+                },
+                {
+                  "$ref": "#/$defs/Back"
+                },
+                {
+                  "$ref": "#/$defs/Stay"
+                },
+                {
+                  "$ref": "#/$defs/Call"
+                },
+                {
+                  "$ref": "#/$defs/Done"
+                },
+                {
+                  "$ref": "#/$defs/Open"
+                },
+                {
+                  "$ref": "#/$defs/Download"
+                },
+                {
+                  "$ref": "#/$defs/Copy"
+                }
+              ]
+            },
+            {
+              "$ref": "#/$defs/HandlerRef"
+            }
+          ]
+        },
+        "label": {
+          "title": "Label",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Phrase"
+            },
+            {
+              "$ref": "#/$defs/FieldRef"
+            }
+          ]
+        },
+        "pick": {
+          "title": "Pick",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "gt": {
+          "title": "Gt"
+        },
+        "ge": {
+          "title": "Ge"
+        },
+        "lt": {
+          "title": "Lt"
+        },
+        "le": {
+          "title": "Le"
+        },
+        "affordances": {
+          "items": {
+            "enum": [
+              "read",
+              "write",
+              "press",
+              "choose",
+              "adjust",
+              "move",
+              "add",
+              "remove",
+              "scroll",
+              "play"
+            ],
+            "type": "string"
+          },
+          "title": "Affordances",
+          "type": "array"
+        },
+        "many": {
+          "description": "choose is choose(many): an edited list of choices.",
+          "title": "Many",
+          "const": true,
+          "type": "boolean"
+        },
+        "components": {
+          "title": "Components",
+          "items": {
+            "$ref": "#/$defs/Component"
+          },
+          "type": "array"
+        },
+        "states": {
+          "title": "States",
+          "items": {
+            "description": "A field reference: Record.field",
+            "pattern": "^[A-Za-z_]\\w*\\.[A-Za-z_]\\w*$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "events": {
+          "title": "Events",
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "back": "#/$defs/Back",
+                    "call": "#/$defs/Call",
+                    "copy": "#/$defs/Copy",
+                    "done": "#/$defs/Done",
+                    "download": "#/$defs/Download",
+                    "goto": "#/$defs/Goto",
+                    "jump": "#/$defs/Jump",
+                    "open": "#/$defs/Open",
+                    "stay": "#/$defs/Stay"
+                  },
+                  "propertyName": "type"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/Jump"
+                  },
+                  {
+                    "$ref": "#/$defs/Goto"
+                  },
+                  {
+                    "$ref": "#/$defs/Back"
+                  },
+                  {
+                    "$ref": "#/$defs/Stay"
+                  },
+                  {
+                    "$ref": "#/$defs/Call"
+                  },
+                  {
+                    "$ref": "#/$defs/Done"
+                  },
+                  {
+                    "$ref": "#/$defs/Open"
+                  },
+                  {
+                    "$ref": "#/$defs/Download"
+                  },
+                  {
+                    "$ref": "#/$defs/Copy"
+                  }
+                ]
+              },
+              {
+                "$ref": "#/$defs/HandlerRef"
+              }
+            ]
+          },
+          "propertyNames": {
+            "enum": [
+              "change",
+              "play",
+              "progress",
+              "ended",
+              "error"
+            ]
+          },
+          "type": "object"
+        },
+        "override": {
+          "title": "Override",
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "affordances"
+      ],
+      "title": "Component",
+      "type": "object"
+    },
+    "Copy": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "copy",
+          "title": "Type",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "description": "A field reference: Record.field",
+          "pattern": "^[A-Za-z_]\\w*\\.[A-Za-z_]\\w*$",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Copy",
+      "type": "object"
+    },
+    "Declared": {
+      "additionalProperties": false,
+      "description": "An outcome a handler returns, read from its body or its @vt.outcomes; `implied` marks the Stay\nevery handler has because it may Reject.",
+      "properties": {
+        "type": {
+          "enum": [
+            "goto",
+            "jump",
+            "back",
+            "stay",
+            "call",
+            "done",
+            "open",
+            "download"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "tape": {
+          "title": "Tape",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "frame": {
+          "title": "Frame",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "args": {
+          "description": "The names of its keyword arguments.",
+          "title": "Args",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "args_open": {
+          "description": "It passes **kwargs, so not every name is known.",
+          "title": "Args Open",
+          "const": true,
+          "type": "boolean"
+        },
+        "resets_history": {
+          "description": "It signs in or out: history starts again.",
+          "title": "Resets History",
+          "const": true,
+          "type": "boolean"
+        },
+        "signs_in": {
+          "description": "It signs in: its target is a fresh start.",
+          "title": "Signs In",
+          "const": true,
+          "type": "boolean"
+        },
+        "then": {
+          "$ref": "#/$defs/HandlerRef"
+        },
+        "implied": {
+          "title": "Implied",
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Declared",
+      "type": "object"
+    },
+    "Destination": {
+      "additionalProperties": false,
+      "properties": {
+        "tape": {
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "title": "Tape",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Phrase"
+            },
+            {
+              "$ref": "#/$defs/FieldRef"
+            }
+          ],
+          "title": "Label"
+        },
+        "symbol": {
+          "title": "Symbol",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tape",
+        "label"
+      ],
+      "title": "Destination",
+      "type": "object"
+    },
+    "Done": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "done",
+          "title": "Type",
+          "type": "string"
+        },
+        "result": {
+          "title": "Result"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Done",
+      "type": "object"
+    },
+    "Download": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "download",
+          "title": "Type",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "data": {
+          "title": "Data",
+          "type": "string"
+        },
+        "encoding": {
+          "title": "Encoding",
+          "const": "base64",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "data"
+      ],
+      "title": "Download",
+      "type": "object"
+    },
+    "Edge": {
+      "additionalProperties": false,
+      "description": "A declared edge of the journey graph. `to` is absent for back and done, and for names that do not\nexist. The platform's back (from every frame with history that is not a root and has no\nback=False) and the hub's doors are implied, not listed.",
+      "properties": {
+        "from": {
+          "title": "From",
+          "type": "string"
+        },
+        "to": {
+          "title": "To",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "goto",
+            "jump",
+            "back",
+            "call",
+            "done"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "tape": {
+          "title": "Tape",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "frame": {
+          "title": "Frame",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "resets_history": {
+          "title": "Resets History",
+          "const": true,
+          "type": "boolean"
+        },
+        "signs_in": {
+          "title": "Signs In",
+          "const": true,
+          "type": "boolean"
+        },
+        "via": {
+          "additionalProperties": true,
+          "title": "Via",
+          "type": "object"
+        }
+      },
+      "required": [
+        "from",
+        "type",
+        "via"
+      ],
+      "title": "Edge",
+      "type": "object"
+    },
+    "Edits": {
+      "additionalProperties": false,
+      "properties": {
+        "record": {
+          "title": "Record",
+          "type": "string"
+        }
+      },
+      "required": [
+        "record"
+      ],
+      "title": "Edits",
+      "type": "object"
+    },
+    "FieldRef": {
+      "additionalProperties": false,
+      "description": "A field reference, `Deal.amount`; in an action's arguments it means this item's value.",
+      "properties": {
+        "field": {
+          "description": "A field reference: Record.field",
+          "pattern": "^[A-Za-z_]\\w*\\.[A-Za-z_]\\w*$",
+          "title": "Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "title": "FieldRef",
+      "type": "object"
+    },
+    "Frame": {
+      "additionalProperties": false,
+      "description": "A place: its tape, and its `id` in a tape of several. Graph nodes are `tape` or `tape/id`.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Phrase"
+            },
+            {
+              "$ref": "#/$defs/FieldRef"
+            }
+          ]
+        },
+        "address": {
+          "title": "Address",
+          "type": "string"
+        },
+        "public": {
+          "title": "Public",
+          "const": true,
+          "type": "boolean"
+        },
+        "shows": {
+          "description": "The records the frame shows, which the user reads.",
+          "title": "Shows",
+          "items": {
+            "$ref": "#/$defs/Shows"
+          },
+          "type": "array"
+        },
+        "edit": {
+          "$ref": "#/$defs/Edits"
+        },
+        "enter": {
+          "$ref": "#/$defs/LoaderRef"
+        },
+        "submit": {
+          "$ref": "#/$defs/Submit"
+        },
+        "components": {
+          "items": {
+            "$ref": "#/$defs/Component"
+          },
+          "title": "Components",
+          "type": "array"
+        },
+        "states": {
+          "title": "States",
+          "items": {
+            "description": "A field reference: Record.field",
+            "pattern": "^[A-Za-z_]\\w*\\.[A-Za-z_]\\w*$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "actions": {
+          "title": "Actions",
+          "items": {
+            "$ref": "#/$defs/Action"
+          },
+          "type": "array"
+        },
+        "on_change": {
+          "title": "On Change",
+          "items": {
+            "$ref": "#/$defs/Change"
+          },
+          "type": "array"
+        },
+        "after": {
+          "$ref": "#/$defs/After"
+        },
+        "back": {
+          "description": "back=False: no platform back here.",
+          "title": "Back",
+          "const": false,
+          "type": "boolean"
+        },
+        "hub": {
+          "description": "hub=False: the hub never shows here.",
+          "title": "Hub",
+          "const": false,
+          "type": "boolean"
+        },
+        "under": {
+          "description": "For a frame opened by its address in a hub app, the destination tape the engine puts beneath it: its under=, or the first destination in hub order that reaches it.",
+          "title": "Under",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "root": {
+          "description": "A history root (the entry, a hub destination's first frame, or where a sign-in or sign-out lands): on every path, or only on some, where something also enters it with history.",
+          "title": "Root",
+          "enum": [
+            "always",
+            "sometimes"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "purpose",
+        "components"
+      ],
+      "title": "Frame",
+      "type": "object"
+    },
+    "Goto": {
+      "additionalProperties": false,
+      "properties": {
+        "sign_in": {
+          "title": "Sign In"
+        },
+        "sign_out": {
+          "title": "Sign Out",
+          "const": true,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "goto",
+          "title": "Type",
+          "type": "string"
+        },
+        "frame": {
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "title": "Frame",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "frame"
+      ],
+      "title": "Goto",
+      "type": "object"
+    },
+    "Handler": {
+      "additionalProperties": false,
+      "description": "A decision: its documents by record type, and the outcomes it returns, read from its body.",
+      "properties": {
+        "params": {
+          "items": {
+            "$ref": "#/$defs/Param"
+          },
+          "title": "Params",
+          "type": "array"
+        },
+        "outcomes": {
+          "items": {
+            "$ref": "#/$defs/Declared"
+          },
+          "title": "Outcomes",
+          "type": "array"
+        },
+        "unreadable": {
+          "description": "Which returns cannot be read; its edges are not all known.",
+          "title": "Unreadable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "params",
+        "outcomes"
+      ],
+      "title": "Handler",
+      "type": "object"
+    },
+    "HandlerRef": {
+      "additionalProperties": false,
+      "description": "A decision: the engine calls the app's handler of this name over the app protocol.",
+      "properties": {
+        "handler": {
+          "title": "Handler",
+          "type": "string"
+        }
+      },
+      "required": [
+        "handler"
+      ],
+      "title": "HandlerRef",
+      "type": "object"
+    },
+    "Item": {
+      "additionalProperties": false,
+      "description": "A collection's item: its kind, and for records the components each item derives.",
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "record": {
+          "title": "Record",
+          "type": "string"
+        },
+        "enum": {
+          "title": "Enum",
+          "type": "string"
+        },
+        "choices": {
+          "title": "Choices",
+          "items": {},
+          "type": "array"
+        },
+        "lines": {
+          "title": "Lines",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "item": {
+          "$ref": "#/$defs/Item"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "const": true,
+          "type": "boolean"
+        },
+        "components": {
+          "title": "Components",
+          "items": {
+            "$ref": "#/$defs/Component"
+          },
+          "type": "array"
+        },
+        "states": {
+          "title": "States",
+          "items": {
+            "description": "A field reference: Record.field",
+            "pattern": "^[A-Za-z_]\\w*\\.[A-Za-z_]\\w*$",
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Item",
+      "type": "object"
+    },
+    "Jump": {
+      "additionalProperties": false,
+      "properties": {
+        "sign_in": {
+          "title": "Sign In"
+        },
+        "sign_out": {
+          "title": "Sign Out",
+          "const": true,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "jump",
+          "title": "Type",
+          "type": "string"
+        },
+        "tape": {
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "title": "Tape",
+          "type": "string"
+        },
+        "args": {
+          "title": "Args",
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "type",
+        "tape"
+      ],
+      "title": "Jump",
+      "type": "object"
+    },
+    "Kind": {
+      "additionalProperties": false,
+      "description": "What a type is to Videotape (the `x-vt` of a field, without its options).",
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "record": {
+          "title": "Record",
+          "type": "string"
+        },
+        "enum": {
+          "title": "Enum",
+          "type": "string"
+        },
+        "choices": {
+          "title": "Choices",
+          "items": {},
+          "type": "array"
+        },
+        "lines": {
+          "title": "Lines",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "item": {
+          "$ref": "#/$defs/Item"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Kind",
+      "type": "object"
+    },
+    "Loader": {
+      "additionalProperties": false,
+      "description": "A loader: what a frame shows (`enter=`), the next page of a list (`@vt.pages`), or a choice's options.",
+      "properties": {
+        "params": {
+          "items": {
+            "$ref": "#/$defs/Param"
+          },
+          "title": "Params",
+          "type": "array"
+        },
+        "returns": {
+          "description": "One document, or several when it returns a tuple.",
+          "title": "Returns",
+          "items": {
+            "$ref": "#/$defs/Kind"
+          },
+          "type": "array"
+        },
+        "unreadable": {
+          "title": "Unreadable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "params"
+      ],
+      "title": "Loader",
+      "type": "object"
+    },
+    "LoaderRef": {
+      "additionalProperties": false,
+      "properties": {
+        "loader": {
+          "title": "Loader",
+          "type": "string"
+        }
+      },
+      "required": [
+        "loader"
+      ],
+      "title": "LoaderRef",
+      "type": "object"
+    },
+    "Open": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "const": "open",
+          "title": "Type",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url"
+        }
+      },
+      "required": [
+        "type",
+        "url"
+      ],
+      "title": "Open",
+      "type": "object"
+    },
+    "Param": {
+      "additionalProperties": false,
+      "description": "A parameter after ctx: a document by record type, a move's target, or a loader's argument.",
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "record": {
+          "title": "Record",
+          "type": "string"
+        },
+        "enum": {
+          "title": "Enum",
+          "type": "string"
+        },
+        "choices": {
+          "title": "Choices",
+          "items": {},
+          "type": "array"
+        },
+        "lines": {
+          "title": "Lines",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "item": {
+          "$ref": "#/$defs/Item"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "const": true,
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "default": {
+          "title": "Default"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "required"
+      ],
+      "title": "Param",
+      "type": "object"
+    },
+    "Phrase": {
+      "additionalProperties": false,
+      "description": "A message key with parameters, from `vt.t(...)`.",
+      "properties": {
+        "t": {
+          "title": "T",
+          "type": "string"
+        },
+        "params": {
+          "title": "Params",
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "required": [
+        "t"
+      ],
+      "title": "Phrase",
+      "type": "object"
+    },
+    "Shows": {
+      "additionalProperties": false,
+      "properties": {
+        "record": {
+          "title": "Record",
+          "type": "string"
+        },
+        "collection": {
+          "title": "Collection",
+          "type": "string"
+        }
+      },
+      "title": "Shows",
+      "type": "object"
+    },
+    "Stay": {
+      "additionalProperties": false,
+      "properties": {
+        "sign_in": {
+          "title": "Sign In"
+        },
+        "sign_out": {
+          "title": "Sign Out",
+          "const": true,
+          "type": "boolean"
+        },
+        "type": {
+          "const": "stay",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Stay",
+      "type": "object"
+    },
+    "Submit": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Phrase"
+            },
+            {
+              "$ref": "#/$defs/FieldRef"
+            }
+          ],
+          "title": "Label"
+        },
+        "handler": {
+          "title": "Handler",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "handler"
+      ],
+      "title": "Submit",
+      "type": "object"
+    },
+    "Tape": {
+      "additionalProperties": false,
+      "description": "A journey; its first frame is where it starts.",
+      "properties": {
+        "id": {
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "title": "Id",
+          "type": "string"
+        },
+        "frames": {
+          "items": {
+            "$ref": "#/$defs/Frame"
+          },
+          "minItems": 1,
+          "title": "Frames",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "frames"
+      ],
+      "title": "Tape",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A Videotape app's intent: records, tapes, frames, components, actions, handlers, and edges.",
+  "properties": {
+    "format": {
+      "const": "videotape.intent/2",
+      "title": "Format",
+      "type": "string"
+    },
+    "app": {
+      "pattern": "^[A-Za-z][\\w-]*$",
+      "title": "App",
+      "type": "string"
+    },
+    "entry": {
+      "title": "Entry",
+      "type": "string"
+    },
+    "world": {
+      "title": "World",
+      "type": "string"
+    },
+    "hub": {
+      "title": "Hub",
+      "items": {
+        "$ref": "#/$defs/Destination"
+      },
+      "type": "array"
+    },
+    "tapes": {
+      "items": {
+        "$ref": "#/$defs/Tape"
+      },
+      "title": "Tapes",
+      "type": "array"
+    },
+    "records": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "description": "Each record's JSON Schema, with Videotape's options under x-vt; enums too. References point at #/records/Name and #/types/vt.Name.",
+      "title": "Records",
+      "type": "object"
+    },
+    "types": {
+      "additionalProperties": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "description": "The built-in types the records use, as vt.Name.",
+      "title": "Types",
+      "type": "object"
+    },
+    "handlers": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Handler"
+      },
+      "title": "Handlers",
+      "type": "object"
+    },
+    "loaders": {
+      "additionalProperties": {
+        "$ref": "#/$defs/Loader"
+      },
+      "title": "Loaders",
+      "type": "object"
+    },
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/Edge"
+      },
+      "title": "Edges",
+      "type": "array"
+    }
+  },
+  "required": [
+    "format",
+    "app",
+    "entry",
+    "tapes",
+    "records",
+    "types",
+    "handlers",
+    "loaders",
+    "edges"
+  ],
+  "type": "object"
+}
