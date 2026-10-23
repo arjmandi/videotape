@@ -1,7 +1,9 @@
 # Backend landscape — what could sit behind each renderer
 
 **Checked:** 2026-10-22 · **Status:** notes, deliberately kept out of the spec because they go stale.
-Re-check before M2 (`still` model ids), before M3 (`cut` model ids), and before any `live` work.
+Re-check before each v2 experiment ([05-design-v2.md](05-design-v2.md) §17), and before any `live` work.
+The measured results in §2.1–2.7 were produced by `prototype-0` (git tag), which holds the code
+and commands they refer to.
 
 Everything below came from a quick web pass on the date above. Figures are the vendors' or papers'
 own claims unless marked measured. Treat vendor comparison tables as marketing.
@@ -55,8 +57,156 @@ differ ("cinematic backdrop with a calm panel in the centre third" rather than "
 
 | Backend | Where | Notes |
 |---------|-------|-------|
-| fal.ai hosted image models with structural control | `renderer-still-fal` | Choose a FLUX-family or SDXL-family endpoint that accepts a control image. Exact endpoint ids change; pick and record them when M2 starts. |
+| fal.ai hosted image models with structural control | `renderer-still-fal` | **Chosen at M2 start (2026-10-22): `fal-ai/flux/dev/image-to-image`**, image-to-image over the wireframe raster. Inputs used: `image_url` (data URI), `prompt`, `strength` (default 0.82 here; fal's default 0.95), `seed`, `num_inference_steps` (28), `guidance_scale` (3.5), `output_format: png`, `sync_mode: true`. No negative prompt, so "no text, no letters" stays in the style suffix. The model id is configurable and part of the renderer version, so changing it invalidates cached scenes. First live run below (§2.1). Better-documented alternative if strength or seed misbehave: `fal-ai/flux-differential-diffusion`. Source: fal model page `fal.ai/models/fal-ai/flux/dev/image-to-image`. |
 | ComfyUI, local | `renderer-still-comfy` | SDXL or FLUX with a ControlNet (union or canny/depth). Export the workflow JSON into the repo and call ComfyUI's HTTP API. Open-weights path. |
+
+### 2.1 First live run (2026-10-22, measured)
+
+`videotape render --renderers still-fal --frames landing,login,dashboard --viewports desktop,phone`:
+8 scenes (dashboard in two moods), **20 fal calls**, about 10 s per call, 10–49 s per scene
+including re-rolls. No fallbacks, no patches: every scene passed region validation within three
+re-rolls. Every failure was on luma spread (bright consoles, lit screens, fake fields); contrast
+never failed on this dark style.
+
+| Scene | Tries | Failed regions before passing |
+|-------|-------|-------------------------------|
+| landing desktop | 2 | `sub` (σ 24.2) |
+| landing phone | 1 | — |
+| login desktop | 1 | — |
+| login phone | 3 | `title`, `forgot`, then `title`, `username`, `error` (σ 25–44) |
+| dashboard desktop, cool and warm | 4 each | stat cells `views`, `watch`, `subs`, and `hello` (σ 24–57) |
+| dashboard phone, cool | 4 | stat cells, `hello` (σ 26–52) |
+| dashboard phone, warm | 1 | — |
+
+**Finding: the generator draws UI, with fake text, and validation does not catch it.** The
+served phone login scene is a complete fake sign-in screen: an extra input, a "NORTE" button, and
+gibberish lettering ("SUCCLATIONEL", "SIGN M UP."). It passed because lettering is thin, so luma
+spread stays low, and button faces are `surface` regions that v1 does not check. Behind the real
+controls this shows controls that are not controls (risk R8). Likely causes, in order: the
+conditioning image is the full wireframe (text bars, field strips, button shapes), which reads as
+a UI mock-up; the `dusk` prefix says "Cinematic UI backdrop"; FLUX [dev] has no negative prompt.
+Landing and dashboard scenes, where the wireframe is mostly empty space, came out as intended.
+
+### 2.2 Fixes, and the login re-render (same day, measured)
+
+Three changes, then `--frames login --viewports desktop,phone` again:
+
+1. **Conditioning on the scene drawing** (panels and media frames on the palette gradient) instead
+   of the full wireframe.
+2. **"UI" dropped from the `dusk` prefix** ("Cinematic backdrop, …").
+3. **A lettering check** in region validation, covering reserved regions, button faces, and panels.
+   Edge density was tried first and rejected on this data: at its best setting it scored the fake
+   phone-login text at 0.019–0.054 and the good dashboard regions over city lights at 0.063–0.083,
+   so no threshold separated them. OCR (tesseract, local English model, words of three or more
+   letters at confidence ≥ 80) did: it read 7, 9, and 10 words in the three bad phone-login tries
+   and none in any scene judged good, at 50–400 ms per scene.
+
+Result: **2 fal calls, both scenes passed first time.** Desktop: a silhouetted figure beside a
+cassette in a teal glow, with no interface or lettering. Phone: a calm dark panel where the form
+goes; no fake fields, buttons, or text. Contrast-stretching the phone scene still shows ghost
+marks shaped like lettering inside the panel, within about 2 luma levels (the whole image spans
+32–53), far below anything readable, so OCR does not register it. The phone scene is now safe but
+close to the flat render; giving it more form without inviting a mock-up is the next prompt
+question.
+
+The cache key now also covers the style pack, the conditioning drawing, and the prompt, so these
+changes invalidated the old scenes instead of serving them.
+
+### 2.3 Landing and dashboard under the fixed pipeline (same day, measured)
+
+`--frames landing,dashboard --viewports desktop,phone`: 6 scenes, **6 fal calls, every scene
+passed first time** (the same scenes took 16 calls before the fixes). No lettering anywhere.
+
+- **Dashboard improved.** The grid's cell panels are now the main structure in the conditioning
+  image, and the model built on them: on desktop each stat sits in its own monitor bezel (cool) or
+  window (warm), with an operator silhouetted at the consoles below. On phone the scene is a calm
+  room with a band of city lights. One stray yellow badge-like square was painted at the right edge,
+  outside the safe area and off screen in the player.
+- **Landing regressed.** The hero layout has no panels, so its conditioning image is only the
+  palette gradient, and at strength 0.82 the model repainted that gradient: a plain radial glow on
+  desktop, a flat field with a stray dot on phone. The cassette from the first run is gone.
+
+So conditioning on structure works where there is structure. Frames whose drawing is nearly empty
+need either more freedom (a higher strength) or a subject shape in the drawing; that is the next
+experiment. Total fal calls across the three runs: 28.
+
+### 2.4 More freedom for empty drawings
+
+The engine now sets `freedom: 0.95` (fal `strength`) when panels and media frames cover under 2 %
+of the canvas; in the demo that is landing and the two stub tapes. Login and dashboard keep their
+keys and cached scenes. The landing re-render did not produce scenes: fal answered 503 (upstream
+connection reset) for desktop and then 403 `User is locked. Reason: TOP_UP.` for phone, so the
+account needs credit before this can be judged. Both scenes fell back to flat, as designed; the
+renderer now also stops calling fal after a 401, 402, or 403, so a locked account costs one
+failed call rather than one per scene and prefetch.
+
+**After the top-up** (6 fal calls): the subject came back. Desktop tries painted a light streak, a
+moon, and a backlit cassette with reflections; the phone painted a small cassette. OCR found no
+lettering in any of them. But the model puts its subject dead centre, which on the landing page is
+where the headline and subtitle sit: all four desktop tries failed region validation as busy there,
+so the served scene is try 4 with flat fills patched into those two regions. In the player the
+patch reads as a dark card behind the headline, with the cassette's glow above it and its
+reflections below; most of the cassette is hidden. The phone scene passed on its second try.
+
+### 2.5 Steering the subject into free space (did not work at this strength)
+
+When `freedom` is set, the engine now finds the largest empty rectangle in the safe area (for the
+landing page, the band between the nav row and the headline, at both sizes) and steers the subject
+there twice: the prompt says "the main subject placed in the upper part of the frame, across its
+width, nothing in the middle band of the frame", and the scene drawing moves its glow and vignette
+onto that band.
+
+Result (2 fal calls, both passed first time): the model ignored both. Each scene is a small
+glowing cassette dead centre with its own centred halo. At strength 0.95 FLUX [dev] image-to-image
+takes almost nothing from the drawing, and it does not follow placement words. In the player the
+small cassette sits directly under the subtitle, which is worse for legibility than v3's patched
+card. It passed validation because spread is averaged over the whole subtitle region and a small
+object barely moves it.
+
+Two follow-ups, in order:
+
+1. **Validation gap.** Check spread over tiles of each reserved region, not the whole region, so a
+   small object behind a few words fails.
+2. **Real placement.** Prompt words and glows are suggestions; an inpainting endpoint with a mask
+   is a constraint. Generating the subject only inside the free-area mask would put it there by
+   construction.
+
+Totals: 36 fal calls that returned an image, plus three refused (one 503, two 403s).
+
+### 2.6 Tile spread, and re-checking the cache (no fal calls)
+
+Calibrated on every fal image in the cache. No tile size separates "a dark object behind words"
+from "a lit monitor bezel or city lights behind words": v4's subtitle tiles reach about 35, and the
+good cool dashboard's bezels 31–37. By the spec both mean the area behind text is not calm, so the
+threshold is the stricter reading: the worst 64-px tile at or below 30, alongside the whole-region
+24. `videotape render --cache-only` then re-checked the eight cached scenes:
+
+| Scene | Whole / worst tile | Result |
+|-------|--------------------|--------|
+| landing v4, desktop | sub 16 / 34.8 | failed, subtitle patched |
+| landing v4, phone | sub 19.8 / 74.3 | failed, subtitle patched |
+| dashboard desktop, cool | watch 16.9 / 31.4, subs 17.7 / 32.9 | failed, both patched inside their monitors |
+| login (both), dashboard warm desktop, both phone dashboards | all ≤ 30 | passed |
+
+The cool dashboard is the cost of the stricter reading; its two patches sit inside the monitor
+screens and read as dark cards.
+
+### 2.7 Proposal: place the subject by inpainting (not yet built)
+
+Inpainting repaints only inside a mask, so a subject masked to the largest free area cannot land
+behind text. Candidates checked on fal's model pages (2026-10-22):
+
+| Endpoint | Inputs | Price |
+|----------|--------|-------|
+| `fal-ai/flux-lora/inpainting` | `image_url`, `mask_url`, `prompt`, `strength` (default 0.85), `seed`, steps, guidance, `sync_mode` | $0.035 / MP |
+| `fal-ai/flux-pro/v1/fill` | `image_url`, `mask_url`, `prompt`, `seed`, `sync_mode`; no `strength` | $0.05 / MP |
+
+Neither page states whether white or black marks the area to repaint; one probe call settles it.
+The plan: an optional `subject` on frames (the scene text names the whole picture; the subject is
+what goes in the free area); the renderer first paints the backdrop as today, then inpaints the
+subject into a feathered mask of the free area; the mask and subject prompt join the cache key;
+validation is unchanged. A 1920 × 1080 scene is about 2 MP, so the inpainting pass is about $0.07
+(flux-lora) or $0.10 (fill) per scene on top of the backdrop.
 
 ## 3. Transitions (candidates for the `cut` renderer)
 

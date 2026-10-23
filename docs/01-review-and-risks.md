@@ -1,6 +1,7 @@
 # Videotape — Review and Risk Register
 
-**Date:** 2026-10-22 · **Status:** draft for discussion · **Companion:** [02-spec-v1.md](02-spec-v1.md), [03-landscape.md](03-landscape.md)
+**Date:** 2026-10-22 · **Status:** the risks still apply; the recommendation in §5 and §7 (a picture
+behind ordinary controls) is superseded by [05-design-v2.md](05-design-v2.md) · **Companion:** [02-spec-v1.md](02-spec-v1.md), [03-landscape.md](03-landscape.md)
 
 This is an honest review of the Videotape idea as pitched: user interfaces defined as chains of
 interaction (tapes of frames), rendered as video by a generative model, and displayed by a thin

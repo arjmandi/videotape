@@ -1,75 +1,65 @@
 # videotape
 
-**Interfaces, played.** A framework where a user interface is written as a journey, rendered as
-generated video, and shown by a player that knows which parts of the picture you can touch.
+**Interfaces, played.** Generative UI by video, not by code: an interface is declared as journeys,
+played as a live generated picture of a world, and verified so that what you see is what you can
+operate.
 
-> Status: design phase. Nothing runs yet. The design is in [`docs/`](docs/) and is meant to be
-> built against.
+> Status: design v2, before any v2 code. The v1 spec was built and measured as `prototype-0` (a git
+> tag); it showed that a server-driven UI with a generated backdrop works and is not new. The v2
+> design in [docs/05-design-v2.md](docs/05-design-v2.md) redesigns the concept; experiments come
+> before code.
 
 ## The idea
 
-Today a UI is a pile of components and routes, and the user's journey through them is a side
-document: a Figma flow, a user story, an end-to-end test. Videotape turns that around.
+Generative-UI projects today write front-end code on the fly. Videotape writes no front-end code at
+all. There is a declaration of what the interface must do, and there is a picture; between them is
+an engine.
 
-- You write **tapes**: ordered sequences of **frames**, one frame per still state of the app. A
-  frame says what it is about, which components it shows, and where each interaction leads.
-- An **engine** renders each frame as a picture and each transition as a short piece of video, using
-  generative models conditioned on the frame's layout.
-- A thin **player** fills the screen with that picture, lays real inputs and text on top of it, and
-  sends your interactions back.
+- **Developers declare intent:** tapes (journeys) of frames, with components, their roles and
+  relations, data, and handlers. No layout, styling, screens, or routing.
+- **Designers declare a world:** the place the interface lives in, its mood and materials. A tree
+  trunk can be the button; a flag can be the field you write on.
+- **Devices declare context:** canvas size, orientation, input methods. Nothing is detected; it is
+  measured, continuously.
+- **The engine composes** each frame for the canvas (breaking it into steps on a watch, merging it
+  with its neighbours on a wall), **embodies** each component as an object of the world, **renders**
+  the world as live video, and **grounds** every frame: every declared control is really there,
+  where it should be, nothing else pretends to be one, and every fact is legible.
+- **The player** shows the picture, maps touches to the objects under them, draws the facts from
+  code onto the objects' surfaces, and keeps an accessibility tree that never depends on pixels.
 
-Because the journey is the program, every reachable state and edge is known statically. Validation,
-testing, prefetching, and documentation all read from the same graph. Because presentation is
-delegated, the same app plays on a phone, a tablet, a desktop, or whatever comes next, with no layout
-code.
+A canvas is a camera on a set larger than any screen. Rotate a phone and the camera reframes at
+once, the objects recompose a moment later, and the world re-renders shortly after.
 
-## The one rule that makes it honest
+## The rules that keep it honest
 
-**Generation owns form. Code owns facts. Layout owns space.**
-
-The model draws the look: backgrounds, chrome, mood, motion, transitions. The code draws every fact:
-each string, number, image, and input, placed natively on top of the picture so it is always correct
-and always operable. A layout engine decides every region before any pixel is generated, and the same
-wireframe both conditions the model and positions the facts.
-
-That split is why the whole thing also runs with the AI switched off, which is how it is tested, and
-why the share of the screen that is generated can grow as models improve.
+- **Facts come from code.** Every string, number, and value is exact, from the app, drawn onto the
+  world, never invented by the generator.
+- **Interactivity comes from the composition.** The picture must agree with it; a pixel can never
+  create a control.
+- **Everything works with the AI off.** A deterministic proxy of the world is always playable, and
+  it is how the engine is tested.
 
 ## Documents
 
 | Document | What it is |
 |----------|------------|
-| [docs/01-review-and-risks.md](docs/01-review-and-risks.md) | An honest review of the idea: what is strong, where the pitch over-reaches, and a risk register with mitigations. |
-| [docs/02-spec-v1.md](docs/02-spec-v1.md) | The v1 design specification: goals, vocabulary, architecture, the tape model and authoring API, layout, engine pipeline, renderer plugins, player, protocol, security, CLI, repo layout, milestones. |
-| [docs/03-landscape.md](docs/03-landscape.md) | Which models and services could sit behind each renderer as of the check date, with sources. Kept separate because it goes stale. |
+| [docs/05-design-v2.md](docs/05-design-v2.md) | **The current design**: intent, world, and context as inputs; the composition engine with breakdown and merge; embodiment; the grounding harness; set and camera; live video as the main path; open questions. |
+| [docs/03-landscape.md](docs/03-landscape.md) | Which models could sit behind each renderer, with sources, and the measured results of prototype-0's live runs. Goes stale; re-check before each experiment. |
+| [docs/02-spec-v1.md](docs/02-spec-v1.md) | The v1 specification, built as `prototype-0`. Superseded as a concept by v2; kept for its contracts and history. |
+| [docs/01-review-and-risks.md](docs/01-review-and-risks.md) | The first review of the idea and its risk register. Its risks still apply; its recommendation (a picture behind ordinary controls) is superseded by v2. |
 
-## Roadmap (v1)
+## Plan
 
-| Milestone | Delivers | Done when |
-|-----------|----------|-----------|
-| M0 Foundations | `@videotape/core`: tape model, schemas, validation, graph, layout engine; `videotape check` and `graph` | The demo's tapes validate; wireframe snapshots exist for every frame and viewport class |
-| M1 The loop, AI off | engine, player, protocol, flat renderer, demo app | A tester signs in and reads a report at phone and desktop sizes, keyboard only, with a screen reader |
-| M2 Generated stills | layout-conditioned scene generation, style packs, validation and re-roll, cache, ahead-of-time render | Scenes are generated, text is crisp, fields stay put across reloads, cache hit rate is high |
-| M3 Motion | generated cuts along edges, prefetch, budgets, crossfade fallback | A click plays a generated transition within the budget when prefetched; fallback rate is visible |
-| M4 Ship | public demo, docs as a tape, sample app, licence and contribution guide | A stranger defines a tape from this README and sees it |
+Experiments first, each answering whether one part of v2 can work: the composer (breakdown and
+merge across canvases), embodiment in three worlds, stills with objects placed by inpainting, the
+live tier on a real-time video model, and camera reframing between watch, phone, and desktop. The
+build follows in order: composer, proxy tier, and player with the AI off; embodiment and stills with
+grounding; the live tier; breakdown and merge hooks and the demo. See
+[docs/05-design-v2.md](docs/05-design-v2.md) §17.
 
-Real-time whole-screen video (`live` renderer over WebRTC) is defined as an interface in v1 and
-implemented after it.
-
-## Planned layout
-
-```
-packages/core        the model, schemas, validation, graph, layout engine (pure)
-packages/engine      sessions, pipeline, cache, protocol server, renderer host
-packages/player      the browser client
-packages/cli         videotape dev | check | graph | render | serve
-packages/renderers   flat (reference) · still-* · cut-* · live-* (later)
-apps/site            the demo and public site
-examples/hello-tape  the smallest possible app
-```
-
-Packages publish under the `@videotape/*` npm scope. The bare `videotape` name on npm belongs to an
-unrelated package last touched in 2017; the CLI's command is still `videotape`.
+Packages will publish under the `@videotape/*` npm scope. The bare `videotape` name on npm belongs
+to an unrelated package last touched in 2017; the CLI's command is still `videotape`.
 
 ## Licence
 

@@ -1,7 +1,9 @@
 # Videotape — Design Specification, v1
 
-**Date:** 2026-10-22 · **Status:** draft, ready to build against · **Companions:**
-[01-review-and-risks.md](01-review-and-risks.md), [03-landscape.md](03-landscape.md)
+**Date:** 2026-10-22 · **Status:** built as `prototype-0` (git tag); **superseded as a concept by
+[05-design-v2.md](05-design-v2.md)**, which revokes N1, N7, principle 6 as worded, and the
+viewport-class layout · **Companions:** [01-review-and-risks.md](01-review-and-risks.md),
+[03-landscape.md](03-landscape.md)
 
 Videotape is a framework in which a user interface is authored as **tapes** (user journeys) made of
 **frames** (still states), rendered as **generated video** by an **engine**, and displayed by a thin
