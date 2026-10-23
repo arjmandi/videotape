@@ -33,6 +33,15 @@ class Credentials(vt.Record):
   `types`, tapes, frames, components derived from the records plus explicit overrides, actions,
   handlers, loaders, and the edges of the journey graph. Its own schema is published as
   [`intent.schema.json`](src/videotape/intent.schema.json) (`python -m videotape.spec`).
+- **Decisions** (`videotape.decisions`): handlers and loaders are plain async functions, read
+  with `typing.get_type_hints` when the intent is built (so postponed annotations and forward
+  references work). Parameters after `ctx` are documents by record type, a move's target, or a
+  loader's arguments; the return type is the handler's edges (`vt.Jump["dashboard"]`,
+  `vt.Goto["x"]`, unions, `vt.Stay`, `vt.Back`, `vt.Call["x"]`, `vt.Done`, `vt.Open`,
+  `vt.Download`), plus the `Stay` every handler has because it may `raise vt.Reject(message)`.
+  `await vt.invoke(handler, ctx, **documents)` calls one as `decide` will and returns the outcome
+  record: the outcome's JSON, or `{"type": "reject", "message": ...}`; an outcome the return type
+  does not declare raises `vt.UndeclaredOutcome`.
 
 ## The intent document
 

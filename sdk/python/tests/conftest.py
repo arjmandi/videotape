@@ -20,18 +20,18 @@ BROKEN = FIXTURES / "broken"
 
 
 def load_module(directory: Path, module: str):
-    """Imports `module` from `directory` as the CLI would, then forgets the modules it brought in,
-    so fixtures with the same module names (`app`, `services`) do not see each other."""
-    before = set(sys.modules)
+    """Imports `module` from `directory` as the CLI would. Modules stay loaded, as in an app, since
+    annotations are read lazily; fixture module names are therefore unique across directories."""
+    loaded = sys.modules.get(module)
+    if loaded is not None:
+        if Path(loaded.__file__).parent != directory:
+            raise RuntimeError(f"two fixtures are named {module}: {loaded.__file__} and {directory}")
+        return loaded
     sys.path.insert(0, str(directory))
     try:
         return importlib.import_module(module)
     finally:
         sys.path.remove(str(directory))
-        for name in set(sys.modules) - before:
-            mod = sys.modules[name]
-            if getattr(mod, "__file__", "") and str(directory) in mod.__file__:
-                del sys.modules[name]
 
 
 def load_sample(name: str):

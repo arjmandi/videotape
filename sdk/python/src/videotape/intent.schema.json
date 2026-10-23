@@ -327,6 +327,11 @@
         "item": {
           "$ref": "#/$defs/Item"
         },
+        "nullable": {
+          "title": "Nullable",
+          "const": true,
+          "type": "boolean"
+        },
         "role": {
           "title": "Role",
           "enum": [
@@ -672,6 +677,47 @@
       "title": "Copy",
       "type": "object"
     },
+    "Declared": {
+      "additionalProperties": false,
+      "description": "An outcome a handler's return type declares; `implied` marks the Stay every handler has.",
+      "properties": {
+        "type": {
+          "enum": [
+            "goto",
+            "jump",
+            "back",
+            "stay",
+            "call",
+            "done",
+            "open",
+            "download",
+            "copy"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "tape": {
+          "title": "Tape",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "frame": {
+          "title": "Frame",
+          "pattern": "^[A-Za-z][\\w-]*$",
+          "type": "string"
+        },
+        "implied": {
+          "title": "Implied",
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Declared",
+      "type": "object"
+    },
     "Destination": {
       "additionalProperties": false,
       "properties": {
@@ -958,8 +1004,32 @@
     },
     "Handler": {
       "additionalProperties": false,
-      "description": "A decision the app makes.",
-      "properties": {},
+      "description": "A decision: its documents by record type, and its outcomes from its return type.",
+      "properties": {
+        "params": {
+          "items": {
+            "$ref": "#/$defs/Param"
+          },
+          "title": "Params",
+          "type": "array"
+        },
+        "outcomes": {
+          "items": {
+            "$ref": "#/$defs/Declared"
+          },
+          "title": "Outcomes",
+          "type": "array"
+        },
+        "unreadable": {
+          "description": "Why the return type cannot be read; its edges are unknown.",
+          "title": "Unreadable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "params",
+        "outcomes"
+      ],
       "title": "Handler",
       "type": "object"
     },
@@ -1008,6 +1078,11 @@
         },
         "item": {
           "$ref": "#/$defs/Item"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "const": true,
+          "type": "boolean"
         },
         "components": {
           "title": "Components",
@@ -1066,10 +1141,71 @@
       "title": "Jump",
       "type": "object"
     },
+    "Kind": {
+      "additionalProperties": false,
+      "description": "What a type is to Videotape (the `x-vt` of a field, without its options).",
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "record": {
+          "title": "Record",
+          "type": "string"
+        },
+        "enum": {
+          "title": "Enum",
+          "type": "string"
+        },
+        "choices": {
+          "title": "Choices",
+          "items": {},
+          "type": "array"
+        },
+        "lines": {
+          "title": "Lines",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "item": {
+          "$ref": "#/$defs/Item"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "title": "Kind",
+      "type": "object"
+    },
     "Loader": {
       "additionalProperties": false,
       "description": "A loader: what a frame shows (`enter=`), the next page of a list (`pages=`), or a choice's options.",
-      "properties": {},
+      "properties": {
+        "params": {
+          "items": {
+            "$ref": "#/$defs/Param"
+          },
+          "title": "Params",
+          "type": "array"
+        },
+        "returns": {
+          "$ref": "#/$defs/Kind"
+        },
+        "unreadable": {
+          "title": "Unreadable",
+          "type": "string"
+        }
+      },
+      "required": [
+        "params"
+      ],
       "title": "Loader",
       "type": "object"
     },
@@ -1104,6 +1240,62 @@
         "url"
       ],
       "title": "Open",
+      "type": "object"
+    },
+    "Param": {
+      "additionalProperties": false,
+      "description": "A parameter after ctx: a document by record type, a move's target, or a loader's argument.",
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "record": {
+          "title": "Record",
+          "type": "string"
+        },
+        "enum": {
+          "title": "Enum",
+          "type": "string"
+        },
+        "choices": {
+          "title": "Choices",
+          "items": {},
+          "type": "array"
+        },
+        "lines": {
+          "title": "Lines",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "item": {
+          "$ref": "#/$defs/Item"
+        },
+        "nullable": {
+          "title": "Nullable",
+          "const": true,
+          "type": "boolean"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "default": {
+          "title": "Default"
+        }
+      },
+      "required": [
+        "type",
+        "name",
+        "required"
+      ],
+      "title": "Param",
       "type": "object"
     },
     "Phrase": {

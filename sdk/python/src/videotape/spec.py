@@ -118,6 +118,7 @@ class Kind(_Spec):
     choices: list[Any] | None = None
     lines: list[int] | None = None
     item: Item | None = None
+    nullable: Literal[True] | None = None
 
 
 class Item(Kind):
@@ -145,6 +146,7 @@ class Component(_Spec):
     choices: list[Any] | None = None
     lines: list[int] | None = None
     item: Item | None = None
+    nullable: Literal[True] | None = None
     role: Literal["heading", "primary", "secondary", "navigation", "status", "supporting"] | None = None
     importance: Literal["required", "normal", "optional"] | None = None
     group: str | None = None
@@ -246,12 +248,37 @@ class Destination(_Spec):
     symbol: str | None = None
 
 
+class Param(Kind):
+    """A parameter after ctx: a document by record type, a move's target, or a loader's argument."""
+
+    name: str
+    required: bool
+    default: Any = None
+
+
+class Declared(_Spec):
+    """An outcome a handler's return type declares; `implied` marks the Stay every handler has."""
+
+    type: Literal["goto", "jump", "back", "stay", "call", "done", "open", "download", "copy"]
+    tape: Name | None = None
+    frame: Name | None = None
+    implied: Literal[True] | None = None
+
+
 class Handler(_Spec):
-    """A decision the app makes."""
+    """A decision: its documents by record type, and its outcomes from its return type."""
+
+    params: list[Param]
+    outcomes: list[Declared]
+    unreadable: str | None = Field(None, description="Why the return type cannot be read; its edges are unknown.")
 
 
 class Loader(_Spec):
     """A loader: what a frame shows (`enter=`), the next page of a list (`pages=`), or a choice's options."""
+
+    params: list[Param]
+    returns: Kind | None = None
+    unreadable: str | None = None
 
 
 class Edge(_Spec):

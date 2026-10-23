@@ -6,11 +6,13 @@ were written in; records, handlers, and loaders are sorted by name.
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from ._encode import encode, encode_target, name_of
+from .decisions import read, returns_kind
 from .derive import Use, components, frame_records, uses
 from .diagnostics import Diagnostic, error
 from .intent import Action, App, Frame, Show, Tape
@@ -203,8 +205,13 @@ class Builder:
     # ── edges ──
 
     def use_edges(self, u: Use) -> list[Edge]:
-        edge = static_edge(self.app, u)
-        return [edge] if edge else []
+        """A static outcome's edge, or the edges a handler's return type declares."""
+        if u.handler is None:
+            edge = static_edge(self.app, u)
+            return [edge] if edge else []
+        via = {**u.via, "handler": name_of(u.handler)}
+        edges = (outcome_edge(self.app, u, d.type, d.target, via) for d in read(u.handler).outcomes)
+        return [e for e in edges if e is not None]
 
     # ── records ──
 
@@ -255,17 +262,26 @@ class Builder:
                 for d in app.hub.destinations
             ]
         out["tapes"] = tapes
+        handlers = {name: self.handler(fn) for name, fn in sorted(self.handlers.items.items())}
+        loaders = {name: self.loader(fn) for name, fn in sorted(self.loaders.items.items())}
         out["records"], out["types"] = self.record_schemas()
-        out["handlers"] = {name: self.handler(fn) for name, fn in sorted(self.handlers.items.items())}
-        out["loaders"] = {name: self.loader(fn) for name, fn in sorted(self.loaders.items.items())}
+        out["handlers"], out["loaders"] = handlers, loaders
         out["edges"] = [e.to_json() for e in self.edges if e.type != "hub"]
         return Built(out, self.edges, self.problems)
 
     def handler(self, fn: Callable[..., Any]) -> dict[str, Any]:
-        return {}
+        sig = read(fn)
+        for p in sig.params:
+            if p.kind is not None:
+                self.need(p.kind.record)
+        return sig.handler_json()
 
     def loader(self, fn: Callable[..., Any]) -> dict[str, Any]:
-        return {}
+        sig = read(fn)
+        if not sig.problem and sig.returns is not inspect.Parameter.empty:
+            kind = returns_kind(sig.returns)
+            self.need(kind.record)
+        return sig.loader_json()
 
 
 def build(app: App) -> Built:

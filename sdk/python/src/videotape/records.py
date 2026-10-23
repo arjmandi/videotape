@@ -192,6 +192,8 @@ class Kind:
             out["lines"] = list(self.lines)
         if self.item:
             out["item"] = self.item.to_json()
+        if self.nullable:
+            out["nullable"] = True
         return out
 
     @property

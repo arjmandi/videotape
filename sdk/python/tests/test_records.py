@@ -102,8 +102,8 @@ def test_optional_fields_with_postponed_annotations_and_forward_references():
     assert (d.owner, d.notes, d.tags) == (None, None, None)
     d.owner = FUser(id="u", name="Ada")
     kinds = {f.name: f.kind.to_json() for f in fields_of(FDeal)}
-    assert kinds["owner"] == {"type": "record", "record": "User"}
-    assert kinds["notes"] == {"type": "text", "lines": [3, 12]}
+    assert kinds["owner"] == {"type": "record", "record": "User", "nullable": True}
+    assert kinds["notes"] == {"type": "text", "lines": [3, 12], "nullable": True}
 
 
 # ── values ───────────────────────────────────────────────────────────────────
@@ -200,9 +200,9 @@ def test_kinds():
         "company": {"type": "record", "record": "Company"},
         "amount": {"type": "money"},
         "stage": {"type": "choice", "enum": "Stage"},
-        "close": {"type": "date"},
+        "close": {"type": "date", "nullable": True},
         "owner": {"type": "record", "record": "User"},
-        "notes": {"type": "text", "lines": [3, 12]},
+        "notes": {"type": "text", "lines": [3, 12], "nullable": True},
         "starred": {"type": "boolean"},
     }
     assert kind_of(list[Deal]).to_json() == {"type": "collection", "item": {"type": "record", "record": "Deal"}}
