@@ -389,7 +389,10 @@ and its loader supply everything it needs, since no earlier frame ran, and `chec
 relies on other arguments or on earlier frames' documents. In an app with a hub, the engine puts
 the first hub destination (in hub order) that can reach the frame beneath it, so back and the hub
 work as if the user had navigated there, which is how phone apps open a linked conversation. In an
-app without a hub, or where no destination reaches the frame, the frame is a history root.
+app without a hub, or where no destination reaches the frame, the frame is a history root. The SDK
+computes that destination at registration and writes it into the intent (the frame's `under`), and
+the engine uses it as given, so `check` and the engine agree by construction. `frame(under=chats)`
+overrides it where the first destination in hub order is not the frame's natural home.
 
 **Tapes carry arguments.** A tape is one journey over the same documents. The jump that enters a
 tape passes its arguments, and any frame's loader in the tape may take them, and the documents
@@ -398,8 +401,11 @@ steps share one draft.
 
 `videotape check` knows every edge. It counts back as an exit only where the frame has history on
 every path to it, and the hub's doors only where every root that reaches the frame is a
-destination; a dead end is a frame with neither and with no declared way out. It matches each jump's arguments against the loaders and
-addresses of the tape it enters, flags an edit frame that hides a required field, ambiguous record
+destination; a dead end is a frame with neither and with no declared way out. A closed cycle, a
+group of frames with no way out of the group, is reported too, except where the group holds a fresh
+start (a sign-in target or a hub destination): after a sign-in, that group is the app the user came
+for, not a trap. It matches each jump's arguments against the loaders and addresses of the tape it
+enters, flags an edit frame that hides a required field, ambiguous record
 references, and frames without an `id` in a tape of several, and runs the composer on the
 reference screens (§8).
 
@@ -932,7 +938,7 @@ back.
 ### 18.1 Questions from the Python SDK (2026-10-23)
 
 The SDK skeleton (`sdk/python`, branch `claude/python-sdk-skeleton-9a995f`) built §6 as written and
-raised these in three rounds. Its numbering is in brackets, the later rounds as 2.n and 3.n.
+raised these in four rounds. Its numbering is in brackets, the later rounds as 2.n, 3.n, and 4.n.
 
 | # | Question | Decision |
 |---|----------|----------|
@@ -956,6 +962,8 @@ raised these in three rounds. Its numbering is in brackets, the later rounds as 
 | Q48 | What does a deep link into a later frame of a tape get? [3.2] | The frame must stand on its own; in a hub app the first destination that reaches it goes beneath it; otherwise it is a root (§6.3). |
 | Q49 | Is back a way out where a frame is a root on some paths only? [3.3] | No: back counts only where the frame has history on every path, for dead ends and explicit backs alike (§6.3). |
 | Q50 | Should `vt.destination`, `vt.pick`, and `vt.app(entry=)` take tapes? [3.4] | Yes: the tape or its id wherever a tape is named; ids inside records, which come before tapes (§6.3). |
+| Q51 | Is a group of frames with no way out a trap when it follows a sign-in? [4.1] | No: a closed cycle that holds a sign-in target or a hub destination is a fresh start and is not reported; any other is (§6.3). |
+| Q52 | Where is the destination beneath a linked frame decided? [4.2] | By the SDK at registration, carried in the intent as the frame's `under` and used by the engine as given; `frame(under=...)` overrides it (§6.3). |
 
 The SDK's five deviations are settled too. A paging loader is registered after its record with
 `@vt.pages(Record.field)`, and `pages=` in a field is gone. `vt.Text` is a type, with `lines=` on

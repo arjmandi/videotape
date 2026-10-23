@@ -247,8 +247,9 @@ every path to it, so a frame that is a root on any path needs a declared way out
 **Links into the app.** An address opens its frame directly, so that frame must stand on its own:
 its address and its loader supply what it needs, since no earlier frame ran. In an app with a hub,
 the engine puts the first destination that can reach the frame beneath it, so a linked conversation
-opens with Chats behind it, back returns there, and the hub is in place. In an app without a hub, a
-frame opened by its address is a history root, so give it a way out, such as a link home.
+opens with Chats behind it, back returns there, and the hub is in place. If another destination is
+the frame's natural home, say so with `under=` on the frame. In an app without a hub, a frame opened
+by its address is a history root, so give it a way out, such as a link home.
 
 ## 4. Types
 
@@ -524,8 +525,8 @@ action being within reach.
 
 ### 8.2 Static checks
 
-`videotape check` finds unreachable frames and dead ends (back and the hub's doors count as ways
-out), outcomes that name unknown tapes or pass arguments the target's loader does not take,
+`videotape check` finds unreachable frames, dead ends (back and the hub's doors count as ways out),
+and groups of frames with no way out, except the part of the app a sign-in or a hub opens onto, outcomes that name unknown tapes or pass arguments the target's loader does not take,
 handlers whose outcomes it cannot read, fields of secret type that a frame shows, edit frames that
 hide a required field, ambiguous record references, frames without an `id` in a tape of several,
 explicit back actions on frames that are always roots, and `select=` on an edited list. It runs the composer on the reference screens (watch, phone in both orientations, tablet,
