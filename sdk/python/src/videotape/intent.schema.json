@@ -237,6 +237,10 @@
           "title": "Tape",
           "type": "string"
         },
+        "then": {
+          "description": "The handler that receives done()'s result as `result`.",
+          "$ref": "#/$defs/HandlerRef"
+        },
         "args": {
           "title": "Args",
           "additionalProperties": true,
@@ -681,7 +685,7 @@
     },
     "Declared": {
       "additionalProperties": false,
-      "description": "An outcome a handler's return type declares; `implied` marks the Stay every handler has.",
+      "description": "An outcome a handler returns, read from its body or its @vt.outcomes; `implied` marks the Stay\nevery handler has because it may Reject.",
       "properties": {
         "type": {
           "enum": [
@@ -692,8 +696,7 @@
             "call",
             "done",
             "open",
-            "download",
-            "copy"
+            "download"
           ],
           "title": "Type",
           "type": "string"
@@ -707,6 +710,29 @@
           "title": "Frame",
           "pattern": "^[A-Za-z][\\w-]*$",
           "type": "string"
+        },
+        "args": {
+          "description": "The names of its keyword arguments.",
+          "title": "Args",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "args_open": {
+          "description": "It passes **kwargs, so not every name is known.",
+          "title": "Args Open",
+          "const": true,
+          "type": "boolean"
+        },
+        "resets_history": {
+          "description": "It signs in or out: history starts again.",
+          "title": "Resets History",
+          "const": true,
+          "type": "boolean"
+        },
+        "then": {
+          "$ref": "#/$defs/HandlerRef"
         },
         "implied": {
           "title": "Implied",
@@ -834,6 +860,11 @@
           "title": "Frame",
           "pattern": "^[A-Za-z][\\w-]*$",
           "type": "string"
+        },
+        "resets_history": {
+          "title": "Resets History",
+          "const": true,
+          "type": "boolean"
         },
         "via": {
           "additionalProperties": true,
@@ -1006,7 +1037,7 @@
     },
     "Handler": {
       "additionalProperties": false,
-      "description": "A decision: its documents by record type, and its outcomes from its return type.",
+      "description": "A decision: its documents by record type, and the outcomes it returns, read from its body.",
       "properties": {
         "params": {
           "items": {
@@ -1023,7 +1054,7 @@
           "type": "array"
         },
         "unreadable": {
-          "description": "Why the return type cannot be read; its edges are unknown.",
+          "description": "Which returns cannot be read; its edges are not all known.",
           "title": "Unreadable",
           "type": "string"
         }

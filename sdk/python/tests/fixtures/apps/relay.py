@@ -52,14 +52,14 @@ async def older_messages(ctx, conv: Conversation, cursor: str | None) -> vt.Page
     return vt.Page(*await db.messages(conv.id, before=cursor, limit=50))
 
 
-async def send(ctx, conv: Conversation, draft: Draft) -> vt.Stay:
+async def send(ctx, conv: Conversation, draft: Draft):
     msg = conv.messages.append(Message(author=ctx.user, text=draft.text, pending=True))
     draft.text = ""                                       # both on screen now, in every session showing conv
     msg.update(await db.send(conv.id, ctx.user.id, msg.text), pending=False)
     return vt.stay()
 
 
-async def start_reply(ctx, msg: Message, draft: Draft) -> vt.Stay:
+async def start_reply(ctx, msg: Message, draft: Draft):
     draft.text = f"> {msg.text.plain}\n"
     return vt.stay()
 
@@ -121,7 +121,7 @@ class Settings(vt.Record):
     notifications: bool = True
 
 
-async def save_settings(ctx, s: Settings) -> vt.Stay:
+async def save_settings(ctx, s: Settings):
     return vt.stay()
 
 

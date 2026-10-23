@@ -56,8 +56,11 @@ def test_duplicate_records():
 
     first, second = make(), make()
 
-    async def a(ctx, n: first) -> vt.Stay: ...  # type: ignore[valid-type]
-    async def b(ctx, n: second) -> vt.Stay: ...  # type: ignore[valid-type]
+    async def a(ctx, n: first):  # type: ignore[valid-type]
+        return vt.stay()
+
+    async def b(ctx, n: second):  # type: ignore[valid-type]
+        return vt.stay()
 
     tape = vt.tape("t", [vt.frame("One", edit=first, submit=a, actions=[vt.action("Two", vt.goto("two"))]),
                          vt.frame("Two", id="two", edit=second, submit=b, actions=[vt.action("Back", vt.back())])])  # fmt: skip
@@ -87,8 +90,11 @@ def test_a_move_target_is_a_valid_parameter():
     class Board(vt.Record):
         cards: list[Card] = vt.Field(group_by=Card.stage)
 
-    async def move(ctx, card: Card, to: Stage) -> vt.Stay: ...
-    async def wrong(ctx, card: Card, to: Stage) -> vt.Stay: ...
+    async def move(ctx, card: Card, to: Stage):
+        return vt.stay()
+
+    async def wrong(ctx, card: Card, to: Stage):
+        return vt.stay()
 
     ok = vt.frame("See the board", shows=Board, actions=[
         vt.action("Move", move, on=Card, to=Stage), vt.action("Back", vt.back())])  # fmt: skip
@@ -104,7 +110,8 @@ def test_on_change_must_name_an_edited_field():
     class Results(vt.Record):
         q: str
 
-    async def find(ctx, s: Search) -> vt.Stay: ...
+    async def find(ctx, s: Search):
+        return vt.stay()
 
     f = vt.frame("Find", shows=Results, edit=Search, on_change={Results.q: find},
                  actions=[vt.action("Back", vt.back())])  # fmt: skip
@@ -120,7 +127,7 @@ def test_unreadable_annotations_are_reported_once_per_handler():
     a = vt.frame("One", edit=Order, submit=nameless, actions=[vt.action("Two", vt.goto("two"))])
     b = vt.frame("Two", id="two", edit=Order, submit=nameless, actions=[vt.action("Back", vt.back())])
     diagnostics = check(vt.app("x", entry="t", tapes=[vt.tape("t", [a, b])]))
-    assert [(d.code, d.at) for d in diagnostics] == [("unreadable-return", "nameless()")]
+    assert [(d.code, d.at) for d in diagnostics] == [("unreadable-outcome", "nameless()")]
     assert "Missing" in diagnostics[0].message
 
 
@@ -152,3 +159,43 @@ def test_components_and_closed_cycles():
 def test_the_entry_s_own_cycle_is_no_trap():
     graph = g("a", ["a", "b"], [("a", "jump", "b"), ("b", "jump", "a")])
     assert closed_cycles(graph) == []
+
+
+# ── arguments, from bodies and static outcomes (Q34) ─────────────────────────
+
+
+class _Order(vt.Record):
+    id: vt.Id
+    total: vt.Money
+
+
+async def _load_order(ctx, order_id: str) -> _Order: ...
+
+
+def _orders_app(handler):
+    home = vt.tape("home", [vt.frame("Start here", actions=[vt.action("Open", handler), vt.action("Back", vt.back())])])
+    order = vt.tape("order", [vt.frame("See one order", address="/o/{order_id}", shows=_Order, enter=_load_order,
+                                       actions=[vt.action("Back", vt.back())])])  # fmt: skip
+    return vt.app("orders", entry="home", tapes=[home, order])
+
+
+def test_arguments_read_from_a_body_meet_the_target_loader():
+    async def good(ctx):
+        return vt.jump("order", order_id="o1")
+
+    async def unknown(ctx):
+        return vt.jump("order", order_id="o1", colour="red")
+
+    async def missing(ctx):
+        return vt.jump("order")
+
+    async def splat(ctx):
+        args = {"order_id": "o1"}
+        return vt.jump("order", **args)
+
+    assert codes(_orders_app(good)) == []
+    assert codes(_orders_app(splat)) == []
+    [d] = check(_orders_app(unknown))
+    assert (d.code, d.message) == ("unknown-argument", "unknown() does jump('order', colour=...), but _load_order() does not take it")
+    [d] = check(_orders_app(missing))
+    assert (d.code, d.message) == ("missing-argument", "missing() does jump('order') without order_id, which _load_order() needs")

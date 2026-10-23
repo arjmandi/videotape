@@ -9,6 +9,11 @@ class Credentials(vt.Record):
     password: vt.Secret
 
 
+class User(vt.Record):                                     # filled in: what sign_in= takes
+    id: vt.Id
+    first_name: str
+
+
 # ── filled in: reset, workspace, report ──
 
 

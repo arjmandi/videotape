@@ -7,7 +7,7 @@ class Post(vt.Record):
     title: str
 
 
-async def next_post(ctx, p: Post) -> vt.Stay:
+async def next_post(ctx, p: Post):
     return vt.stay()
 
 

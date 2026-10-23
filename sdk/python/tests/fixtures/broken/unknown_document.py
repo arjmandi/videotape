@@ -11,7 +11,7 @@ class User(vt.Record):
     name: str
 
 
-async def save(ctx, n: Note, u: User) -> vt.Stay:
+async def save(ctx, n: Note, u: User):
     return vt.stay()
 
 

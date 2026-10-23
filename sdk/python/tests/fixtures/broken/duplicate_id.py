@@ -7,14 +7,14 @@ class Note(vt.Record):
     text: str
 
 
-async def save(ctx, n: Note) -> vt.Jump["b"]:
+async def save(ctx, n: Note):
     return vt.jump("b")
 
 
 first = vt.tape("a", [vt.frame("Write a note", address="/notes", edit=Note, submit=save)])
 
 
-async def save(ctx, n: Note) -> vt.Back:  # noqa: F811 - the mistake under test
+async def save(ctx, n: Note):  # noqa: F811 - the mistake under test
     return vt.back()
 
 

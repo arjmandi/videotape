@@ -14,11 +14,11 @@ landing = vt.tape("landing", [
 ])
 
 
-async def sign_in(ctx, c: Credentials) -> vt.Jump["workspace"]:
+async def sign_in(ctx, c: Credentials):
     user = await auth.login(c.username, c.password)
     if user is None:
         raise vt.Reject("That email and password do not match.")
-    return vt.jump("workspace", user=user.public(), sign_in=user.id)
+    return vt.jump("workspace", sign_in=user)
 
 
 login = vt.tape("login", [
@@ -30,7 +30,7 @@ login = vt.tape("login", [
 # ── filled in ──
 
 
-async def request_reset(ctx, r: ResetRequest) -> vt.Goto["sent"]:
+async def request_reset(ctx, r: ResetRequest):
     await auth.send_reset(r.email)
     return vt.goto("sent")
 

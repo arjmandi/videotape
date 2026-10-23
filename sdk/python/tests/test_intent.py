@@ -34,7 +34,7 @@ class Note(vt.Record):
     secret: vt.Secret
 
 
-async def save(ctx, n: Note) -> vt.Stay:
+async def save(ctx, n: Note):
     return vt.stay()
 
 
@@ -217,7 +217,7 @@ def test_a_press_makes_a_shown_value_a_control():
 
 
 def test_actions():
-    async def remove(ctx, item: Item) -> vt.Stay:
+    async def remove(ctx, item: Item):
         return vt.stay()
 
     f = one_frame(shows=Basket, actions=[

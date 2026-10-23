@@ -57,7 +57,7 @@ def test_check_prints_json():
     assert [d["code"] for d in diagnostics] == ["unknown-tape", "unknown-tape"]
     assert diagnostics[0] == {
         "level": "error", "code": "unknown-tape", "at": "home/write-a-note",
-        "message": "save() returns vt.Jump['notes'], but there is no tape 'notes'"}  # fmt: skip
+        "message": "save() returns vt.jump('notes'), but there is no tape 'notes'"}  # fmt: skip
 
 
 def test_intent_fails_on_an_unreadable_record():

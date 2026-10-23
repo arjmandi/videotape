@@ -79,6 +79,7 @@ class Stay(_Identity):
 class Call(_Spec):
     type: Literal["call"]
     tape: Name
+    then: HandlerRef | None = Field(None, description="The handler that receives done()'s result as `result`.")
     args: dict[str, Any] | None = None
 
 
@@ -257,20 +258,25 @@ class Param(Kind):
 
 
 class Declared(_Spec):
-    """An outcome a handler's return type declares; `implied` marks the Stay every handler has."""
+    """An outcome a handler returns, read from its body or its @vt.outcomes; `implied` marks the Stay
+    every handler has because it may Reject."""
 
-    type: Literal["goto", "jump", "back", "stay", "call", "done", "open", "download", "copy"]
+    type: Literal["goto", "jump", "back", "stay", "call", "done", "open", "download"]
     tape: Name | None = None
     frame: Name | None = None
+    args: list[str] | None = Field(None, description="The names of its keyword arguments.")
+    args_open: Literal[True] | None = Field(None, description="It passes **kwargs, so not every name is known.")
+    resets_history: Literal[True] | None = Field(None, description="It signs in or out: history starts again.")
+    then: HandlerRef | None = None
     implied: Literal[True] | None = None
 
 
 class Handler(_Spec):
-    """A decision: its documents by record type, and its outcomes from its return type."""
+    """A decision: its documents by record type, and the outcomes it returns, read from its body."""
 
     params: list[Param]
     outcomes: list[Declared]
-    unreadable: str | None = Field(None, description="Why the return type cannot be read; its edges are unknown.")
+    unreadable: str | None = Field(None, description="Which returns cannot be read; its edges are not all known.")
 
 
 class Loader(_Spec):
@@ -294,6 +300,7 @@ class Edge(_Spec):
     type: Literal["goto", "jump", "back", "call", "done"]
     tape: Name | None = None
     frame: Name | None = None
+    resets_history: Literal[True] | None = None
     via: dict[str, Any]
 
 

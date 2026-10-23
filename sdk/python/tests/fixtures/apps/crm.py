@@ -1,4 +1,5 @@
-"""06 §9.5, a CRM ("Pipeline"), with `Stage` and `Deal` from 06 §4 and `export_csv` from 06 §6.
+"""06 §9.5, a CRM ("Pipeline"), with `Stage` and `Deal` from 06 §4, `deal_moved` from 06 §5.3, and
+`export_csv`, `ask_to_delete`, and `delete_confirmed` from 06 §6.
 
 The guide's code is kept as written. Filled in: service stubs, `Company`, `User`, `team`,
 `Companies`, `Search`, `Contact`, the loaders, `search_companies`, and the deal, contacts, and
@@ -18,6 +19,7 @@ import videotape as vt
 class _Db:
     async def move(self, deal_id, stage, by): ...
     async def create(self, deal, by): ...
+    async def delete(self, deal_id): ...
 
 
 class _Reports:
@@ -68,14 +70,14 @@ class Pipeline(vt.Record):
     can_export: bool = vt.State(False)
 
 
-async def move_deal(ctx, deal: Deal, to: Stage) -> vt.Stay:
+async def move_deal(ctx, deal: Deal, to: Stage):
     deal.stage = to
     moved = await db.move(deal.id, to, by=ctx.user.id)
     vt.docs[Pipeline, moved.team].deals.replace(moved)
     return vt.stay()
 
 
-async def export_csv(ctx, p: Pipeline) -> vt.Download:                         # 06 §6
+async def export_csv(ctx, p: Pipeline):                         # 06 §6
     return vt.download("pipeline.csv", await reports.csv(p.id))
 
 
@@ -92,7 +94,11 @@ deals = vt.tape("deals", [
 ])
 
 
-async def create_deal(ctx, d: Deal) -> vt.Jump["deals"]:
+async def deal_moved(team_id: str, deal: Deal):          # 06 §5.3: when a colleague moves a deal
+    vt.docs[Pipeline, team_id].deals.replace(deal)
+
+
+async def create_deal(ctx, d: Deal):
     saved = await db.create(d, by=ctx.user.id)
     vt.docs[Pipeline, saved.team].deals.append(saved)
     return vt.jump("deals")
@@ -114,7 +120,7 @@ class Search(vt.Record):
 async def load_companies(ctx) -> Companies: ...
 
 
-async def search_companies(ctx, s: Search, c: Companies) -> vt.Stay:
+async def search_companies(ctx, s: Search, c: Companies):
     return vt.stay()
 
 
@@ -174,12 +180,41 @@ contact = vt.tape("contact", [
 async def load_deal(ctx, deal_id: str) -> Deal: ...
 
 
+# ── 06 §6: a call and its continuation ──
+
+
+async def ask_to_delete(ctx, d: Deal):
+    return vt.call("confirm_delete", then=delete_confirmed, deal_id=d.id)
+
+
+async def delete_confirmed(ctx, d: Deal, result: bool):     # what confirm_delete returned with done()
+    if not result:
+        return vt.stay()
+    await db.delete(d.id)
+    return vt.jump("deals")
+
+
+# ── filled in: the deal and what confirm_delete shows ──
+
 deal = vt.tape("deal", [
     vt.frame("See one deal", address="/deals/{deal_id}", shows=Deal, enter=load_deal,
-             actions=[vt.action("Back to the board", vt.back())]),
+             actions=[vt.action("Delete", ask_to_delete), vt.action("Back to the board", vt.back())]),
 ])
 
-app = vt.app("pipeline", entry="deals", tapes=[deals, deal, new_deal, pick_company, contacts, contact],
+
+class Doomed(vt.Record):
+    name: str = vt.Field(role="heading")
+
+
+async def load_doomed(ctx, deal_id: str) -> Doomed: ...
+
+
+confirm_delete = vt.tape("confirm_delete", [
+    vt.frame("Confirm that a deal goes", shows=Doomed, enter=load_doomed,
+             actions=[vt.action("Delete", vt.done(True), role="primary"), vt.action("Keep", vt.done(False))]),
+])
+
+app = vt.app("pipeline", entry="deals", tapes=[deals, deal, new_deal, pick_company, confirm_delete, contacts, contact],
              hub=vt.hub([vt.destination("deals", "Deals", symbol="board"),
                          vt.destination("contacts", "Contacts", symbol="person")]),
              world="quiet-office")

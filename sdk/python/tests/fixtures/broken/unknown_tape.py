@@ -7,7 +7,7 @@ class Note(vt.Record):
     text: str
 
 
-async def save(ctx, n: Note) -> vt.Jump["notes"] | vt.Stay:
+async def save(ctx, n: Note):
     return vt.jump("notes")
 
 

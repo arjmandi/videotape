@@ -7,7 +7,7 @@ class Question(vt.Record):
     text: str
 
 
-async def ask(ctx, q: Question) -> vt.Goto["confirm"]:
+async def ask(ctx, q: Question):
     return vt.goto("confirm")
 
 

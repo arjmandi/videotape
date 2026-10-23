@@ -15,14 +15,14 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 from ._encode import name_of
-from .decisions import accepts, read, returns_kind
+from .decisions import Declared, accepts, read, returns_kind
 from .derive import components, edited_records, frame_records, uses
 from .diagnostics import Diagnostic, error, warning
 from .graph import closed_cycles, graph, has_exit, reachable
 from .intent import App, Frame, Show
-from .outcomes import Call, Copy, Jump, Outcome
+from .outcomes import Copy, Outcome
 from .records import FieldRef, RecordError, fields_of, kind_of
-from .serialize import Built, build
+from .serialize import Built, build, declared_at
 
 RULES: dict[str, tuple[str, str]] = {
     "unreadable-record": ("error", "a record names a type that is not defined"),
@@ -31,7 +31,8 @@ RULES: dict[str, tuple[str, str]] = {
     "unknown-tape": ("error", "an action, a handler's return type, a pick, or the hub names a tape that does not exist"),
     "unknown-frame": ("error", "a goto names a frame its tape does not have"),
     "goto-unnamed-frame": ("error", "a goto reaches a frame that has no id="),
-    "unreadable-return": ("error", "a handler's return type cannot be read, so its edges are unknown"),
+    "unreadable-outcome": ("error", "a handler returns an outcome its body does not say, and has no @vt.outcomes"),
+    "then-without-result": ("error", "a call's then= handler takes no result parameter"),
     "unknown-document": ("error", "a handler takes a record its frame neither shows nor edits"),
     "on-unshown-record": ("error", "an action is on= a record its frame does not show"),
     "secret-shown": ("error", "a frame shows a field of secret type"),
@@ -41,8 +42,8 @@ RULES: dict[str, tuple[str, str]] = {
     "unknown-field": ("error", "a field reference names a record the frame neither shows nor edits"),
     "not-bool": ("error", "visible= or hidden= names a field that is not a bool"),
     "bad-event": ("error", "vt.show listens for an event its field cannot report"),
-    "unknown-argument": ("error", "a jump or call passes an argument the target's loader does not take"),
-    "missing-argument": ("error", "a jump, call, or hub destination leaves out an argument the target's loader needs"),
+    "unknown-argument": ("error", "an outcome passes an argument the target frame's loader and address do not take"),
+    "missing-argument": ("error", "an outcome or hub destination leaves out an argument the target's loader needs"),
     "multiple-primary": ("warning", "a frame has more than one primary action"),
     "unused-edit": ("warning", "a frame edits a record but nothing receives it"),
     "unreachable-frame": ("warning", "a frame cannot be reached from the entry"),
@@ -158,8 +159,7 @@ class _Checker:
         for e in self.built.edges:
             if e.type in ("jump", "call") and self.app.tape(e.target) is None:
                 if "handler" in e.via:
-                    said = f"returns vt.{e.type.capitalize()}['{e.target}']"
-                    message = f"{e.via['handler']}() {said}, but there is no tape '{e.target}'"
+                    message = f"{e.via['handler']}() returns vt.{e.type}('{e.target}'), but there is no tape '{e.target}'"
                 else:
                     message = f"{_source(e.via)} goes to tape '{e.target}', which does not exist"
                 self.report(error("unknown-tape", message, e.source))
@@ -191,7 +191,7 @@ class _Checker:
         for name, fn in self.handlers().items():
             _, problem = read(fn).declared
             if problem:
-                self.report(error("unreadable-return", problem, f"{name}()"))
+                self.report(error("unreadable-outcome", problem, f"{name}()"))
 
     # ── per frame ──
 
@@ -203,7 +203,12 @@ class _Checker:
             sig = read(u.handler)
             if sig.problem:
                 continue
+            if u.continuation and sig.param("result") is None:
+                message = f"{sig.name}() is the then= of a call to '{u.via['then']}' but takes no result parameter"
+                self.report(error("then-without-result", message, f.node))
             for p in sig.params:
+                if u.continuation and p.name == "result":
+                    continue
                 if p.annotation is _EMPTY:
                     message = f"{sig.name}() takes {p.name} without a type; annotate it with the record it receives"
                 elif p.record is not None and (p.record in scope or p.record is u.to):
@@ -338,34 +343,48 @@ class _Checker:
     # ── arguments ──
 
     def arguments(self) -> None:
+        """Each outcome's arguments against its target frame's loader and address (Q34)."""
         for f in self.app.frames:
             for u in uses(f):
-                o = u.target
-                if isinstance(o, (Jump, Call)):
-                    self.pass_args(f.node, _source(u.via), o.type, o.tape, o.args)
+                source = _source(u.via if u.handler is None else {**u.via, "handler": name_of(u.handler)})
+                for d in declared_at(u):
+                    if d.type in ("jump", "call", "goto") and d.target is not None:
+                        self.pass_args(f, source, d)
         if self.app.hub is not None:
-            for d in self.app.hub.destinations:
-                self.pass_args("hub", f"the hub's destination '{d.tape}'", "jump", d.tape, {})
+            for dest in self.app.hub.destinations:
+                tape = self.app.tape(dest.tape)
+                if tape is not None:
+                    self.match(tape.entry, "hub", f"the hub's destination '{dest.tape}'", "jump", dest.tape, (), False)
 
-    def pass_args(self, at: str, source: str, kind: str, tape_id: str, args: dict[str, Any]) -> None:
-        tape = self.app.tape(tape_id)
-        if tape is None:
-            return
-        loader = tape.entry.enter
-        if loader is None:
-            if args:
-                message = f"{source} passes {', '.join(args)} to '{tape_id}', whose first frame has no loader"
-                self.report(error("unknown-argument", message, at))
-            return
+    def pass_args(self, frame: Frame, source: str, d: Declared) -> None:
+        if d.type == "goto":
+            tape = self.app.tape(frame.tape)
+            target = tape.frame(d.target) if tape else None
+        else:
+            tape = self.app.tape(d.target)
+            target = tape.entry if tape else None
+        if target is not None:
+            self.match(target, frame.node, source, d.type, d.target, d.args, d.open_args)
+
+    def match(
+        self, target: Frame, at: str, source: str, kind: str, name: str, args: tuple[str, ...], open_args: bool
+    ) -> None:
+        loader = target.enter
+        taken = set(target.address_params)
         for a in args:
-            if not accepts(loader, a):
-                self.report(error("unknown-argument", f"{source} passes {a}, which {name_of(loader)}() does not take", at))
+            if a in taken or (loader is not None and accepts(loader, a)):
+                continue
+            takes = f"{name_of(loader)}() does not take it" if loader else f"the frame '{target.node}' has no loader"
+            message = f"{source} does {kind}('{name}', {a}=...), but {takes}"
+            self.report(error("unknown-argument", message, at))
+        if loader is None or open_args:
+            return
         sig = read(loader)
         if sig.problem:
             return
-        missing = [p.name for p in sig.params if p.required and p.name not in args]
+        missing = [p.name for p in sig.params if p.required and p.name not in args and p.record is None]
         if missing:
-            message = f"{source} does {kind}('{tape_id}') without {', '.join(missing)}, which {sig.name}() needs"
+            message = f"{source} does {kind}('{name}') without {', '.join(missing)}, which {sig.name}() needs"
             self.report(error("missing-argument", message, at))
 
     # ── the journey ──

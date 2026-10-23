@@ -3,7 +3,7 @@
     import videotape as vt
 """
 
-from .decisions import Context, Reject, UndeclaredOutcome, invoke
+from .decisions import Context, Reject, UndeclaredOutcome, invoke, outcomes
 from .documents import docs
 from .intent import (
     Action, After, App, Destination, Frame, Hub, Show, Tape, Text as TextComponent, action, after, app,
@@ -17,7 +17,7 @@ from .records import Field, FieldRef, Record, RecordError, State, pages, pick
 from .values import Audio, Id, Image, Money, Page, Phrase, RichText, Secret, Series, Text, Video, t
 
 __all__ = [
-    "Context", "Reject", "UndeclaredOutcome", "invoke",
+    "Context", "Reject", "UndeclaredOutcome", "invoke", "outcomes",
     "Action", "After", "App", "Audio", "Back", "Call", "Copy", "Destination", "Done", "Download", "Field",
     "FieldRef", "Frame", "Goto", "Hub", "Id", "Image", "Jump", "Money", "Open", "Outcome", "Page", "Phrase", "Record",
     "RecordError", "RichText", "Secret", "Series", "Show", "State", "Stay", "Tape", "Text", "TextComponent",

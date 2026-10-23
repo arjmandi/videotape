@@ -35,13 +35,13 @@ class Post(vt.Record):
     caption: vt.RichText                                   # mentions and hashtags are links
 
 
-async def like(ctx, post: Post) -> vt.Stay:
+async def like(ctx, post: Post):
     post.liked, post.likes = True, post.likes + 1          # on screen now; rolled back if the call fails
     await db.like(ctx.user.id, post.id)
     return vt.stay()
 
 
-async def unlike(ctx, post: Post) -> vt.Stay:                                 # filled in
+async def unlike(ctx, post: Post):                                 # filled in
     post.liked, post.likes = False, post.likes - 1
     await db.unlike(ctx.user.id, post.id)
     return vt.stay()
@@ -78,11 +78,11 @@ class Story(vt.Record):
 async def load_story(ctx, index: int = 0) -> Story: ...                        # filled in
 
 
-async def next_story(ctx, s: Story) -> vt.Jump["stories"] | vt.Back:         # filled in
+async def next_story(ctx, s: Story):         # filled in
     return vt.back()
 
 
-async def previous_story(ctx, s: Story) -> vt.Jump["stories"]:                 # filled in
+async def previous_story(ctx, s: Story):                 # filled in
     return vt.jump("stories")
 
 

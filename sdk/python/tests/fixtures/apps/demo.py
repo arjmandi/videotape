@@ -61,7 +61,7 @@ async def load_page(ctx, page: str = "intro") -> Page:
     return Page(id=page, title=p.title, body=vt.RichText.from_markdown(p.markdown), toc=await docs_index.toc())
 
 
-async def search_docs(ctx, s: Search) -> vt.Stay:
+async def search_docs(ctx, s: Search):
     s.results = await docs_index.search(s.q, limit=8)
     return vt.stay()
 
@@ -106,7 +106,7 @@ class Report(vt.Record):
     summary: vt.RichText
 
 
-async def export_csv(ctx, r: Report) -> vt.Download:
+async def export_csv(ctx, r: Report):
     return vt.download(f"{r.id}.csv", await reports.csv(r.id))
 
 
@@ -142,11 +142,11 @@ landing = vt.tape("landing", [
 ])
 
 
-async def sign_in(ctx, c: Credentials) -> vt.Jump["dashboard"]:
+async def sign_in(ctx, c: Credentials):
     user = await auth.login(c.username, c.password)
     if user is None:
         raise vt.Reject("That email and password do not match.")
-    return vt.jump("dashboard", sign_in=user.id)
+    return vt.jump("dashboard", sign_in=user)
 
 
 login = vt.tape("login", [

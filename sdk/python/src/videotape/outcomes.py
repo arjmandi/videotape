@@ -1,35 +1,18 @@
 """Outcomes: where the journey goes (05 §6.3, 06 §3.4 and §6).
 
-`vt.jump("dashboard")` is an outcome; `vt.Jump["dashboard"]` is its type, which a handler names as
-its return type so the journey graph knows the edge without running anything.
+`vt.jump("dashboard")` is an outcome. An action holds one as data; a handler returns one, and the
+SDK reads the handler's edges from those returns (`videotape.decisions`).
 """
 
 from __future__ import annotations
 
 import base64
 from dataclasses import dataclass, field
-from typing import Annotated, Any, ClassVar
+from collections.abc import Callable
+from typing import Any, ClassVar
 
-from ._encode import encode
+from ._encode import encode, name_of
 from .records import FieldRef, Record
-
-
-class Target:
-    """The tape or frame a return type names: the `"dashboard"` in `vt.Jump["dashboard"]`."""
-
-    __slots__ = ("name",)
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-
-    def __repr__(self) -> str:
-        return f"Target({self.name!r})"
-
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, Target) and other.name == self.name
-
-    def __hash__(self) -> int:
-        return hash(self.name)
 
 
 class Outcome:
@@ -41,23 +24,17 @@ class Outcome:
         raise NotImplementedError
 
 
-class _Named(Outcome):
-    """An outcome whose type names a target: `vt.Jump["dashboard"]`, `vt.Goto["confirm"]`."""
-
-    def __class_getitem__(cls, name: str) -> Any:
-        if not isinstance(name, str):
-            raise TypeError(f"vt.{cls.__name__}[...] takes the name of a {cls._names}, such as vt.{cls.__name__}['x']")
-        return Annotated[cls, Target(name)]
-
-    _names: ClassVar[str] = "tape"
-
-
 @dataclass
 class _Identity:
-    """`sign_in=user_id` or `sign_out=True` on an outcome tells the engine who the user is (05 §6.2)."""
+    """`sign_in=user` (the user's record, with its `vt.Id`) or `sign_out=True` on an outcome tells the
+    engine who the user is, and starts a fresh history at the target (05 §6.2, §6.3)."""
 
     sign_in: Any = field(default=None, kw_only=True)
     sign_out: bool = field(default=False, kw_only=True)
+
+    @property
+    def resets(self) -> bool:
+        return self.sign_in is not None or bool(self.sign_out)
 
     def _identity(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -69,7 +46,7 @@ class _Identity:
 
 
 @dataclass
-class Jump(_Named, _Identity):
+class Jump(Outcome, _Identity):
     """Switch journey; the current place goes on the history. Arguments reach the tape's loader."""
 
     type: ClassVar[str] = "jump"
@@ -84,11 +61,10 @@ class Jump(_Named, _Identity):
 
 
 @dataclass
-class Goto(_Named, _Identity):
+class Goto(Outcome, _Identity):
     """The next step in the same tape. Frames you goto need an `id=`."""
 
     type: ClassVar[str] = "goto"
-    _names: ClassVar[str] = "frame"
     frame: str
 
     def to_json(self) -> dict[str, Any]:
@@ -116,15 +92,18 @@ class Stay(Outcome, _Identity):
 
 
 @dataclass
-class Call(_Named):
-    """A detour to a tape that returns a value to the caller as `ctx.result`."""
+class Call(Outcome):
+    """A detour to a tape whose `done(result)` reaches `then=`'s handler as its parameter `result`."""
 
     type: ClassVar[str] = "call"
     tape: str
     args: dict[str, Any] = field(default_factory=dict)
+    then: Callable[..., Any] | None = None
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {"type": "call", "tape": self.tape}
+        if self.then is not None:
+            out["then"] = {"handler": name_of(self.then)}
         if self.args:
             out["args"] = encode(self.args)
         return out
@@ -201,13 +180,16 @@ def stay(*, sign_in: Any = None, sign_out: bool = False) -> Stay:
     return Stay(sign_in=sign_in, sign_out=sign_out)
 
 
-def call(tape: str, **args: Any) -> Call:
-    """A detour to `tape`, which ends with `vt.done(result)`."""
-    return Call(tape, args)
+def call(tape: str, *, then: Callable[..., Any] | None = None, **args: Any) -> Call:
+    """A detour to `tape`, which ends with `vt.done(result)`; `then=` names the handler that receives
+    it as its parameter `result`. Without `then=`, the result is dropped."""
+    if then is not None and not callable(then):
+        raise TypeError("then= takes the handler that receives the call's result")
+    return Call(tape, args, then)
 
 
 def done(result: Any = None) -> Done:
-    """End a detour and hand `result` to the caller as `ctx.result`."""
+    """End a detour and hand `result` to the caller's `then=` handler."""
     return Done(result)
 
 
@@ -231,3 +213,9 @@ def copy(value: FieldRef | str) -> Copy:
 OUTCOME_TYPES: dict[str, type[Outcome]] = {
     c.type: c for c in (Jump, Goto, Back, Stay, Call, Done, Open, Download, Copy)
 }
+
+CONSTRUCTORS: dict[str, Callable[..., Outcome]] = {
+    "jump": jump, "goto": goto, "back": back, "stay": stay, "call": call, "done": done, "open": open,
+    "download": download,
+}  # fmt: skip
+"""The outcomes a handler returns, by name; the SDK recognises them in a handler's body by identity."""

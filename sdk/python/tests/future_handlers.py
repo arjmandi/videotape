@@ -5,18 +5,24 @@ from __future__ import annotations
 import videotape as vt
 
 
-async def confirm(ctx, order: Order) -> vt.Goto["done"] | vt.Jump["orders"] | vt.Back:
-    return vt.back()
+async def confirm(ctx, order: Order):
+    if order.total > 100:
+        return vt.goto("done")
+    return vt.jump("orders", order_id=order.id) if order.id else vt.back()
 
 
-async def pick(ctx, order: Order) -> vt.Call["pick_address"]:
-    return vt.call("pick_address")
+async def pick(ctx, order: Order):
+    return vt.call("pick_address", then=address_picked, order_id=order.id)
 
 
-async def nameless(ctx, order: Missing) -> vt.Stay:  # noqa: F821 - Missing is never defined
+async def address_picked(ctx, order: Order, result: str):
+    return vt.stay()
+
+
+async def nameless(ctx, order: Missing):  # noqa: F821 - Missing is never defined
     return vt.stay()
 
 
 class Order(vt.Record):
-    id: str = vt.Field(show=False)
+    id: vt.Id
     total: vt.Money

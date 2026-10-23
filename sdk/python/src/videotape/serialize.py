@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ._encode import encode, encode_target, name_of
-from .decisions import read, returns_kind
+from .decisions import Declared, read, returns_kind
 from .derive import Use, components, frame_records, uses
 from .diagnostics import Diagnostic, error
 from .intent import Action, App, Frame, Show, Tape
@@ -37,6 +37,8 @@ class Edge:
     """The tape (jump, call, hub) or frame (goto) the outcome names."""
     to: str | None = None
     """The frame it reaches, when known statically: absent for back and done, and for unknown names."""
+    resets: bool = False
+    """The outcome signs in or out, so history starts again at its target (Q31)."""
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {"from": self.source}
@@ -45,6 +47,8 @@ class Edge:
         out["type"] = self.type
         if self.target is not None:
             out["tape" if self.type in ("jump", "call", "hub") else "frame"] = self.target
+        if self.resets:
+            out["resets_history"] = True
         out["via"] = self.via
         return out
 
@@ -69,19 +73,17 @@ def resolve(app: App, frame: Frame, kind: str, name: str | None) -> str | None:
     return None
 
 
-def outcome_edge(app: App, use: Use, kind: str, name: str | None, via: dict[str, Any]) -> Edge | None:
-    if kind not in MOVES:
+def outcome_edge(app: App, use: Use, d: Declared, via: dict[str, Any]) -> Edge | None:
+    if d.type not in MOVES:
         return None
-    return Edge(use.frame.node, kind, via, name, resolve(app, use.frame, kind, name))
+    return Edge(use.frame.node, d.type, via, d.target, resolve(app, use.frame, d.type, d.target), d.resets)
 
 
-def static_edge(app: App, use: Use) -> Edge | None:
-    """The edge a static outcome makes; a handler's edges come from its return type."""
-    o = use.target
-    if not isinstance(o, Outcome):
-        return None
-    name = getattr(o, "tape", None) or getattr(o, "frame", None)
-    return outcome_edge(app, use, o.type, name, use.via)
+def declared_at(use: Use) -> list[Declared]:
+    """What a use can do: its static outcome, or the outcomes its handler returns."""
+    if isinstance(use.target, Outcome):
+        return [Declared.of(use.target)]
+    return read(use.target).outcomes
 
 
 def hub_edges(app: App) -> list[Edge]:
@@ -211,12 +213,9 @@ class Builder:
     # ── edges ──
 
     def use_edges(self, u: Use) -> list[Edge]:
-        """A static outcome's edge, or the edges a handler's return type declares."""
-        if u.handler is None:
-            edge = static_edge(self.app, u)
-            return [edge] if edge else []
-        via = {**u.via, "handler": name_of(u.handler)}
-        edges = (outcome_edge(self.app, u, d.type, d.target, via) for d in read(u.handler).outcomes)
+        """A static outcome's edge, or the edges of the outcomes a handler returns."""
+        via = u.via if u.handler is None else {**u.via, "handler": name_of(u.handler)}
+        edges = (outcome_edge(self.app, u, d, via) for d in declared_at(u))
         return [e for e in edges if e is not None]
 
     # ── records ──

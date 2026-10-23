@@ -10,7 +10,8 @@ from typing import Any
 
 from ._encode import encode, encode_target
 from .intent import Frame, Show, Text
-from .outcomes import Outcome, call
+from .decisions import read
+from .outcomes import Call, Outcome, call
 from .records import FieldSpec, Record, fields_of, id_field, records_in
 
 AFFORDANCES = ("read", "write", "press", "choose", "adjust", "move", "add", "remove", "scroll", "play")
@@ -29,6 +30,8 @@ class Use:
     """For an action on each item of a collection, the item's record."""
     to: type | None = None
     """For a move, its target."""
+    continuation: bool = False
+    """The `then=` handler of a call made here: it runs here when the call returns, with `result`."""
 
     @property
     def handler(self) -> Callable[..., Any] | None:
@@ -80,6 +83,19 @@ def uses(frame: Frame) -> list[Use]:
                 out.append(Use(frame, {"pick": str(f.ref)}, call(f.options["pick"])))
     if frame.after is not None:
         out.append(Use(frame, {"after": frame.after.seconds}, frame.after.then))
+    # A call's `then=` handler runs here when the call returns, so it is used here too (Q37).
+    seen: list[Callable[..., Any]] = []
+    for u in out:  # grows while it is read: a continuation may make calls of its own
+        if isinstance(u.target, Call):
+            calls = [(u.target.tape, u.target.then)]
+        elif u.handler is not None:
+            calls = [(d.target, d.then) for d in read(u.handler).declared[0] if d.type == "call"]
+        else:
+            calls = []
+        for tape, then in calls:
+            if then is not None and then not in seen:
+                seen.append(then)
+                out.append(Use(frame, {"then": tape}, then, continuation=True))
     return out
 
 

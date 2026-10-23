@@ -63,19 +63,19 @@ async def comments_page(ctx, w: Watch, cursor: str | None) -> vt.Page[Comment]:
     return vt.Page(*await db.comments(w.id, after=cursor, limit=20))
 
 
-async def subscribe(ctx, w: Watch) -> vt.Stay:
+async def subscribe(ctx, w: Watch):
     w.channel.subscribed = True
     await db.subscribe(ctx.user.id, w.channel.id)
     return vt.stay()
 
 
-async def unsubscribe(ctx, w: Watch) -> vt.Stay:                             # filled in
+async def unsubscribe(ctx, w: Watch):                             # filled in
     w.channel.subscribed = False
     await db.unsubscribe(ctx.user.id, w.channel.id)
     return vt.stay()
 
 
-async def play_next(ctx, w: Watch) -> vt.Jump["watch"]:
+async def play_next(ctx, w: Watch):
     return vt.jump("watch", video_id=w.up_next[0].id)
 
 
@@ -105,7 +105,7 @@ class VideoSearch(vt.Record):
     results: list[VideoCard] = vt.Field(select=vt.jump("watch", video_id=VideoCard.id))
 
 
-async def search_videos(ctx, s: VideoSearch) -> vt.Stay:
+async def search_videos(ctx, s: VideoSearch):
     return vt.stay()
 
 
