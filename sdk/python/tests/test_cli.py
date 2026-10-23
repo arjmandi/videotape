@@ -56,12 +56,12 @@ def test_check_prints_json():
     diagnostics = json.loads(run.stdout)
     assert [d["code"] for d in diagnostics] == ["unknown-tape", "unknown-tape"]
     assert diagnostics[0] == {
-        "level": "error", "code": "unknown-tape", "at": "home/write-a-note",
+        "level": "error", "code": "unknown-tape", "at": "home",
         "message": "save() returns vt.jump('notes'), but there is no tape 'notes'"}  # fmt: skip
 
 
 def test_intent_fails_on_an_unreadable_record():
-    run = videotape("intent", "unreadable_record", "--app-dir", str(BROKEN))
+    run = videotape("intent", "bad_record", "--app-dir", str(BROKEN))
     assert run.returncode == 1 and "Line" in run.stderr
 
 

@@ -1,8 +1,7 @@
 """06 §9.1, the demo: landing, docs, sign-in, dashboard, report.
 
 The guide's code is kept as written; what it leaves out is filled in below the marked lines:
-service stubs, the landing and login tapes (from §2.2), `load_report` (from §5.1), and a way off
-the docs page and the report.
+service stubs, the landing and login tapes (from §2.2), and `load_report` (from §5.1).
 """
 
 from __future__ import annotations
@@ -68,8 +67,7 @@ async def search_docs(ctx, s: Search):
 
 docs = vt.tape("docs", [
     vt.frame("Read one page of the docs", address="/docs/{page}", public=True,
-             shows=Page, enter=load_page, edit=Search, on_change={Search.q: search_docs},
-             actions=[vt.action("Sign in", vt.jump("login"))]),                    # filled in: a way off
+             shows=Page, enter=load_page, edit=Search, on_change={Search.q: search_docs}),
 ])
 
 
@@ -119,8 +117,7 @@ async def load_report(ctx, project_id: str) -> Report:
 
 report = vt.tape("report", [
     vt.frame("Read one report", address="/projects/{project_id}", shows=Report, enter=load_report,
-             actions=[vt.action("Export CSV", export_csv, role="primary"),
-                      vt.action("Back to projects", vt.back())]),                    # filled in: a way off
+             actions=[vt.action("Export CSV", export_csv, role="primary")]),
 ])
 
 # ── filled in: landing and sign-in, from 06 §2.2 ──
@@ -132,7 +129,7 @@ class Credentials(vt.Record):
 
 
 landing = vt.tape("landing", [
-    vt.frame("Say what Hello is and lead to sign-in", id="intro", address="/", public=True,
+    vt.frame("Say what Hello is and lead to sign-in", address="/", public=True,
              components=[
                  vt.text("Hello, team.", role="heading"),
                  vt.text("Plans, notes, and decisions in one quiet place.", role="supporting"),

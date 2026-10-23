@@ -2,9 +2,9 @@
 
 The rules prototype-0's `check.ts` had that still apply are ported (duplicate ids, unknown tapes
 and frames, unreachable frames, dead ends, closed cycles, more than one primary action, values
-with nowhere to go, events a component cannot report); the rest are v2's. Errors make
-`videotape check` fail; warnings do not. Running the composer on the reference screens is not
-here yet: there is no composer.
+with nowhere to go, events a component cannot report); the rest are v2's, most of them from the
+decisions in 05 §18.1. Errors make `videotape check` fail; warnings do not. Running the composer
+on the reference screens is not here yet: there is no composer.
 """
 
 from __future__ import annotations
@@ -16,29 +16,32 @@ from typing import Any
 
 from ._encode import name_of
 from .decisions import Declared, accepts, read, returns_kind
-from .derive import components, edited_records, frame_records, uses
+from .derive import components, edited_records, field_context, held, input_records, uses
 from .diagnostics import Diagnostic, error, warning
-from .graph import closed_cycles, graph, has_exit, reachable
-from .intent import App, Frame, Show
+from .graph import closed_cycles, has_exit, journey, reachable
+from .intent import App, Frame, Show, Text
 from .outcomes import Copy, Outcome
 from .records import FieldRef, RecordError, fields_of, kind_of
 from .serialize import Built, build, declared_at
+from .values import Phrase
 
 RULES: dict[str, tuple[str, str]] = {
-    "unreadable-record": ("error", "a record names a type that is not defined"),
+    "bad-record": ("error", "a record cannot be read: an undefined type, two vt.Id fields, or an option on the wrong type"),
     "duplicate-id": ("error", "two tapes, frames, addresses, handlers, loaders, or records share a name"),
     "unknown-entry": ("error", "the app's entry tape does not exist"),
-    "unknown-tape": ("error", "an action, a handler's return type, a pick, or the hub names a tape that does not exist"),
+    "unknown-tape": ("error", "an outcome, a pick, or the hub names a tape that does not exist"),
     "unknown-frame": ("error", "a goto names a frame its tape does not have"),
-    "goto-unnamed-frame": ("error", "a goto reaches a frame that has no id="),
+    "unnamed-frame": ("error", "a frame in a tape of several has no id="),
     "unreadable-outcome": ("error", "a handler returns an outcome its body does not say, and has no @vt.outcomes"),
     "then-without-result": ("error", "a call's then= handler takes no result parameter"),
-    "unknown-document": ("error", "a handler takes a record its frame neither shows nor edits"),
+    "unknown-document": ("error", "a handler or loader takes a record its frame neither shows nor edits"),
+    "ambiguous-record": ("error", "a record is named by its type where the frame holds it more than once"),
     "on-unshown-record": ("error", "an action is on= a record its frame does not show"),
     "secret-shown": ("error", "a frame shows a field of secret type"),
+    "hidden-required": ("error", "an edit frame hides a required field other than its vt.Id"),
     "address-param": ("error", "an address has a parameter the frame's loader does not take"),
     "public-without-address": ("error", "a public frame has no address"),
-    "loader-returns": ("error", "a frame's loader returns something other than what the frame shows"),
+    "loader-returns": ("error", "a loader returns something other than what its frame shows, or its list holds"),
     "unknown-field": ("error", "a field reference names a record the frame neither shows nor edits"),
     "not-bool": ("error", "visible= or hidden= names a field that is not a bool"),
     "bad-event": ("error", "vt.show listens for an event its field cannot report"),
@@ -47,7 +50,7 @@ RULES: dict[str, tuple[str, str]] = {
     "multiple-primary": ("warning", "a frame has more than one primary action"),
     "unused-edit": ("warning", "a frame edits a record but nothing receives it"),
     "unreachable-frame": ("warning", "a frame cannot be reached from the entry"),
-    "no-exit": ("warning", "a frame has no way out (a dead end)"),
+    "no-exit": ("warning", "a frame has no way out: no declared exit, no back, and no hub (a dead end)"),
     "closed-cycle": ("warning", "frames form a cycle the journey cannot leave"),
 }
 """Every rule `check` runs: code → (level, what it finds). Errors make `videotape check` fail."""
@@ -60,7 +63,7 @@ def check(app: App) -> list[Diagnostic]:
     try:
         built = build(app)
     except RecordError as e:
-        return [error("unreadable-record", str(e))]
+        return [error("bad-record", str(e))]
     return _Checker(app, built).run()
 
 
@@ -73,10 +76,16 @@ def _source(via: dict[str, Any]) -> str:
     return f'{key} "{value}"' if key in ("action", "submit") else f"{key} {value}"
 
 
+def _label(value: Any) -> str:
+    return value if isinstance(value, str) else str(value)
+
+
 def _refs(value: Any) -> Iterator[FieldRef]:
-    """Field references inside an outcome's arguments, a copy, or a done."""
+    """Field references inside an outcome's arguments, a copy, a done, or copy's parameters."""
     if isinstance(value, FieldRef):
         yield value
+    elif isinstance(value, Phrase):
+        yield from _refs(value.params)
     elif isinstance(value, Copy):
         yield from _refs(value.value)
     elif isinstance(value, Outcome):
@@ -108,6 +117,18 @@ def _dupes(items: list[str]) -> list[str]:
     return out
 
 
+def _a(word: str) -> str:
+    return f"{'an' if word[0] in 'aeiou' else 'a'} {word}"
+
+
+def _kind_words(kind: Any) -> str:
+    if kind.type == "record":
+        return kind.target.__name__
+    if kind.type in ("collection", "page") and kind.item is not None:
+        return f"{'a list' if kind.type == 'collection' else 'a page'} of {_kind_words(kind.item)}"
+    return kind.type
+
+
 class _Checker:
     def __init__(self, app: App, built: Built) -> None:
         self.app, self.built = app, built
@@ -120,17 +141,21 @@ class _Checker:
     def run(self) -> list[Diagnostic]:
         self.ids()
         self.entry()
+        self.names()
         self.targets()
         self.returns()
         for f in self.app.frames:
-            self.documents(f)
-            self.items(f)
+            counts = held(f)
+            self.documents(f, counts)
+            self.items(f, counts)
             self.secrets(f)
+            self.hidden(f)
             self.address(f)
             self.loader(f)
-            self.fields(f)
+            self.fields(f, counts)
             self.primaries(f)
             self.edits(f)
+        self.pages()
         self.arguments()
         self.journey()
         return self.out
@@ -141,7 +166,7 @@ class _Checker:
         for id in _dupes([t.id for t in self.app.tapes]):
             self.report(error("duplicate-id", f"tape '{id}' is defined more than once", id))
         for t in self.app.tapes:
-            for id in _dupes([f.key for f in t.frames]):
+            for id in _dupes([f.id for f in t.frames if f.id]):
                 self.report(error("duplicate-id", f"frame '{id}' is defined more than once", f"{t.id}/{id}"))
         by_address: dict[str, list[str]] = {}
         for f in self.app.frames:
@@ -155,6 +180,16 @@ class _Checker:
         if self.app.tape(self.app.entry) is None:
             self.report(error("unknown-entry", f"the app's entry tape '{self.app.entry}' does not exist"))
 
+    def names(self) -> None:
+        """A place is its tape plus the frame's id; a tape of several frames names each (Q36)."""
+        for t in self.app.tapes:
+            if len(t.frames) < 2:
+                continue
+            for f in t.frames:
+                if f.id is None:
+                    message = f'"{f.purpose}" is one of {len(t.frames)} frames in tape \'{t.id}\' and needs an id='
+                    self.report(error("unnamed-frame", message, f.node))
+
     def targets(self) -> None:
         for e in self.built.edges:
             if e.type in ("jump", "call") and self.app.tape(e.target) is None:
@@ -163,17 +198,10 @@ class _Checker:
                 else:
                     message = f"{_source(e.via)} goes to tape '{e.target}', which does not exist"
                 self.report(error("unknown-tape", message, e.source))
-            elif e.type == "goto":
+            elif e.type == "goto" and e.to is None:
                 tape_id = e.source.split("/", 1)[0]
-                tape = self.app.tape(tape_id)
-                target = tape.frame(e.target) if tape and e.target else None
-                if target is None:
-                    message = f"{_source(e.via)} does goto('{e.target}'), but tape '{tape_id}' has no such frame"
-                    self.report(error("unknown-frame", message, e.source))
-                elif target.id is None:
-                    message = (f"{_source(e.via)} does goto('{e.target}'), which is only the id derived from "
-                               f"\"{target.purpose}\"; frames you goto need id='{e.target}'")  # fmt: skip
-                    self.report(error("goto-unnamed-frame", message, e.source))
+                message = f"{_source(e.via)} does goto('{e.target}'), but tape '{tape_id}' has no frame with that id"
+                self.report(error("unknown-frame", message, e.source))
         if self.app.hub is not None:
             for d in self.app.hub.destinations:
                 if self.app.tape(d.tape) is None:
@@ -193,10 +221,23 @@ class _Checker:
             if problem:
                 self.report(error("unreadable-outcome", problem, f"{name}()"))
 
-    # ── per frame ──
+    # ── references to records (Q38) ──
 
-    def documents(self, f: Frame) -> None:
-        scope = frame_records(f)
+    def resolve(self, f: Frame, counts: dict[type, int], record: type, context: tuple[type, ...], where: str,
+                missing: str) -> bool:  # fmt: skip
+        """Whether `record`, named by its type, means one document here; reports what it cannot."""
+        if record in context:
+            return True
+        n = counts.get(record, 0)
+        if n == 0:
+            self.report(error(missing, f"{where}: this frame neither shows nor edits {_a(record.__name__)}", f.node))
+        elif n > 1:
+            message = (f"{where}: this frame holds {record.__name__} {n} times; name the field that holds "
+                       f"the one you mean, as in on=Page.toc")  # fmt: skip
+            self.report(error("ambiguous-record", message, f.node))
+        return n == 1
+
+    def documents(self, f: Frame, counts: dict[type, int]) -> None:
         for u in uses(f):
             if u.handler is None:
                 continue
@@ -209,27 +250,32 @@ class _Checker:
             for p in sig.params:
                 if u.continuation and p.name == "result":
                     continue
+                if u.to is not None and p.annotation is u.to:
+                    continue
                 if p.annotation is _EMPTY:
                     message = f"{sig.name}() takes {p.name} without a type; annotate it with the record it receives"
-                elif p.record is not None and (p.record in scope or p.record is u.to):
-                    continue
-                elif u.to is not None and p.annotation is u.to:
-                    continue
-                elif p.record is not None:
-                    message = f"{sig.name}() takes {p.name}: {p.record.__name__}, which this frame neither shows nor edits"
-                else:
+                    self.report(error("unknown-document", message, f.node))
+                elif p.record is None:
                     shown = getattr(p.annotation, "__name__", repr(p.annotation))
                     message = (f"{sig.name}() takes {p.name}: {shown}, which is neither a record this frame "
                                f"shows or edits nor the target of a move")  # fmt: skip
-                self.report(error("unknown-document", message, f.node))
+                    self.report(error("unknown-document", message, f.node))
+                else:
+                    where = f"{sig.name}() takes {p.name}: {p.record.__name__}"
+                    self.resolve(f, counts, p.record, u.context, where, "unknown-document")
 
-    def items(self, f: Frame) -> None:
-        scope = frame_records(f)
+    def items(self, f: Frame, counts: dict[type, int]) -> None:
         for a in f.actions:
-            if a.on is not None and a.on not in scope:
-                label = a.label if isinstance(a.label, str) else str(a.label)
-                message = f'action "{label}" is on={a.on.__name__}, which this frame does not show'
-                self.report(error("on-unshown-record", message, f.node))
+            if a.on is None:
+                continue
+            where = f'action "{_label(a.label)}" is on={a.on if isinstance(a.on, FieldRef) else a.on.__name__}'
+            if isinstance(a.on, FieldRef):
+                if a.on.spec.kind.record is None:
+                    self.report(error("on-unshown-record", f"{where}, which holds no records", f.node))
+                    continue
+                self.resolve(f, counts, a.on.record, (), where, "on-unshown-record")
+            else:
+                self.resolve(f, counts, a.on, (), where, "on-unshown-record")
 
     def secrets(self, f: Frame) -> None:
         comps, _ = components(f)
@@ -237,6 +283,15 @@ class _Checker:
             if node.get("type") == "secret" and source == "shows":
                 message = f"{node['field']} is a secret, and this frame shows it: secrets are written, never drawn"
                 self.report(error("secret-shown", message, f.node))
+
+    def hidden(self, f: Frame) -> None:
+        """An edit frame whose form hides a required field can never be complete (Q35)."""
+        for r in input_records(f):
+            for spec in fields_of(r):
+                if spec.required and not spec.shown and not spec.state and spec.kind.type != "id":
+                    message = (f"the frame edits {r.__name__}, whose required {spec.name} is not shown, so the "
+                               f"form can never be complete; show it, give it a default, or make it a vt.Id")  # fmt: skip
+                    self.report(error("hidden-required", message, f.node))
 
     def address(self, f: Frame) -> None:
         if f.public and not f.address:
@@ -265,61 +320,94 @@ class _Checker:
         expected = f.shows if f.shows is not None else f.edit
         got = returns_kind(sig.returns)
         if expected is None:
-            message = f"{sig.name}() returns {got.type} {got.record.__name__ if got.record else ''}".rstrip()
-            self.report(error("loader-returns", f"{message}, but the frame shows and edits nothing", f.node))
+            message = f"{sig.name}() returns {_kind_words(got)}, but the frame shows and edits nothing"
+            self.report(error("loader-returns", message, f.node))
             return
         want = kind_of(expected)
         if {**got.to_json(), "nullable": None} != {**want.to_json(), "nullable": None}:
-            message = f"{sig.name}() returns {_kind_words(got)}, but the frame {'shows' if f.shows is not None else 'edits'} {_kind_words(want)}"
+            verb = "shows" if f.shows is not None else "edits"
+            message = f"{sig.name}() returns {_kind_words(got)}, but the frame {verb} {_kind_words(want)}"
             self.report(error("loader-returns", message, f.node))
 
-    def fields(self, f: Frame) -> None:
-        scope = frame_records(f)
+    def pages(self) -> None:
+        """`@vt.pages` loaders: a page of the list's items, from the cursor and the list's holder."""
+        for r in self.built.records:
+            for spec in fields_of(r):
+                loader = spec.pages
+                if loader is None:
+                    continue
+                sig = read(loader)
+                at = f"{sig.name}()"
+                if spec.kind.type != "collection":
+                    self.report(error("loader-returns", f"@vt.pages({spec.ref}): {spec.ref} is not a list", at))
+                    continue
+                if sig.problem:
+                    self.report(error("loader-returns", sig.problem, at))
+                    continue
+                want = {"type": "page", "item": spec.kind.item.to_json()} if spec.kind.item else None
+                if sig.returns is not _EMPTY and returns_kind(sig.returns).to_json() != want:
+                    message = (f"@vt.pages({spec.ref}): {sig.name}() returns {_kind_words(returns_kind(sig.returns))}, "
+                               f"not a page of {_kind_words(spec.kind.item)}")  # fmt: skip
+                    self.report(error("loader-returns", message, at))
+                for p in sig.params:
+                    if p.name == "cursor" or p.record is spec.record:
+                        continue
+                    message = (f"@vt.pages({spec.ref}): {sig.name}() takes {p.name}; a pages loader takes the "
+                               f"cursor and the {spec.record.__name__} that holds the list")  # fmt: skip
+                    self.report(error("unknown-document", message, at))
+
+    def fields(self, f: Frame, counts: dict[type, int]) -> None:
         edited = edited_records(f)
-        refs: list[tuple[FieldRef, str]] = []
+        refs: list[tuple[FieldRef, tuple[type, ...], str]] = []
         flags: list[tuple[FieldRef, str]] = []
 
-        def add_flags(owner: str, options: dict[str, Any]) -> None:
+        def add_flags(owner: str, options: dict[str, Any], context: tuple[type, ...]) -> None:
             for key in ("visible", "hidden"):
                 if isinstance(options.get(key), FieldRef):
+                    refs.append((options[key], context, f"{owner} {key}="))
                     flags.append((options[key], f"{owner} {key}="))
 
+        refs.extend((r, (), f"the frame's title {f.title!r}") for r in _refs(f.title))
         for c in f.components:
-            if isinstance(c, Show):
-                refs.append((c.ref, "vt.show"))
-                refs.extend((r, f"vt.show({c.ref})") for r in _refs(c.options.get("press")))
-                add_flags(f"vt.show({c.ref})", c.options.values)
-                for event in c.events:
-                    kind = c.ref.spec.kind.type
-                    if event == "change" and c.ref.record not in edited:
-                        message = f"vt.show({c.ref}, on_change=...): this frame does not edit {c.ref.record.__name__}"
-                        self.report(error("bad-event", message, f.node))
-                    elif event != "change" and kind not in ("video", "audio"):
-                        message = (f"vt.show({c.ref}, on_{event}=...): {c.ref} is {_a(kind)} field, and only "
-                                   f"video and audio report {event}")  # fmt: skip
-                        self.report(error("bad-event", message, f.node))
+            if isinstance(c, Text):
+                refs.extend((r, (), f"vt.text({getattr(c.value, 'key', c.value)!r})") for r in _refs(c.value))
+                continue
+            assert isinstance(c, Show)
+            refs.append((c.ref, (), f"vt.show({c.ref})"))
+            refs.extend((r, (c.ref.record,), f"vt.show({c.ref}) press=") for r in _refs(c.options.get("press")))
+            add_flags(f"vt.show({c.ref})", c.options.values, (c.ref.record,))
+            for event in c.events:
+                kind = c.ref.spec.kind.type
+                if event == "change" and c.ref.record not in edited:
+                    message = f"vt.show({c.ref}, on_change=...): this frame does not edit {c.ref.record.__name__}"
+                    self.report(error("bad-event", message, f.node))
+                elif event != "change" and kind not in ("video", "audio"):
+                    message = (f"vt.show({c.ref}, on_{event}=...): {c.ref} is {_a(kind)} field, and only "
+                               f"video and audio report {event}")  # fmt: skip
+                    self.report(error("bad-event", message, f.node))
         for ref in f.on_change:
             if ref.record not in edited:
                 self.report(error("unknown-field", f"on_change names {ref}, which this frame does not edit", f.node))
+            else:
+                refs.append((ref, (), f"on_change {ref}"))
         for a in f.actions:
-            label = a.label if isinstance(a.label, str) else str(a.label)
-            where = f'action "{label}"'
-            if isinstance(a.label, FieldRef):
-                refs.append((a.label, where))
-            refs.extend((r, where) for r in _refs(a.target))
-            add_flags(where, {"visible": a.visible, "hidden": a.hidden})
-        for r in scope:
+            where = f'action "{_label(a.label)}"'
+            context = (a.on_record,) if a.on is not None else ()
+            refs.extend((r, context, where) for r in _refs(a.label))
+            refs.extend((r, context, where) for r in _refs(a.target))
+            add_flags(where, {"visible": a.visible, "hidden": a.hidden}, context)
+        if f.submit is not None:
+            refs.extend((r, (), "submit=") for r in _refs(f.submit_label))
+        for r in counts:
             for spec in fields_of(r):
+                context = field_context(spec)
                 for key in ("select", "press"):
-                    refs.extend((ref, f"{spec.ref} {key}=") for ref in _refs(spec.options.get(key)))
+                    refs.extend((ref, context, f"{spec.ref} {key}=") for ref in _refs(spec.options.get(key)))
                 if isinstance(spec.options.get("group_by"), FieldRef):
-                    refs.append((spec.options["group_by"], f"{spec.ref} group_by="))
-                add_flags(str(spec.ref), spec.options)
-        refs.extend(flags)
-        for ref, where in refs:
-            if ref.record not in scope:
-                message = f"{where} names {ref}, but this frame shows and edits no {ref.record.__name__}"
-                self.report(error("unknown-field", message, f.node))
+                    refs.append((spec.options["group_by"], context, f"{spec.ref} group_by="))
+                add_flags(str(spec.ref), spec.options, context)
+        for ref, context, where in refs:
+            self.resolve(f, counts, ref.record, context, f"{where} names {ref}", "unknown-field")
         for ref, where in flags:
             kind = ref.spec.kind.type
             if kind != "boolean":
@@ -340,10 +428,10 @@ class _Checker:
         message = f"the frame edits {f.edit.__name__}, but no submit, on_change, or action receives it"
         self.report(warning("unused-edit", message, f.node))
 
-    # ── arguments ──
+    # ── arguments (Q34) ──
 
     def arguments(self) -> None:
-        """Each outcome's arguments against its target frame's loader and address (Q34)."""
+        """Each outcome's arguments against its target frame's loader and address."""
         for f in self.app.frames:
             for u in uses(f):
                 source = _source(u.via if u.handler is None else {**u.via, "handler": name_of(u.handler)})
@@ -382,35 +470,29 @@ class _Checker:
         sig = read(loader)
         if sig.problem:
             return
-        missing = [p.name for p in sig.params if p.required and p.name not in args and p.record is None]
+        missing = [p.name for p in sig.params if p.required and p.name not in args]
         if missing:
             message = f"{source} does {kind}('{name}') without {', '.join(missing)}, which {sig.name}() needs"
             self.report(error("missing-argument", message, at))
 
-    # ── the journey ──
+    # ── the journey (Q31, Q32) ──
 
     def journey(self) -> None:
         if self.app.tape(self.app.entry) is None:
             return
-        g = graph(self.app, self.built.edges)
+        j = journey(self.app, self.built.edges)
+        g = j.graph
         live = reachable(g)
+        frames = {f.node: f for f in self.app.frames}
         for n in g.nodes:
             if n not in live:
                 self.report(warning("unreachable-frame", "the frame cannot be reached from the entry", n))
             elif not has_exit(g, n):
-                self.report(warning("no-exit", "the frame has no way out: a dead end", n))
+                why = "it is a history root" if n in j.roots else "it has back=False"
+                hub = ", and the hub does not show here" if self.app.hub is not None and frames[n].hub else ""
+                message = f"the frame has no way out: no declared exit, and no back because {why}{hub}"
+                self.report(warning("no-exit", message, n))
         for scc in closed_cycles(g):
             if all(n in live for n in scc):
                 self.report(warning("closed-cycle", f"frames {', '.join(scc)} form a cycle with no way out", scc[0]))
 
-
-def _kind_words(kind: Any) -> str:
-    if kind.type == "record":
-        return kind.target.__name__
-    if kind.type in ("collection", "page") and kind.item is not None:
-        return f"{'a list' if kind.type == 'collection' else 'a page'} of {_kind_words(kind.item)}"
-    return kind.type
-
-
-def _a(word: str) -> str:
-    return f"{'an' if word[0] in 'aeiou' else 'a'} {word}"

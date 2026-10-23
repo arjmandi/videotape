@@ -54,11 +54,6 @@ def _check_flag(what: str, value: Any) -> FieldRef | None:
     raise TypeError(f"{what} takes a bool field such as Post.liked, never an expression; got {value!r}")
 
 
-def _slug(text: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug if slug and slug[0].isalpha() else f"frame-{slug}".rstrip("-")
-
-
 # ── components ───────────────────────────────────────────────────────────────
 
 
@@ -129,7 +124,8 @@ class Action:
 
     label: str | Phrase | FieldRef
     target: Target
-    on: type[Record] | None = None
+    on: type[Record] | FieldRef | None = None
+    """The record whose items it acts on, or the field that holds them (`on=Page.toc`, Q38)."""
     to: type | None = None
     gesture: str | None = None
     key: str | None = None
@@ -142,12 +138,19 @@ class Action:
     def affordance(self) -> str:
         return "move" if self.to is not None else "press"
 
+    @property
+    def on_record(self) -> type[Record] | None:
+        """The record of the items it acts on."""
+        if isinstance(self.on, FieldRef):
+            return self.on.spec.kind.record
+        return self.on
+
 
 def action(
     label: str | Phrase | FieldRef,
     target: Target,
     *,
-    on: type[Record] | None = None,
+    on: type[Record] | FieldRef | None = None,
     to: type | None = None,
     gesture: str | None = None,
     key: str | None = None,
@@ -156,8 +159,9 @@ def action(
     hidden: FieldRef | None = None,
     visible: FieldRef | None = None,
 ) -> Action:
-    """`on=` makes it an action on each item of a collection; `to=` makes it a move."""
-    if on is not None:
+    """`on=` makes it an action on each item of a collection, named by the item's record or, where the
+    frame holds that record more than once, by the field that holds them; `to=` makes it a move."""
+    if on is not None and not isinstance(on, FieldRef):
         _check_record("on=", on)
     if to is not None and not (isinstance(to, type) and issubclass(to, (Record, Enum))):
         raise TypeError(f"to= takes a record or an Enum, the target of a move; got {to!r}")
@@ -232,13 +236,19 @@ class Frame:
     actions: list[Action] = field(default_factory=list)
     on_change: dict[FieldRef, Callable[..., Any]] = field(default_factory=dict)
     after: After | None = None
+    back: bool = True
+    """Whether the platform's back leaves this frame when it has history (Q31)."""
+    hub: bool = True
+    """Whether the hub shows here when the frame's history began at a destination (Q32)."""
     key: str = ""
-    """The frame's name in the graph: its `id`, or one derived from its purpose."""
+    """The frame's name within its tape: its `id`; empty for a tape's only frame without one; `#n`
+    for an unnamed frame in a tape of several, which `check` reports."""
     tape: str = ""
 
     @property
     def node(self) -> str:
-        return f"{self.tape}/{self.key}"
+        """The frame's place in the graph: its tape, and its `id` in a tape of several (Q36)."""
+        return f"{self.tape}/{self.key}" if self.key else self.tape
 
     @property
     def shows_record(self) -> type[Record] | None:
@@ -279,8 +289,14 @@ def frame(
     actions: Sequence[Action] = (),
     on_change: dict[FieldRef, Callable[..., Any]] | None = None,
     after: After | None = None,
+    back: bool = True,
+    hub: bool = True,
 ) -> Frame:
-    """A frame. Its purpose is its accessible title, its primary action's label, and its place's brief."""
+    """A frame. Its purpose is its accessible title, its primary action's label, and its place's brief.
+
+    `back=False` removes the platform's back where returning would be wrong, such as after a
+    payment; `hub=False` hides the hub for a full-screen moment, such as a story.
+    """
     if not isinstance(purpose, str) or not purpose.strip():
         raise TypeError("a frame's first argument is its purpose: one sentence")
     if id is not None:
@@ -312,9 +328,12 @@ def frame(
             raise TypeError("on_change= maps field references to handlers: {Search.q: search_docs}")
     if after is not None and not isinstance(after, After):
         raise TypeError("after= takes vt.after(seconds=..., then=...)")
+    for flag, value in (("back", back), ("hub", hub)):
+        if not isinstance(value, bool):
+            raise TypeError(f"{flag}= takes True or False")
     return Frame(
         purpose, id, title, shows, edit, submit, enter, address, bool(public), list(components), list(actions),
-        changes, after,
+        changes, after, back, hub,
     )  # fmt: skip
 
 
@@ -329,8 +348,9 @@ class Tape:
     def entry(self) -> Frame:
         return self.frames[0]
 
-    def frame(self, key: str) -> Frame | None:
-        return next((f for f in self.frames if f.key == key), None)
+    def frame(self, id: str) -> Frame | None:  # noqa: A002
+        """The frame with this `id=`, which is how `goto` names a frame."""
+        return next((f for f in self.frames if f.id == id), None)
 
 
 def tape(id: str, frames: Sequence[Frame]) -> Tape:  # noqa: A002 - the design's name
@@ -343,18 +363,9 @@ def tape(id: str, frames: Sequence[Frame]) -> Tape:  # noqa: A002 - the design's
             raise TypeError(f"tape {id!r} takes vt.frame(...); got {f!r}")
         if f.tape and f.tape != id:
             raise ValueError(f"frame {f.purpose!r} is already in tape {f.tape!r}")
-    taken = {f.id for f in items if f.id}
-    for f in items:
+    for n, f in enumerate(items, 1):
         f.tape = id
-        if f.id:
-            f.key = f.id
-            continue
-        base = key = _slug(f.purpose)
-        n = 2
-        while key in taken:
-            key, n = f"{base}-{n}", n + 1
-        f.key = key
-        taken.add(key)
+        f.key = f.id or ("" if len(items) == 1 else f"#{n}")
     return Tape(id, items)
 
 

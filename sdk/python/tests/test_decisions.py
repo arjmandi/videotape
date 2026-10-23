@@ -222,12 +222,12 @@ def test_handlers_in_the_intent():
     }
     edges = [e for e in intent["edges"] if e["via"].get("handler")]
     assert [(e["from"], e["to"], e.get("resets_history")) for e in edges] == [
-        ("login/sign-in", "workspace/overview", True), ("reset/ask", "reset/sent", None)]  # fmt: skip
+        ("login", "workspace", True), ("reset/ask", "reset/sent", None)]  # fmt: skip
 
 
 def test_a_continuation_is_used_where_the_call_is_made():
     intent = load_sample("crm").app.intent()
-    deal = [e for e in intent["edges"] if e["from"].startswith("deal/")]
+    deal = [e for e in intent["edges"] if e["from"] == "deal"]
     assert {"type": "jump", "tape": "deals", "via": {"then": "confirm_delete", "handler": "delete_confirmed"}}.items() \
         <= next(e for e in deal if e["via"].get("then")).items()
     assert intent["handlers"]["delete_confirmed"]["params"][1] == {"name": "result", "type": "boolean", "required": True}

@@ -159,6 +159,8 @@ class Component(_Spec):
     select: Target | None = None
     pages: LoaderRef | None = None
     anchor: Literal["start", "end"] | None = None
+    min_items: int | None = None
+    max_items: int | None = None
     group_by: FieldRef | None = None
     surface: bool | None = None
     visible: FieldRef | None = None
@@ -171,6 +173,7 @@ class Component(_Spec):
     lt: Any = None
     le: Any = None
     affordances: list[Affordance]
+    many: Literal[True] | None = Field(None, description="choose is choose(many): an edited list of choices.")
     components: list[Component] | None = None
     states: list[FieldName] | None = None
     events: dict[Literal["change", "play", "progress", "ended", "error"], Target] | None = None
@@ -178,12 +181,13 @@ class Component(_Spec):
 
 
 class Action(_Spec):
-    """A named action; `on` makes it an action on each item of that record, `to` a move."""
+    """A named action; `on` makes it an action on each item of that record (or of the items a field
+    holds, where the frame holds the record more than once), `to` a move."""
 
     label: Label
     target: Target
     affordance: Literal["press", "move"]
-    on: str | None = None
+    on: str | FieldRef | None = None
     to: str | None = None
     gesture: str | None = None
     key: str | None = None
@@ -218,10 +222,9 @@ class After(_Spec):
 
 
 class Frame(_Spec):
-    """A place. `id` is the frame's `id=`, or, with `derived_id`, one made from its purpose."""
+    """A place: its tape, and its `id` in a tape of several. Graph nodes are `tape` or `tape/id`."""
 
-    id: Name
-    derived_id: Literal[True] | None = None
+    id: Name | None = None
     purpose: str
     title: Label | None = None
     address: str | None = None
@@ -235,11 +238,17 @@ class Frame(_Spec):
     actions: list[Action] | None = None
     on_change: list[Change] | None = None
     after: After | None = None
+    back: Literal[False] | None = Field(None, description="back=False: no platform back here.")
+    hub: Literal[False] | None = Field(None, description="hub=False: the hub never shows here.")
+    root: Literal[True] | None = Field(
+        None, description="A history root: the entry, a hub destination's first frame, or where a sign-in or sign-out lands."
+    )
 
 
 class Tape(_Spec):
+    """A journey; its first frame is where it starts."""
+
     id: Name
-    entry: Name
     frames: list[Frame] = Field(min_length=1)
 
 
@@ -280,7 +289,7 @@ class Handler(_Spec):
 
 
 class Loader(_Spec):
-    """A loader: what a frame shows (`enter=`), the next page of a list (`pages=`), or a choice's options."""
+    """A loader: what a frame shows (`enter=`), the next page of a list (`@vt.pages`), or a choice's options."""
 
     params: list[Param]
     returns: Kind | None = None
@@ -288,10 +297,9 @@ class Loader(_Spec):
 
 
 class Edge(_Spec):
-    """An edge of the journey graph. `to` is absent for back and done, and for names that do not exist.
-
-    A hub's edges are implied by `hub`: every frame can reach every destination.
-    """
+    """A declared edge of the journey graph. `to` is absent for back and done, and for names that do not
+    exist. The platform's back (from every frame with history that is not a root and has no
+    back=False) and the hub's doors are implied, not listed."""
 
     model_config = ConfigDict(populate_by_name=True)
 

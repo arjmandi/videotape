@@ -198,7 +198,7 @@ async def delete_confirmed(ctx, d: Deal, result: bool):     # what confirm_delet
 
 deal = vt.tape("deal", [
     vt.frame("See one deal", address="/deals/{deal_id}", shows=Deal, enter=load_deal,
-             actions=[vt.action("Delete", ask_to_delete), vt.action("Back to the board", vt.back())]),
+             actions=[vt.action("Delete", ask_to_delete)]),
 ])
 
 

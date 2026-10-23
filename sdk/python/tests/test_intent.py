@@ -9,6 +9,7 @@ import pytest
 from conftest import SAMPLES, load_sample
 
 import videotape as vt
+from videotape.graph import journey
 from videotape.serialize import build
 from videotape.spec import intent_schema
 
@@ -130,11 +131,27 @@ def test_built_in_types_live_under_types():
 # ── frames ───────────────────────────────────────────────────────────────────
 
 
-def test_frame_ids_are_given_or_derived():
-    t = vt.tape("a", [vt.frame("Sign in"), vt.frame("Sign in"), vt.frame("Confirm it", id="confirm")])
-    assert [f.key for f in t.frames] == ["sign-in", "sign-in-2", "confirm"]
-    frames = vt.app("x", entry="a", tapes=[t]).intent()["tapes"][0]["frames"]
-    assert [(f["id"], f.get("derived_id")) for f in frames] == [("sign-in", True), ("sign-in-2", True), ("confirm", None)]
+def test_a_place_is_its_tape_and_its_id():
+    single = vt.tape("login", [vt.frame("Sign in")])
+    several = vt.tape("reset", [vt.frame("Ask for a link", id="ask"), vt.frame("Say it is sent", id="sent")])
+    unnamed = vt.tape("odd", [vt.frame("One", id="one"), vt.frame("Two")])
+    assert [f.node for t in (single, several, unnamed) for f in t.frames] == [
+        "login", "reset/ask", "reset/sent", "odd/one", "odd/#2"]  # fmt: skip
+    intent = vt.app("x", entry="login", tapes=[single, several]).intent()
+    frames = [f for t in intent["tapes"] for f in t["frames"]]
+    assert [f.get("id") for f in frames] == [None, "ask", "sent"]
+    assert "entry" not in intent["tapes"][0]
+
+
+def test_frames_carry_back_hub_and_root():
+    async def sign_in(ctx):
+        return vt.jump("home", sign_in=True)
+
+    login = vt.tape("login", [vt.frame("Sign in", actions=[vt.action("Go", sign_in)])])
+    home = vt.tape("home", [vt.frame("See home", back=False, hub=False)])
+    frames = [t["frames"][0] for t in vt.app("x", entry="login", tapes=[login, home]).intent()["tapes"]]
+    assert frames[0]["root"] is True and "back" not in frames[0]
+    assert (frames[1]["root"], frames[1]["back"], frames[1]["hub"]) == (True, False, False)
 
 
 def test_edit_fields_derive_inputs():
@@ -256,8 +273,8 @@ def test_static_edges():
 def test_hub_edges_are_implied_not_listed():
     built = build(load_sample("relay").app)
     assert not any(e["type"] == "hub" for e in built.intent["edges"])
-    hub = [e for e in built.edges if e.type == "hub"]
-    assert len(hub) == len(built.intent["tapes"]) * 3  # one frame per tape, three destinations
+    doors = journey(load_sample("relay").app, built.edges).doors
+    assert len(doors) == len(built.intent["tapes"]) * 3  # one frame per tape, three destinations
 
 
 def test_timers_and_media_events_are_uses():
@@ -290,7 +307,6 @@ def test_timers_and_media_events_are_uses():
     (lambda: vt.app("x", entry="a", tapes=["a"]), TypeError),
     (lambda: vt.after(seconds=0, then=vt.back()), ValueError),
     (lambda: vt.hub([]), TypeError),
-    (lambda: vt.Jump[3], TypeError),
 ])  # fmt: skip
 def test_builders_reject_what_they_cannot_hold(make, error):
     with pytest.raises(error):

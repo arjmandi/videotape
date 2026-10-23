@@ -15,9 +15,10 @@ from ._encode import encode, encode_target, name_of
 from .decisions import Declared, read, returns_kind
 from .derive import Use, components, frame_records, uses
 from .diagnostics import Diagnostic, error
+from .graph import Edge, journey
 from .intent import Action, App, Frame, Show, Tape
 from .outcomes import Outcome
-from .records import Record, fields_of, id_field, records_in
+from .records import FieldRef, Record, fields_of, id_field, records_in
 from .values import VT
 
 FORMAT = "videotape.intent/2"
@@ -26,44 +27,19 @@ MOVES = ("goto", "jump", "back", "call", "done")
 """Outcome types that are edges of the journey graph; `stay`, `open`, `download`, `copy` stay put."""
 
 
-@dataclass(frozen=True)
-class Edge:
-    """An edge of the journey graph, from a frame, by an action or a handler's declared outcome."""
-
-    source: str
-    type: str
-    via: dict[str, Any]
-    target: str | None = None
-    """The tape (jump, call, hub) or frame (goto) the outcome names."""
-    to: str | None = None
-    """The frame it reaches, when known statically: absent for back and done, and for unknown names."""
-    resets: bool = False
-    """The outcome signs in or out, so history starts again at its target (Q31)."""
-
-    def to_json(self) -> dict[str, Any]:
-        out: dict[str, Any] = {"from": self.source}
-        if self.to:
-            out["to"] = self.to
-        out["type"] = self.type
-        if self.target is not None:
-            out["tape" if self.type in ("jump", "call", "hub") else "frame"] = self.target
-        if self.resets:
-            out["resets_history"] = True
-        out["via"] = self.via
-        return out
-
-
 @dataclass
 class Built:
     intent: dict[str, Any]
     edges: list[Edge]
+    """The declared edges: static outcomes and the outcomes handlers return."""
+    records: list[type[Record]] = field(default_factory=list)
     problems: list[Diagnostic] = field(default_factory=list)
     """What building found: two handlers, loaders, or records with one name."""
 
 
 def resolve(app: App, frame: Frame, kind: str, name: str | None) -> str | None:
     """The node an outcome reaches from `frame`."""
-    if kind in ("jump", "call", "hub"):
+    if kind in ("jump", "call"):
         t = app.tape(name) if name else None
         return t.entry.node if t else None
     if kind == "goto":
@@ -84,17 +60,6 @@ def declared_at(use: Use) -> list[Declared]:
     if isinstance(use.target, Outcome):
         return [Declared.of(use.target)]
     return read(use.target).outcomes
-
-
-def hub_edges(app: App) -> list[Edge]:
-    """With a hub, every frame can reach every destination (the hub is everywhere)."""
-    if app.hub is None:
-        return []
-    return [
-        Edge(f.node, "hub", {"hub": d.tape}, d.tape, resolve(app, f, "hub", d.tape))
-        for f in app.frames
-        for d in app.hub.destinations
-    ]
 
 
 class _Names:
@@ -126,6 +91,7 @@ class Builder:
         self.loaders = _Names("loader", self.problems)
         self.records: list[type[Record]] = []
         self.edges: list[Edge] = []
+        self.frames: dict[str, dict[str, Any]] = {}
 
     def need(self, record: type[Record] | None) -> None:
         if record is None:
@@ -137,13 +103,14 @@ class Builder:
     # ── tapes and frames ──
 
     def tape(self, t: Tape) -> dict[str, Any]:
-        return {"id": t.id, "entry": t.entry.key, "frames": [self.frame(f) for f in t.frames]}
+        return {"id": t.id, "frames": [self.frame(f) for f in t.frames]}
 
     def frame(self, f: Frame) -> dict[str, Any]:
-        out: dict[str, Any] = {"id": f.key}
-        if f.id is None:
-            out["derived_id"] = True
+        out: dict[str, Any] = {}
+        if f.id is not None:
+            out["id"] = f.id
         out["purpose"] = f.purpose
+        self.frames[f.node] = out
         if f.title is not None:
             out["title"] = encode(f.title)
         if f.address:
@@ -169,6 +136,10 @@ class Builder:
             out["on_change"] = [{"field": str(ref), "handler": self.handlers.add(h)} for ref, h in f.on_change.items()]
         if f.after is not None:
             out["after"] = {"seconds": f.after.seconds, "then": self.target(f.after.then)}
+        if not f.back:
+            out["back"] = False
+        if not f.hub:
+            out["hub"] = False
 
         for r in frame_records(f):
             self.need(r)
@@ -189,7 +160,10 @@ class Builder:
 
     def action(self, a: Action) -> dict[str, Any]:
         out: dict[str, Any] = {"label": encode(a.label), "target": self.target(a.target), "affordance": a.affordance}
-        if a.on is not None:
+        if isinstance(a.on, FieldRef):
+            out["on"] = a.on.to_json()
+            self.need(a.on.record)
+        elif a.on is not None:
             out["on"] = a.on.__name__
             self.need(a.on)
         if a.to is not None:
@@ -257,7 +231,9 @@ class Builder:
     def build(self) -> Built:
         app = self.app
         tapes = [self.tape(t) for t in app.tapes]
-        self.edges.extend(hub_edges(app))
+        for node in sorted(journey(app, self.edges).roots):
+            if node in self.frames:
+                self.frames[node]["root"] = True
         out: dict[str, Any] = {"format": FORMAT, "app": app.name, "entry": app.entry}
         if app.world is not None:
             out["world"] = app.world
@@ -271,8 +247,8 @@ class Builder:
         loaders = {name: self.loader(fn) for name, fn in sorted(self.loaders.items.items())}
         out["records"], out["types"] = self.record_schemas()
         out["handlers"], out["loaders"] = handlers, loaders
-        out["edges"] = [e.to_json() for e in self.edges if e.type != "hub"]
-        return Built(out, self.edges, self.problems)
+        out["edges"] = [e.to_json() for e in self.edges]
+        return Built(out, self.edges, self.records, self.problems)
 
     def handler(self, fn: Callable[..., Any]) -> dict[str, Any]:
         sig = read(fn)

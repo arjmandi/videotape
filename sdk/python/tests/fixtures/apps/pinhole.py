@@ -87,7 +87,7 @@ async def previous_story(ctx, s: Story):                 # filled in
 
 
 stories = vt.tape("stories", [
-    vt.frame("Watch one story", shows=Story, enter=load_story,
+    vt.frame("Watch one story", shows=Story, enter=load_story, hub=False,
              actions=[vt.action("Next", next_story, gesture="tap-trailing"),
                       vt.action("Previous", previous_story, gesture="tap-leading")],
              after=vt.after(seconds=5, then=next_story)),

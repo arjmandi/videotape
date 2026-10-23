@@ -1,4 +1,5 @@
 # app.py: 06 §2.2 as written, then the tapes it leaves out (reset, workspace), and report (06 §3.2).
+# reset has two frames, so each has an id (Q36); the others are one-frame tapes and need none.
 from records import Credentials, Report, ResetRequest, Workspace
 from services import auth, db, reports
 
@@ -48,7 +49,7 @@ async def load_workspace(ctx) -> Workspace:
 
 
 workspace = vt.tape("workspace", [
-    vt.frame("See your projects", id="overview", shows=Workspace, enter=load_workspace),
+    vt.frame("See your projects", shows=Workspace, enter=load_workspace),
 ])
 
 
@@ -57,8 +58,7 @@ async def load_report(ctx, project_id: str) -> Report:
 
 
 report = vt.tape("report", [
-    vt.frame("Read one report", id="view", address="/projects/{project_id}", shows=Report, enter=load_report,
-             actions=[vt.action("Back to projects", vt.back())]),
+    vt.frame("Read one report", address="/projects/{project_id}", shows=Report, enter=load_report),
 ])
 
 app = vt.app("hello", entry="landing", tapes=[landing, login, reset, workspace, report],

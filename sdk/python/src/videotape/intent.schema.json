@@ -4,7 +4,7 @@
   "$defs": {
     "Action": {
       "additionalProperties": false,
-      "description": "A named action; `on` makes it an action on each item of that record, `to` a move.",
+      "description": "A named action; `on` makes it an action on each item of that record (or of the items a field\nholds, where the frame holds the record more than once), `to` a move.",
       "properties": {
         "label": {
           "anyOf": [
@@ -83,7 +83,14 @@
         },
         "on": {
           "title": "On",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/FieldRef"
+            }
+          ]
         },
         "to": {
           "title": "To",
@@ -449,6 +456,14 @@
           ],
           "type": "string"
         },
+        "min_items": {
+          "title": "Min Items",
+          "type": "integer"
+        },
+        "max_items": {
+          "title": "Max Items",
+          "type": "integer"
+        },
         "group_by": {
           "$ref": "#/$defs/FieldRef"
         },
@@ -564,6 +579,12 @@
           },
           "title": "Affordances",
           "type": "array"
+        },
+        "many": {
+          "description": "choose is choose(many): an edited list of choices.",
+          "title": "Many",
+          "const": true,
+          "type": "boolean"
         },
         "components": {
           "title": "Components",
@@ -830,7 +851,7 @@
     },
     "Edge": {
       "additionalProperties": false,
-      "description": "An edge of the journey graph. `to` is absent for back and done, and for names that do not exist.\n\nA hub's edges are implied by `hub`: every frame can reach every destination.",
+      "description": "A declared edge of the journey graph. `to` is absent for back and done, and for names that do not\nexist. The platform's back (from every frame with history that is not a root and has no\nback=False) and the hub's doors are implied, not listed.",
       "properties": {
         "from": {
           "title": "From",
@@ -913,17 +934,12 @@
     },
     "Frame": {
       "additionalProperties": false,
-      "description": "A place. `id` is the frame's `id=`, or, with `derived_id`, one made from its purpose.",
+      "description": "A place: its tape, and its `id` in a tape of several. Graph nodes are `tape` or `tape/id`.",
       "properties": {
         "id": {
-          "pattern": "^[A-Za-z][\\w-]*$",
           "title": "Id",
+          "pattern": "^[A-Za-z][\\w-]*$",
           "type": "string"
-        },
-        "derived_id": {
-          "title": "Derived Id",
-          "const": true,
-          "type": "boolean"
         },
         "purpose": {
           "title": "Purpose",
@@ -996,10 +1012,27 @@
         },
         "after": {
           "$ref": "#/$defs/After"
+        },
+        "back": {
+          "description": "back=False: no platform back here.",
+          "title": "Back",
+          "const": false,
+          "type": "boolean"
+        },
+        "hub": {
+          "description": "hub=False: the hub never shows here.",
+          "title": "Hub",
+          "const": false,
+          "type": "boolean"
+        },
+        "root": {
+          "description": "A history root: the entry, a hub destination's first frame, or where a sign-in or sign-out lands.",
+          "title": "Root",
+          "const": true,
+          "type": "boolean"
         }
       },
       "required": [
-        "id",
         "purpose",
         "components"
       ],
@@ -1219,7 +1252,7 @@
     },
     "Loader": {
       "additionalProperties": false,
-      "description": "A loader: what a frame shows (`enter=`), the next page of a list (`pages=`), or a choice's options.",
+      "description": "A loader: what a frame shows (`enter=`), the next page of a list (`@vt.pages`), or a choice's options.",
       "properties": {
         "params": {
           "items": {
@@ -1420,15 +1453,11 @@
     },
     "Tape": {
       "additionalProperties": false,
+      "description": "A journey; its first frame is where it starts.",
       "properties": {
         "id": {
           "pattern": "^[A-Za-z][\\w-]*$",
           "title": "Id",
-          "type": "string"
-        },
-        "entry": {
-          "pattern": "^[A-Za-z][\\w-]*$",
-          "title": "Entry",
           "type": "string"
         },
         "frames": {
@@ -1442,7 +1471,6 @@
       },
       "required": [
         "id",
-        "entry",
         "frames"
       ],
       "title": "Tape",

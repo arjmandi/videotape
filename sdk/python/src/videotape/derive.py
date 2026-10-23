@@ -12,7 +12,7 @@ from ._encode import encode, encode_target
 from .intent import Frame, Show, Text
 from .decisions import read
 from .outcomes import Call, Outcome, call
-from .records import FieldSpec, Record, fields_of, id_field, records_in
+from .records import FieldRef, FieldSpec, Record, fields_of, id_field, records_in
 
 AFFORDANCES = ("read", "write", "press", "choose", "adjust", "move", "add", "remove", "scroll", "play")
 """The engine's closed contract (05 §6.4), in canonical order; `pick` from the OS comes after M1."""
@@ -32,6 +32,8 @@ class Use:
     """For a move, its target."""
     continuation: bool = False
     """The `then=` handler of a call made here: it runs here when the call returns, with `result`."""
+    context: tuple[type, ...] = ()
+    """Records a reference here means the item of: an action's `on=`, a field's own record and item."""
 
     @property
     def handler(self) -> Callable[..., Any] | None:
@@ -62,21 +64,21 @@ def uses(frame: Frame) -> list[Use]:
     for a in frame.actions:
         via: dict[str, Any] = {"action": encode(a.label)}
         if a.on is not None:
-            via["on"] = a.on.__name__
-        out.append(Use(frame, via, a.target, a.on, a.to))
+            via["on"] = str(a.on) if isinstance(a.on, FieldRef) else a.on.__name__
+        out.append(Use(frame, via, a.target, a.on_record, a.to, context=(a.on_record,) if a.on else ()))
     for ref, handler in frame.on_change.items():
         out.append(Use(frame, {"change": str(ref)}, handler))
     for c in frame.components:
         if isinstance(c, Show):
             for event, handler in c.events.items():
-                out.append(Use(frame, {event: str(c.ref)}, handler))
+                out.append(Use(frame, {event: str(c.ref)}, handler, context=(c.ref.record,)))
             if "press" in c.options.values:
-                out.append(Use(frame, {"press": str(c.ref)}, c.options.values["press"]))
+                out.append(Use(frame, {"press": str(c.ref)}, c.options.values["press"], context=(c.ref.record,)))
     for r in frame_records(frame):
         for f in fields_of(r):
             for key in ("select", "press"):
                 if key in f.options:
-                    out.append(Use(frame, {key: str(f.ref)}, f.options[key]))
+                    out.append(Use(frame, {key: str(f.ref)}, f.options[key], context=field_context(f)))
     for r in edited_records(frame):
         for f in fields_of(r):
             if "pick" in f.options:
@@ -95,7 +97,55 @@ def uses(frame: Frame) -> list[Use]:
         for tape, then in calls:
             if then is not None and then not in seen:
                 seen.append(then)
-                out.append(Use(frame, {"then": tape}, then, continuation=True))
+                out.append(Use(frame, {"then": tape}, then, continuation=True, context=u.context))
+    return out
+
+
+def field_context(spec: FieldSpec) -> tuple[type, ...]:
+    """Inside a field's own options, its record and its item type mean this item (Q38)."""
+    return tuple(r for r in (spec.record, spec.kind.record) if r is not None)
+
+
+def held(frame: Frame) -> dict[type[Record], int]:
+    """How often the frame's documents hold each record: once per path from what it shows or edits.
+
+    A record held more than once cannot be named by its type alone (Q38); a record that holds
+    itself is held at every depth, so more than once.
+    """
+    counts: dict[type[Record], int] = {}
+
+    def visit(r: type[Record], stack: frozenset[type[Record]]) -> None:
+        counts[r] = counts.get(r, 0) + 1
+        if r in stack:
+            counts[r] += 1
+            return
+        for f in fields_of(r):
+            if f.kind.record is not None:
+                visit(f.kind.record, stack | {r})
+
+    for root in (frame.shows_record, frame.edit):
+        if root is not None:
+            visit(root, frozenset())
+    return counts
+
+
+def input_records(frame: Frame) -> list[type[Record]]:
+    """The records whose fields the frame's form edits: what it edits, its nested records, and the
+    items of its editable lists; not a picked or chosen record."""
+    out: list[type[Record]] = []
+
+    def visit(r: type[Record]) -> None:
+        if r in out:
+            return
+        out.append(r)
+        for f in fields_of(r):
+            if f.kind.type == "record" and not {"pick", "options"} & set(f.options):
+                visit(f.kind.target)
+            elif f.kind.type == "collection" and f.kind.record is not None and list_mode(f) == "items":
+                visit(f.kind.record)
+
+    if frame.edit is not None:
+        visit(frame.edit)
     return out
 
 
@@ -206,7 +256,7 @@ def components(frame: Frame) -> tuple[list[dict[str, Any]], list[str]]:
     `vt.show(...)` overrides every derived component for its field; one the records do not
     derive (a hidden field, or a record the frame does not have) is added.
     """
-    moved = {a.on for a in frame.actions if a.to is not None and a.on is not None}
+    moved = {a.on_record for a in frame.actions if a.to is not None and a.on is not None}
     derived: list[dict[str, Any]] = []
     states: list[str] = []
     shown = frame.shows_record

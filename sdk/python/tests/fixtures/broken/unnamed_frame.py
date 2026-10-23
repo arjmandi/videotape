@@ -1,4 +1,4 @@
-"""goto-unnamed-frame: a goto reaches a frame by the id derived from its purpose."""
+"""unnamed-frame: a tape of two frames whose first has no id=."""
 
 import videotape as vt
 
@@ -13,7 +13,7 @@ async def ask(ctx, q: Question):
 
 ask_tape = vt.tape("ask", [
     vt.frame("Ask a question", edit=Question, submit=ask),
-    vt.frame("Confirm", actions=[vt.action("Back", vt.back())]),
+    vt.frame("Confirm", id="confirm"),
 ])
 
 app = vt.app("questions", entry="ask", tapes=[ask_tape])

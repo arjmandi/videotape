@@ -1,4 +1,4 @@
-"""unreadable-record: a record names a type that is never defined."""
+"""bad-record: a record names a type that is never defined."""
 
 from __future__ import annotations
 
