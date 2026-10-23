@@ -12,7 +12,9 @@ async def ask(ctx, q: Question):
 
 
 ask_tape = vt.tape("ask", [
-    vt.frame("Ask a question", edit=Question, submit=ask, actions=[vt.action("Back", vt.back())]),
+    vt.frame("Ask a question", edit=Question, submit=ask, actions=[vt.action("More", vt.jump("more"))]),
 ])
 
-app = vt.app("questions", entry="ask", tapes=[ask_tape])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("questions", entry="ask", tapes=[ask_tape, more])

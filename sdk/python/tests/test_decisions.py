@@ -127,7 +127,7 @@ def test_unreadable_returns_say_where_and_ask_for_outcomes():
     _, problem = declared(m.c)
     assert "line 21 returns helper(...)" in problem and "@vt.outcomes" in problem
     _, problem = declared(m.e)
-    assert "line 31 names the tape of vt.jump(...) with where, not a literal" in problem
+    assert "line 31 names the tape of vt.jump(...) with where, a local variable" in problem
     assert read(m.e).handler_json()["unreadable"] == problem
 
 
@@ -332,3 +332,34 @@ def test_invoke_calls_plain_functions_too():
         return vt.download("a.txt", "hi")
 
     assert run(vt.invoke(h, None)) == {"type": "download", "name": "a.txt", "data": "hi"}
+
+
+# ── names from the module (Q45) and goto without arguments (Q46) ─────────────
+
+
+def test_tape_names_resolve_against_the_handlers_module():
+    import named_tapes as m
+
+    assert declared(m.by_constant) == ([{"type": "jump", "tape": "dashboard"}], None)
+    assert declared(m.by_tape) == ([{"type": "jump", "tape": "dashboard", "args": ["week"]}], None)
+    assert declared(m.by_dotted_name) == ([{"type": "call", "tape": "settings"}], None)
+    _, problem = declared(m.by_local)
+    assert "with DASHBOARD, a local variable" in problem
+
+
+def test_static_outcomes_take_a_tape_object():
+    import named_tapes as m
+
+    assert vt.jump(m.dashboard, week=1).to_json() == {"type": "jump", "tape": "dashboard", "args": {"week": 1}}
+    assert vt.call(m.dashboard).to_json() == {"type": "call", "tape": "dashboard"}
+    with pytest.raises(TypeError):
+        vt.jump(3)
+
+
+def test_goto_carries_no_arguments():
+    import named_tapes as m
+
+    with pytest.raises(TypeError):
+        vt.goto("confirm", step=2)
+    _, problem = declared(m.goto_with_arguments)
+    assert "passes step= to vt.goto(...), which takes no arguments" in problem

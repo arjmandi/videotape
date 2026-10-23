@@ -1031,10 +1031,13 @@
           "type": "boolean"
         },
         "root": {
-          "description": "A history root: the entry, a hub destination's first frame, or where a sign-in or sign-out lands.",
+          "description": "A history root (the entry, a hub destination's first frame, or where a sign-in or sign-out lands): on every path, or only on some, where something also enters it with history.",
           "title": "Root",
-          "const": true,
-          "type": "boolean"
+          "enum": [
+            "always",
+            "sometimes"
+          ],
+          "type": "string"
         }
       },
       "required": [

@@ -2,6 +2,8 @@
 
 import videotape as vt
 
-home = vt.tape("home", [vt.frame("Start here", actions=[vt.action("Back", vt.back())])])
+home = vt.tape("home", [vt.frame("Start here", actions=[vt.action("More", vt.jump("more"))])])
 
-app = vt.app("lost", entry="start", tapes=[home])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("lost", entry="start", tapes=[home, more])

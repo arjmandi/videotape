@@ -7,6 +7,8 @@ class Note(vt.Record):
     text: str
 
 
-home = vt.tape("home", [vt.frame("Write a note", edit=Note, actions=[vt.action("Back", vt.back())])])
+home = vt.tape("home", [vt.frame("Write a note", edit=Note, actions=[vt.action("More", vt.jump("more"))])])
 
-app = vt.app("notes", entry="home", tapes=[home])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("notes", entry="home", tapes=[home, more])

@@ -150,8 +150,8 @@ def test_frames_carry_back_hub_and_root():
     login = vt.tape("login", [vt.frame("Sign in", actions=[vt.action("Go", sign_in)])])
     home = vt.tape("home", [vt.frame("See home", back=False, hub=False)])
     frames = [t["frames"][0] for t in vt.app("x", entry="login", tapes=[login, home]).intent()["tapes"]]
-    assert frames[0]["root"] is True and "back" not in frames[0]
-    assert (frames[1]["root"], frames[1]["back"], frames[1]["hub"]) == (True, False, False)
+    assert frames[0]["root"] == "always" and "back" not in frames[0]
+    assert (frames[1]["root"], frames[1]["back"], frames[1]["hub"]) == ("always", False, False)
 
 
 def test_edit_fields_derive_inputs():

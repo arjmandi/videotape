@@ -230,9 +230,10 @@ class Builder:
     def build(self) -> Built:
         app = self.app
         tapes = [self.tape(t) for t in app.tapes]
-        for node in sorted(journey(app, self.edges).roots):
+        j = journey(app, self.edges)
+        for node in sorted(j.roots):
             if node in self.frames:
-                self.frames[node]["root"] = True
+                self.frames[node]["root"] = "always" if node in j.always else "sometimes"
         out: dict[str, Any] = {"format": FORMAT, "app": app.name, "entry": app.entry}
         if app.world is not None:
             out["world"] = app.world

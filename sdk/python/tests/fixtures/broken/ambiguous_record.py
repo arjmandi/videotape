@@ -24,9 +24,11 @@ async def find(ctx, s: Search):
 
 docs = vt.tape("docs", [
     vt.frame("Read the docs", shows=Page, edit=Search, on_change={Search.q: find},
-             actions=[vt.action("Open", vt.jump("docs"), on=Entry),             # which Entry?
-                      vt.action("Read", vt.jump("docs"), on=Page.toc),          # this one is fine
-                      vt.action("Back", vt.back())]),
+             actions=[vt.action("Open", vt.jump("more"), on=Entry),             # which Entry?
+                      vt.action("Read", vt.jump("more"), on=Page.toc),          # this one is fine
+                      vt.action("More", vt.jump("more"))]),
 ])
 
-app = vt.app("docs", entry="docs", tapes=[docs])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("docs", entry="docs", tapes=[docs, more])

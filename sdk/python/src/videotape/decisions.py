@@ -142,7 +142,25 @@ class _Names:
             self.scopes.append(dict(inspect.getclosurevars(fn).nonlocals))
         except (TypeError, ValueError):
             pass
-        self.scopes += [getattr(fn, "__globals__", {}), vars(builtins)]
+        self.module: dict[str, Any] = getattr(fn, "__globals__", {})
+        self.scopes += [self.module, vars(builtins)]
+        code = getattr(fn, "__code__", None)
+        self.local = set(code.co_varnames + code.co_cellvars + code.co_freevars) if code else set()
+
+    def module_value(self, node: ast.expr) -> Any:
+        """A name or dotted name from the handler's module (Q45); never a local or a closure's variable."""
+        root = node
+        while isinstance(root, ast.Attribute):
+            root = root.value
+        if not isinstance(root, ast.Name) or root.id in self.local or root.id not in self.module:
+            raise _Unresolved(ast.unparse(node))
+        value = self.module[root.id]
+        for attr in reversed(_attrs(node)):
+            try:
+                value = getattr(value, attr)
+            except AttributeError:
+                raise _Unresolved(ast.unparse(node)) from None
+        return value
 
     def value(self, node: ast.expr) -> Any:
         if isinstance(node, ast.Name):
@@ -164,6 +182,26 @@ class _Names:
         except _Unresolved:
             return None
         return next((name for name, fn in CONSTRUCTORS.items() if obj is fn), None)
+
+
+def _attrs(node: ast.expr) -> list[str]:
+    """The attribute names of a dotted name, innermost last: `config.tapes.home` gives `["home", "tapes"]`."""
+    out = []
+    while isinstance(node, ast.Attribute):
+        out.append(node.attr)
+        node = node.value
+    return out
+
+
+def place_name(value: Any, what: str) -> str | None:
+    """The tape or frame a value names: a string, a tape (its id), or, for a goto, a frame with an id."""
+    if isinstance(value, str):
+        return value
+    if what == "tape" and isinstance(getattr(value, "id", None), str) and hasattr(value, "frames"):
+        return value.id
+    if what == "frame" and isinstance(getattr(value, "id", None), str) and hasattr(value, "purpose"):
+        return value.id
+    return None
 
 
 def _returns(node: ast.AST) -> list[ast.Return]:
@@ -199,10 +237,23 @@ def _read(expr: ast.expr, names: _Names, line: int) -> Declared | str:
     if kind in _NAMED:
         what = _NAMED[kind]
         node = expr.args[0] if expr.args else next((k.value for k in expr.keywords if k.arg == what), None)
-        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            target = node.value
+        elif isinstance(node, (ast.Name, ast.Attribute)):
+            try:
+                target = place_name(names.module_value(node), what)
+            except _Unresolved:
+                target = None
+            if target is None:
+                root = node
+                while isinstance(root, ast.Attribute):
+                    root = root.value
+                why = ("a local variable" if isinstance(root, ast.Name) and root.id in names.local
+                       else f"which is not a string or a {what} in the handler's module")  # fmt: skip
+                return f"line {line} names the {what} of vt.{kind}(...) with {ast.unparse(node)}, {why}"
+        else:
             shown = ast.unparse(node) if node is not None else "nothing"
-            return f"line {line} names the {what} of vt.{kind}(...) with {shown}, not a literal"
-        target = node.value
+            return f"line {line} names the {what} of vt.{kind}(...) with {shown}, not a name the SDK can read"
     args: list[str] = []
     open_args = resets = False
     then = None
@@ -218,6 +269,8 @@ def _read(expr: ast.expr, names: _Names, line: int) -> Declared | str:
                 return f"line {line} names the then= handler with {ast.unparse(k.value)}, which cannot be found"
         elif kind in ("jump", "call") and k.arg != _NAMED[kind]:
             args.append(k.arg)
+        elif kind == "goto" and k.arg != "frame":
+            return f"line {line} passes {k.arg}= to vt.goto(...), which takes no arguments; they belong to the tape"
     return Declared(kind, target, tuple(args), open_args, resets, then, line=line)
 
 

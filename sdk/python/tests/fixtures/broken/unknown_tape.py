@@ -13,7 +13,9 @@ async def save(ctx, n: Note):
 
 home = vt.tape("home", [
     vt.frame("Write a note", edit=Note, submit=save,
-             actions=[vt.action("Settings", vt.jump("settings")), vt.action("Back", vt.back())]),
+             actions=[vt.action("Settings", vt.jump("settings")), vt.action("More", vt.jump("more"))]),
 ])
 
-app = vt.app("notes", entry="home", tapes=[home])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("notes", entry="home", tapes=[home, more])

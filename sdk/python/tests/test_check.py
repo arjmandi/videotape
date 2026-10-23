@@ -34,6 +34,11 @@ def test_app_check_is_check():
 # ── rules beyond their fixtures ──────────────────────────────────────────────
 
 
+MORE = vt.tape("more", [vt.frame("Read more")])
+"""Somewhere to go: a root frame's explicit back is no way out (Q44)."""
+OUT = vt.action("More", vt.jump("more"))
+
+
 def codes(app):
     return [d.code for d in check(app)]
 
@@ -70,10 +75,10 @@ def test_duplicate_records():
 def test_unknown_hub_destination_and_hub_arguments():
     async def load(ctx, id: str) -> vt.Record: ...
 
-    home = vt.tape("home", [vt.frame("Start", actions=[vt.action("Back", vt.back())])])
-    item = vt.tape("item", [vt.frame("See one", enter=load, actions=[vt.action("Back", vt.back())])])
+    home = vt.tape("home", [vt.frame("Start", actions=[OUT])])
+    item = vt.tape("item", [vt.frame("See one", enter=load, actions=[OUT])])
     hub = vt.hub([vt.destination("home", "Home"), vt.destination("item", "Item"), vt.destination("gone", "Gone")])
-    diagnostics = check(vt.app("x", entry="home", tapes=[home, item], hub=hub))
+    diagnostics = check(vt.app("x", entry="home", tapes=[home, item, MORE], hub=hub))
     assert [(d.code, d.at) for d in diagnostics] == [
         ("unknown-tape", "hub"), ("loader-returns", "item"), ("missing-argument", "hub")]  # fmt: skip
 
@@ -97,10 +102,10 @@ def test_a_move_target_is_a_valid_parameter():
         return vt.stay()
 
     ok = vt.frame("See the board", shows=Board, actions=[
-        vt.action("Move", move, on=Card, to=Stage), vt.action("Back", vt.back())])  # fmt: skip
-    assert codes(vt.app("x", entry="b", tapes=[vt.tape("b", [ok])])) == []
-    bad = vt.frame("See the board", shows=Board, actions=[vt.action("Move", wrong, on=Card), vt.action("Back", vt.back())])
-    assert codes(vt.app("x", entry="b", tapes=[vt.tape("b", [bad])])) == ["unknown-document"]
+        vt.action("Move", move, on=Card, to=Stage), OUT])  # fmt: skip
+    assert codes(vt.app("x", entry="b", tapes=[vt.tape("b", [ok]), MORE])) == []
+    bad = vt.frame("See the board", shows=Board, actions=[vt.action("Move", wrong, on=Card), OUT])
+    assert codes(vt.app("x", entry="b", tapes=[vt.tape("b", [bad]), MORE])) == ["unknown-document"]
 
 
 def test_on_change_must_name_an_edited_field():
@@ -114,8 +119,8 @@ def test_on_change_must_name_an_edited_field():
         return vt.stay()
 
     f = vt.frame("Find", shows=Results, edit=Search, on_change={Results.q: find},
-                 actions=[vt.action("Back", vt.back())])  # fmt: skip
-    assert codes(vt.app("x", entry="s", tapes=[vt.tape("s", [f])])) == ["unknown-field"]
+                 actions=[OUT])  # fmt: skip
+    assert codes(vt.app("x", entry="s", tapes=[vt.tape("s", [f]), MORE])) == ["unknown-field"]
 
 
 def test_unreadable_annotations_are_reported_once_per_handler():
@@ -173,10 +178,9 @@ async def _load_order(ctx, order_id: str) -> _Order: ...
 
 
 def _orders_app(handler):
-    home = vt.tape("home", [vt.frame("Start here", actions=[vt.action("Open", handler), vt.action("Back", vt.back())])])
-    order = vt.tape("order", [vt.frame("See one order", address="/o/{order_id}", shows=_Order, enter=_load_order,
-                                       actions=[vt.action("Back", vt.back())])])  # fmt: skip
-    return vt.app("orders", entry="home", tapes=[home, order])
+    home = vt.tape("home", [vt.frame("Start here", actions=[vt.action("Open", handler), OUT])])
+    order = vt.tape("order", [vt.frame("See one order", address="/o/{order_id}", shows=_Order, enter=_load_order)])
+    return vt.app("orders", entry="home", tapes=[home, order, MORE])
 
 
 def test_arguments_read_from_a_body_meet_the_target_loader():
@@ -196,9 +200,10 @@ def test_arguments_read_from_a_body_meet_the_target_loader():
     assert codes(_orders_app(good)) == []
     assert codes(_orders_app(splat)) == []
     [d] = check(_orders_app(unknown))
-    assert (d.code, d.message) == ("unknown-argument", "unknown() does jump('order', colour=...), but _load_order() does not take it")
+    assert (d.code, d.message) == ("unknown-argument",
+                                   "unknown() does jump('order', colour=...), but no loader or address in tape 'order' takes it")
     [d] = check(_orders_app(missing))
-    assert (d.code, d.message) == ("missing-argument", "missing() does jump('order') without order_id, which _load_order() needs")
+    assert (d.code, d.message) == ("missing-argument", "missing() does jump('order') without order_id: _load_order() needs order_id")
 
 
 # ── history and the hub (Q31, Q32) ───────────────────────────────────────────
@@ -402,3 +407,68 @@ def test_a_loader_returns_one_document_or_a_tuple():  # Q42
     assert errors(app(both)) == []
     [d] = errors_of(app(wrong))
     assert d.code == "loader-returns" and "returns _Entry" in d.message
+
+
+# ── arguments belong to the tape (Q46) ───────────────────────────────────────
+
+
+class _Draft(vt.Record):
+    title: str = ""
+
+
+class _Summary(vt.Record):
+    title: str = ""
+
+
+async def _load_start(ctx, order_id: str) -> _Draft: ...
+
+
+async def _load_confirm(ctx, draft: _Draft, coupon: str | None = None) -> _Summary: ...
+
+
+async def _load_lost(ctx, summary: _Summary) -> _Summary: ...
+
+
+async def _to_confirm(ctx, d: _Draft):
+    return vt.goto("confirm")
+
+
+def _wizard(jump, confirm_loader=_load_confirm):
+    home = vt.tape("home", [vt.frame("Start", actions=[vt.action("Order", jump)])])
+    wizard = vt.tape("wizard", [
+        vt.frame("Write the order", id="start", edit=_Draft, enter=_load_start, submit=_to_confirm),
+        vt.frame("Confirm the order", id="confirm", shows=_Summary, enter=confirm_loader),
+    ])  # fmt: skip
+    return vt.app("x", entry="home", tapes=[home, wizard])
+
+
+def test_every_loader_in_a_tape_takes_its_arguments():
+    assert errors(_wizard(vt.jump("wizard", order_id="o1"))) == []
+    assert errors(_wizard(vt.jump("wizard", order_id="o1", coupon="SPRING"))) == []  # a later frame's loader
+    [d] = errors_of(_wizard(vt.jump("wizard", order_id="o1", colour="red")))
+    assert d.code == "unknown-argument" and "no loader or address in tape 'wizard' takes it" in d.message
+    [d] = errors_of(_wizard(vt.jump("wizard")))
+    assert d.code == "missing-argument" and "_load_start() needs order_id" in d.message
+
+
+def test_a_later_loader_takes_earlier_frames_documents():
+    assert errors(_wizard(vt.jump("wizard", order_id="o1"))) == []  # _load_confirm takes the draft
+    [d] = errors_of(_wizard(vt.jump("wizard", order_id="o1"), confirm_loader=_load_lost))
+    assert d.code == "unknown-document" and "no earlier frame of tape 'wizard'" in d.message
+
+
+# ── explicit back on roots (Q44) ─────────────────────────────────────────────
+
+
+def test_back_on_a_root_is_no_way_out():
+    home = vt.tape("home", [vt.frame("Start", actions=[vt.action("Back", vt.back())])])
+    diagnostics = check(vt.app("x", entry="home", tapes=[home]))
+    assert [(d.code, d.level) for d in diagnostics] == [("back-on-root", "error"), ("no-exit", "warning")]
+
+
+def test_back_on_a_sometimes_root_is_a_warning_and_the_intent_says_which():
+    home = vt.tape("home", [vt.frame("Start", actions=[vt.action("Back", vt.back()), vt.action("More", vt.jump("more"))])])
+    more = vt.tape("more", [vt.frame("Read more", actions=[vt.action("Home", vt.jump("home"))])])
+    app = vt.app("x", entry="home", tapes=[home, more])
+    assert [(d.code, d.level) for d in check(app)] == [("back-on-root-sometimes", "warning")]
+    assert app.intent()["tapes"][0]["frames"][0]["root"] == "sometimes"

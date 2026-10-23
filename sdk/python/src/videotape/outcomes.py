@@ -160,13 +160,25 @@ class Copy(Outcome):
         return {"type": "copy", "text": self.value}
 
 
-def jump(tape: str, *, sign_in: Any = None, sign_out: bool = False, **args: Any) -> Jump:
-    """Switch to another tape, with arguments for its loader: `vt.jump("report", project_id=Project.id)`."""
-    return Jump(tape, args, sign_in=sign_in, sign_out=sign_out)
+def _tape_id(tape: Any) -> str:
+    """A tape is named by its id, or by the tape itself (Q45)."""
+    if isinstance(tape, str):
+        return tape
+    if isinstance(getattr(tape, "id", None), str) and hasattr(tape, "frames"):
+        return tape.id
+    raise TypeError(f"a tape is named by its id or by the tape itself; got {tape!r}")
+
+
+def jump(tape: Any, *, sign_in: Any = None, sign_out: bool = False, **args: Any) -> Jump:
+    """Switch to another tape, with arguments for its loaders: `vt.jump("report", project_id=Project.id)`.
+
+    The tape may be named by its id or by the tape itself: `vt.jump(report)`."""
+    return Jump(_tape_id(tape), args, sign_in=sign_in, sign_out=sign_out)
 
 
 def goto(frame: str, *, sign_in: Any = None, sign_out: bool = False) -> Goto:
-    """Go to the frame with this `id=` in the same tape."""
+    """Go to the frame with this `id=` in the same tape. It carries no arguments: a tape's frames share
+    the arguments the tape was entered with, and the documents its earlier frames loaded (Q46)."""
     return Goto(frame, sign_in=sign_in, sign_out=sign_out)
 
 
@@ -180,12 +192,12 @@ def stay(*, sign_in: Any = None, sign_out: bool = False) -> Stay:
     return Stay(sign_in=sign_in, sign_out=sign_out)
 
 
-def call(tape: str, *, then: Callable[..., Any] | None = None, **args: Any) -> Call:
+def call(tape: Any, *, then: Callable[..., Any] | None = None, **args: Any) -> Call:
     """A detour to `tape`, which ends with `vt.done(result)`; `then=` names the handler that receives
     it as its parameter `result`. Without `then=`, the result is dropped."""
     if then is not None and not callable(then):
         raise TypeError("then= takes the handler that receives the call's result")
-    return Call(tape, args, then)
+    return Call(_tape_id(tape), args, then)
 
 
 def done(result: Any = None) -> Done:

@@ -13,7 +13,9 @@ class Order(vt.Record):
 
 order = vt.tape("order", [
     vt.frame("See one order", shows=Order, components=[vt.show(Customer.name, role="heading")],
-             actions=[vt.action("Back", vt.back())]),
+             actions=[vt.action("More", vt.jump("more"))]),
 ])
 
-app = vt.app("orders", entry="order", tapes=[order])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("orders", entry="order", tapes=[order, more])

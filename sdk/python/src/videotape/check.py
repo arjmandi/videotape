@@ -19,7 +19,7 @@ from .decisions import Declared, accepts, read, returns_kind, returns_kinds
 from .derive import components, edited_records, field_context, held, input_records, uses
 from .diagnostics import Diagnostic, error, warning
 from .graph import closed_cycles, has_exit, journey, reachable
-from .intent import App, Frame, Show, Text
+from .intent import App, Frame, Show, Tape, Text
 from .outcomes import Copy, Outcome
 from .records import FieldRef, RecordError, fields_of, kind_of
 from .serialize import Built, build, declared_at
@@ -34,20 +34,22 @@ RULES: dict[str, tuple[str, str]] = {
     "unnamed-frame": ("error", "a frame in a tape of several has no id="),
     "unreadable-outcome": ("error", "a handler returns an outcome its body does not say, and has no @vt.outcomes"),
     "then-without-result": ("error", "a call's then= handler takes no result parameter"),
-    "unknown-document": ("error", "a handler or loader takes a record its frame neither shows nor edits"),
+    "unknown-document": ("error", "a handler takes a record its frame neither shows nor edits; a loader takes one no earlier frame of its tape has"),
     "ambiguous-record": ("error", "a record is named by its type where the frame holds it more than once"),
     "on-unshown-record": ("error", "an action is on= a record its frame does not show"),
     "secret-shown": ("error", "a frame shows a field of secret type"),
     "hidden-required": ("error", "an edit frame hides a required field other than its vt.Id"),
     "edited-select": ("error", "a list in an edited record has select=; lists the user navigates are shown"),
-    "address-param": ("error", "an address has a parameter the frame's loader does not take"),
+    "address-param": ("error", "an address has a parameter no loader in its tape takes"),
     "public-without-address": ("error", "a public frame has no address"),
-    "loader-returns": ("error", "a loader returns something other than what its frame shows, or its list holds"),
+    "loader-returns": ("error", "a loader returns a document its frame neither shows nor edits, or a page its list does not hold"),
     "unknown-field": ("error", "a field reference names a record the frame neither shows nor edits"),
     "not-bool": ("error", "visible= or hidden= names a field that is not a bool"),
     "bad-event": ("error", "vt.show listens for an event its field cannot report"),
-    "unknown-argument": ("error", "an outcome passes an argument the target frame's loader and address do not take"),
-    "missing-argument": ("error", "an outcome or hub destination leaves out an argument the target's loader needs"),
+    "unknown-argument": ("error", "a jump or call passes an argument no loader or address in the tape it enters takes"),
+    "missing-argument": ("error", "a jump, call, or hub destination leaves out an argument a loader in the tape needs"),
+    "back-on-root": ("error", "an explicit back on a frame that is a history root on every path"),
+    "back-on-root-sometimes": ("warning", "an explicit back on a frame that is a history root on some paths"),
     "multiple-primary": ("warning", "a frame has more than one primary action"),
     "unused-edit": ("warning", "a frame edits a record but nothing receives it"),
     "unreachable-frame": ("warning", "a frame cannot be reached from the entry"),
@@ -300,18 +302,18 @@ class _Checker:
                     self.report(error("hidden-required", message, f.node))
 
     def address(self, f: Frame) -> None:
+        """An address's parameters are the tape's arguments: some loader in the tape takes each (Q46)."""
         if f.public and not f.address:
             self.report(error("public-without-address", "the frame is public but has no address to serve it at", f.node))
         params = f.address_params
-        if not params:
+        tape = self.app.tape(f.tape)
+        if not params or tape is None:
             return
-        if f.enter is None:
-            message = f"address {f.address} has {', '.join(params)}, but the frame has no loader to take them"
-            self.report(error("address-param", message, f.node))
-            return
+        loaders = [g.enter for g in tape.frames if g.enter is not None]
         for p in params:
-            if not accepts(f.enter, p):
-                message = f"{name_of(f.enter)}() does not take {p}, which address {f.address} passes"
+            if not any(accepts(loader, p) for loader in loaders):
+                takes = "no loader in it takes it" if loaders else "the tape has no loader"
+                message = f"address {f.address} passes {p} to tape '{f.tape}', but {takes}"
                 self.report(error("address-param", message, f.node))
 
     def loader(self, f: Frame) -> None:
@@ -321,6 +323,12 @@ class _Checker:
         if sig.problem:
             self.report(error("loader-returns", f"{sig.name}(): {sig.problem}", f.node))
             return
+        earlier = earlier_documents(self.app, f)
+        for p in sig.params:
+            if p.record is not None and p.record not in earlier:
+                message = (f"{sig.name}() takes {p.name}: {p.record.__name__}, which no earlier frame of tape "
+                           f"'{f.tape}' shows, edits, or loads")  # fmt: skip
+                self.report(error("unknown-document", message, f.node))
         if sig.returns is _EMPTY:
             return
         documents = [kind_of(list[r] if many else r) for r, many in f.shown]
@@ -452,51 +460,37 @@ class _Checker:
         message = f"the frame edits {f.edit.__name__}, but no submit, on_change, or action receives it"
         self.report(warning("unused-edit", message, f.node))
 
-    # ── arguments (Q34) ──
+    # ── arguments (Q34, Q46) ──
 
     def arguments(self) -> None:
-        """Each outcome's arguments against its target frame's loader and address."""
+        """Each jump or call against the tape it enters: the arguments belong to the tape, and any
+        frame's loader in it may take them by name."""
         for f in self.app.frames:
             for u in uses(f):
                 source = _source(u.via if u.handler is None else {**u.via, "handler": name_of(u.handler)})
                 for d in declared_at(u):
-                    if d.type in ("jump", "call", "goto") and d.target is not None:
-                        self.pass_args(f, source, d)
+                    if d.type in ("jump", "call") and d.target is not None:
+                        tape = self.app.tape(d.target)
+                        if tape is not None:
+                            self.match(tape, f.node, source, d.type, d.args, d.open_args)
         if self.app.hub is not None:
             for dest in self.app.hub.destinations:
                 tape = self.app.tape(dest.tape)
                 if tape is not None:
-                    self.match(tape.entry, "hub", f"the hub's destination '{dest.tape}'", "jump", dest.tape, (), False)
+                    self.match(tape, "hub", f"the hub's destination '{dest.tape}'", "jump", (), False)
 
-    def pass_args(self, frame: Frame, source: str, d: Declared) -> None:
-        if d.type == "goto":
-            tape = self.app.tape(frame.tape)
-            target = tape.frame(d.target) if tape else None
-        else:
-            tape = self.app.tape(d.target)
-            target = tape.entry if tape else None
-        if target is not None:
-            self.match(target, frame.node, source, d.type, d.target, d.args, d.open_args)
-
-    def match(
-        self, target: Frame, at: str, source: str, kind: str, name: str, args: tuple[str, ...], open_args: bool
-    ) -> None:
-        loader = target.enter
-        taken = set(target.address_params)
+    def match(self, tape: Tape, at: str, source: str, kind: str, args: tuple[str, ...], open_args: bool) -> None:
+        taken, required, open_loader = tape_arguments(tape)
         for a in args:
-            if a in taken or (loader is not None and accepts(loader, a)):
-                continue
-            takes = f"{name_of(loader)}() does not take it" if loader else f"the frame '{target.node}' has no loader"
-            message = f"{source} does {kind}('{name}', {a}=...), but {takes}"
-            self.report(error("unknown-argument", message, at))
-        if loader is None or open_args:
+            if a not in taken and not open_loader:
+                message = f"{source} does {kind}('{tape.id}', {a}=...), but no loader or address in tape '{tape.id}' takes it"
+                self.report(error("unknown-argument", message, at))
+        if open_args:
             return
-        sig = read(loader)
-        if sig.problem:
-            return
-        missing = [p.name for p in sig.params if p.required and p.name not in args]
+        missing = [name for name in required if name not in args]
         if missing:
-            message = f"{source} does {kind}('{name}') without {', '.join(missing)}, which {sig.name}() needs"
+            needs = ", ".join(f"{loader}() needs {name}" for name, loader in required.items() if name in missing)
+            message = f"{source} does {kind}('{tape.id}') without {', '.join(missing)}: {needs}"
             self.report(error("missing-argument", message, at))
 
     # ── the journey (Q31, Q32) ──
@@ -505,6 +499,16 @@ class _Checker:
         if self.app.tape(self.app.entry) is None:
             return
         j = journey(self.app, self.built.edges)
+        for e in self.built.edges:
+            if e.type != "back" or e.source not in j.roots:
+                continue
+            if e.source in j.always:
+                message = f"{_source(e.via)} goes back, but the frame is a history root on every path: there is no history"
+                self.report(error("back-on-root", message, e.source))
+            else:
+                message = (f"{_source(e.via)} goes back, but the frame is a history root on some paths, where the "
+                           f"client hides it")  # fmt: skip
+                self.report(warning("back-on-root-sometimes", message, e.source))
         g = j.graph
         live = reachable(g)
         frames = {f.node: f for f in self.app.frames}
@@ -520,3 +524,43 @@ class _Checker:
             if all(n in live for n in scc):
                 self.report(warning("closed-cycle", f"frames {', '.join(scc)} form a cycle with no way out", scc[0]))
 
+
+def tape_arguments(tape: Tape) -> tuple[set[str], dict[str, str], bool]:
+    """A tape's arguments (Q46): the names its loaders and addresses take, the ones a loader needs
+    (with that loader's name), and whether some loader takes any (`**kwargs`). A loader's record
+    parameters are documents from earlier frames, not arguments."""
+    taken: set[str] = set()
+    required: dict[str, str] = {}
+    open_loader = False
+    for f in tape.frames:
+        taken |= set(f.address_params)
+        if f.enter is None:
+            continue
+        try:
+            params = inspect.signature(f.enter).parameters.values()
+        except (TypeError, ValueError):
+            open_loader = True
+            continue
+        open_loader = open_loader or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params)
+        sig = read(f.enter)
+        for p in sig.params:
+            if p.record is not None:
+                continue
+            taken.add(p.name)
+            if p.required:
+                required.setdefault(p.name, sig.name)
+    return taken, required, open_loader
+
+
+def earlier_documents(app: App, frame: Frame) -> list[type]:
+    """The documents a frame's loader may take by annotation: those its tape's earlier frames show,
+    edit, or load (Q46)."""
+    tape = app.tape(frame.tape)
+    out: list[type] = []
+    for f in tape.frames if tape else []:
+        if f is frame:
+            break
+        out += f.shown_roots + ([f.edit] if f.edit is not None else [])
+        if f.enter is not None and not read(f.enter).problem and read(f.enter).returns is not _EMPTY:
+            out += [k.record for k in returns_kinds(read(f.enter).returns) if k.record is not None]
+    return out

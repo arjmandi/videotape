@@ -143,6 +143,8 @@ class Journey:
     declared: list[Edge]
     roots: set[str] = field(default_factory=set)
     """History roots: no back (Q31)."""
+    always: set[str] = field(default_factory=set)
+    """Roots on every path: nothing enters them with history (Q44). The rest are roots on some paths."""
     backs: list[Edge] = field(default_factory=list)
     """The platform's back, from every frame with history that does not opt out."""
     doors: list[Edge] = field(default_factory=list)
@@ -151,8 +153,15 @@ class Journey:
     """For each frame, the roots its history can begin at."""
 
     @property
+    def sometimes(self) -> set[str]:
+        return self.roots - self.always
+
+    @property
     def graph(self) -> Graph:
-        return Graph(self.entry, self.nodes, [*self.declared, *self.backs, *self.doors])
+        """Declared edges, the platform's back, and the hub's doors. An explicit back from a frame that is
+        a root on every path has nowhere to go, so it is no exit (Q44)."""
+        declared = [e for e in self.declared if not (e.type == "back" and e.source in self.always)]
+        return Graph(self.entry, self.nodes, [*declared, *self.backs, *self.doors])
 
 
 def _walk(starts: set[str], edges: list[Edge], stop: set[str]) -> dict[str, set[str]]:
@@ -183,6 +192,8 @@ def journey(app: App, edges: list[Edge]) -> Journey:
                 destinations[d.tape] = t.entry.node
     roots = {n for n in [entry, *destinations.values()] if n} | {e.to for e in edges if e.resets and e.to}
     j = Journey(entry, nodes, edges, roots)
+    entered_with_history = {e.to for e in edges if e.to and e.type in ("goto", "jump", "call") and not e.resets}
+    j.always = {r for r in roots if r not in entered_with_history}
     j.backs = [Edge(n, "back", {"back": "history"}) for n in nodes if n not in roots and frames[n].back]
     keeps = [e for e in edges if e.type in KEEPS_HISTORY and not e.resets]
     j.began = _walk(roots, keeps, roots)

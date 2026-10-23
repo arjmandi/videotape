@@ -12,7 +12,9 @@ async def load_order(ctx, id: str) -> Order: ...
 
 order = vt.tape("order", [
     vt.frame("See one order", address="/orders/{order_id}", shows=Order, enter=load_order,
-             actions=[vt.action("Back", vt.back())]),
+             actions=[vt.action("More", vt.jump("more"))]),
 ])
 
-app = vt.app("orders", entry="order", tapes=[order])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("orders", entry="order", tapes=[order, more])

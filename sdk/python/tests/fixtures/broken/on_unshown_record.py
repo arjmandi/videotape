@@ -17,7 +17,9 @@ class Feed(vt.Record):
 
 feed = vt.tape("feed", [
     vt.frame("See what people posted", shows=Feed,
-             actions=[vt.action("Hide", vt.stay(), on=Comment), vt.action("Back", vt.back())]),
+             actions=[vt.action("Hide", vt.stay(), on=Comment), vt.action("More", vt.jump("more"))]),
 ])
 
-app = vt.app("feed", entry="feed", tapes=[feed])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("feed", entry="feed", tapes=[feed, more])

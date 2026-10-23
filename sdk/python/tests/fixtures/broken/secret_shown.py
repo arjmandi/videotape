@@ -8,6 +8,8 @@ class Account(vt.Record):
     password: vt.Secret
 
 
-account = vt.tape("account", [vt.frame("See my account", shows=Account, actions=[vt.action("Back", vt.back())])])
+account = vt.tape("account", [vt.frame("See my account", shows=Account, actions=[vt.action("More", vt.jump("more"))])])
 
-app = vt.app("account", entry="account", tapes=[account])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("account", entry="account", tapes=[account, more])

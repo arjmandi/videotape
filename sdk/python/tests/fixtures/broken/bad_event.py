@@ -13,7 +13,9 @@ async def next_post(ctx, p: Post):
 
 post = vt.tape("post", [
     vt.frame("Read a post", shows=Post, components=[vt.show(Post.title, on_ended=next_post)],
-             actions=[vt.action("Back", vt.back())]),
+             actions=[vt.action("More", vt.jump("more"))]),
 ])
 
-app = vt.app("posts", entry="post", tapes=[post])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("posts", entry="post", tapes=[post, more])

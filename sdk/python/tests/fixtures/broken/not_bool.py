@@ -10,7 +10,9 @@ class Post(vt.Record):
 
 post = vt.tape("post", [
     vt.frame("Read a post", shows=Post,
-             actions=[vt.action("Like", vt.stay(), hidden=Post.likes), vt.action("Back", vt.back())]),
+             actions=[vt.action("Like", vt.stay(), hidden=Post.likes), vt.action("More", vt.jump("more"))]),
 ])
 
-app = vt.app("posts", entry="post", tapes=[post])
+more = vt.tape("more", [vt.frame("Read more")])
+
+app = vt.app("posts", entry="post", tapes=[post, more])

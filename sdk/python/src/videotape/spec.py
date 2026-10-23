@@ -240,8 +240,10 @@ class Frame(_Spec):
     after: After | None = None
     back: Literal[False] | None = Field(None, description="back=False: no platform back here.")
     hub: Literal[False] | None = Field(None, description="hub=False: the hub never shows here.")
-    root: Literal[True] | None = Field(
-        None, description="A history root: the entry, a hub destination's first frame, or where a sign-in or sign-out lands."
+    root: Literal["always", "sometimes"] | None = Field(
+        None,
+        description="A history root (the entry, a hub destination's first frame, or where a sign-in or "
+        "sign-out lands): on every path, or only on some, where something also enters it with history.",
     )
 
 
