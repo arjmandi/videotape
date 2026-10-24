@@ -273,7 +273,7 @@ sent to the app.
 
 ## Decisions (05 §18.2)
 
-The protocol details 05 left open were decided as Q53–Q73 (05 §18.2, on `design/v2` at `bb41cfc`).
+The protocol details 05 left open were decided as Q53–Q75 (05 §18.2, on `design/v2` at `3fe21b0`).
 Where each lives here:
 
 | Q | Decision | Here |
@@ -299,18 +299,13 @@ Where each lives here:
 | Q71 | `RichText`, `Money`, and `Series` are immutable; a handler assigns a new value | The SDK's `values`: frozen sequences that say what to do instead, and builders |
 | Q72 | Drafts stay per session; an app keeps them in its own services, loaded as the edited document's starting value and saved on change | Changes and drafts; `on_change` runs on a committed change |
 | Q73 | A kept journey resumes at the deepest place in its history a release still has; the sign-in's target only if none survives | Across devices; `Reel.resume` |
+| Q74 | `on_change` runs after a pause in typing (300 ms, `pause=`), on blur, and before a submit; the newest change wins | Changes and drafts; the `blur` input |
+| Q75 | A handler gets an unfinished edited document only if it asks for `vt.Draft[X]`; one that takes `X` runs once it validates | Unfinished forms; the SDK's `vt.Draft` |
 
-**New questions**, from building Q71–Q73:
-
-- **Q-V How often `on_change` runs.** A field with `commit="change"` runs its `on_change` handler on
-  every committed change, so saving a draft calls the app's services at every keystroke the client
-  commits. Should the engine wait for a pause in typing before it runs `on_change`, or is pacing the
-  client protocol's commit policy?
-- **Q-W Handlers on an unfinished edited document.** A handler receives the edited document as a
-  record, which must validate (Q67), so an `on_change` handler cannot save a draft while a required
-  field is still empty: the decision fails. Should an edited document reach handlers before it is
-  complete (its required fields optional until the submit), or should a record meant for drafts give
-  every field a default?
+**No open questions.** Building Q74 and Q75 raised none, and from the engine core's side the design
+of what this piece covers (the journey runtime, documents, the app protocol, and the app's mirror)
+feels settled. The next questions will come with the pieces not built yet: the client protocol,
+the composer, and scene state.
 
 **Not built** (per the brief): the composer, embodiment, scene state, rendering, streaming,
 clients and the client protocol, release, and the TypeScript SDK. Also not built here: timers
