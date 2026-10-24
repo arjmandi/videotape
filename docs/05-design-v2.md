@@ -304,7 +304,10 @@ topic, and no optimistic declaration.
 
 - **Confirmation.** A handler's changes are confirmed by its result and rolled back by a raise or
   a `Reject`. Work a handler starts in the background writes through `vt.docs`, as changes from
-  the app: applied at once, never tentative.
+  the app: applied at once, never tentative. Each decision works on its own copy, the confirmed
+  values plus its own changes and never another decision's pending ones; the screen still shows
+  every pending change, and the engine applies each decision's changes on top of what was confirmed
+  meanwhile.
 - **The app's mirror.** The app process keeps a copy of the documents its handlers touch, kept
   current by `sync` from the engine. A `decide` carries references and versions, not whole
   documents, and the app answers with the changes only; a missing or stale copy is sent whole once.
@@ -367,7 +370,11 @@ the app. Frames may run timers (`after=vt.after(seconds=5, then=next_slide)`).
 **Identity.** An outcome may carry `sign_in=user`, the user's record with its `vt.Id`, or
 `sign_out=True`; both reset the history (§6.3). Handlers and loaders then see `ctx.user`, that
 record. `sign_in` and `sign_out` on `stay`, `goto`, or `back` reset the history where the user
-lands. Reels are keyed by user and device, so a journey resumes on another device; the app
+lands. Reels are keyed by user and device. A signed-in journey is kept for 30 days by default
+(`vt.app(keep_journeys=timedelta(days=30))`) as its position and history only, never its documents,
+which loaders fetch again on resume; opening the app on any device signed in as the user resumes the
+most recent of their journeys. A sign-in on another device resumes that journey rather than landing
+where its outcome points, unless the outcome says `resume=False`, as after a password change; the app
 process can address a user's documents; a deleted account ends every session. Credentials stay with
 the app. A document carries the tape version it was loaded under, so a release never changes a
 journey under a user (§7.1).
@@ -1039,6 +1046,9 @@ where §6 was open, and they were confirmed or changed here. Its letters are in 
 | Q65 | What does a failure show? [M] | The engine's own message; a failed loader keeps the user in place, except at an entry or address (§6.3). |
 | Q66 | How many apps per engine, and what does a new intent do? [N] | One app; a reconnecting app replaces the old; a new intent keeps sessions in development; releases run side by side in production (§6.6). |
 | Q67 | May a record a handler creates lack required fields? [O] | No; only its `vt.Id`. A value that does not exist yet is optional, such as `Message.sent_at` (§6.2). |
+| Q68 | Do two decisions on one document see each other's pending changes? [P] | No: each works on the confirmed values plus its own changes; the screen shows all pending changes (§6.2). |
+| Q69 | How long does a journey wait, and which one does a device resume? [Q] | Signed-in journeys are kept 30 days by default (`keep_journeys=`), positions and history only; any device resumes the user's most recent journey (§6.2). |
+| Q70 | Where does a sign-in on another device land? [R] | In the resumed journey, unless the outcome says `resume=False` (§6.2). |
 
 Also folded from [08](08-leverage-review.md) without a question of their own: affordances (P4,
 §6.4), the agent surface (§6.5), and its corrections to §8, §9, and §14. From
