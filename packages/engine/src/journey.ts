@@ -152,6 +152,17 @@ export class Places {
     return undefined;
   }
 
+  /**
+   * The handler a frame runs when a field it edits changes (`on_change`, on the frame or on a
+   * `vt.show`), unless the field commits only with the submit (`commit="submit"`).
+   */
+  changeHandler(frame: Frame, field: string): string | undefined {
+    const component = frame.components.find((c) => c.field === field && c.from === "edit");
+    if (component?.commit === "submit") return undefined;
+    const events = component?.events as { change?: { handler?: string } } | undefined;
+    return events?.change?.handler ?? frame.on_change?.find((c) => c.field === field)?.handler;
+  }
+
   /** The fields a user writes on a frame: those of the record it edits, as its components derive them. */
   fields(frame: Frame): FrameField[] {
     if (!frame.edit) return [];

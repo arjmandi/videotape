@@ -170,6 +170,9 @@
           "edit": {
             "record": "Plan"
           },
+          "enter": {
+            "loader": "load_plan"
+          },
           "submit": {
             "label": "Name the plan",
             "handler": "name_plan"
@@ -179,6 +182,7 @@
               "field": "Plan.title",
               "from": "edit",
               "type": "string",
+              "commit": "change",
               "affordances": [
                 "write"
               ]
@@ -190,6 +194,12 @@
               "affordances": [
                 "adjust"
               ]
+            }
+          ],
+          "on_change": [
+            {
+              "field": "Plan.title",
+              "handler": "save_plan"
             }
           ]
         },
@@ -208,6 +218,7 @@
               "field": "Plan.title",
               "from": "edit",
               "type": "string",
+              "commit": "change",
               "affordances": [
                 "write"
               ]
@@ -559,7 +570,8 @@
           "title": "Title",
           "type": "string",
           "x-vt": {
-            "type": "string"
+            "type": "string",
+            "commit": "change"
           }
         },
         "steps": {
@@ -738,6 +750,21 @@
         }
       ]
     },
+    "save_plan": {
+      "params": [
+        {
+          "name": "plan",
+          "type": "record",
+          "record": "Plan",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
     "sign_in": {
       "params": [
         {
@@ -858,6 +885,15 @@
         {
           "type": "record",
           "record": "Item"
+        }
+      ]
+    },
+    "load_plan": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Plan"
         }
       ]
     },

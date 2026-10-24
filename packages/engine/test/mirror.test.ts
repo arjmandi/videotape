@@ -30,11 +30,11 @@ describe("the app's mirror (Q53, Q57, Q68)", () => {
     });
     await app.engine.ready();
     const s = await Headless.open(app.engine, { tape: "wizard", user: ADA });
-    await s.fill({ title: "Garden" });
+    await s.fill({ steps: 2 });                                     // a field without an on_change handler
     await s.press("Name the plan");
     const ref = s.session.ref("Plan")!;
     const [decide] = decides(app.received);
-    expect(decide.documents.plan).toEqual({ ref, version: 1, value: { title: "Garden", steps: 1 } });
+    expect(decide.documents.plan).toEqual({ ref, version: 1, value: { title: "", steps: 2 } });
     // Its change was tentative and then rolled back: the confirmed value never moved, so nothing went to the app.
     expect(app.received.slice(app.received.indexOf(decide) + 1)).toEqual([]);
     await s.fill({ steps: 3 });

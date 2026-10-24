@@ -282,6 +282,15 @@ export class Session {
     if (problems.length) this.status.invalid[field.field] = problems;
     else delete this.status.invalid[field.field];
     if (before !== JSON.stringify(this.status.invalid[field.field] ?? [])) this.statusChanged();
+    // A committed change to a valid field runs the frame's on_change handler for it, after the
+    // decisions queued before it, as long as the frame is still on screen (Q72: saving a draft).
+    const handler = problems.length ? undefined : this.engine.places.changeHandler(this.frame, field.field);
+    if (handler) {
+      const version = this.version;
+      this.queue = this.queue.then(() => (version === this.version && !this.closed ? this.decide(handler, {}) : undefined)).catch((e: unknown) => {
+        this.log.error("an on_change handler failed", { session: this.id, handler, error: e instanceof Error ? e.message : String(e) });
+      });
+    }
   }
 
   private async press(msg: Extract<Input, { t: "press" }>): Promise<void> {

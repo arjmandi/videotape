@@ -101,6 +101,21 @@ describe.skipIf(NO_PYTHON)("a journey across devices", () => {
     expect(next.reel).toMatchObject({ head: "home", history: [] });
   });
 
+  it("brings a draft back in a new session when the app keeps it in its own services (Q72)", async () => {
+    const phone = await signIn("phone", "Grace");
+    await phone.press("Plan something");
+    expect(phone.doc("Plan")).toEqual({ title: "", steps: 1 });
+    await phone.fill({ title: "Roses" });                            // commit="change": on_change saves it
+    expect(phone.error).toBeNull();
+    expect(JSON.stringify((p.engine.journeys as MemoryJourneys).all())).not.toContain("Roses");   // never kept here
+    phone.close();
+    (p.engine.journeys as MemoryJourneys).clear();                  // no journey to resume: the loader alone brings it back
+    const laptop = await signIn("laptop", "Grace");
+    expect(laptop.place).toBe("home");
+    await laptop.press("Plan something");
+    expect(laptop.doc("Plan")).toEqual({ title: "Roses", steps: 1 });
+  });
+
   it("lands where a sign-in points when it says resume=False (Q70)", async () => {
     const phone = await signIn("phone");
     await phone.press("Plan something");

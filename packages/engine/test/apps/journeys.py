@@ -31,7 +31,7 @@ class Home(vt.Record):
 
 
 class Plan(vt.Record):
-    title: str = vt.Field("", max_length=20)
+    title: str = vt.Field("", max_length=20, commit="change")
     steps: int = vt.Field(1, ge=1, le=9)
 
 
@@ -142,6 +142,19 @@ async def name_plan(ctx, plan: Plan):
     return vt.goto("steps")
 
 
+DRAFTS: dict[str, dict] = {}
+"""The app's own service for drafts (Q72): the engine never keeps them, so the app does, by user."""
+
+
+async def load_plan(ctx) -> Plan:
+    return Plan(**DRAFTS.get(ctx.user.id, {}))         # the saved draft as the edited document's starting value
+
+
+async def save_plan(ctx, plan: Plan):
+    DRAFTS[ctx.user.id] = plan.model_dump()
+    return vt.stay()
+
+
 async def count_steps(ctx, plan: Plan):
     return vt.goto("review")
 
@@ -151,7 +164,7 @@ async def load_summary(ctx, topic: str, plan: Plan) -> Summary:
 
 
 wizard = vt.tape("wizard", [
-    vt.frame("Name the plan", id="name", edit=Plan, submit=name_plan),
+    vt.frame("Name the plan", id="name", edit=Plan, enter=load_plan, submit=name_plan, on_change={Plan.title: save_plan}),
     vt.frame("Count the steps", id="steps", edit=Plan, submit=vt.action("Next", count_steps)),
     vt.frame("Review the plan", id="review", shows=Summary, enter=load_summary, back=False,
              actions=[vt.action("Done", vt.jump("home"), role="primary")]),

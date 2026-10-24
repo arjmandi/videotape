@@ -161,3 +161,20 @@ describe.skipIf(NO_PYTHON)("documents with the Python app", () => {
     }
   }, 20_000);
 });
+
+describe("on_change (Q72)", () => {
+  it("runs the field's handler after a valid committed change, with the edited document, while the frame is on screen", async () => {
+    const app = fake("journeys", (req) => (req.t === "load" ? { documents: [] } : { outcome: { type: "stay" } }));
+    await app.engine.ready();
+    const s = await Headless.open(app.engine, { tape: "wizard", user: ADA });
+    const decided = () => app.requests.filter((r) => r.t === "decide").map((r) => (r as { handler: string }).handler);
+    await s.fill({ title: "Garden" });
+    expect(decided()).toEqual(["save_plan"]);
+    const [save] = app.requests.filter((r) => r.t === "decide") as Array<{ documents: Record<string, { value?: unknown }> }>;
+    expect(save!.documents.plan!.value).toEqual({ title: "Garden", steps: 1 });
+    await s.fill({ steps: 2 });                                     // no handler for steps
+    await s.fill({ title: "A name far longer than twenty letters" }); // invalid: nothing to save
+    expect(decided()).toEqual(["save_plan"]);
+    expect(s.invalid).toEqual({ "Plan.title": ["/ must NOT have more than 20 characters"] });
+  });
+});
