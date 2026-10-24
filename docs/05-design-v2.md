@@ -258,6 +258,13 @@ parameters, and its parameters may be field references, which the engine fills:
 handler chooses at runtime is an `Enum` field, whose members are message keys; `Reject` takes a
 string or `vt.t`. A `str` field is data, drawn as it is.
 
+**Validation and secrets.** A submit validates the edited record, secrets included, before the app
+is called, and reports problems per field. A fill that breaks a constraint is kept and shown as
+invalid while the user types; a fill of the wrong shape is dropped. A secret travels only with the
+submit press and is cleared on the client after any press that carried it, whether it succeeded,
+was rejected, or failed; a validation failure before the app does not clear it, since it never
+left the editor.
+
 ```python
 import videotape as vt
 from services import auth
@@ -295,11 +302,30 @@ is made; the engine shows it at once and marks it tentative until the handler re
 handler raises, the engine rolls the changes back. There is no patch algebra, no placeholder, no
 topic, and no optimistic declaration.
 
+- **Confirmation.** A handler's changes are confirmed by its result and rolled back by a raise or
+  a `Reject`. Work a handler starts in the background writes through `vt.docs`, as changes from
+  the app: applied at once, never tentative.
+- **The app's mirror.** The app process keeps a copy of the documents its handlers touch, kept
+  current by `sync` from the engine. A `decide` carries references and versions, not whole
+  documents, and the app answers with the changes only; a missing or stale copy is sent whole once.
+  The cost of a decision therefore does not grow with the document, and `vt.docs[...]` reads as
+  well as writes.
+- **Keys.** List items are keyed by their `vt.Id`, or by a key the engine or the SDK mints, and an
+  item keeps its first key after it is saved with an Id, so its prop never jumps or re-animates
+  when a pending item is confirmed.
+- **Lifetime.** A document lives while the user's history holds its tape, not only while it is on
+  screen, and stays current there. Back returns to it at once without running the loader again;
+  loaders run when a frame is entered forward (a jump, a `goto`, a call, an address, a
+  destination's first door).
+- **New records are valid.** A record a handler creates must validate; only its `vt.Id` may be
+  missing until the app saves it. A value that does not exist yet is an optional field (a pending
+  message has no `sent_at` until the service stamps it).
+
 ```python
 class Message(vt.Record):
     author: User
     text: vt.RichText
-    sent_at: datetime = vt.Field(format="time", importance="optional")
+    sent_at: datetime | None = vt.Field(None, format="time", importance="optional")
     pending: bool = vt.State(False)
 
 class Conversation(vt.Record):
@@ -340,7 +366,8 @@ the app. Frames may run timers (`after=vt.after(seconds=5, then=next_slide)`).
 
 **Identity.** An outcome may carry `sign_in=user`, the user's record with its `vt.Id`, or
 `sign_out=True`; both reset the history (§6.3). Handlers and loaders then see `ctx.user`, that
-record; reels are keyed by user and device, so a journey resumes on another device; the app
+record. `sign_in` and `sign_out` on `stay`, `goto`, or `back` reset the history where the user
+lands. Reels are keyed by user and device, so a journey resumes on another device; the app
 process can address a user's documents; a deleted account ends every session. Credentials stay with
 the app. A document carries the tape version it was loaded under, so a release never changes a
 journey under a user (§7.1).
@@ -371,7 +398,9 @@ with `@vt.outcomes(vt.jump("dashboard"))`, and `check` asks for it. Wherever a t
 the object catches a typo when the module loads, and inside a record, which comes before the tapes,
 the id is what works. Any handler may
 `raise vt.Reject("...")`: the journey stays, the frame shows the message as its error status, and
-secrets are cleared, so a `Stay` edge is implied for every handler.
+secrets are cleared, so a `Stay` edge is implied for every handler. An outcome that the handler's
+intent does not declare is refused as an error and its changes rolled back, so `check` and the
+engine agree by construction.
 
 **History and the hub.** Every frame with history has a back edge to where the user came from. A
 **history root** has none: the app's entry, the first frame of each hub destination, the target
@@ -398,6 +427,16 @@ overrides it where the first destination in hub order is not the frame's natural
 tape passes its arguments, and any frame's loader in the tape may take them, and the documents
 its earlier frames loaded, by annotation. `goto` therefore carries no arguments, and a wizard's
 steps share one draft.
+
+**The hub, calls, and failures.** Each hub destination keeps its own history; pressing the current
+destination's door starts it over, as tab bars do; a jump into a destination's tape keeps the hub;
+door presses inside a call or on a `hub=False` frame are dropped. Back from a call's first frame ends
+the call with no result and does not run `then=`; `check` warns about a tape that uses `done` but is
+never entered by a call. A handler that raises, an app that is gone or too slow, and a loader that
+fails show the engine's own message as the frame's error status, never the app's exception text.
+When a loader fails on the way to a frame, the move does not happen and the error shows where the
+user is; only an entry or an address, where there is nowhere to stay, enters the frame with its
+defaults and the error.
 
 `videotape check` knows every edge. It counts back as an exit only where the frame has history on
 every path to it, and the hub's doors only where every root that reaches the frame is a
@@ -455,9 +494,13 @@ authoring. Permissions for this surface are not designed yet.
 
 The app process connects out to the engine (so apps run anywhere), sends `register` with its intent
 JSON (records, tapes, handler names, a services manifest), then answers `load` (enter hooks) and
-`decide` (handler calls) and exchanges `sync` (document deltas both ways, tentative and confirmed).
-Secrets arrive once and are never stored, logged, or rendered, as in v1. The TypeScript SDK can also
-run in the engine's process for local development.
+`decide` (handler calls) and exchanges `sync` (document deltas both ways, tentative and confirmed;
+from the engine, they keep the app's mirror current, §6.2). Secrets arrive once and are never
+stored, logged, or rendered, as in v1. The TypeScript SDK can also run in the engine's process for
+local development. An engine plays one app, and an app process that reconnects replaces the old
+connection. In development a new intent keeps the sessions, and the documents whose records did not
+change; in production a release runs beside the old one and each journey finishes on the release it
+started on (§7.1).
 
 ## 7. Worlds and generation layers
 
@@ -822,9 +865,13 @@ WebRTC media and an object map):
 | S→C | `surface` | Open, style, move, and close a native surface: the editor for a focused field, the media player for a `Video` or `Audio` |
 | S↔C | `capability` (after M1) | Requests to the OS bridge and their results |
 
+Until the client protocol is built, the engine core takes `fill`, `press`, `back`, and `hub` inputs
+with action ids (`submit`, `action:<n>`) guarded by the frame version. They stay for the headless
+test driver; clients will address object ids from scene state.
+
 **App protocol** (WebSocket or HTTP/2, JSON): `register` (intent: records, tapes, handler names,
-services manifest), `load` (enter hooks) and `decide` (handler calls) with their results, `sync`
-(document deltas both ways, tentative and confirmed), `log`.
+services manifest), `load` (enter hooks) and `decide` (handler calls, with document references and
+versions) with their results, `sync` (document deltas both ways, tentative and confirmed), `log`.
 
 Both keep prototype-0's protections: events validated against what is on screen, sequence and
 version guards, secrets kept out of logs and storage.
@@ -970,8 +1017,32 @@ The SDK's five deviations are settled too. A paging loader is registered after i
 `vt.Field`. `submit=` takes a labelled action. `vt.t` in a `str` field is replaced by Q39. `vt.docs`
 needs the engine, so the guide shows it inside the functions that receive outside events.
 
+### 18.2 Questions from the engine core (2026-10-24)
+
+The headless engine core (`packages/engine`, branch `claude/adoring-kapitsa-1bca0d`) decided these
+where §6 was open, and they were confirmed or changed here. Its letters are in brackets.
+
+| # | Question | Decision |
+|---|----------|----------|
+| Q53 | Does the engine send `sync` to the app? [A] | Yes: the app keeps a mirror of the documents its handlers touch (§6.2). |
+| Q54 | What confirms a decision's changes? [B] | Its result; a raise or `Reject` rolls back; background work writes through `vt.docs`, never tentative (§6.2). |
+| Q55 | How are list items keyed? [C] | By `vt.Id` or a minted key; an item keeps its first key after it is saved (§6.2). |
+| Q56 | How long do documents live, and when do loaders run? [D] | While the history holds their tape; loaders run on entering forward, not on back (§6.2). |
+| Q57 | What bounds the cost of a decision? [E] | The mirror: a `decide` carries references and versions, and the answer carries changes only (§6.2, §6.6). |
+| Q58 | When are secrets cleared? [F] | After any press that carried them; not after a validation failure before the app (§6.1). |
+| Q59 | Undeclared outcomes? [G] | Refused as errors and rolled back (§6.3). |
+| Q60 | How does the hub behave? [H] | As tab bars: one history per destination, the current door starts over; door presses in calls or on `hub=False` frames are dropped (§6.3). |
+| Q61 | Back from a call's first frame? [I] | Ends the call without a result or `then=`; `check` warns about `done` in a tape no call enters (§6.3). |
+| Q62 | Sign-in without moving; cross-device resume? [J] | `sign_in` and `sign_out` on `stay`, `goto`, or `back` reset history there; cross-device resume stays in M1, in the engine's next piece (§6.2). |
+| Q63 | When does validation run? [K] | A submit validates before the app, per field; fills that break a constraint are kept and shown invalid; fills of the wrong shape are dropped (§6.1). |
+| Q64 | What inputs does the engine take before the client protocol? [L] | `fill`, `press`, `back`, `hub` with action ids and frame versions, as a stand-in kept for the test driver (§14). |
+| Q65 | What does a failure show? [M] | The engine's own message; a failed loader keeps the user in place, except at an entry or address (§6.3). |
+| Q66 | How many apps per engine, and what does a new intent do? [N] | One app; a reconnecting app replaces the old; a new intent keeps sessions in development; releases run side by side in production (§6.6). |
+| Q67 | May a record a handler creates lack required fields? [O] | No; only its `vt.Id`. A value that does not exist yet is optional, such as `Message.sent_at` (§6.2). |
+
 Also folded from [08](08-leverage-review.md) without a question of their own: affordances (P4,
 §6.4), the agent surface (§6.5), and its corrections to §8, §9, and §14. From
 [07](07-review-from-apps.md): the findings P1–P4 absorb are in §6; F8 (addresses), F12 (insets),
 F14 (text shaping), and F18 (selection, now local) are folded as written; F1, F2, F20, and F26 are
-moot under Q24; Q16–Q23 are decided above. Nothing from 07, 08, or the SDK remains open.
+moot under Q24; Q16–Q23 are decided above. Nothing from 07, 08, the SDK, or the engine core
+remains open.

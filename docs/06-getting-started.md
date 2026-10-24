@@ -818,7 +818,7 @@ social graph) stay in your services, where they are today.
 class Message(vt.Record):
     author: User
     text: vt.RichText
-    sent_at: datetime = vt.Field(format="time", importance="optional")
+    sent_at: datetime | None = vt.Field(None, format="time", importance="optional")   # stamped when sent
     pending: bool = vt.State(False)
 
 class Conversation(vt.Record):
