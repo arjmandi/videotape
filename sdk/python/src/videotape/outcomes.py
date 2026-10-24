@@ -27,10 +27,12 @@ class Outcome:
 @dataclass
 class _Identity:
     """`sign_in=user` (the user's record, with its `vt.Id`) or `sign_out=True` on an outcome tells the
-    engine who the user is, and starts a fresh history at the target (05 §6.2, §6.3)."""
+    engine who the user is, and starts a fresh history at the target (05 §6.2, §6.3). A sign-in
+    resumes a journey the user has on another device, unless `resume=False` (Q70)."""
 
     sign_in: Any = field(default=None, kw_only=True)
     sign_out: bool = field(default=False, kw_only=True)
+    resume: bool = field(default=True, kw_only=True)
 
     @property
     def resets(self) -> bool:
@@ -42,6 +44,8 @@ class _Identity:
             out["sign_in"] = encode(self.sign_in)
         if self.sign_out:
             out["sign_out"] = True
+        if not self.resume:
+            out["resume"] = False
         return out
 
 
@@ -160,27 +164,34 @@ class Copy(Outcome):
         return {"type": "copy", "text": self.value}
 
 
-def jump(tape: Any, *, sign_in: Any = None, sign_out: bool = False, **args: Any) -> Jump:
+def jump(tape: Any, *, sign_in: Any = None, sign_out: bool = False, resume: bool = True, **args: Any) -> Jump:
     """Switch to another tape, with arguments for its loaders: `vt.jump("report", project_id=Project.id)`.
 
-    The tape may be named by its id or by the tape itself: `vt.jump(report)`."""
-    return Jump(tape_id(tape), args, sign_in=sign_in, sign_out=sign_out)
+    The tape may be named by its id or by the tape itself: `vt.jump(report)`. With `sign_in=`, the
+    user's journey on another device resumes instead, unless `resume=False` (Q70)."""
+    return Jump(tape_id(tape), args, sign_in=sign_in, sign_out=sign_out, resume=_resume(resume))
 
 
-def goto(frame: str, *, sign_in: Any = None, sign_out: bool = False) -> Goto:
+def goto(frame: str, *, sign_in: Any = None, sign_out: bool = False, resume: bool = True) -> Goto:
     """Go to the frame with this `id=` in the same tape. It carries no arguments: a tape's frames share
     the arguments the tape was entered with, and the documents its earlier frames loaded (Q46)."""
-    return Goto(frame, sign_in=sign_in, sign_out=sign_out)
+    return Goto(frame, sign_in=sign_in, sign_out=sign_out, resume=_resume(resume))
 
 
-def back(*, sign_in: Any = None, sign_out: bool = False) -> Back:
+def back(*, sign_in: Any = None, sign_out: bool = False, resume: bool = True) -> Back:
     """Return to the previous place."""
-    return Back(sign_in=sign_in, sign_out=sign_out)
+    return Back(sign_in=sign_in, sign_out=sign_out, resume=_resume(resume))
 
 
-def stay(*, sign_in: Any = None, sign_out: bool = False) -> Stay:
+def stay(*, sign_in: Any = None, sign_out: bool = False, resume: bool = True) -> Stay:
     """Remain where the journey is."""
-    return Stay(sign_in=sign_in, sign_out=sign_out)
+    return Stay(sign_in=sign_in, sign_out=sign_out, resume=_resume(resume))
+
+
+def _resume(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError("resume= takes True or False: whether a sign-in resumes the user's journey (Q70)")
+    return value
 
 
 def call(tape: Any, *, then: Callable[..., Any] | None = None, **args: Any) -> Call:

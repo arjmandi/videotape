@@ -65,7 +65,15 @@ async def sign_in(ctx, login: Login):
     return vt.jump("home", sign_in=Person(id=PEOPLE.get(login.name, "p0"), name=login.name))
 
 
-welcome = vt.tape("welcome", [vt.frame("Sign in", edit=Login, submit=sign_in)])
+async def sign_in_here(ctx, login: Login):
+    if login.password != "pw":
+        raise vt.Reject("Wrong password.")
+    return vt.jump("home", sign_in=Person(id=PEOPLE.get(login.name, "p0"), name=login.name), resume=False)
+
+
+welcome = vt.tape("welcome", [
+    vt.frame("Sign in", edit=Login, submit=sign_in, actions=[vt.action("Sign in here", sign_in_here)]),
+])
 
 
 # ── home ──

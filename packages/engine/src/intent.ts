@@ -34,22 +34,30 @@ export interface Jump {
   args?: JsonObject;
   sign_in?: Json;
   sign_out?: boolean;
+  /** `false`: a sign-in lands where the outcome points, not in a journey the user has (Q70). */
+  resume?: boolean;
 }
 export interface Goto {
   type: "goto";
   frame: string;
   sign_in?: Json;
   sign_out?: boolean;
+  /** `false`: a sign-in lands where the outcome points, not in a journey the user has (Q70). */
+  resume?: boolean;
 }
 export interface Back {
   type: "back";
   sign_in?: Json;
   sign_out?: boolean;
+  /** `false`: a sign-in lands where the outcome points, not in a journey the user has (Q70). */
+  resume?: boolean;
 }
 export interface Stay {
   type: "stay";
   sign_in?: Json;
   sign_out?: boolean;
+  /** `false`: a sign-in lands where the outcome points, not in a journey the user has (Q70). */
+  resume?: boolean;
 }
 export interface Call {
   type: "call";

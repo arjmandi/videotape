@@ -219,6 +219,11 @@
           "const": true,
           "type": "boolean"
         },
+        "resume": {
+          "title": "Resume",
+          "const": false,
+          "type": "boolean"
+        },
         "type": {
           "const": "back",
           "title": "Type",
@@ -1075,6 +1080,11 @@
           "const": true,
           "type": "boolean"
         },
+        "resume": {
+          "title": "Resume",
+          "const": false,
+          "type": "boolean"
+        },
         "type": {
           "const": "goto",
           "title": "Type",
@@ -1207,6 +1217,11 @@
         "sign_out": {
           "title": "Sign Out",
           "const": true,
+          "type": "boolean"
+        },
+        "resume": {
+          "title": "Resume",
+          "const": false,
           "type": "boolean"
         },
         "type": {
@@ -1438,6 +1453,11 @@
         "sign_out": {
           "title": "Sign Out",
           "const": true,
+          "type": "boolean"
+        },
+        "resume": {
+          "title": "Resume",
+          "const": false,
           "type": "boolean"
         },
         "type": {

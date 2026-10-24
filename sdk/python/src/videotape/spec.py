@@ -55,6 +55,8 @@ class LoaderRef(_Spec):
 class _Identity(_Spec):
     sign_in: Any = None
     sign_out: Literal[True] | None = None
+    resume: Literal[False] | None = None
+    """`resume=False` on a sign-in: land where the outcome points, not in a journey the user has (Q70)."""
 
 
 class Jump(_Identity):

@@ -518,9 +518,10 @@ export class Session {
     if (identity === "out") this.user = null;
     if (identity === "in") {
       this.user = (o as unknown as { sign_in: UserRecord }).sign_in;
-      // Reels are keyed by user and device: a journey this user has elsewhere resumes here (Q62).
+      // Reels are keyed by user and device: a journey this user has elsewhere resumes here (Q62),
+      // unless the outcome says resume=False (Q70).
       const from = this.engine.signedIn(this);
-      if (from) {
+      if (from && (o as { resume?: boolean }).resume !== false) {
         this.resumeFrom(from);
         return this.arrive(undo);
       }

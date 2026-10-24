@@ -364,3 +364,31 @@ def test_goto_carries_no_arguments():
         vt.goto("confirm", step=2)
     _, problem = declared(m.goto_with_arguments)
     assert "passes step= to vt.goto(...), which takes no arguments" in problem
+
+
+async def _resume_off(ctx, c: _ResumeLogin):
+    return vt.jump("home", sign_in=_ResumeUser(id="u1"), resume=False)
+
+
+class _ResumeUser(vt.Record):
+    id: vt.Id
+
+
+class _ResumeLogin(vt.Record):
+    name: str
+
+
+def test_resume_is_reserved_on_identity_outcomes():
+    """Q70: `resume=False` on a sign-in lands where the outcome points; the SDK reads it as reserved."""
+    out = vt.jump("home", sign_in=_ResumeUser(id="u1"), resume=False).to_json()
+    assert out == {"type": "jump", "tape": "home", "sign_in": {"id": "u1"}, "resume": False}
+    assert "resume" not in vt.stay(sign_out=True).to_json()
+    [declared] = [d for d in read(_resume_off).outcomes if d.type == "jump"]
+    assert declared.args == () and declared.signs_in
+    with pytest.raises(TypeError, match="resume= takes True or False"):
+        vt.goto("x", resume="no")
+    app = vt.app("resume", entry="t", tapes=[
+        vt.tape("t", [vt.frame("Sign in", edit=_ResumeLogin, submit=_resume_off)]),
+        vt.tape("home", [vt.frame("Home", actions=[vt.action("Out", vt.jump("t"))])]),
+    ])
+    assert [d.code for d in app.check() if d.level == "error"] == []

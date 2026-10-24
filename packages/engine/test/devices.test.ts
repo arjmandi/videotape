@@ -67,6 +67,19 @@ describe.skipIf(NO_PYTHON)("a journey across devices", () => {
     for (const s of [again, grace, laptop, desk]) s.close();
   });
 
+  it("lands where a sign-in points when it says resume=False (Q70)", async () => {
+    const phone = await signIn("phone-3");
+    await phone.press("Plan something");
+    const laptop = await Headless.open(p.engine, { device: "laptop-3" });
+    await laptop.fill({ name: "Ada" });
+    await laptop.press("Sign in here", { secrets: { password: "pw" } });
+    expect(laptop.user?.id).toBe("p1");
+    expect(laptop.reel).toMatchObject({ head: "home", history: [] });
+    const desk = await signIn("desk-3");                            // a plain sign-in still resumes
+    expect(desk.place).not.toBe("welcome");
+    for (const s of [phone, laptop, desk]) s.close();
+  });
+
   it("resumes a journey for a session that opens signed in, unless it opens at an address", async () => {
     const ada = { record: "Person", id: "p1", value: { id: "p1", name: "Ada" } };
     const phone = await Headless.open(p.engine, { device: "phone-2", tape: "home", user: ada });

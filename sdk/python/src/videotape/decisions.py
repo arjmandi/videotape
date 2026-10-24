@@ -265,6 +265,8 @@ def _read(expr: ast.expr, names: _Names, line: int) -> Declared | str:
     for k in expr.keywords:
         if k.arg is None:
             open_args = True
+        elif k.arg == "resume" and kind in ("jump", "goto", "back", "stay"):
+            continue                                   # reserved, like sign_in: not an argument (Q70)
         elif k.arg in ("sign_in", "sign_out"):
             resets = resets or not _is_off(k.value)
             signs_in = signs_in or (k.arg == "sign_in" and not _is_off(k.value))

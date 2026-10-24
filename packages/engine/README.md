@@ -134,7 +134,8 @@ user's most recently active journey from another one, step for step, with its hi
 saved hub histories; shared documents are held again, and a session's own (a draft) are copied, so
 the two devices then go their own ways. A sign-out ends the user's journey on that device. A
 session opened already signed in (`user`) resumes the same way, unless it opens at an address or
-a tape.
+a tape. A sign-in whose outcome says `resume=False` (`vt.jump("home", sign_in=user, resume=False)`,
+as after a password change) lands where it points instead (Q70).
 
 **Inputs** stand in for the client protocol until it exists: `fill` (a field of the edited
 record), `press` (an action by id: `submit`, `action:<n>`, `select:<field>`, `press:<field>`; an

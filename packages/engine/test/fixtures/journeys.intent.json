@@ -47,6 +47,15 @@
               ]
             }
           ],
+          "actions": [
+            {
+              "label": "Sign in here",
+              "target": {
+                "handler": "sign_in_here"
+              },
+              "affordance": "press"
+            }
+          ],
           "root": "always"
         }
       ]
@@ -750,6 +759,28 @@
         }
       ]
     },
+    "sign_in_here": {
+      "params": [
+        {
+          "name": "login",
+          "type": "record",
+          "record": "Login",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "home",
+          "resets_history": true,
+          "signs_in": true
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
     "sign_out": {
       "params": [],
       "outcomes": [
@@ -862,6 +893,18 @@
       "via": {
         "submit": "Sign in",
         "handler": "sign_in"
+      }
+    },
+    {
+      "from": "welcome",
+      "to": "home",
+      "type": "jump",
+      "tape": "home",
+      "resets_history": true,
+      "signs_in": true,
+      "via": {
+        "action": "Sign in here",
+        "handler": "sign_in_here"
       }
     },
     {
