@@ -106,6 +106,7 @@ describe.skipIf(NO_PYTHON)("a journey across devices", () => {
     await phone.press("Plan something");
     expect(phone.doc("Plan")).toEqual({ title: "", steps: 1 });
     await phone.fill({ title: "Roses" });                            // commit="change": on_change saves it
+    await phone.blur("title");                                       // at once on blur, rather than after the pause
     expect(phone.error).toBeNull();
     expect(JSON.stringify((p.engine.journeys as MemoryJourneys).all())).not.toContain("Roses");   // never kept here
     phone.close();

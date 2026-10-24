@@ -394,6 +394,12 @@
           ],
           "type": "string"
         },
+        "pause": {
+          "description": "With commit='change': seconds of quiet before on_change runs (Q74).",
+          "title": "Pause",
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
         "options": {
           "title": "Options"
         },

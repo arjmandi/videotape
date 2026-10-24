@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { type DocChange, DocumentStore } from "../src/documents";
 import { memoryLogger } from "../src/log";
 import type { Op } from "../src/protocol";
 import { KEY, Records } from "../src/records";
 import { Headless } from "../src/driver";
 import { ADA, fake, play } from "./harness";
-import { intent } from "./fixtures";
+import { intent, rawIntent } from "./fixtures";
 import { NO_PYTHON } from "./python";
 
 const relay = new Records(intent("relay"));
@@ -162,19 +162,109 @@ describe.skipIf(NO_PYTHON)("documents with the Python app", () => {
   }, 20_000);
 });
 
-describe("on_change (Q72)", () => {
-  it("runs the field's handler after a valid committed change, with the edited document, while the frame is on screen", async () => {
-    const app = fake("journeys", (req) => (req.t === "load" ? { documents: [] } : { outcome: { type: "stay" } }));
+describe("on_change, paced (Q72, Q74)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  /** The journeys app with a fake service: save_plan answers when `release` says, if it says to wait. */
+  async function wizard(opts: { intent?: unknown; hold?: boolean } = {}) {
+    const releases: Array<() => void> = [];
+    const app = fake("journeys", (req) => {
+      if (req.t === "load") return { documents: [] };
+      if (req.t === "decide" && req.handler === "save_plan" && opts.hold) {
+        return new Promise((resolve) => releases.push(() => resolve({ outcome: { type: "stay" } })));
+      }
+      return req.t === "decide" && req.handler === "name_plan" ? { outcome: { type: "goto", frame: "steps" } } : { outcome: { type: "stay" } };
+    }, opts.intent ? { intent: opts.intent } : {});
     await app.engine.ready();
     const s = await Headless.open(app.engine, { tape: "wizard", user: ADA });
+    const saves = () => (app.requests.filter((r) => r.t === "decide" && r.handler === "save_plan") as Array<{ documents: Record<string, { value?: any }> }>)
+      .map((r) => r.documents.plan!.value?.title ?? "(by version)");
     const decided = () => app.requests.filter((r) => r.t === "decide").map((r) => (r as { handler: string }).handler);
+    return { app, s, saves, decided, release: () => releases.shift()?.() };
+  }
+
+  it("waits for a pause in changes, 300 ms by default", async () => {
+    vi.useFakeTimers();
+    const { s, decided } = await wizard();
+    await s.fill({ title: "G" });
+    await vi.advanceTimersByTimeAsync(200);
+    await s.fill({ title: "Ga" });
+    await vi.advanceTimersByTimeAsync(299);
+    expect(decided()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    await s.settled();
+    expect(decided()).toEqual(["save_plan"]);
+    expect(s.doc("Plan").title).toBe("Ga");
+  });
+
+  it("waits as long as the field's pause= says", async () => {
+    vi.useFakeTimers();
+    const intent = structuredClone(rawIntent("journeys")) as any;
+    const name = intent.tapes.find((t: any) => t.id === "wizard").frames[0];
+    name.components.find((c: any) => c.field === "Plan.title").pause = 0.05;
+    const { s, decided } = await wizard({ intent });
     await s.fill({ title: "Garden" });
+    await vi.advanceTimersByTimeAsync(50);
+    await s.settled();
     expect(decided()).toEqual(["save_plan"]);
-    const [save] = app.requests.filter((r) => r.t === "decide") as Array<{ documents: Record<string, { value?: unknown }> }>;
-    expect(save!.documents.plan!.value).toEqual({ title: "Garden", steps: 1 });
-    await s.fill({ steps: 2 });                                     // no handler for steps
-    await s.fill({ title: "A name far longer than twenty letters" }); // invalid: nothing to save
+  });
+
+  it("runs at once on blur, and not again when the pause ends", async () => {
+    vi.useFakeTimers();
+    const { s, decided } = await wizard();
+    await s.fill({ title: "Garden" });
+    await s.blur("title");
     expect(decided()).toEqual(["save_plan"]);
+    await vi.advanceTimersByTimeAsync(1000);
+    await s.settled();
+    expect(decided()).toEqual(["save_plan"]);
+    await s.blur("title");                                          // nothing changed since
+    expect(decided()).toEqual(["save_plan"]);
+  });
+
+  it("runs before a submit, so the submit sees its result", async () => {
+    vi.useFakeTimers();
+    const { s, decided } = await wizard();
+    await s.fill({ title: "Garden" });
+    await s.press("Name the plan");
+    expect(decided()).toEqual(["save_plan", "name_plan"]);
+    expect(s.place).toBe("wizard/steps");
+    await vi.advanceTimersByTimeAsync(1000);
+    await s.settled();
+    expect(decided()).toEqual(["save_plan", "name_plan"]);          // the pause timer was the frame's, and it is gone
+  });
+
+  it("lets the newest change replace a run that has not started, and follows a run in flight with one more", async () => {
+    vi.useFakeTimers();
+    const { app, s, decided, release } = await wizard({ hold: true });
+    await s.fill({ title: "a" });
+    void s.blur("title");                                           // run 1 starts, and waits on the app
+    await vi.advanceTimersByTimeAsync(0);
+    await s.fill({ title: "ab" });
+    void s.blur("title");                                           // run 2 waits for run 1
+    await s.fill({ title: "abc" });
+    void s.blur("title");                                           // run 2 is waiting: it will read the latest
+    await s.fill({ title: "abcd" });
+    await vi.advanceTimersByTimeAsync(300);                         // the pause ends: still the one waiting run
+    expect(decided()).toEqual(["save_plan"]);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    release();
+    await s.settled();
+    expect(decided()).toEqual(["save_plan", "save_plan"]);
+    const values = (app.requests.filter((r) => r.t === "decide") as Array<{ documents: Record<string, { ref: unknown }> }>).map((r) => r.documents.plan);
+    expect(values.length).toBe(2);
+    // The engine sends the plan whole the first time and by version after; the second run saw "abcd".
+    expect(app.engine.docs.read(s.session.ref("Plan")!)).toEqual({ title: "abcd", steps: 1 });
+    expect(app.engine.mirror!.holds(s.session.ref("Plan")!)).toBe(4);
+  });
+
+  it("does not run while the field is invalid", async () => {
+    vi.useFakeTimers();
+    const { s, decided } = await wizard();
+    await s.fill({ title: "A name far longer than twenty letters" });
+    await s.blur("title");
+    expect(decided()).toEqual([]);
     expect(s.invalid).toEqual({ "Plan.title": ["/ must NOT have more than 20 characters"] });
   });
 });

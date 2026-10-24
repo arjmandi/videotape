@@ -35,6 +35,8 @@ export const InputSchema = z.discriminatedUnion("t", [
   }).strict(),
   z.object({ t: z.literal("back"), seq, frame }).strict(),
   z.object({ t: z.literal("hub"), seq, frame, tape: z.string().min(1).max(256) }).strict(),
+  /** Focus left a field: a change waiting for its pause commits now (Q74). */
+  z.object({ t: z.literal("blur"), seq, frame, field: z.string().min(1).max(256) }).strict(),
 ]);
 export type Input = z.infer<typeof InputSchema>;
 
@@ -93,6 +95,8 @@ export class Session {
   private readonly listeners = new Set<Listener>();
   private queue: Promise<void> = Promise.resolve();
   private readonly held = new Set<Visit>();
+  /** Change handlers of the frame on screen with changes not yet run, by field (Q74). */
+  private readonly changes = new Map<string, Change>();
   /** The step on screen: inputs are read against it while a move waits for its frame's loader. */
   private shown!: Step;
 
@@ -201,8 +205,9 @@ export class Session {
   // ── inputs ─────────────────────────────────────────────────────────────────
 
   /**
-   * Takes one input. Fills are answered at once; presses, back, and the hub's doors are handled one
-   * at a time, in order. Resolves when the input (and everything queued before it) is handled.
+   * Takes one input. Fills are answered at once (and resolve at once); presses, back, the hub's doors,
+   * and the change handlers a blur commits are handled one at a time, in order, and resolve when the
+   * input (and everything queued before it) is handled.
    */
   input(raw: unknown): Promise<void> {
     if (this.closed) return Promise.resolve();
@@ -219,7 +224,16 @@ export class Session {
     }
     this.inSeq = msg.seq;
     if (msg.t === "fill") {
-      this.fill(msg);
+      this.fill(msg);                                       // answered at once: typing never waits on a decision
+      return Promise.resolve();
+    }
+    if (msg.t === "blur") {
+      if (this.stale(msg)) return this.queue;
+      if (!this.engine.places.fields(this.frame).some((f) => f.field === msg.field)) {
+        this.drop(msg.seq, "not a field this frame edits");
+        return this.queue;
+      }
+      this.commitChange(msg.field);
       return this.queue;
     }
     const run = () => this.handle(msg);
@@ -243,7 +257,7 @@ export class Session {
     return true;
   }
 
-  private async handle(msg: Exclude<Input, { t: "fill" }>): Promise<void> {
+  private async handle(msg: Exclude<Input, { t: "fill" } | { t: "blur" }>): Promise<void> {
     if (this.stale(msg)) return;
     switch (msg.t) {
       case "press":
@@ -282,15 +296,80 @@ export class Session {
     if (problems.length) this.status.invalid[field.field] = problems;
     else delete this.status.invalid[field.field];
     if (before !== JSON.stringify(this.status.invalid[field.field] ?? [])) this.statusChanged();
-    // A committed change to a valid field runs the frame's on_change handler for it, after the
-    // decisions queued before it, as long as the frame is still on screen (Q72: saving a draft).
-    const handler = problems.length ? undefined : this.engine.places.changeHandler(this.frame, field.field);
-    if (handler) {
-      const version = this.version;
-      this.queue = this.queue.then(() => (version === this.version && !this.closed ? this.decide(handler, {}) : undefined)).catch((e: unknown) => {
-        this.log.error("an on_change handler failed", { session: this.id, handler, error: e instanceof Error ? e.message : String(e) });
+    this.changed(field.field);
+  }
+
+  // ── change handlers (Q72, Q74, Q75) ────────────────────────────────────────
+
+  /** A field with an on_change handler changed: with `commit="change"`, its handler runs after a
+   *  pause in changes (300 ms, or the field's `pause=`); otherwise on blur or before the submit. */
+  private changed(field: string): void {
+    const places = this.engine.places;
+    const handler = places.changeHandler(this.frame, field);
+    if (!handler) return;
+    let p = this.changes.get(field);
+    if (!p) this.changes.set(field, (p = { handler, dirty: false }));
+    p.dirty = true;
+    const component = this.frame.components.find((c) => c.field === field && c.from === "edit");
+    if (component?.commit !== "change") return;
+    if (p.timer) clearTimeout(p.timer);
+    const pause = typeof component.pause === "number" ? component.pause : DEFAULT_PAUSE;
+    p.timer = setTimeout(() => this.commitChange(field), pause * 1000);
+  }
+
+  /**
+   * The field's change commits (its pause ended, or it lost focus): its handler runs after the
+   * decisions queued before it. A run already waiting reads the latest value when it starts, so a
+   * newer change replaces it rather than adding one; a run in flight is followed by one more.
+   */
+  private commitChange(field: string): void {
+    const p = this.changes.get(field);
+    if (!p) return;
+    if (p.timer) clearTimeout(p.timer);
+    p.timer = undefined;
+    if (!p.dirty || p.waiting) return;
+    const token = {};
+    p.waiting = token;
+    const version = this.version;
+    this.queue = this.queue
+      .then(async () => {
+        if (p.waiting !== token) return;                    // a submit ran it meanwhile
+        p.waiting = undefined;
+        p.dirty = false;
+        if (version !== this.version || this.closed) return;
+        await this.runChange(p.handler, field);
+      })
+      .catch((e: unknown) => {
+        this.log.error("an on_change handler failed", { session: this.id, handler: p.handler, error: e instanceof Error ? e.message : String(e) });
       });
+  }
+
+  /** Before a submit, every change still waiting commits, so the submit sees what its handlers did. */
+  private async settleChanges(): Promise<void> {
+    for (const [field, p] of this.changes) {
+      if (p.timer) clearTimeout(p.timer);
+      p.timer = undefined;
+      if (!p.dirty && !p.waiting) continue;
+      p.dirty = false;
+      p.waiting = undefined;
+      await this.runChange(p.handler, field);
     }
+  }
+
+  private async runChange(handler: string, field: string): Promise<void> {
+    if (this.status.invalid[field]) return;                 // nothing valid to hand it yet
+    await this.decide(handler, {});
+  }
+
+  /** The frame changed: changes still waiting belong to the frame that was left. */
+  private dropChanges(): void {
+    for (const p of this.changes.values()) if (p.timer) clearTimeout(p.timer);
+    this.changes.clear();
+  }
+
+  /** Resolves when every input taken so far, and every change handler they started, is handled. */
+  idle(): Promise<void> {
+    return this.queue;
   }
 
   private async press(msg: Extract<Input, { t: "press" }>): Promise<void> {
@@ -335,6 +414,7 @@ export class Session {
 
   private async act(action: FrameAction, item: Item | undefined, secrets: Record<string, string>): Promise<void> {
     const target = action.target;
+    if (action.kind === "submit") await this.settleChanges();
     if ("handler" in target) {
       if (action.kind === "submit" && !this.valid(secrets)) return;
       return this.decide(target.handler, { item, secrets });
@@ -576,6 +656,7 @@ export class Session {
     }
     this.version += 1;
     this.shown = step;
+    this.dropChanges();
     this.release();
     this.status.error = error;
     this.status.invalid = {};
@@ -673,10 +754,23 @@ export class Session {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    this.dropChanges();
     for (const visit of this.held) this.docs.release(this.holder(visit));
     this.held.clear();
     this.listeners.clear();
   }
+}
+
+/** How long `on_change` waits for a pause in changes to a `commit="change"` field, in seconds (Q74). */
+export const DEFAULT_PAUSE = 0.3;
+
+interface Change {
+  handler: string;
+  /** Changed since its handler last started. */
+  dirty: boolean;
+  timer?: ReturnType<typeof setTimeout> | undefined;
+  /** A run queued and not started yet. */
+  waiting?: object | undefined;
 }
 
 interface Undo {

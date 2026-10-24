@@ -65,7 +65,7 @@ export interface FakeApp {
 }
 
 /** An engine with an app in memory that answers each request with `answer` (or never, for "hang"). */
-export function fake(name: string, answer: (req: AppRequest, app: FakeApp) => Reply | "hang" | Promise<Reply | "hang">, opts: { timeoutMs?: number } = {}): FakeApp {
+export function fake(name: string, answer: (req: AppRequest, app: FakeApp) => Reply | "hang" | Promise<Reply | "hang">, opts: { timeoutMs?: number; intent?: unknown } = {}): FakeApp {
   const logger = memoryLogger();
   const engine = new Engine({ logger, ...opts });
   const requests: AppRequest[] = [];
@@ -96,7 +96,7 @@ export function fake(name: string, answer: (req: AppRequest, app: FakeApp) => Re
       link.closed();
     },
   });
-  link.receive(JSON.stringify({ t: "register", v: 1, intent: rawIntent(name), sdk: { language: "test", version: "0" } }));
+  link.receive(JSON.stringify({ t: "register", v: 1, intent: opts.intent ?? rawIntent(name), sdk: { language: "test", version: "0" } }));
   return app;
 }
 

@@ -30,7 +30,7 @@ from .values import BUILTIN_TYPES, VT, Id, Phrase, Text
 ROLES = ("heading", "primary", "secondary", "navigation", "status", "supporting")
 IMPORTANCE = ("required", "normal", "optional")
 OPTION_NAMES = (
-    "role", "importance", "group", "order", "format", "lines", "kind", "commit", "options", "select",
+    "role", "importance", "group", "order", "format", "lines", "kind", "commit", "pause", "options", "select",
     "anchor", "min_items", "max_items", "group_by", "surface", "show", "visible", "hidden", "press", "label",
 )  # fmt: skip
 _CLOSED = {
@@ -132,6 +132,11 @@ class FieldOptions:
                 raise TypeError(f"{key}= takes True or False")
         if "order" in self.values and not isinstance(self.values["order"], int):
             raise TypeError("order= takes an int")
+        if "pause" in self.values:
+            pause = self.values["pause"]
+            if isinstance(pause, bool) or not isinstance(pause, (int, float)) or pause <= 0:
+                raise TypeError("pause= takes the seconds of quiet before on_change runs, such as pause=0.5")
+            self.values["pause"] = float(pause)
         for key in ("visible", "hidden", "group_by"):
             if key in self.values and not isinstance(self.values[key], FieldRef):
                 raise TypeError(f"{key}= takes a field reference such as Post.liked, never an expression")
@@ -182,6 +187,7 @@ def Field(
     format: str | None = None,
     kind: str | None = None,
     commit: str | None = None,
+    pause: float | None = None,
     options: Any = None,
     select: Any = None,
     anchor: str | None = None,
@@ -206,7 +212,7 @@ def Field(
         raise TypeError("pages= is gone: register the loader after the record with @vt.pages(Record.field)")
     opts = FieldOptions(
         role=role, importance=importance, group=group, order=order, format=format, lines=lines, kind=kind,
-        commit=commit, options=options, select=select, anchor=anchor, min_items=min_items,
+        commit=commit, pause=pause, options=options, select=select, anchor=anchor, min_items=min_items,
         max_items=max_items, group_by=group_by, surface=surface, show=show, visible=visible, hidden=hidden,
         press=press, label=label,
     )  # fmt: skip

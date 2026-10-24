@@ -156,7 +156,7 @@ conversation id, a search term), so it is the user's data: kept per region, encr
 and named in the privacy labels.
 
 **Inputs** stand in for the client protocol until it exists: `fill` (a field of the edited
-record), `press` (an action by id: `submit`, `action:<n>`, `select:<field>`, `press:<field>`; an
+record), `blur` (focus left a field, Q74), `press` (an action by id: `submit`, `action:<n>`, `select:<field>`, `press:<field>`; an
 `item` key for actions on items; `secrets` for the secret fields it submits), `back`, and `hub`.
 Each carries a `seq`, which must grow, and the frame version it was made against; a replayed or
 stale input, an unknown action or field, a value of the wrong shape, an item that is not in the
@@ -171,13 +171,18 @@ refused as an error. A `Reject` stays and shows its message as the frame's error
 raised error or an app that is gone or too slow (30 s) stays with the engine's own message. After
 every press that carried secrets the session tells the client to clear those fields (Q58).
 
-**Changes and drafts (Q72).** A fill of a field with an `on_change` handler (on the frame, or on a
-`vt.show`) runs that handler as a decision on the frame, after the decisions queued before it and
-only while the frame is still on screen, unless the field commits only with the submit
-(`commit="submit"`) or the fill left it invalid. That is how a search updates its results, and how
-an app keeps drafts: the engine never keeps an edited document beyond its session, so an app that
-wants drafts to last saves them from `on_change` in its own services and returns the saved draft
-from the frame's loader as the edited document's starting value (the journeys test app does both).
+**Changes and drafts (Q72, Q74).** A field with an `on_change` handler (on the frame, or on a
+`vt.show`) runs it as a decision on the frame when its change commits: for `commit="change"`, after
+a pause in changes (300 ms, or the field's `vt.Field(pause=...)` in seconds, carried in the
+intent); for any field, at once on `blur` (an input: focus left the field) and before a submit, so
+the submit sees what the handler did. A newer change replaces a run that has not started, since a
+run reads the latest value when it starts; a run in flight is followed by one more. Runs queue
+behind the session's other decisions, and the ones still waiting are dropped when the frame is
+left. A fill is answered at once and never waits on a decision. That is how a search updates its
+results, and how an app keeps drafts: the engine never keeps an edited document beyond its session,
+so an app that wants drafts to last saves them from `on_change` in its own services and returns the
+saved draft from the frame's loader as the edited document's starting value (the journeys test app
+does both).
 
 **Failed loaders (Q65).** A move enters its frame (runs the loader) before it shows it, and inputs
 are read against the frame on screen meanwhile. When the loader fails on the way (a jump, a goto, a
@@ -300,6 +305,6 @@ Where each lives here:
 
 **Not built** (per the brief): the composer, embodiment, scene state, rendering, streaming,
 clients and the client protocol, release, and the TypeScript SDK. Also not built here: timers
-(`after=`), moves (`to=`), picks (`vt.pick`), debouncing `on_change`, paging requests from a client
+(`after=`), moves (`to=`), picks (`vt.pick`), paging requests from a client
 (the protocol's `page` message and the SDK's answer exist), list documents in handlers, and the
 deleted-account case of 05 §6.2.

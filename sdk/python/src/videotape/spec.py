@@ -157,6 +157,7 @@ class Component(_Spec):
     format: str | None = None
     kind: str | None = None
     commit: Literal["submit", "blur", "change"] | None = None
+    pause: float | None = Field(default=None, gt=0, description="With commit='change': seconds of quiet before on_change runs (Q74).")
     options: Any = None
     select: Target | None = None
     pages: LoaderRef | None = None

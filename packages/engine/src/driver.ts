@@ -227,6 +227,16 @@ export class Headless {
     return this.send({ t: "back" });
   }
 
+  /** Focus leaves a field: a change waiting for its pause commits now (Q74). */
+  blur(field: string): Promise<void> {
+    return this.send({ t: "blur", field: this.qualify(field) });
+  }
+
+  /** Resolves when everything the session has taken, change handlers included, is handled. */
+  settled(): Promise<void> {
+    return this.session.idle();
+  }
+
   /** Goes through a hub door, by the destination's tape or its label. */
   door(destination: string): Promise<void> {
     const hub = this.engine.intent.hub ?? [];
