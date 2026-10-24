@@ -228,23 +228,26 @@ journey across devices.
 Python processes over a local WebSocket, 300 times after 30 warm-ups, with the driver keeping no
 document snapshots. On an Apple-silicon Mac, Node 20.18, Python 3.14 (2026-10-24), p50 / p95:
 
-| What | Before the mirror (8185a75) | With the mirror (97221c3) |
-|------|-----------------------------|---------------------------|
-| A local change: a fill until the session hears it | 0.017 / 0.028 ms | 0.037 / 0.062 ms |
-| A decision with no service call (journeys' Wave): press → outcome played | 0.31 / 0.41 ms | 0.37 / 0.62 ms |
-| relay's Send, 32–131 messages: press → shown in the other session, tentative | 2.02 / 2.84 ms | 0.40 / 0.55 ms |
-| relay's Send, 32–131 messages: press → confirmed in the other session | 3.51 / 4.39 ms | 1.65 / 1.84 ms |
-| relay's Send, 232–331 messages: press → shown in the other session, tentative | 5.91 / 7.07 ms | 0.43 / 0.64 ms |
-| relay's Send, 232–331 messages: press → confirmed in the other session | 7.87 / 9.18 ms | 1.65 / 1.81 ms |
+| What | Before the mirror (8185a75) | With the mirror and a copy per decision (13adf46) |
+|------|-----------------------------|----------------------------------------------------|
+| A local change: a fill until the session hears it | 0.017 / 0.028 ms | 0.038 / 0.049 ms |
+| A decision with no service call (journeys' Wave): press → outcome played | 0.31 / 0.41 ms | 0.33 / 0.45 ms |
+| relay's Send, 32–131 messages: press → shown in the other session, tentative | 2.02 / 2.84 ms | 0.40 / 0.61 ms |
+| relay's Send, 32–131 messages: press → confirmed in the other session | 3.51 / 4.39 ms | 1.64 / 1.76 ms |
+| relay's Send, 232–331 messages: press → shown in the other session, tentative | 5.91 / 7.07 ms | 0.61 / 1.07 ms |
+| relay's Send, 232–331 messages: press → confirmed in the other session | 7.87 / 9.18 ms | 1.86 / 2.33 ms |
 
 relay's fake service waits 1 ms inside Send, which is most of what is left. Before the mirror a
 decide carried the conversation whole both ways, and the SDK validated it into records each time, so
-Send grew with the conversation; now it names it by version, and the two sizes cost the same. The
-local change gained some 20 µs: a fill to a document the app holds is also sent to the app.
+Send grew with the conversation; now it names it by version. Each decision's own copy (Q68) costs
+what its records and lists cost to copy, with list items copied only when the handler reaches them:
+about 0.2 ms more at 300 messages for Send, which only appends (a full copy of every record measured
+1.89 → 2.64 ms). The local change gained some 20 µs: a fill to a document the app holds is also
+sent to the app.
 
 ## Decisions (05 §18.2)
 
-The protocol details 05 left open were decided as Q53–Q67 (05 §18.2, on `design/v2` at `93b00c3`).
+The protocol details 05 left open were decided as Q53–Q70 (05 §18.2, on `design/v2` at `897813f`).
 Where each lives here:
 
 | Q | Decision | Here |
@@ -258,29 +261,29 @@ Where each lives here:
 | Q59 | An undeclared outcome is refused as an error and rolled back | Decisions (journey runtime) |
 | Q60 | The hub as tab bars: one history per destination, the current door starts over; doors in calls or on `hub=False` frames are dropped | History roots |
 | Q61 | Back from a call's first frame ends it without a result or `then=`; `check` warns about `done` in a tape no call enters | `Reel.back`; the SDK's `done-without-call` |
-| Q62 | `sign_in`/`sign_out` on `stay`, `goto`, or `back` reset history there; reels keyed by user and device, resuming across devices | Across devices; `Engine.signedIn` |
+| Q62 | `sign_in`/`sign_out` on `stay`, `goto`, or `back` reset history there; reels keyed by user and device, resuming across devices | Across devices; `Session.play` |
 | Q63 | A submit validates before the app, per field; a fill that breaks a constraint is kept and shown invalid; one of the wrong shape is dropped | Decisions (journey runtime) |
 | Q64 | `fill`, `press`, `back`, `hub` with action ids and frame versions, a stand-in kept for the test driver | Inputs |
 | Q65 | Failures show the engine's own message; a failed loader keeps the user in place, except at an entry or address | Failed loaders |
 | Q66 | One app per engine; a reconnecting app replaces the old connection; a new intent keeps sessions in development | `Engine.registered`; releases side by side come with the release pipeline |
 | Q67 | A record a handler creates must validate; only its `vt.Id` may be missing | The SDK notes what is missing on Pydantic's `ValidationError` |
+| Q68 | Each decision works on its own copy: the confirmed values plus its own changes, never another decision's pending ones | Each decision on its own copy; `Tracker.working`; the mirror holds confirmed values |
+| Q69 | Signed-in journeys kept 30 days by default (`keep_journeys=`), positions and history only; any device resumes the most recent | Across devices; a durable journey store; `src/journeys.ts` |
+| Q70 | A sign-in resumes the user's journey unless the outcome says `resume=False` | Across devices; the SDK's `resume=` |
 
-**New questions**, from building Q53–Q67:
+**New questions**, from building Q68–Q70:
 
-- **Q-P Concurrent decisions on one copy.** The app hands every handler the mirror's copy itself,
-  so two decisions running at once on one document see each other's tentative changes, as readers
-  of the engine's value do. When one of them rolls back while the other still runs, the app's copy
-  is replaced and the other's later changes reach the engine but leave the app's copy behind; the
-  app then drops the copy and the next request sends it whole. Is that sharing the intended
-  semantics, or should a decision see only confirmed values plus its own changes?
-- **Q-Q How long a device's journey waits.** A device's reel waits to be taken back for as long as
-  its session can be resumed (10 minutes after the client goes away here), and another device
-  resumes the most recently active journey. Should a journey wait longer than a session (days, as
-  phone apps keep their place), and should a device the user has not used for a while resume the
-  latest journey instead of its own?
-- **Q-R Resuming over a sign-in target.** On another device, a sign-in resumes the user's journey
-  and ignores where the sign-in outcome pointed. Should the app be able to say where a resumed
-  journey lands, for instance after a password change?
+- **Q-S Plain values in a decision's copy.** A decision's copy has records and lists of its own, but
+  shares plain values (`vt.RichText`, `vt.Money`, `vt.Series`) with the mirror, so a handler that
+  changed one in place (`msg.text.blocks.append(...)`) would change the confirmed copy too, and send
+  no op. Should those value types be immutable, so a handler can only replace them?
+- **Q-T Drafts across devices and sessions.** Kept journeys hold no documents, so a draft typed on
+  one device (a session's own edited document) does not follow to another, and is gone when the
+  session ends: the form comes back empty. Is that the intended consequence, or should an app be
+  able to keep a draft itself (in its own services) and load it back?
+- **Q-U A kept journey after a release.** When a release removes or renames a place a kept journey
+  names, the engine does not resume it and lands where the sign-in points. Should it resume the
+  part of the history that still exists instead?
 
 **Not built** (per the brief): the composer, embodiment, scene state, rendering, streaming,
 clients and the client protocol, release, and the TypeScript SDK. Also not built here: timers
