@@ -1,11 +1,13 @@
-"""The app's mirror (05 §6.2, Q53, Q57): a copy of the documents its handlers touch.
+"""The app's mirror (05 §6.2, Q53, Q57, Q68): the confirmed value of the documents its handlers touch.
 
 The engine sends a document whole the first time a handler or loader needs it, and from then on
-names it by reference and version; `sync` from the engine keeps the copy current. The copies are
-live records, tracked for good, so a handler receives the copy itself and its changes go out as
-ops: tentative under the decision whose task made them, or confirmed when nothing is deciding.
-Those changes land in the copy as they are made, so the engine echoes them back with the version
-they reached instead of sending them again. When anything does not line up (a version gap, a
+names it by reference and confirmed version; `sync` from the engine keeps the copy current with
+every confirmed change, a decision's included once it is confirmed. A handler never receives the
+mirror's record: each decision works on its own copy of it (`Tracker.working`), so it sees the
+confirmed values and its own changes, never another decision's pending ones. The mirror's records
+are tracked for good for changes made outside any decision (`vt.docs` from a service, or work a
+handler left running): those go out confirmed and land in the copy as they are made, so the engine
+echoes them back with the version they reached instead of sending them again. When anything does not line up (a version gap, a
 change from elsewhere while the app's own are still in flight, an op that does not fit), the copy
 is dropped and the engine is told (`forget`); the next request that needs it sends it whole again.
 Records with secret fields are never mirrored.

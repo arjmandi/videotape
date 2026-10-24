@@ -54,20 +54,31 @@ only when the app does not hold that version (below); one that is an item of a l
 and `record`. `user` is `{record, id, value}`, the record `sign_in=` passed, and an outcome that
 signs in carries `sign_in` in that shape.
 
-**The app's mirror (Q53, Q57).** The app keeps a copy of every document a request has sent it, and
-the engine records which version it holds (`src/mirror.ts`; `videotape/mirror.py` on the app's
-side). A request names a document by reference and version, and sends it whole only when the app
-does not hold that version; the app answers with changes only, so the cost of a decision does not
-grow with the document. Every change the app did not make reaches its copy as `sync`: ops from the
-version it holds, or the whole value when no ops describe it (a rollback, a reload). The app's own
-changes land in its copy as they are made, so the engine echoes them with the version they reached
-(`origin: "app"`) instead of sending them back; if it refused any of them, it sends the whole value.
-When a copy does not line up (a version gap, a change from elsewhere while the app's own are in
-flight, an op that does not fit), the app drops it and says `forget`; when a request names a version
-the app does not hold, it answers `stale` without running anything, and the engine asks once more
-with those documents whole. A document the engine drops is dropped from the mirror (`drop`).
-Records with secret fields are never mirrored: a decision gets them whole, with its secrets.
-`vt.docs[Record, id]` is the app's copy when it holds one, so it reads as well as writes.
+**The app's mirror (Q53, Q57, Q68).** The app keeps a copy of the confirmed value of every document
+a request has sent it, and the engine records which confirmed version it holds (`src/mirror.ts`;
+`videotape/mirror.py` on the app's side). A request names a document by reference and confirmed
+version, and sends it whole only when the app does not hold that version; the app answers with
+changes only, so the cost of a decision does not grow with the document. Every confirmed change
+reaches the app's copy as `sync`: ops from the version it holds (a user's edit, a decision once it
+is confirmed), or the whole value when no ops describe it (a reload). Tentative changes never reach
+it, so a rollback needs nothing. When a copy does not line up (a version gap, a change from
+elsewhere while the app's own are in flight, an op that does not fit), the app drops it and says
+`forget`; when a request names a version the app does not hold, it answers `stale` without running
+anything, and the engine asks once more with those documents whole. A document the engine drops is
+dropped from the mirror (`drop`). Records with secret fields are never mirrored: a decision gets
+them whole, with its secrets. `vt.docs[Record, id]` is the app's copy when it holds one, so it
+reads as well as writes.
+
+**Each decision on its own copy (Q68).** A handler never receives the mirror's record: each
+decision gets its own copy of the confirmed value, tracked under it, so it sees the confirmed values
+and its own changes, never another decision's pending ones (the screen still shows every pending
+change, and the engine applies each decision's changes on top of what was confirmed meanwhile).
+The copy has its own records and lists, and a list's items are copied in only when the handler
+reaches one, so a decision that only appends copies nothing. Plain values (`vt.RichText`,
+`vt.Money`) are shared with the mirror: a handler replaces them rather than changing them in place.
+Changes made outside any decision go through the mirror's own records, are confirmed at once, and
+come back as an echo with the version they reached (`origin: "app"`), or the whole value if the
+engine refused any of them.
 
 **Ops.** A path is a list of field names and `{"key": ...}` segments for items of lists of records.
 

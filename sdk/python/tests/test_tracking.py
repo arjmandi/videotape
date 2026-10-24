@@ -206,3 +206,34 @@ def test_load_and_dump_round_trip_keys():
             line["done"] = False
         expected["people"][0][KEY] = "a2"                  # an item with an Id is keyed by it
         assert dump(note) == expected
+
+
+def test_a_decisions_copy_is_its_own_and_copies_items_on_access():
+    """Q68: a decision works on its own copy of the mirror's confirmed record; an item is copied in
+    when the handler reaches it, so the mirror never sees a pending change."""
+    from videotape.tracking import MIRROR
+
+    found = {}
+
+    async def body(t):
+        mirror = load(Note, note_json())
+        MIRROR.attach(mirror, REF, ())
+        work = t.working(mirror, REF)
+        assert work is not mirror and t.working(mirror, REF) is work            # one copy per document
+        assert list.__getitem__(work.lines, 0) is mirror.lines[0]                 # not copied until reached
+        work.lines.append(Line(text="three"))                                     # appending copies nothing
+        assert list.__getitem__(work.lines, 1) is mirror.lines[1]
+        first = work.lines[0]
+        assert first is not mirror.lines[0] and list.__getitem__(work.lines, 0) is first
+        first.done = True
+        work.title = "Changed"
+        work.author.name = "Ada L."
+        found["mirror"] = dump(mirror)
+        found["work"] = dump(work)
+
+    ops_sent = ops(run(body))
+    assert found["mirror"]["title"] == "Plan" and found["mirror"]["lines"][0]["done"] is False
+    assert found["mirror"]["author"]["name"] == "Ada" and len(found["mirror"]["lines"]) == 2
+    assert found["work"]["title"] == "Changed" and [line[KEY] for line in found["work"]["lines"]][:2] == ["~e1", "~e2"]
+    assert {"op": "set", "path": ["lines", {"key": "~e1"}, "done"], "value": True} in ops_sent
+    assert [o["op"] for o in ops_sent] == ["insert", "set", "set", "set"]

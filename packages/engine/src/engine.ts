@@ -120,10 +120,8 @@ export class Engine implements AppHost {
       const keep = this.played && JSON.stringify(this.played.intent.records) === JSON.stringify(intent.records);
       const docs = keep ? this.played!.docs : new DocumentStore(records, this.log);
       if (!keep) {
-        docs.onChange((change) => {
-          this.appMirror?.changed(change);
-          this.fanOut(change);
-        });
+        docs.onChange((change) => this.fanOut(change));
+        docs.onConfirmed((change) => this.appMirror?.confirmed(change));
         docs.onDrop((ref) => this.appMirror?.dropped(ref));
       }
       this.played = { intent, records, places, docs };
@@ -142,16 +140,19 @@ export class Engine implements AppHost {
     if (link !== this.current || !this.played) return;
     const docs = this.played.docs;
     for (const change of msg.changes) {
-      const from = docs.get(change.doc)?.version;
-      let applied;
       if (msg.decision !== undefined && link.isOpen(msg.decision)) {
-        applied = docs.tentative(msg.decision, change.doc, change.ops);
+        // A decision's changes are tentative; they reach the app's mirror when confirmed (Q68).
+        docs.tentative(msg.decision, change.doc, change.ops);
+      } else if (msg.decision !== undefined) {
+        // A decision that has ended: its changes are the app's own now (Q54), made on a decision's
+        // copy rather than the app's mirror, so the mirror gets them as ops.
+        docs.apply(change.doc, change.ops, "engine");
       } else {
-        // Q54: changes outside a decision, or after it ended (a handler's background work), are the
-        // app's own changes: applied at once, never tentative.
-        applied = docs.apply(change.doc, change.ops);
+        // Q54: the app's own changes outside any decision, made through its mirror: echoed.
+        const from = docs.get(change.doc)?.cversion;
+        const applied = docs.apply(change.doc, change.ops);
+        this.appMirror?.echo(change.doc, from, applied.length === change.ops.length);
       }
-      this.appMirror?.echo(change.doc, from, applied.length === change.ops.length);
     }
   }
 

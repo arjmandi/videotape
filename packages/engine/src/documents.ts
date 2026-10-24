@@ -34,8 +34,10 @@ export interface Doc {
   layers: Layer[];
   /** Who holds it: one entry per tape visit of a reel that has it (`<session>:<visit>`). */
   holders: Set<string>;
-  /** Grows with every change to what readers see, tentative or not; the app's mirror follows it. */
+  /** Grows with every change to what readers see, tentative or not. */
   version: number;
+  /** Grows with every change to the confirmed value: the app's mirror holds confirmed values (Q68). */
+  cversion: number;
 }
 
 /** Where a change came from: the app (a decision, or `vt.docs`), a user's edit, or the engine itself
@@ -59,6 +61,18 @@ export interface DocChange {
 export type DocListener = (change: DocChange) => void;
 export type DropListener = (ref: DocRef) => void;
 
+/** A change to a document's confirmed value: ops from `from` to `doc.cversion`, or the whole value. */
+export interface ConfirmedChange {
+  doc: Doc;
+  from: number;
+  ops: Op[];
+  whole?: true;
+  /** The app's own change outside any decision, which its mirror applied as it made it. */
+  origin: Origin;
+}
+
+export type ConfirmedListener = (change: ConfirmedChange) => void;
+
 export function refKey(ref: DocRef): string {
   return "id" in ref ? `${ref.record}#${ref.id}` : `~${ref.local}`;
 }
@@ -69,6 +83,7 @@ export class DocumentStore {
   private readonly decisions = new Map<string, Set<string>>();
   private readonly listeners = new Set<DocListener>();
   private readonly dropListeners = new Set<DropListener>();
+  private readonly confirmedListeners = new Set<ConfirmedListener>();
   private minted = 0;
   private locals = 0;
 
@@ -101,6 +116,18 @@ export class DocumentStore {
     return () => this.listeners.delete(listener);
   }
 
+  /** Hears of every change to a confirmed value: what keeps the app's mirror current. */
+  onConfirmed(listener: ConfirmedListener): () => void {
+    this.confirmedListeners.add(listener);
+    return () => this.confirmedListeners.delete(listener);
+  }
+
+  private confirmed(change: Omit<ConfirmedChange, "from">): void {
+    const from = change.doc.cversion;
+    change.doc.cversion += 1;
+    for (const l of this.confirmedListeners) l({ ...change, from });
+  }
+
   /** Hears of every document that is dropped, because its last holder let go. */
   onDrop(listener: DropListener): () => void {
     this.dropListeners.add(listener);
@@ -119,7 +146,7 @@ export class DocumentStore {
   // ── holding ────────────────────────────────────────────────────────────────
 
   private create(ref: DocRef, record: string, value: Json, holder: string): Doc {
-    const doc: Doc = { ref, record, confirmed: value, value: structuredClone(value), layers: [], holders: new Set([holder]), version: 0 };
+    const doc: Doc = { ref, record, confirmed: value, value: structuredClone(value), layers: [], holders: new Set([holder]), version: 0, cversion: 0 };
     this.docs.set(refKey(ref), doc);
     return doc;
   }
@@ -164,6 +191,7 @@ export class DocumentStore {
   private refresh(doc: Doc, value: Json): void {
     if (JSON.stringify(stripKeys(doc.confirmed)) === JSON.stringify(stripKeys(value))) return;
     doc.confirmed = value;
+    this.confirmed({ doc, ops: [], whole: true, origin: "engine" });
     const from = doc.version;
     if (this.recompute(doc)) this.notify({ doc, state: "confirmed", origin: "engine", from, ops: [], whole: true });
   }
@@ -213,12 +241,13 @@ export class DocumentStore {
     return this.confirmNow(ref, ops, true);
   }
 
-  /** The app's changes outside any decision (`vt.docs`, and work a handler left running): confirmed at once. */
-  apply(ref: DocRef, ops: Op[]): Op[] {
-    return this.confirmNow(ref, ops, false);
+  /** The app's changes outside any decision (`vt.docs`, and work a handler left running): confirmed at
+   *  once. `origin` is "engine" for changes the app did not make through its mirror (a late decision). */
+  apply(ref: DocRef, ops: Op[], origin: Origin = "app"): Op[] {
+    return this.confirmNow(ref, ops, false, origin);
   }
 
-  private confirmNow(ref: DocRef, ops: Op[], edit: boolean): Op[] {
+  private confirmNow(ref: DocRef, ops: Op[], edit: boolean, as?: Origin): Op[] {
     const doc = this.get(ref);
     if (!doc) {
       this.log.debug("a change to a document nobody holds was dropped", { record: ref.record });
@@ -227,7 +256,8 @@ export class DocumentStore {
     const applied = this.applyAll(doc, doc.confirmed, ops, edit);
     if (!applied.length) return applied;
     const from = doc.version;
-    const origin: Origin = edit ? "user" : "app";
+    const origin: Origin = as ?? (edit ? "user" : "app");
+    this.confirmed({ doc, ops: applied, origin });
     if (doc.layers.length) {
       // Open layers go on top again; readers may see more than these ops changed.
       if (this.recompute(doc)) this.notify({ doc, state: "confirmed", origin, from, ops: [], whole: true });
@@ -279,7 +309,10 @@ export class DocumentStore {
       const mine = doc.layers.filter((l) => l.decision === decision);
       if (!mine.length) continue;
       doc.layers = doc.layers.filter((l) => l.decision !== decision);
-      if (keep) for (const layer of mine) this.applyAll(doc, doc.confirmed, layer.ops, false, true);
+      if (keep) {
+        const folded = mine.flatMap((layer) => this.applyAll(doc, doc.confirmed, layer.ops, false, true));
+        if (folded.length) this.confirmed({ doc, ops: folded, origin: "engine" });
+      }
       const from = doc.version;
       // A decision whose layers were the only ones changes nothing readers see when it returns:
       // the confirmed value has caught up with the visible one, op by op.

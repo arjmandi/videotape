@@ -6,7 +6,7 @@ import { NO_PYTHON } from "./python";
 const decides = (msgs: any[]) => msgs.filter((m) => m.t === "decide");
 const homeLoad = { documents: [{ record: "Home", value: { id: "home-p1", greeting: "Hello, Ada", visits: 0 } }] };
 
-describe("the app's mirror (Q53, Q57)", () => {
+describe("the app's mirror (Q53, Q57, Q68)", () => {
   it("sends a document whole once, then by version, and keeps the app's copy current", async () => {
     const app = fake("journeys", (req) => (req.t === "load" ? homeLoad : { outcome: { type: "stay" } }));
     await app.engine.ready();
@@ -21,14 +21,12 @@ describe("the app's mirror (Q53, Q57)", () => {
 
   });
 
-  it("sends the app a user's edit to a copy it holds as ops, and echoes the app's own changes", async () => {
+  it("keeps the app's copy at the confirmed value: edits, confirmed decisions, and echoes of its own (Q68)", async () => {
     const app = fake("journeys", (req, a) => {
       if (req.t === "load") return { documents: [] };
-      if (req.t === "decide" && req.handler === "name_plan") {
-        a.sync([{ doc: req.documents.plan!.ref, ops: [{ op: "set", path: ["title"], value: "Named" }] }], req.id);
-        return { reject: { message: "Not yet." } };
-      }
-      return { outcome: { type: "stay" } };
+      if (req.t !== "decide") return { documents: [] };
+      a.sync([{ doc: req.documents.plan!.ref, ops: [{ op: "set", path: ["title"], value: "Named" }] }], req.id);
+      return req.handler === "name_plan" ? { reject: { message: "Not yet." } } : { outcome: { type: "stay" } };
     });
     await app.engine.ready();
     const s = await Headless.open(app.engine, { tape: "wizard", user: ADA });
@@ -37,13 +35,28 @@ describe("the app's mirror (Q53, Q57)", () => {
     const ref = s.session.ref("Plan")!;
     const [decide] = decides(app.received);
     expect(decide.documents.plan).toEqual({ ref, version: 1, value: { title: "Garden", steps: 1 } });
-    const after = app.received.slice(app.received.indexOf(decide) + 1);
-    expect(after).toEqual([
-      { t: "sync", changes: [{ doc: ref, from: 1, version: 2, origin: "app" }] },   // the app's own change, echoed
-      { t: "sync", changes: [{ doc: ref, version: 3, value: { title: "Garden", steps: 1 } }] },   // rolled back: whole
-    ]);
+    // Its change was tentative and then rolled back: the confirmed value never moved, so nothing went to the app.
+    expect(app.received.slice(app.received.indexOf(decide) + 1)).toEqual([]);
     await s.fill({ steps: 3 });
-    expect(app.received.at(-1)).toEqual({ t: "sync", changes: [{ doc: ref, from: 3, version: 4, ops: [{ op: "set", path: ["steps"], value: 3 }] }] });
+    expect(app.received.at(-1)).toEqual({ t: "sync", changes: [{ doc: ref, from: 1, version: 2, ops: [{ op: "set", path: ["steps"], value: 3 }] }] });
+    // A change the app makes outside any decision went through its copy: echoed with its version.
+    app.sync([{ doc: ref, ops: [{ op: "set", path: ["steps"], value: 4 }] }]);
+    expect(app.received.at(-1)).toEqual({ t: "sync", changes: [{ doc: ref, from: 2, version: 3, origin: "app" }] });
+  });
+
+  it("sends a decision's changes to the app's copy once they are confirmed", async () => {
+    const app = fake("journeys", (req, a) => {
+      if (req.t === "load") return homeLoad;
+      if (req.t === "decide") a.sync([{ doc: req.documents.home!.ref, ops: [{ op: "set", path: ["visits"], value: 1 }] }], req.id);
+      return { outcome: { type: "stay" } };
+    });
+    await app.engine.ready();
+    const s = await Headless.open(app.engine, { tape: "home", user: ADA });
+    await s.press("Wave");
+    const ref = { record: "Home", id: "home-p1" };
+    expect(app.received.at(-1)).toEqual({ t: "sync", changes: [{ doc: ref, from: 0, version: 1, ops: [{ op: "set", path: ["visits"], value: 1 }] }] });
+    await s.press("Wave");
+    expect(decides(app.received).at(-1).documents.home).toEqual({ ref, version: 1 });
   });
 
   it("asks again with the whole document when the app's copy is stale", async () => {
@@ -115,6 +128,41 @@ describe.skipIf(NO_PYTHON)("the mirror with the Python app", () => {
       expect(seen.filter((m) => m.t === "sync" && m.changes?.some((c: any) => "value" in c))).toEqual([]);
       expect(a.doc("Conversation").messages.map((m: any) => m.text.blocks[0].spans[0].text)).toEqual(["Ready when you are.", "one", "two", "three"]);
       expect(a.error).toBeNull();
+    } finally {
+      await p.stop();
+    }
+  }, 20_000);
+
+  it("relay: two overlapping sends, one of which fails, leave the other and the app's copy whole (Q68)", async () => {
+    const p = await play("relay");
+    try {
+      const ada = { record: "User", id: "u1", value: { id: "u1", name: "Ada" } };
+      const grace = { record: "User", id: "u2", value: { id: "u2", name: "Grace" } };
+      const a = await Headless.open(p.engine, { address: "/c/c1", user: ada });
+      const b = await Headless.open(p.engine, { address: "/c/c1", user: grace });
+      await a.fill({ text: "warm up" });
+      await a.press("Send");                                      // the app holds the conversation from here
+      const seen = spy(p.engine);
+      await a.fill({ text: "fail: one" });
+      await b.fill({ text: "two" });
+      await Promise.all([a.press("Send"), b.press("Send")]);
+      const words = (s: Headless) => s.doc("Conversation").messages.map((m: any) => m.text.blocks[0].spans[0].text);
+      for (const s of [a, b]) {
+        expect(words(s)).toEqual(["Ready when you are.", "warm up", "two"]);
+        expect(s.doc("Conversation").messages.at(-1).pending).toBe(false);
+        expect(s.tentative("Conversation")).toBe(false);
+      }
+      expect(a.error).not.toBeNull();
+      expect(a.doc("Draft")).toEqual({ text: "fail: one" });
+      expect(b.error).toBeNull();
+      // The app's copy followed what was confirmed: B's changes as ops, A's never; nothing whole.
+      const conv = { record: "Conversation", id: "c1" };
+      const toApp = seen.filter((m) => m.t === "sync" && m.changes?.some((c: any) => c.doc.id === "c1"));
+      expect(toApp.flatMap((m) => m.changes).every((c: any) => "ops" in c && !("value" in c))).toBe(true);
+      await a.fill({ text: "three" });
+      await a.press("Send");
+      expect(decides(seen).at(-1).documents.conv).toEqual({ ref: conv, version: p.engine.mirror!.holds(conv)! - 1 });
+      expect(words(b).at(-1)).toBe("three");
     } finally {
       await p.stop();
     }

@@ -29,17 +29,28 @@ def echo(e, ref, version, count=1):
     return version
 
 
+def confirm(e, ref, version, ops):
+    """What the engine sends when changes to a document are confirmed: ops from the version the app holds."""
+    e.client.receive({"t": "sync", "changes": [{"doc": ref, "from": version, "version": version + 1, "ops": ops}]})
+    return version + 1
+
+
+def sent_ops(e, decision):
+    return [op for m in e.out if m["t"] == "sync" and m.get("decision") == decision for c in m["changes"] for op in c["ops"]]
+
+
 def test_a_document_sent_whole_once_is_named_by_version_after():
     async def body(e):
         await send(e, "1", {"conv": conversation(), "draft": draft(text="one")})
-        first = e.client.mirror.get(CONV).obj
-        assert len(first.messages) == 2 and e.client.mirror.get(CONV).unacked == 2   # insert, then update
-        conv = echo(e, CONV, 0, 2)
-        dr = echo(e, DRAFT, 0)
-        e.client.receive({"t": "sync", "changes": [{"doc": DRAFT, "from": dr, "version": dr + 1, "ops": [{"op": "set", "path": ["text"], "value": "two"}]}]})
-        result = await send(e, "2", by_ref(conv, dr + 1))
+        copy = e.client.mirror.get(CONV)
+        assert len(copy.obj.messages) == 1 and copy.version == 0 and copy.unacked == 0   # the mirror holds confirmed values
+        conv = confirm(e, CONV, 0, [o for o in sent_ops(e, "1") if o["path"][0] == "messages"])
+        dr = confirm(e, DRAFT, 0, [{"op": "set", "path": ["text"], "value": "two"}])
+        mirror_obj = copy.obj
+        assert len(mirror_obj.messages) == 2 and mirror_obj.messages[1].pending is False
+        result = await send(e, "2", by_ref(conv, dr))
         assert result["outcome"] == {"type": "stay"}
-        assert e.client.mirror.get(CONV).obj is first and len(first.messages) == 3
+        assert e.client.mirror.get(CONV).obj is mirror_obj and len(mirror_obj.messages) == 2   # decision 2 worked on its own copy
         return [m for m in e.out if m["t"] == "sync"]
 
     syncs = play(relay.app, body)
@@ -63,7 +74,7 @@ def test_a_missing_or_stale_copy_is_said_and_nothing_runs():
 def test_changes_from_the_engine_keep_the_copy_current():
     async def body(e):
         await send(e, "1", {"conv": conversation(), "draft": draft(text="x")})
-        version = echo(e, CONV, 0, 2)
+        version = 0
         key = "~e1"
         e.client.receive({"t": "sync", "changes": [{"doc": CONV, "from": version, "version": version + 1, "ops": [
             {"op": "set", "path": ["title"], "value": "Renamed"},
@@ -81,6 +92,9 @@ def test_changes_from_the_engine_keep_the_copy_current():
         last = e.out[-1]
         assert "decision" not in last                                                # outside a decision: confirmed
         assert last["changes"][0]["ops"] == [{"op": "set", "path": ["messages", {"key": "~e9"}, "pending"], "value": True}]
+        assert copy.unacked == 1                                                     # until the engine echoes it
+        e.client.receive({"t": "sync", "changes": [{"doc": CONV, "from": version + 1, "version": version + 2, "origin": "app"}]})
+        assert copy.unacked == 0 and copy.version == version + 2
         e.client.receive({"t": "sync", "drop": [CONV]})
         return e.client.mirror.get(CONV)
 
@@ -92,7 +106,8 @@ def test_a_copy_that_does_not_line_up_is_dropped_and_the_engine_told():
         await send(e, "1", {"conv": conversation(), "draft": draft(text="x")})
         e.client.receive({"t": "sync", "changes": [{"doc": DRAFT, "from": 5, "version": 6, "ops": [{"op": "set", "path": ["text"], "value": "?"}]}]})
         gap = e.client.mirror.get(DRAFT)
-        # A change from elsewhere while the app's own two batches are still in flight: no order to trust.
+        # A change from elsewhere while the app's own change is still in flight: no order to trust.
+        e.client.mirror.get(CONV).obj.title = "Mine"
         e.client.receive({"t": "sync", "changes": [{"doc": CONV, "from": 0, "version": 1, "ops": [{"op": "set", "path": ["title"], "value": "?"}]}]})
         conflict = e.client.mirror.get(CONV)
         return gap, conflict, [m for m in e.out if m["t"] == "forget"]
@@ -100,6 +115,58 @@ def test_a_copy_that_does_not_line_up_is_dropped_and_the_engine_told():
     gap, conflict, forgets = play(relay.app, body)
     assert gap is None and conflict is None
     assert forgets == [{"t": "forget", "docs": [DRAFT]}, {"t": "forget", "docs": [CONV]}]
+
+
+SEEN: list[list[str]] = []
+GATES: dict[str, asyncio.Event] = {}
+
+
+async def slow_add(ctx, conv: relay.Conversation, draft: relay.Draft):
+    SEEN.append([m.text.plain for m in conv.messages])                # what this decision sees
+    conv.messages.append(relay.Message(author=relay.User(id="u1", name="Ada"), text=draft.text, pending=True))
+    await GATES[draft.text].wait()
+    if draft.text.startswith("fail"):
+        raise ConnectionError("down")
+    conv.messages[-1].pending = False
+    return vt.stay()
+
+
+def test_overlapping_decisions_each_work_on_their_own_copy():
+    """Q68: two decisions on one document, overlapping; one rolls back. The other never sees its
+    pending change, and the mirror ends with only what the engine confirmed."""
+    app = vt.app("overlap", entry="t", tapes=[vt.tape("t", [vt.frame("Add", shows=relay.Conversation, edit=relay.Draft, submit=slow_add)])])
+
+    async def body(e):
+        SEEN.clear()
+        GATES.clear()
+        GATES["fail: one"], GATES["two"] = asyncio.Event(), asyncio.Event()
+        conv = conversation()
+        first = asyncio.ensure_future(e.ask({"t": "decide", "id": "1", "handler": "slow_add", "session": "s1", "user": ADA,
+                                             "documents": {"conv": conv, "draft": draft("d1", text="fail: one")}}))
+        await asyncio.sleep(0)
+        second = asyncio.ensure_future(e.ask({"t": "decide", "id": "2", "handler": "slow_add", "session": "s2", "user": ADA,
+                                              "documents": {"conv": {"ref": CONV, "version": 0}, "draft": draft("d2", text="two")}}))
+        await asyncio.sleep(0)
+        GATES["fail: one"].set()
+        assert "error" in await first
+        GATES["two"].set()
+        assert (await second)["outcome"] == {"type": "stay"}
+        copy = e.client.mirror.get(CONV)
+        assert [m.text.plain for m in copy.obj.messages] == ["Ready when you are."]    # nothing tentative in the mirror
+        # The engine confirms decision 2 alone, and sends its changes as ops.
+        ops = [o for o in sent_ops(e, "2")]
+        version = confirm(e, CONV, 0, ops)
+        assert [m.text.plain for m in copy.obj.messages] == ["Ready when you are.", "two"]
+        assert copy.obj.messages[1].pending is False
+        GATES["three"] = asyncio.Event()
+        GATES["three"].set()
+        third = await e.ask({"t": "decide", "id": "3", "handler": "slow_add", "session": "s1", "user": ADA,
+                             "documents": {"conv": {"ref": CONV, "version": version}, "draft": draft("d3", text="three")}})
+        assert third["outcome"] == {"type": "stay"}
+        return SEEN
+
+    seen = play(app, body)
+    assert seen == [["Ready when you are."], ["Ready when you are."], ["Ready when you are.", "two"]]
 
 
 def test_records_with_secrets_are_never_mirrored():

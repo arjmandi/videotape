@@ -2,8 +2,8 @@
 
 `vt.docs[Conversation, cid]` is a document the engine holds, for code that runs outside a handler,
 such as a service receiving a message, or work a handler left running. When the app holds a copy
-of it (the mirror, Q53: every document a handler has received), it is that copy: it reads, and its
-changes become `sync` ops. Otherwise it is a handle that only writes; `await vt.docs.fetch(...)`
+of it (the mirror, Q53: the confirmed value of every document a handler has received), it is that
+copy, or inside a handler that decision's own copy (Q68): it reads, and its changes become `sync` ops. Otherwise it is a handle that only writes; `await vt.docs.fetch(...)`
 asks the engine for a copy. Changes made outside a running decision are confirmed at once, never
 tentative (Q54); inside one, they are tentative under it. Changes to a document no session shows
 are dropped by the engine.
@@ -141,9 +141,15 @@ class _Documents:
         record, ident = key
         ref = _ref(record, ident)
         from . import serve
+        from .tracking import current
 
         copy = serve.client.mirror.get(ref) if serve.client is not None else None
-        return copy.obj if copy is not None else DocHandle(record, ref)
+        if copy is None:
+            return DocHandle(record, ref)
+        decision = current.get()
+        if decision is not None and not decision.closed:
+            return decision.working(copy.obj, ref)       # inside a handler: the decision's own copy (Q68)
+        return copy.obj
 
     async def fetch(self, record: type[Record], ident: Any) -> Record | None:
         """The app's copy of a document, asked of the engine if the app holds none; None when no

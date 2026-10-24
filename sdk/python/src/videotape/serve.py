@@ -4,8 +4,9 @@
 
 It sends `register` with the intent, then answers the engine: `load` runs an enter loader, `page`
 a list's paging loader, and `decide` a handler, as `vt.invoke` does. Requests name documents by
-reference and version, and the client hands handlers its mirror's copies (`videotape.mirror`),
-answering `stale` when a copy is missing or behind. While a handler runs, every change it makes is
+reference and confirmed version; the client keeps their confirmed values (`videotape.mirror`) and
+hands each handler its own tracked copy of them (Q68), answering `stale` when a copy is missing or
+behind. While a handler runs, every change it makes is
 sent at once as a `sync` delta, tentative under that decision; the decision's `result` confirms
 them, and an error or a `Reject` rolls them back. Changes made outside a decision (`vt.docs[...]`
 from a service, or work a handler left running) are confirmed at once (Q54). Secrets reach the
@@ -67,7 +68,9 @@ def _walk(value: Any, path: list[Any]) -> Any:
     """The object at `path` inside a tracked record: field names, and `{"key": ...}` for list items."""
     for seg in path:
         if isinstance(seg, dict):
-            value = next((v for v in value if isinstance(v, Record) and known_key(v) == seg.get("key")), None)
+            # Found by key without reaching every item (a decision's list copies an item on access).
+            index = next((i for i, v in enumerate(list.__iter__(value)) if isinstance(v, Record) and known_key(v) == seg.get("key")), None)
+            value = value[index] if index is not None else None
         else:
             value = getattr(value, seg, None)
         if value is None:
@@ -183,7 +186,9 @@ class AppClient:
             copy = self.mirror.get(entry["ref"])
             if copy is None:
                 raise ProtocolError(f"the app holds no copy of {entry['ref']}")
-            found = _walk(copy.obj, entry.get("path") or [])
+            # A decision works on its own copy of the confirmed value (Q68); a loader reads the mirror.
+            root = tracker.working(copy.obj, entry["ref"]) if tracker is not None else copy.obj
+            found = _walk(root, entry.get("path") or [])
             if found is None:
                 raise ProtocolError(f"no item at {entry.get('path')} in {entry['ref']}")
             return found

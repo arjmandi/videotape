@@ -1,10 +1,10 @@
 """Documents in the app process (05 §6.2): what a handler changes becomes `sync` ops as it is made.
 
-The app keeps a mirror of the documents its handlers touch (Q53), and their records are tracked,
-so `draft.text = ""`, `conv.messages.append(msg)`, and `msg.update(saved, pending=False)` each
-become an op on that document, sent in the same turn of the event loop: tentative under the
-decision whose task made it, or, outside any decision (a service, or work a handler left running),
-confirmed at once (Q54). Paths name fields, and the items of lists of records by their key: the
+The app keeps a mirror of the confirmed value of the documents its handlers touch (Q53), and each
+decision works on its own tracked copy of it (Q68), so `draft.text = ""`, `conv.messages.append(msg)`,
+and `msg.update(saved, pending=False)` each become an op on that document, sent in the same turn of
+the event loop, tentative under that decision. Changes outside any decision (a service, or work a
+handler left running) go through the mirror's own records and are confirmed at once (Q54). Paths name fields, and the items of lists of records by their key: the
 item's `vt.Id`, or a key the engine (or the SDK, for an item a handler adds) gave it. Lists of
 plain values change as a whole. Secret fields are never sent back. `apply_op` patches a mirrored
 record with a change from the engine, without sending anything.
@@ -133,7 +133,7 @@ def _annotate(record: Record, data: dict[str, Any]) -> None:
         if spec.kind.type == "record" and isinstance(value, Record) and isinstance(data[spec.name], dict):
             _annotate(value, data[spec.name])
         elif spec.kind.type == "collection" and isinstance(value, list):
-            for item, item_data in zip(value, data[spec.name]):
+            for item, item_data in zip(list.__iter__(value), data[spec.name]):   # raw: no copies made
                 if isinstance(item, Record):
                     item_data[KEY] = key_of(item)
                     _annotate(item, item_data)
@@ -292,7 +292,9 @@ class Tracker(Binding):
         self.objects: list[int] = []
         self.closed = False
         self.on_local: Callable[[dict[str, Any]], None] | None = None
-        """Told of each change it sends that the app's mirror applied already (its own records' changes)."""
+        """Told of each batch of changes, as it starts, that the app's mirror applied already."""
+        self.copies: dict[tuple[str, str, str], Record] = {}
+        """This decision's own copies of mirrored documents, by ref (Q68)."""
         self._scheduled = False
         try:
             self.loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
@@ -312,6 +314,10 @@ class Tracker(Binding):
             last["ops"].append(op)
         else:
             self.changes.append({"doc": ref, "ops": [op], "local": local})
+            if local and self.on_local is not None:
+                # Counted as it is made, not when it is sent, so a sync from the engine handled
+                # before the flush already knows the copy is ahead.
+                self.on_local(ref)
         if not self._scheduled:
             self._scheduled = True
             if self.loop is not None and not self.loop.is_closed():
@@ -323,8 +329,7 @@ class Tracker(Binding):
             return
         changes, self.changes = self.changes, []
         for change in changes:
-            if change.pop("local") and self.on_local is not None:
-                self.on_local(change["doc"])
+            del change["local"]
         self.emit(changes, self.decision)
 
     def close(self) -> None:
@@ -336,6 +341,43 @@ class Tracker(Binding):
         self.objects.clear()
 
     # ── attaching ──
+
+    def working(self, src: Record, ref: dict[str, Any]) -> Record:
+        """This decision's own copy of a mirrored document (Q68): the confirmed value as the mirror
+        holds it, with records and lists of its own and values shared, tracked under this decision,
+        and items keyed as in the mirror. One copy per document per decision."""
+        key = _ref_key(ref)
+        known = self.copies.get(key)
+        if known is not None:
+            return known
+        copy = self._clone(src, ref, ())
+        self.copies[key] = copy
+        return copy
+
+    def _clone(self, obj: Record, ref: dict[str, Any], path: Path) -> Record:
+        cls = type(obj)
+        new = object.__new__(cls)
+        data = dict(obj.__dict__)
+        object.__setattr__(new, "__dict__", data)
+        object.__setattr__(new, "__pydantic_fields_set__", set(obj.__pydantic_fields_set__))
+        object.__setattr__(new, "__pydantic_extra__", None)
+        object.__setattr__(new, "__pydantic_private__", None)
+        self._own(new, Owner(self, ref, path))
+        for spec in fields_of(cls):
+            value = data.get(spec.name)
+            if value is None:
+                continue
+            if spec.kind.type == "record" and isinstance(value, Record):
+                data[spec.name] = self._clone(value, ref, (*path, spec.name))
+            elif spec.kind.type == "collection" and isinstance(value, list):
+                # The list is this decision's own, but its items are the mirror's until the handler
+                # reaches one, which is then copied in (copy on access): a decision that only appends
+                # copies nothing.
+                annotation = cls.model_fields[spec.name].annotation
+                tracked = TrackedList(list.__iter__(value), self, ref, (*path, spec.name), spec.kind.item or Kind("data"), annotation)
+                tracked._borrowed = {id(item) for item in list.__iter__(value) if isinstance(item, Record)}
+                data[spec.name] = tracked
+        return new
 
     def adopt(self, record: type[Record], data: Any, ref: dict[str, Any], path: Iterable[Any] = ()) -> Record:
         """A tracked record from the engine's JSON: a whole document, or an item at `path` in one."""
@@ -386,6 +428,10 @@ class Owner:
         self.binding.attach_field(record, name, self.ref, self.path)
 
 
+def _ref_key(ref: dict[str, Any]) -> tuple[str, str, str]:
+    return ("id", ref["record"], str(ref["id"])) if "id" in ref else ("local", ref["record"], str(ref["local"]))
+
+
 def _wire(path: Path) -> list[Any]:
     return [dict(p) if isinstance(p, dict) else p for p in path]
 
@@ -398,6 +444,36 @@ class TrackedList(list):
         super().__init__(items)
         self._binding, self._ref, self._path, self._item = binding, ref, path, item
         self._adapter = TypeAdapter(_item_annotation(annotation))
+        self._borrowed: set[int] = set()
+        """Items that are still the mirror's (a decision's copy): copied in when the handler reaches them."""
+
+    # ── copy on access ──
+
+    def _at(self, index: int) -> Any:
+        """The item at `index`, copied into this decision first if it is still the mirror's."""
+        item = list.__getitem__(self, index)
+        if self._borrowed and id(item) in self._borrowed and isinstance(self._binding, Tracker):
+            self._borrowed.discard(id(item))
+            key = known_key(item) or key_of(item)
+            copy = self._binding._clone(item, self._ref, (*self._path, {"key": key}))
+            _set_key(copy, key)
+            list.__setitem__(self, index, copy)
+            return copy
+        return item
+
+    def __getitem__(self, index: Any) -> Any:
+        if isinstance(index, slice):
+            return [self._at(i) for i in range(*index.indices(len(self)))]
+        list.__getitem__(self, index)                     # raises IndexError as a list does
+        return self._at(index if index >= 0 else len(self) + index)
+
+    def __iter__(self) -> Any:
+        for i in range(len(self)):
+            yield self._at(i)
+
+    def __reversed__(self) -> Any:
+        for i in range(len(self) - 1, -1, -1):
+            yield self._at(i)
 
     @property
     def _records(self) -> bool:
@@ -450,7 +526,7 @@ class TrackedList(list):
         size = len(self)
         if index < 0:
             index = max(0, size + index)
-        at: Any = "end" if index >= size else "start" if index == 0 else {"before": key_of(self[index]) if self._records else None}
+        at: Any = "end" if index >= size else "start" if index == 0 else {"before": key_of(list.__getitem__(self, index)) if self._records else None}
         super().insert(index, item)
         return self._added(item, at)
 
@@ -470,13 +546,15 @@ class TrackedList(list):
         self._binding.release(item)
 
     def remove(self, value: Any) -> None:
-        index = next((i for i, v in enumerate(self) if v is value), None)
+        index = next((i for i, v in enumerate(list.__iter__(self)) if v is value), None)
         if index is None:
             index = self.index(value)
         item = super().pop(index)
         self._removed(item)
 
     def pop(self, index: int = -1) -> Any:  # type: ignore[override]
+        list.__getitem__(self, index)
+        self._at(index if index >= 0 else len(self) + index)   # the handler gets this decision's copy
         item = super().pop(index)
         self._removed(item)
         return item
@@ -495,11 +573,12 @@ class TrackedList(list):
         if ident is None:
             raise TypeError("replace() finds the item by its vt.Id, which these items do not have")
         wanted = getattr(item, ident)
-        index = next((i for i, v in enumerate(self) if getattr(v, ident, None) == wanted), None)
+        index = next((i for i, v in enumerate(list.__iter__(self)) if getattr(v, ident, None) == wanted), None)
         if index is None:
             raise ValueError(f"no item has {ident}={wanted!r}")
-        old = self[index]
+        old = list.__getitem__(self, index)
         key = key_of(old)
+        self._borrowed.discard(id(old))
         super().__setitem__(index, item)
         self._binding.release(old)
         self._binding.key(item, key)
@@ -517,8 +596,9 @@ class TrackedList(list):
             super().__setitem__(index, item)
             self._whole()
             return
-        old = self[index]
+        old = list.__getitem__(self, index)
         key = key_of(old)
+        self._borrowed.discard(id(old))
         super().__setitem__(index, item)
         self._binding.release(old)
         self._binding.key(item, key)
@@ -535,8 +615,9 @@ class TrackedList(list):
         return (list, (list(self),))
 
     def clear(self) -> None:
-        for item in self:
+        for item in list.__iter__(self):
             self._binding.release(item)
+        self._borrowed.clear()
         super().clear()
         self._whole()
 
