@@ -139,7 +139,7 @@ frame's documents by parameter (an item for an action on items, `result` for a `
 outcome is checked against the outcomes its intent declares before it plays: anything else is
 refused as an error. A `Reject` stays and shows its message as the frame's error status; a
 raised error or an app that is gone or too slow (30 s) stays with the engine's own message. After
-every press that carried secrets the session tells the client to clear those fields.
+every press that carried secrets the session tells the client to clear those fields (Q58).
 
 **Failed loaders (Q65).** A move enters its frame (runs the loader) before it shows it, and inputs
 are read against the frame on screen meanwhile. When the loader fails on the way (a jump, a goto, a
@@ -190,9 +190,11 @@ It reads the reel (`reel`, `place`, `at`), the frame (`view`: actions, fields, d
 status), the documents (`doc`, `items`, `tentative`, and `changes`, each document as it was at every
 change the session heard), the status (`error`, `invalid`, `pending`), `user`, `effects`, and
 `dropped`; it acts with `fill`, `press` (by label or id, with `item` for actions on items),
-`select`, `back`, and `door`. `Headless.open` takes `address`, `tape` and `args`, and `user` (start
-signed in, as 06 §8.1's `play(..., user=)`). `test/done.test.ts` plays the brief's "done when"
-with it.
+`select`, `back`, and `door`. `Headless.open` takes `address`, `tape` and `args`, `user` (start
+signed in, as 06 §8.1's `play(..., user=)`), and `device` (Q62); a third argument
+`{ snapshots: false }` records changes without copying the document, for measurements.
+`test/done.test.ts` plays the brief's "done when" with it, and `test/devices.test.ts` plays a
+journey across devices.
 
 ## Latency (E5, E10)
 
@@ -200,73 +202,62 @@ with it.
 Python processes over a local WebSocket, 300 times after 30 warm-ups, with the driver keeping no
 document snapshots. On an Apple-silicon Mac, Node 20.18, Python 3.14 (2026-10-24), p50 / p95:
 
-| What | Before the mirror (8185a75) | With the mirror |
-|------|-----------------------------|-----------------|
-| A local change: a fill until the session hears it | 0.017 / 0.028 ms | 0.037 / 0.067 ms |
-| A decision with no service call (journeys' Wave): press → outcome played | 0.31 / 0.41 ms | 0.32 / 0.43 ms |
-| relay's Send, 32–131 messages: press → shown in the other session, tentative | 2.02 / 2.84 ms | 0.46 / 0.79 ms |
-| relay's Send, 32–131 messages: press → confirmed in the other session | 3.51 / 4.39 ms | 1.69 / 1.98 ms |
-| relay's Send, 232–331 messages: press → shown in the other session, tentative | 5.91 / 7.07 ms | 0.38 / 0.51 ms |
-| relay's Send, 232–331 messages: press → confirmed in the other session | 7.87 / 9.18 ms | 1.60 / 1.76 ms |
+| What | Before the mirror (8185a75) | With the mirror (97221c3) |
+|------|-----------------------------|---------------------------|
+| A local change: a fill until the session hears it | 0.017 / 0.028 ms | 0.037 / 0.062 ms |
+| A decision with no service call (journeys' Wave): press → outcome played | 0.31 / 0.41 ms | 0.37 / 0.62 ms |
+| relay's Send, 32–131 messages: press → shown in the other session, tentative | 2.02 / 2.84 ms | 0.40 / 0.55 ms |
+| relay's Send, 32–131 messages: press → confirmed in the other session | 3.51 / 4.39 ms | 1.65 / 1.84 ms |
+| relay's Send, 232–331 messages: press → shown in the other session, tentative | 5.91 / 7.07 ms | 0.43 / 0.64 ms |
+| relay's Send, 232–331 messages: press → confirmed in the other session | 7.87 / 9.18 ms | 1.65 / 1.81 ms |
 
 relay's fake service waits 1 ms inside Send, which is most of what is left. Before the mirror a
 decide carried the conversation whole both ways, and the SDK validated it into records each time, so
 Send grew with the conversation; now it names it by version, and the two sizes cost the same. The
 local change gained some 20 µs: a fill to a document the app holds is also sent to the app.
 
-## Decisions this engine took, as questions for the design
+## Decisions (05 §18.2)
 
-05 leaves these open; the engine decided them as written here, and they are open to the design.
+The protocol details 05 left open were decided as Q53–Q67 (05 §18.2, on `design/v2` at `93b00c3`).
+Where each lives here:
 
-- **Q-A Engine → app `sync`.** 05 §6.6 says `sync` goes both ways. The engine sends documents
-  whole with each `load` and `decide` and never sends `sync` to the app, so the app process keeps
-  no copy and `vt.docs[...]` is a write-only handle (reading a field raises). Should the app keep a
-  mirror of the documents it touches, kept current by engine → app `sync`, so decides carry refs?
-- **Q-B Confirmation.** A decision's tentative changes are confirmed by its `result` (an outcome),
-  not by a `sync` of its own; an error or a `Reject` rolls them back. Changes after the result
-  (a handler's background task) are not sent.
-- **Q-C Keys.** List items of records are keyed by their `vt.Id`, else by a key the engine (`~e…`)
-  or the SDK (`~<process>.<n>`) mints; ops address items by key (or by Id from `vt.docs`); lists
-  of plain values change whole. An item keeps the key it was added with, even after the app saves
-  it with an Id. A reload whose value differs re-keys items without an Id.
-- **Q-D Lifetime.** Documents live while a reel holds their tape visit (the step, the history,
-  calls, saved hub histories), not only while shown, so back returns to documents kept current,
-  without running the loader again. Loaders run on entering a frame by jump, goto, call, address,
-  or a destination's first door; not on back, done, or a door that restores a saved history.
-- **Q-E Cost of a decide.** Each decide sends its documents whole both ways in JSON (see the
-  latency table). Paging (`@vt.pages`) bounds a list, but nothing yet bounds what a decide carries.
-- **Q-F Secrets.** A secret travels only with the submit press, merged into that decide's edited
-  document, and the session tells the client to clear every secret field after any press that
-  carried secrets (success, reject, or error). Should a validation failure before the app clear
-  them too? Here it does not: they never left the client's editor.
-- **Q-G Undeclared outcomes.** A handler's outcome that its intent does not declare is refused as
-  an error and its changes rolled back (05 §6.3: `check` and the engine agree by construction).
-- **Q-H Hub.** Each destination keeps its own history; the current destination's door starts it
-  over (as tab bars do); a jump into a destination's tape keeps history and the hub. A press on a
-  hub door inside a call, or on a `hub=False` frame, is dropped.
-- **Q-I Calls.** Back from a call's first frame ends the call without a result and without calling
-  `then=`. `done` outside a call is ignored.
-- **Q-J Identity without moving.** `sign_in=`/`sign_out=` on `stay`, `goto`, or `back` reset the
-  history where the reel lands. Reels are resumable by token (prototype-0's resume); keying reels by
-  user and device so a journey resumes on another device (05 §6.2) is not built.
-- **Q-K Validation.** A submit validates the edited record with its secrets before the app, and
-  reports problems by field; other handler actions do not. A fill of the wrong JSON shape is
-  dropped; a fill that breaks a constraint is kept and reported (`invalid`).
-- **Q-L Inputs.** Until the client protocol exists, sessions take `fill`, `press`, `back`, and
-  `hub` with a `seq` and the frame version (the scene version's stand-in), and say `dropped` with a
-  reason. Action ids are `submit`, `action:<n>`, `select:<field>`, `press:<field>`.
-- **Q-M Errors.** A raised handler, a failed loader, and an app that is gone or slower than 30 s
-  show the engine's own message as the frame's error status, never the app's exception text. A
-  failed loader enters the frame with defaults.
-- **Q-N One app.** An engine plays one app. A new connection from the same app replaces the old
-  one; another app is refused while sessions exist. A new intent keeps the sessions and, when the
-  records did not change, the documents.
-- **Q-O `Message.sent_at`.** 06 §9.4's `send` builds a `Message` without `sent_at`, which the
-  guide declares required; the relay fixture makes it optional. Should a record a handler creates
-  be allowed to lack required fields until the app saves it, as `vt.Id` is?
+| Q | Decision | Here |
+|---|----------|------|
+| Q53 | The app keeps a mirror of the documents its handlers touch, kept current by engine → app `sync` | The app's mirror; `src/mirror.ts`, `videotape/mirror.py` |
+| Q54 | A decision's changes are confirmed by its result and rolled back by a raise or `Reject`; background work writes through `vt.docs`, never tentative | Tentative and confirmed; `Engine.sync` |
+| Q55 | List items keyed by `vt.Id` or a minted key; an item keeps its first key after it is saved | Documents on the wire; `Records.assignKeys`, `tracking.key_of` |
+| Q56 | Documents live while the history holds their tape; loaders run when a frame is entered forward, not on back | Documents; `Session.enter` |
+| Q57 | A `decide` carries references and versions, and the answer carries changes only | The app's mirror; latency table |
+| Q58 | Secrets are cleared after any press that carried them, not after a validation failure before the app | Decisions (journey runtime) |
+| Q59 | An undeclared outcome is refused as an error and rolled back | Decisions (journey runtime) |
+| Q60 | The hub as tab bars: one history per destination, the current door starts over; doors in calls or on `hub=False` frames are dropped | History roots |
+| Q61 | Back from a call's first frame ends it without a result or `then=`; `check` warns about `done` in a tape no call enters | `Reel.back`; the SDK's `done-without-call` |
+| Q62 | `sign_in`/`sign_out` on `stay`, `goto`, or `back` reset history there; reels keyed by user and device, resuming across devices | Across devices; `Engine.signedIn` |
+| Q63 | A submit validates before the app, per field; a fill that breaks a constraint is kept and shown invalid; one of the wrong shape is dropped | Decisions (journey runtime) |
+| Q64 | `fill`, `press`, `back`, `hub` with action ids and frame versions, a stand-in kept for the test driver | Inputs |
+| Q65 | Failures show the engine's own message; a failed loader keeps the user in place, except at an entry or address | Failed loaders |
+| Q66 | One app per engine; a reconnecting app replaces the old connection; a new intent keeps sessions in development | `Engine.registered`; releases side by side come with the release pipeline |
+| Q67 | A record a handler creates must validate; only its `vt.Id` may be missing | The SDK notes what is missing on Pydantic's `ValidationError` |
+
+**New questions**, from building Q53–Q67:
+
+- **Q-P Concurrent decisions on one copy.** The app hands every handler the mirror's copy itself,
+  so two decisions running at once on one document see each other's tentative changes, as readers
+  of the engine's value do. When one of them rolls back while the other still runs, the app's copy
+  is replaced and the other's later changes reach the engine but leave the app's copy behind; the
+  app then drops the copy and the next request sends it whole. Is that sharing the intended
+  semantics, or should a decision see only confirmed values plus its own changes?
+- **Q-Q How long a device's journey waits.** A device's reel waits to be taken back for as long as
+  its session can be resumed (10 minutes after the client goes away here), and another device
+  resumes the most recently active journey. Should a journey wait longer than a session (days, as
+  phone apps keep their place), and should a device the user has not used for a while resume the
+  latest journey instead of its own?
+- **Q-R Resuming over a sign-in target.** On another device, a sign-in resumes the user's journey
+  and ignores where the sign-in outcome pointed. Should the app be able to say where a resumed
+  journey lands, for instance after a password change?
 
 **Not built** (per the brief): the composer, embodiment, scene state, rendering, streaming,
 clients and the client protocol, release, and the TypeScript SDK. Also not built here: timers
 (`after=`), `on_change` handlers, moves (`to=`), picks (`vt.pick`), paging requests from a client
-(the protocol's `page` message and the SDK's answer exist), list documents in handlers, and
-cross-device resume.
+(the protocol's `page` message and the SDK's answer exist), list documents in handlers, and the
+deleted-account case of 05 §6.2.
