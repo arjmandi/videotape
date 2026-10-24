@@ -75,7 +75,8 @@ and its own changes, never another decision's pending ones (the screen still sho
 change, and the engine applies each decision's changes on top of what was confirmed meanwhile).
 The copy has its own records and lists, and a list's items are copied in only when the handler
 reaches one, so a decision that only appends copies nothing. Plain values (`vt.RichText`,
-`vt.Money`) are shared with the mirror: a handler replaces them rather than changing them in place.
+`vt.Money`, `vt.Series`) are shared with the mirror, which is safe because they are immutable
+(Q71): a handler assigns a new one, and every change is an op.
 Changes made outside any decision go through the mirror's own records, are confirmed at once, and
 come back as an echo with the version they reached (`origin: "app"`), or the whole value if the
 engine refused any of them.

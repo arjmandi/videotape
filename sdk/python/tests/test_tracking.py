@@ -237,3 +237,65 @@ def test_a_decisions_copy_is_its_own_and_copies_items_on_access():
     assert found["work"]["title"] == "Changed" and [line[KEY] for line in found["work"]["lines"]][:2] == ["~e1", "~e2"]
     assert {"op": "set", "path": ["lines", {"key": "~e1"}, "done"], "value": True} in ops_sent
     assert [o["op"] for o in ops_sent] == ["insert", "set", "set", "set"]
+
+
+class Post(vt.Record):
+    id: vt.Id
+    text: vt.RichText
+    price: vt.Money
+    chart: vt.Series
+
+
+def post_json():
+    return {
+        "id": "p1", "text": {"blocks": [{"kind": "paragraph", "spans": [{"text": "Hello."}]}]},
+        "price": {"amount": "10", "currency": "EUR"},
+        "chart": {"rows": [{"week": 1, "events": 3}], "x": "week", "y": "events"},
+    }  # fmt: skip
+
+
+def test_immutable_values_are_replaced_and_each_replacement_is_an_op():
+    """Q71: RichText, Money, and Series are immutable; a handler assigns a new value."""
+    ref = {"record": "Post", "id": "p1"}
+
+    async def body(t):
+        post = t.adopt(Post, post_json(), ref)
+        for attempt in (
+            lambda: post.text.blocks.append(None),
+            lambda: post.text.blocks[0].spans.append(None),
+            lambda: post.text.blocks.__setitem__(0, None),
+            lambda: setattr(post.text, "blocks", ()),
+            lambda: setattr(post.price, "amount", 5),
+            lambda: post.chart.rows.append({"week": 2, "events": 1}),
+            lambda: post.chart.rows[0].update(events=9),
+            lambda: post.chart.rows[0].__setitem__("events", 9),
+        ):
+            with pytest.raises(TypeError, match="Q71"):
+                attempt()
+        post.text = post.text + "More."
+        post.price = post.price + 5
+        post.chart = post.chart.with_row({"week": 2, "events": 1})
+
+    found = ops(run(body))
+    assert [o["path"] for o in found] == [["text"], ["price"], ["chart"]]
+    assert [b["spans"][0]["text"] for b in found[0]["value"]["blocks"]] == ["Hello.", "More."]
+    assert found[1]["value"] == {"amount": "15", "currency": "EUR"}
+    assert found[2]["value"]["rows"] == [{"week": 1, "events": 3}, {"week": 2, "events": 1}]
+
+
+def test_immutable_values_say_what_to_do_instead():
+    text = vt.RichText.from_text("Hi.")
+    with pytest.raises(TypeError, match=r"msg.text = msg.text \+ 'More.'"):
+        text.blocks.append(None)
+    with pytest.raises(TypeError, match=r"deal.amount = deal.amount \+ 5"):
+        vt.Money("1", "EUR").amount = 2
+    with pytest.raises(TypeError, match=r"chart.with_row"):
+        vt.Series([{"w": 1, "n": 2}], x="w", y="n").rows.pop()
+    assert ("Intro." + text).plain == "Intro.\n\nHi."
+    assert vt.Money("10", "EUR") - vt.Money("2.5", "EUR") == vt.Money("7.5", "EUR")
+    assert -vt.Money("2", "EUR") * 3 == vt.Money("-6", "EUR")
+    with pytest.raises(TypeError):
+        vt.Money("1", "EUR") + vt.Money("1", "USD")
+    chart = vt.Series([{"w": 1, "n": 2}], x="w", y="n")
+    assert chart.with_rows([{"w": 5, "n": 6}]).rows == ({"w": 5, "n": 6},)
+    assert chart.rows == ({"w": 1, "n": 2},)

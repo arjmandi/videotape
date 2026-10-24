@@ -31,7 +31,7 @@ warnings, 1 on errors, and 2 when it cannot load the app.
 
 | Module | What it does |
 |--------|--------------|
-| `values` | The built-in types: `vt.Id`, `vt.Text`, `vt.Secret`, `vt.Money`, `vt.Image`, `vt.Video`, `vt.Audio`, `vt.RichText`, `vt.Series`, `vt.Page`, and `vt.t(...)` |
+| `values` | The built-in types: `vt.Id`, `vt.Text`, `vt.Secret`, `vt.Money`, `vt.Image`, `vt.Video`, `vt.Audio`, `vt.RichText`, `vt.Series`, `vt.Page`, and `vt.t(...)`. Money, the media, RichText, and Series are immutable (Q71): their sequences refuse to change in place and say what to do instead, and a handler assigns a new value built with `rich + "More."`, `money + 5`, or `series.with_row({...})` |
 | `records` | `vt.Record` on Pydantic v2; `vt.Field(...)` with the options of 06 §4, `vt.State(...)`, `vt.pick("tape")`, `@vt.pages(Record.field)`; `Deal.amount` on the class is a field reference, and `Deal.company.name` chains into a nested record |
 | `outcomes` | `jump`, `goto`, `back`, `stay` (with `sign_in=`, `sign_out=`, and `resume=`, Q70), `call(tape, then=)`, `done`, `open`, `download`, `copy`. Wherever a tape is named (outcomes, `vt.destination`, `vt.app(entry=)`, `vt.pick`), the tape itself or its id works |
 | `intent` | `vt.tape`, `vt.frame` (`shows=` one record or a list, `back=`, `hub=`, `under=`), `vt.text`, `vt.show` (with `on=`), `vt.action`, `vt.after`, `vt.hub`, `vt.destination`, `vt.app` (with `keep_journeys=`, Q69). Builders raise at once on what they cannot hold (a wrong type, a malformed id or address) |
