@@ -1,8 +1,8 @@
 # Videotape Python SDK (skeleton)
 
 The first v2 code. An app written as in [06-getting-started.md](../../docs/06-getting-started.md)
-becomes intent JSON, and `videotape check` checks it. There is no engine, app-protocol
-transport, documents runtime, or composer yet.
+becomes intent JSON, `videotape check` checks it, and `videotape serve` serves it to the engine
+core in [`packages/engine`](../../packages/engine) over the app protocol. There is no composer yet.
 
 The SDK follows the design as decided on `design/v2` at `df3e343`: 05 §6.1–§6.4, and §18.1,
 which decides the questions and deviations this skeleton raised in four rounds (Q31–Q52). This
@@ -20,6 +20,7 @@ python3 -m venv .venv                 # Python 3.11 or later
 .venv/bin/videotape check app:app --app-dir tests/fixtures/hello    # diagnostics; exit 1 on errors
 .venv/bin/videotape check crm --app-dir tests/fixtures/apps --json  # diagnostics as JSON
 .venv/bin/videotape schema                                          # the intent document's JSON Schema
+.venv/bin/videotape serve app:app --app-dir tests/fixtures/hello --engine ws://127.0.0.1:8787/app
 ```
 
 `module:app` names a module and the `vt.app(...)` in it (`app` when left out). The module is
@@ -30,15 +31,19 @@ warnings, 1 on errors, and 2 when it cannot load the app.
 
 | Module | What it does |
 |--------|--------------|
-| `values` | The built-in types: `vt.Id`, `vt.Text`, `vt.Secret`, `vt.Money`, `vt.Image`, `vt.Video`, `vt.Audio`, `vt.RichText`, `vt.Series`, `vt.Page`, and `vt.t(...)` |
-| `records` | `vt.Record` on Pydantic v2; `vt.Field(...)` with the options of 06 §4, `vt.State(...)`, `vt.pick("tape")`, `@vt.pages(Record.field)`; `Deal.amount` on the class is a field reference, and `Deal.company.name` chains into a nested record |
-| `outcomes` | `jump`, `goto`, `back`, `stay`, `call(tape, then=)`, `done`, `open`, `download`, `copy`. Wherever a tape is named (outcomes, `vt.destination`, `vt.app(entry=)`, `vt.pick`), the tape itself or its id works |
-| `intent` | `vt.tape`, `vt.frame` (`shows=` one record or a list, `back=`, `hub=`, `under=`), `vt.text`, `vt.show` (with `on=`), `vt.action`, `vt.after`, `vt.hub`, `vt.destination`, `vt.app`. Builders raise at once on what they cannot hold (a wrong type, a malformed id or address) |
+| `values` | The built-in types: `vt.Id`, `vt.Text`, `vt.Secret`, `vt.Money`, `vt.Image`, `vt.Video`, `vt.Audio`, `vt.RichText`, `vt.Series`, `vt.Page`, and `vt.t(...)`. Money, the media, RichText, and Series are immutable (Q71): their sequences refuse to change in place and say what to do instead, and a handler assigns a new value built with `rich + "More."`, `money + 5`, or `series.with_row({...})` |
+| `records` | `vt.Record` on Pydantic v2; `vt.Draft[X]`, the edited `X` unfinished: the same fields, all optional, with `problems` by field (Q75); `vt.Field(...)` with the options of 06 §4 and `pause=` (Q74), `vt.State(...)`, `vt.pick("tape")`, `@vt.pages(Record.field)`; `Deal.amount` on the class is a field reference, and `Deal.company.name` chains into a nested record |
+| `outcomes` | `jump`, `goto`, `back`, `stay` (with `sign_in=`, `sign_out=`, and `resume=`, Q70), `call(tape, then=)`, `done`, `open`, `download`, `copy`. Wherever a tape is named (outcomes, `vt.destination`, `vt.app(entry=)`, `vt.pick`), the tape itself or its id works |
+| `intent` | `vt.tape`, `vt.frame` (`shows=` one record or a list, `back=`, `hub=`, `under=`), `vt.text`, `vt.show` (with `on=`), `vt.action`, `vt.after`, `vt.hub`, `vt.destination`, `vt.app` (with `keep_journeys=`, Q69). Builders raise at once on what they cannot hold (a wrong type, a malformed id or address) |
 | `derive` | What a frame derives from its records: components, affordances, states, how often it holds each record, and every place where something happens |
 | `decisions` | Reads handlers' parameters with `typing.get_type_hints` and their edges from their bodies; `@vt.outcomes`, `vt.Reject`, `vt.Context`, `vt.invoke` |
 | `serialize` | `app.intent()`: the deterministic intent JSON |
 | `spec` | The intent document's JSON Schema, published as [`intent.schema.json`](src/videotape/intent.schema.json) |
 | `graph`, `check`, `cli` | The journey graph (ported from prototype-0) with history roots, back, and the hub; the check rules; the `videotape` command |
+| `serve` | The app protocol's client: `register`, then `load`, `page`, and `decide` answered with the app's loaders and handlers (as `vt.invoke` calls them), `sync` for document changes, `log` for the app's log lines, scrubbed of secrets. The shapes are in [`packages/engine/README.md`](../../packages/engine/README.md) |
+| `mirror` | The app's copy of the documents its handlers touch (Q53): requests name them by version, `sync` from the engine keeps them current, and a copy that does not line up is dropped (`forget`) and sent whole again |
+| `tracking` | The documents a handler receives are tracked: each assignment and list change (`append` returns the item; `prepend`, `insert`, `remove`, `pop`, `replace` by `vt.Id`) becomes a `sync` op in the same event-loop turn, tentative under the decision whose task made it, or confirmed when no decision runs (Q54); secret fields are never sent; `apply_op` patches a copy with the engine's changes |
+| `documents` | `vt.docs[Record, id]`: the app's copy of a document when it holds one (it reads and writes), else a handle that writes; `await vt.docs.fetch(Record, id)` asks the engine for a copy. Changes outside a running decision are confirmed at once |
 
 **Records and frames.** A frame shows the records the user reads (`shows=Page`, or
 `shows=[Page, Results]`) and edits the one the user writes. A record with a `vt.Id` field is a
@@ -149,6 +154,7 @@ edges      [{from, to, type, tape | frame, resets_history, signs_in, via}]
 | `unreachable-frame` | warning | a frame cannot be reached from the entry | v1 |
 | `no-exit` | warning | a frame has no declared way out, no back, and no hub doors (a dead end) | v1, Q31, Q32, Q49 |
 | `closed-cycle` | warning | frames form a group the journey cannot leave, unless it holds the entry, a sign-in target, or a hub destination | v1, Q51 |
+| `done-without-call` | warning | a tape uses `done`, but no call (or pick) enters it, so there is nothing to return to | Q61 |
 
 **History and the hub (Q31, Q32, Q44, Q48, Q49).** The history roots are the app's entry, each
 hub destination's first frame, wherever an outcome with `sign_in` or `sign_out` lands, and a frame
@@ -272,7 +278,6 @@ no new ones.
 
 ## Not built
 
-Per the brief: the engine, the app protocol's transport (`register`, `load`, `decide`, `sync`),
-the documents runtime (`vt.docs`, list `append` returning the item, `prepend`, `replace`), the
-composer and its reference screens, `vt.testing.play`, `vt.world`, `videotape new`, `dev`,
-`graph`, `release`, `export`, and `serve`, and the TypeScript SDK.
+The composer and its reference screens, `vt.testing.play` (the engine's headless driver plays
+journeys from TypeScript for now), `vt.world`, `videotape new`, `dev`, `graph`, `release`, and
+`export`, and the TypeScript SDK.

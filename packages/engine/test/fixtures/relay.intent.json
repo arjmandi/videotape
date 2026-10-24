@@ -1,0 +1,1024 @@
+{
+  "format": "videotape.intent/2",
+  "app": "relay",
+  "entry": "chats",
+  "keep_journeys": 2592000,
+  "hub": [
+    {
+      "tape": "chats",
+      "label": "Chats",
+      "symbol": "chat"
+    },
+    {
+      "tape": "contacts",
+      "label": "Contacts",
+      "symbol": "person"
+    },
+    {
+      "tape": "settings",
+      "label": "Settings",
+      "symbol": "gear"
+    }
+  ],
+  "tapes": [
+    {
+      "id": "chats",
+      "frames": [
+        {
+          "purpose": "See my conversations",
+          "shows": [
+            {
+              "record": "Chats"
+            }
+          ],
+          "enter": {
+            "loader": "load_chats"
+          },
+          "components": [
+            {
+              "field": "Chats.conversations",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "ConversationSummary",
+                "components": [
+                  {
+                    "field": "ConversationSummary.title",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "ConversationSummary.last",
+                    "type": "string",
+                    "nullable": true,
+                    "role": "supporting",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ],
+                "states": [
+                  "ConversationSummary.unread"
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "thread",
+                "args": {
+                  "id": {
+                    "field": "ConversationSummary.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "thread",
+      "frames": [
+        {
+          "purpose": "Read and reply",
+          "address": "/c/{id}",
+          "shows": [
+            {
+              "record": "Conversation"
+            }
+          ],
+          "edit": {
+            "record": "Draft"
+          },
+          "enter": {
+            "loader": "load_thread"
+          },
+          "submit": {
+            "label": "Send",
+            "handler": "send"
+          },
+          "components": [
+            {
+              "field": "Conversation.title",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Conversation.messages",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Message",
+                "components": [
+                  {
+                    "field": "Message.author",
+                    "type": "record",
+                    "record": "User",
+                    "affordances": [],
+                    "components": [
+                      {
+                        "field": "User.name",
+                        "type": "string",
+                        "affordances": [
+                          "read"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "field": "Message.text",
+                    "type": "richtext",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Message.sent_at",
+                    "type": "datetime",
+                    "nullable": true,
+                    "importance": "optional",
+                    "format": "time",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ],
+                "states": [
+                  "Message.pending"
+                ]
+              },
+              "anchor": "end",
+              "pages": {
+                "loader": "older_messages"
+              },
+              "affordances": [
+                "read",
+                "scroll"
+              ]
+            },
+            {
+              "field": "Conversation.typing",
+              "from": "shows",
+              "type": "string",
+              "nullable": true,
+              "role": "status",
+              "importance": "optional",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Draft.text",
+              "from": "edit",
+              "type": "text",
+              "lines": [
+                1,
+                6
+              ],
+              "affordances": [
+                "write"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Reply",
+              "target": {
+                "handler": "start_reply"
+              },
+              "affordance": "press",
+              "on": "Message",
+              "gesture": "swipe-trailing"
+            },
+            {
+              "label": "Copy",
+              "target": {
+                "type": "copy",
+                "field": "Message.text"
+              },
+              "affordance": "press",
+              "on": "Message"
+            }
+          ],
+          "under": "chats"
+        }
+      ]
+    },
+    {
+      "id": "contacts",
+      "frames": [
+        {
+          "purpose": "Find someone to talk to",
+          "shows": [
+            {
+              "record": "Contacts"
+            }
+          ],
+          "enter": {
+            "loader": "load_contacts"
+          },
+          "components": [
+            {
+              "field": "Contacts.contacts",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Contact",
+                "components": [
+                  {
+                    "field": "Contact.name",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "thread",
+                "args": {
+                  "id": {
+                    "field": "Contact.conversation"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "frames": [
+        {
+          "purpose": "Change my settings",
+          "edit": {
+            "record": "Settings"
+          },
+          "enter": {
+            "loader": "load_settings"
+          },
+          "submit": {
+            "label": "Change my settings",
+            "handler": "save_settings"
+          },
+          "components": [
+            {
+              "field": "Settings.display_name",
+              "from": "edit",
+              "type": "string",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Settings.notifications",
+              "from": "edit",
+              "type": "boolean",
+              "affordances": [
+                "choose"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    }
+  ],
+  "records": {
+    "Chats": {
+      "additionalProperties": false,
+      "properties": {
+        "conversations": {
+          "items": {
+            "$ref": "#/records/ConversationSummary"
+          },
+          "title": "Conversations",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "ConversationSummary"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "thread",
+              "args": {
+                "id": {
+                  "field": "ConversationSummary.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "conversations"
+      ],
+      "title": "Chats",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Contact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "conversation": {
+          "title": "Conversation",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "show": false
+          }
+        }
+      },
+      "required": [
+        "name",
+        "conversation"
+      ],
+      "title": "Contact",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Contacts": {
+      "additionalProperties": false,
+      "properties": {
+        "contacts": {
+          "items": {
+            "$ref": "#/records/Contact"
+          },
+          "title": "Contacts",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Contact"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "thread",
+              "args": {
+                "id": {
+                  "field": "Contact.conversation"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "contacts"
+      ],
+      "title": "Contacts",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Conversation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/records/Message"
+          },
+          "title": "Messages",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Message"
+            },
+            "anchor": "end",
+            "pages": {
+              "loader": "older_messages"
+            }
+          }
+        },
+        "typing": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Typing",
+          "x-vt": {
+            "type": "string",
+            "nullable": true,
+            "role": "status",
+            "importance": "optional"
+          }
+        }
+      },
+      "required": [
+        "title",
+        "messages"
+      ],
+      "title": "Conversation",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "ConversationSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "last": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last",
+          "x-vt": {
+            "type": "string",
+            "nullable": true,
+            "role": "supporting"
+          }
+        },
+        "unread": {
+          "default": false,
+          "title": "Unread",
+          "type": "boolean",
+          "x-vt": {
+            "type": "boolean",
+            "state": true
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "ConversationSummary",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Draft": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "default": "",
+          "title": "Text",
+          "type": "string",
+          "x-vt": {
+            "type": "text",
+            "lines": [
+              1,
+              6
+            ]
+          }
+        }
+      },
+      "title": "Draft",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Message": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "$ref": "#/records/User",
+          "x-vt": {
+            "type": "record",
+            "record": "User"
+          }
+        },
+        "text": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext"
+          }
+        },
+        "sent_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sent At",
+          "x-vt": {
+            "type": "datetime",
+            "nullable": true,
+            "importance": "optional",
+            "format": "time"
+          }
+        },
+        "pending": {
+          "default": false,
+          "title": "Pending",
+          "type": "boolean",
+          "x-vt": {
+            "type": "boolean",
+            "state": true
+          }
+        }
+      },
+      "required": [
+        "author",
+        "text"
+      ],
+      "title": "Message",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Settings": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "title": "Display Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "notifications": {
+          "default": true,
+          "title": "Notifications",
+          "type": "boolean",
+          "x-vt": {
+            "type": "boolean"
+          }
+        }
+      },
+      "required": [
+        "display_name"
+      ],
+      "title": "Settings",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "User": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "User",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    }
+  },
+  "types": {
+    "vt.CodeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "code",
+          "default": "code",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "CodeBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.ListBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list",
+          "default": "list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ordered": {
+          "default": false,
+          "title": "Ordered",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "items": {
+              "$ref": "#/types/vt.Span"
+            },
+            "type": "array"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ListBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Paragraph": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/vt.Span"
+          },
+          "title": "Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "spans"
+      ],
+      "title": "Paragraph",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.RichText": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "code": "#/types/vt.CodeBlock",
+                "list": "#/types/vt.ListBlock",
+                "paragraph": "#/types/vt.Paragraph"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/types/vt.Paragraph"
+              },
+              {
+                "$ref": "#/types/vt.ListBlock"
+              },
+              {
+                "$ref": "#/types/vt.CodeBlock"
+              }
+            ]
+          },
+          "title": "Blocks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "blocks"
+      ],
+      "title": "RichText",
+      "type": "object",
+      "x-vt": {
+        "type": "richtext"
+      }
+    },
+    "vt.Span": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "emphasis": {
+          "anyOf": [
+            {
+              "enum": [
+                "em",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emphasis"
+        },
+        "code": {
+          "default": false,
+          "title": "Code",
+          "type": "boolean"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "mention": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mention"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Span",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    }
+  },
+  "handlers": {
+    "save_settings": {
+      "params": [
+        {
+          "name": "s",
+          "type": "record",
+          "record": "Settings",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "send": {
+      "params": [
+        {
+          "name": "conv",
+          "type": "record",
+          "record": "Conversation",
+          "required": true
+        },
+        {
+          "name": "draft",
+          "type": "record",
+          "record": "Draft",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "start_reply": {
+      "params": [
+        {
+          "name": "msg",
+          "type": "record",
+          "record": "Message",
+          "required": true
+        },
+        {
+          "name": "draft",
+          "type": "record",
+          "record": "Draft",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    }
+  },
+  "loaders": {
+    "load_chats": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Chats"
+        }
+      ]
+    },
+    "load_contacts": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Contacts"
+        }
+      ]
+    },
+    "load_settings": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Settings"
+        }
+      ]
+    },
+    "load_thread": {
+      "params": [
+        {
+          "name": "id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Conversation"
+        }
+      ]
+    },
+    "older_messages": {
+      "params": [
+        {
+          "name": "conv",
+          "type": "record",
+          "record": "Conversation",
+          "required": true
+        },
+        {
+          "name": "cursor",
+          "type": "string",
+          "nullable": true,
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "page",
+          "item": {
+            "type": "record",
+            "record": "Message"
+          }
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "from": "chats",
+      "to": "thread",
+      "type": "jump",
+      "tape": "thread",
+      "via": {
+        "select": "Chats.conversations"
+      }
+    },
+    {
+      "from": "contacts",
+      "to": "thread",
+      "type": "jump",
+      "tape": "thread",
+      "via": {
+        "select": "Contacts.contacts"
+      }
+    }
+  ]
+}

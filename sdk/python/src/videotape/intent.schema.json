@@ -219,6 +219,11 @@
           "const": true,
           "type": "boolean"
         },
+        "resume": {
+          "title": "Resume",
+          "const": false,
+          "type": "boolean"
+        },
         "type": {
           "const": "back",
           "title": "Type",
@@ -388,6 +393,12 @@
             "change"
           ],
           "type": "string"
+        },
+        "pause": {
+          "description": "With commit='change': seconds of quiet before on_change runs (Q74).",
+          "title": "Pause",
+          "exclusiveMinimum": 0,
+          "type": "number"
         },
         "options": {
           "title": "Options"
@@ -1075,6 +1086,11 @@
           "const": true,
           "type": "boolean"
         },
+        "resume": {
+          "title": "Resume",
+          "const": false,
+          "type": "boolean"
+        },
         "type": {
           "const": "goto",
           "title": "Type",
@@ -1207,6 +1223,11 @@
         "sign_out": {
           "title": "Sign Out",
           "const": true,
+          "type": "boolean"
+        },
+        "resume": {
+          "title": "Resume",
+          "const": false,
           "type": "boolean"
         },
         "type": {
@@ -1440,6 +1461,11 @@
           "const": true,
           "type": "boolean"
         },
+        "resume": {
+          "title": "Resume",
+          "const": false,
+          "type": "boolean"
+        },
         "type": {
           "const": "stay",
           "title": "Type",
@@ -1528,6 +1554,12 @@
       "title": "World",
       "type": "string"
     },
+    "keep_journeys": {
+      "description": "How long a signed-in journey is kept, in seconds (Q69).",
+      "minimum": 0,
+      "title": "Keep Journeys",
+      "type": "integer"
+    },
     "hub": {
       "title": "Hub",
       "items": {
@@ -1586,6 +1618,7 @@
     "format",
     "app",
     "entry",
+    "keep_journeys",
     "tapes",
     "records",
     "types",

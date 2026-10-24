@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import timedelta
 from enum import Enum
 from typing import Any, get_args, get_origin
 
@@ -17,6 +18,9 @@ from ._encode import tape_id
 from .outcomes import Outcome
 from .records import OPTION_NAMES, FieldOptions, FieldRef, Record
 from .values import Phrase
+
+KEEP_JOURNEYS = timedelta(days=30)
+"""How long a signed-in journey is kept unless the app says otherwise (Q69)."""
 
 _ID = re.compile(r"[A-Za-z][\w-]{0,63}")
 _ADDRESS = re.compile(r"/([\w.~-]+|\{[A-Za-z_]\w*\})?(/([\w.~-]+|\{[A-Za-z_]\w*\}))*")
@@ -398,6 +402,8 @@ class App:
     tapes: list[Tape]
     hub: Hub | None = None
     world: str | None = None
+    keep_journeys: timedelta = KEEP_JOURNEYS
+    """How long the engine keeps a signed-in user's journey, its position and history only (Q69)."""
 
     def tape(self, id: str) -> Tape | None:  # noqa: A002
         return next((t for t in self.tapes if t.id == id), None)
@@ -420,9 +426,11 @@ class App:
 
 
 def app(
-    name: str, *, entry: Any, tapes: Sequence[Tape], hub: Hub | None = None, world: str | None = None
+    name: str, *, entry: Any, tapes: Sequence[Tape], hub: Hub | None = None, world: str | None = None,
+    keep_journeys: timedelta = KEEP_JOURNEYS,
 ) -> App:
-    """The app: its entry is the tape itself, or its id (Q50)."""
+    """The app: its entry is the tape itself, or its id (Q50). A signed-in user's journey is kept for
+    `keep_journeys` (30 days), as its position and history, so any device resumes it (Q69)."""
     _check_id("app name", name)
     entry = tape_id(entry)
     items = list(tapes)
@@ -433,4 +441,6 @@ def app(
         raise TypeError("hub= takes vt.hub([...])")
     if world is not None and not isinstance(world, str):
         raise TypeError("world= takes the name of a world, such as 'studio'")
-    return App(name, entry, items, hub, world)
+    if not isinstance(keep_journeys, timedelta) or keep_journeys < timedelta(0):
+        raise TypeError("keep_journeys= takes a timedelta of zero or more, such as timedelta(days=30)")
+    return App(name, entry, items, hub, world, keep_journeys)

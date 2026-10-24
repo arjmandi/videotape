@@ -1,0 +1,1463 @@
+{
+  "format": "videotape.intent/2",
+  "app": "screening",
+  "entry": "home",
+  "world": "screening-room",
+  "keep_journeys": 2592000,
+  "hub": [
+    {
+      "tape": "home",
+      "label": "Home",
+      "symbol": "house"
+    },
+    {
+      "tape": "search",
+      "label": "Search",
+      "symbol": "magnifier"
+    },
+    {
+      "tape": "subscriptions",
+      "label": "Subscriptions",
+      "symbol": "list"
+    }
+  ],
+  "tapes": [
+    {
+      "id": "home",
+      "frames": [
+        {
+          "purpose": "See what is new",
+          "address": "/",
+          "public": true,
+          "shows": [
+            {
+              "record": "Home"
+            }
+          ],
+          "enter": {
+            "loader": "load_home"
+          },
+          "components": [
+            {
+              "field": "Home.shelves",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Shelf",
+                "components": [
+                  {
+                    "field": "Shelf.title",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Shelf.videos",
+                    "type": "collection",
+                    "item": {
+                      "type": "record",
+                      "record": "VideoCard",
+                      "components": [
+                        {
+                          "field": "VideoCard.thumbnail",
+                          "type": "image",
+                          "role": "primary",
+                          "affordances": [
+                            "read"
+                          ]
+                        },
+                        {
+                          "field": "VideoCard.title",
+                          "type": "string",
+                          "role": "heading",
+                          "affordances": [
+                            "read"
+                          ]
+                        },
+                        {
+                          "field": "VideoCard.channel",
+                          "type": "string",
+                          "role": "supporting",
+                          "affordances": [
+                            "read"
+                          ]
+                        }
+                      ]
+                    },
+                    "select": {
+                      "type": "jump",
+                      "tape": "watch",
+                      "args": {
+                        "video_id": {
+                          "field": "VideoCard.id"
+                        }
+                      }
+                    },
+                    "affordances": [
+                      "read",
+                      "press",
+                      "scroll"
+                    ]
+                  }
+                ]
+              },
+              "affordances": [
+                "read",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "search",
+      "frames": [
+        {
+          "purpose": "Find a video",
+          "shows": [
+            {
+              "record": "Found"
+            }
+          ],
+          "edit": {
+            "record": "VideoSearch"
+          },
+          "components": [
+            {
+              "field": "Found.videos",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "VideoCard",
+                "components": [
+                  {
+                    "field": "VideoCard.thumbnail",
+                    "type": "image",
+                    "role": "primary",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "VideoCard.title",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "VideoCard.channel",
+                    "type": "string",
+                    "role": "supporting",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "watch",
+                "args": {
+                  "video_id": {
+                    "field": "VideoCard.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            },
+            {
+              "field": "VideoSearch.q",
+              "from": "edit",
+              "type": "string",
+              "kind": "search",
+              "commit": "change",
+              "label": "Search videos",
+              "affordances": [
+                "write"
+              ]
+            }
+          ],
+          "on_change": [
+            {
+              "field": "VideoSearch.q",
+              "handler": "search_videos"
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "subscriptions",
+      "frames": [
+        {
+          "purpose": "Follow the channels I subscribe to",
+          "shows": [
+            {
+              "record": "Subscriptions"
+            }
+          ],
+          "enter": {
+            "loader": "load_subscriptions"
+          },
+          "components": [
+            {
+              "field": "Subscriptions.channels",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Channel",
+                "components": [
+                  {
+                    "field": "Channel.name",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ],
+                "states": [
+                  "Channel.subscribed"
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "channel",
+                "args": {
+                  "channel_id": {
+                    "field": "Channel.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "watch",
+      "frames": [
+        {
+          "purpose": "Watch a video and decide what next",
+          "address": "/watch/{video_id}",
+          "public": true,
+          "shows": [
+            {
+              "record": "Watch"
+            }
+          ],
+          "enter": {
+            "loader": "load_watch"
+          },
+          "components": [
+            {
+              "field": "Watch.player",
+              "from": "shows",
+              "type": "video",
+              "role": "primary",
+              "importance": "required",
+              "affordances": [
+                "play"
+              ],
+              "events": {
+                "ended": {
+                  "handler": "play_next"
+                }
+              },
+              "override": true
+            },
+            {
+              "field": "Watch.title",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Watch.channel",
+              "from": "shows",
+              "type": "record",
+              "record": "Channel",
+              "affordances": [],
+              "components": [
+                {
+                  "field": "Channel.name",
+                  "type": "string",
+                  "affordances": [
+                    "read",
+                    "press"
+                  ],
+                  "role": "navigation",
+                  "press": {
+                    "type": "jump",
+                    "tape": "channel",
+                    "args": {
+                      "channel_id": {
+                        "field": "Channel.id"
+                      }
+                    }
+                  },
+                  "override": true
+                }
+              ],
+              "states": [
+                "Channel.subscribed"
+              ]
+            },
+            {
+              "field": "Watch.description",
+              "from": "shows",
+              "type": "richtext",
+              "importance": "optional",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Watch.up_next",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "VideoCard",
+                "components": [
+                  {
+                    "field": "VideoCard.thumbnail",
+                    "type": "image",
+                    "role": "primary",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "VideoCard.title",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "VideoCard.channel",
+                    "type": "string",
+                    "role": "supporting",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "watch",
+                "args": {
+                  "video_id": {
+                    "field": "VideoCard.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            },
+            {
+              "field": "Watch.comments",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Comment",
+                "components": [
+                  {
+                    "field": "Comment.author",
+                    "type": "string",
+                    "role": "supporting",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Comment.text",
+                    "type": "richtext",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "importance": "optional",
+              "pages": {
+                "loader": "comments_page"
+              },
+              "affordances": [
+                "read",
+                "scroll"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Subscribe",
+              "target": {
+                "handler": "subscribe"
+              },
+              "affordance": "press",
+              "hidden": {
+                "field": "Channel.subscribed"
+              }
+            },
+            {
+              "label": "Subscribed",
+              "target": {
+                "handler": "unsubscribe"
+              },
+              "affordance": "press",
+              "visible": {
+                "field": "Channel.subscribed"
+              }
+            }
+          ],
+          "under": "home"
+        }
+      ]
+    },
+    {
+      "id": "channel",
+      "frames": [
+        {
+          "purpose": "Visit a channel",
+          "address": "/channel/{channel_id}",
+          "public": true,
+          "shows": [
+            {
+              "record": "ChannelPage"
+            }
+          ],
+          "enter": {
+            "loader": "load_channel"
+          },
+          "components": [
+            {
+              "field": "ChannelPage.name",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "ChannelPage.videos",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "VideoCard",
+                "components": [
+                  {
+                    "field": "VideoCard.thumbnail",
+                    "type": "image",
+                    "role": "primary",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "VideoCard.title",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "VideoCard.channel",
+                    "type": "string",
+                    "role": "supporting",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "watch",
+                "args": {
+                  "video_id": {
+                    "field": "VideoCard.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "under": "home"
+        }
+      ]
+    }
+  ],
+  "records": {
+    "Channel": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "subscribed": {
+          "default": false,
+          "title": "Subscribed",
+          "type": "boolean",
+          "x-vt": {
+            "type": "boolean",
+            "state": true
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Channel",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "ChannelPage": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "videos": {
+          "items": {
+            "$ref": "#/records/VideoCard"
+          },
+          "title": "Videos",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "VideoCard"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "watch",
+              "args": {
+                "video_id": {
+                  "field": "VideoCard.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "name",
+        "videos"
+      ],
+      "title": "ChannelPage",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Comment": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "title": "Author",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "supporting"
+          }
+        },
+        "text": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext"
+          }
+        }
+      },
+      "required": [
+        "author",
+        "text"
+      ],
+      "title": "Comment",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Found": {
+      "additionalProperties": false,
+      "properties": {
+        "videos": {
+          "default": [],
+          "items": {
+            "$ref": "#/records/VideoCard"
+          },
+          "title": "Videos",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "VideoCard"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "watch",
+              "args": {
+                "video_id": {
+                  "field": "VideoCard.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "title": "Found",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Home": {
+      "additionalProperties": false,
+      "properties": {
+        "shelves": {
+          "items": {
+            "$ref": "#/records/Shelf"
+          },
+          "title": "Shelves",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Shelf"
+            }
+          }
+        }
+      },
+      "required": [
+        "shelves"
+      ],
+      "title": "Home",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Shelf": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "videos": {
+          "items": {
+            "$ref": "#/records/VideoCard"
+          },
+          "title": "Videos",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "VideoCard"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "watch",
+              "args": {
+                "video_id": {
+                  "field": "VideoCard.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "title",
+        "videos"
+      ],
+      "title": "Shelf",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Subscriptions": {
+      "additionalProperties": false,
+      "properties": {
+        "channels": {
+          "items": {
+            "$ref": "#/records/Channel"
+          },
+          "title": "Channels",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Channel"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "channel",
+              "args": {
+                "channel_id": {
+                  "field": "Channel.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "channels"
+      ],
+      "title": "Subscriptions",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "VideoCard": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "thumbnail": {
+          "$ref": "#/types/vt.Image",
+          "x-vt": {
+            "type": "image",
+            "role": "primary"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "channel": {
+          "title": "Channel",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "supporting"
+          }
+        }
+      },
+      "required": [
+        "thumbnail",
+        "title",
+        "channel"
+      ],
+      "title": "VideoCard",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "VideoSearch": {
+      "additionalProperties": false,
+      "properties": {
+        "q": {
+          "title": "Q",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "kind": "search",
+            "commit": "change",
+            "label": "Search videos"
+          }
+        }
+      },
+      "required": [
+        "q"
+      ],
+      "title": "VideoSearch",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Watch": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "player": {
+          "$ref": "#/types/vt.Video",
+          "x-vt": {
+            "type": "video",
+            "role": "primary",
+            "importance": "required"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "channel": {
+          "$ref": "#/records/Channel",
+          "x-vt": {
+            "type": "record",
+            "record": "Channel"
+          }
+        },
+        "description": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext",
+            "importance": "optional"
+          }
+        },
+        "up_next": {
+          "items": {
+            "$ref": "#/records/VideoCard"
+          },
+          "title": "Up Next",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "VideoCard"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "watch",
+              "args": {
+                "video_id": {
+                  "field": "VideoCard.id"
+                }
+              }
+            }
+          }
+        },
+        "comments": {
+          "items": {
+            "$ref": "#/records/Comment"
+          },
+          "title": "Comments",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Comment"
+            },
+            "importance": "optional",
+            "pages": {
+              "loader": "comments_page"
+            }
+          }
+        }
+      },
+      "required": [
+        "player",
+        "title",
+        "channel",
+        "description",
+        "up_next",
+        "comments"
+      ],
+      "title": "Watch",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    }
+  },
+  "types": {
+    "vt.CodeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "code",
+          "default": "code",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "CodeBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Image": {
+      "additionalProperties": false,
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "alt": {
+          "title": "Alt",
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        }
+      },
+      "required": [
+        "src",
+        "alt"
+      ],
+      "title": "Image",
+      "type": "object",
+      "x-vt": {
+        "type": "image"
+      }
+    },
+    "vt.ListBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list",
+          "default": "list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ordered": {
+          "default": false,
+          "title": "Ordered",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "items": {
+              "$ref": "#/types/vt.Span"
+            },
+            "type": "array"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ListBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Paragraph": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/vt.Span"
+          },
+          "title": "Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "spans"
+      ],
+      "title": "Paragraph",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.RichText": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "code": "#/types/vt.CodeBlock",
+                "list": "#/types/vt.ListBlock",
+                "paragraph": "#/types/vt.Paragraph"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/types/vt.Paragraph"
+              },
+              {
+                "$ref": "#/types/vt.ListBlock"
+              },
+              {
+                "$ref": "#/types/vt.CodeBlock"
+              }
+            ]
+          },
+          "title": "Blocks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "blocks"
+      ],
+      "title": "RichText",
+      "type": "object",
+      "x-vt": {
+        "type": "richtext"
+      }
+    },
+    "vt.Span": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "emphasis": {
+          "anyOf": [
+            {
+              "enum": [
+                "em",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emphasis"
+        },
+        "code": {
+          "default": false,
+          "title": "Code",
+          "type": "boolean"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "mention": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mention"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Span",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Video": {
+      "additionalProperties": false,
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "poster": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Poster"
+        },
+        "captions": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Captions"
+        }
+      },
+      "required": [
+        "src"
+      ],
+      "title": "Video",
+      "type": "object",
+      "x-vt": {
+        "type": "video"
+      }
+    }
+  },
+  "handlers": {
+    "play_next": {
+      "params": [
+        {
+          "name": "w",
+          "type": "record",
+          "record": "Watch",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "watch",
+          "args": [
+            "video_id"
+          ]
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "search_videos": {
+      "params": [
+        {
+          "name": "s",
+          "type": "record",
+          "record": "VideoSearch",
+          "required": true
+        },
+        {
+          "name": "found",
+          "type": "record",
+          "record": "Found",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "subscribe": {
+      "params": [
+        {
+          "name": "w",
+          "type": "record",
+          "record": "Watch",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "unsubscribe": {
+      "params": [
+        {
+          "name": "w",
+          "type": "record",
+          "record": "Watch",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    }
+  },
+  "loaders": {
+    "comments_page": {
+      "params": [
+        {
+          "name": "w",
+          "type": "record",
+          "record": "Watch",
+          "required": true
+        },
+        {
+          "name": "cursor",
+          "type": "string",
+          "nullable": true,
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "page",
+          "item": {
+            "type": "record",
+            "record": "Comment"
+          }
+        }
+      ]
+    },
+    "load_channel": {
+      "params": [
+        {
+          "name": "channel_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "ChannelPage"
+        }
+      ]
+    },
+    "load_home": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Home"
+        }
+      ]
+    },
+    "load_subscriptions": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Subscriptions"
+        }
+      ]
+    },
+    "load_watch": {
+      "params": [
+        {
+          "name": "video_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Watch"
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "from": "home",
+      "to": "watch",
+      "type": "jump",
+      "tape": "watch",
+      "via": {
+        "select": "Shelf.videos"
+      }
+    },
+    {
+      "from": "search",
+      "to": "watch",
+      "type": "jump",
+      "tape": "watch",
+      "via": {
+        "select": "Found.videos"
+      }
+    },
+    {
+      "from": "subscriptions",
+      "to": "channel",
+      "type": "jump",
+      "tape": "channel",
+      "via": {
+        "select": "Subscriptions.channels"
+      }
+    },
+    {
+      "from": "watch",
+      "to": "watch",
+      "type": "jump",
+      "tape": "watch",
+      "via": {
+        "ended": "Watch.player",
+        "handler": "play_next"
+      }
+    },
+    {
+      "from": "watch",
+      "to": "channel",
+      "type": "jump",
+      "tape": "channel",
+      "via": {
+        "press": "Channel.name"
+      }
+    },
+    {
+      "from": "watch",
+      "to": "watch",
+      "type": "jump",
+      "tape": "watch",
+      "via": {
+        "select": "Watch.up_next"
+      }
+    },
+    {
+      "from": "channel",
+      "to": "watch",
+      "type": "jump",
+      "tape": "watch",
+      "via": {
+        "select": "ChannelPage.videos"
+      }
+    }
+  ]
+}

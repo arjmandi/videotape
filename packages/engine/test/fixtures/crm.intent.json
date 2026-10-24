@@ -1,0 +1,1713 @@
+{
+  "format": "videotape.intent/2",
+  "app": "pipeline",
+  "entry": "deals",
+  "world": "quiet-office",
+  "keep_journeys": 2592000,
+  "hub": [
+    {
+      "tape": "deals",
+      "label": "Deals",
+      "symbol": "board"
+    },
+    {
+      "tape": "contacts",
+      "label": "Contacts",
+      "symbol": "person"
+    }
+  ],
+  "tapes": [
+    {
+      "id": "deals",
+      "frames": [
+        {
+          "purpose": "See every open deal by stage and move them on",
+          "shows": [
+            {
+              "record": "Pipeline"
+            }
+          ],
+          "enter": {
+            "loader": "load_pipeline"
+          },
+          "components": [
+            {
+              "field": "Pipeline.deals",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Deal",
+                "components": [
+                  {
+                    "field": "Deal.name",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Deal.company",
+                    "type": "record",
+                    "record": "Company",
+                    "pick": "pick_company",
+                    "affordances": [],
+                    "components": [
+                      {
+                        "field": "Company.name",
+                        "type": "string",
+                        "role": "heading",
+                        "affordances": [
+                          "read"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "field": "Deal.amount",
+                    "type": "money",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Deal.stage",
+                    "type": "choice",
+                    "enum": "Stage",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Deal.close",
+                    "type": "date",
+                    "nullable": true,
+                    "group": "dates",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Deal.owner",
+                    "type": "record",
+                    "record": "User",
+                    "group": "people",
+                    "options": {
+                      "loader": "team"
+                    },
+                    "affordances": [],
+                    "components": [
+                      {
+                        "field": "User.name",
+                        "type": "string",
+                        "affordances": [
+                          "read"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "field": "Deal.notes",
+                    "type": "text",
+                    "lines": [
+                      3,
+                      12
+                    ],
+                    "nullable": true,
+                    "importance": "optional",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "deal",
+                "args": {
+                  "deal_id": {
+                    "field": "Deal.id"
+                  }
+                }
+              },
+              "group_by": {
+                "field": "Deal.stage"
+              },
+              "affordances": [
+                "read",
+                "press",
+                "move",
+                "scroll"
+              ]
+            },
+            {
+              "field": "Pipeline.forecast",
+              "from": "shows",
+              "type": "series",
+              "importance": "optional",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "states": [
+            "Pipeline.can_export"
+          ],
+          "actions": [
+            {
+              "label": "Move to stage",
+              "target": {
+                "handler": "move_deal"
+              },
+              "affordance": "move",
+              "on": "Deal",
+              "to": "Stage",
+              "gesture": "drag"
+            },
+            {
+              "label": "New deal",
+              "target": {
+                "type": "jump",
+                "tape": "new_deal"
+              },
+              "affordance": "press",
+              "key": "n",
+              "role": "primary"
+            },
+            {
+              "label": "Export CSV",
+              "target": {
+                "handler": "export_csv"
+              },
+              "affordance": "press",
+              "importance": "optional",
+              "visible": {
+                "field": "Pipeline.can_export"
+              }
+            }
+          ],
+          "root": "sometimes"
+        }
+      ]
+    },
+    {
+      "id": "deal",
+      "frames": [
+        {
+          "purpose": "See one deal",
+          "address": "/deals/{deal_id}",
+          "shows": [
+            {
+              "record": "Deal"
+            }
+          ],
+          "enter": {
+            "loader": "load_deal"
+          },
+          "components": [
+            {
+              "field": "Deal.name",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Deal.company",
+              "from": "shows",
+              "type": "record",
+              "record": "Company",
+              "pick": "pick_company",
+              "affordances": [],
+              "components": [
+                {
+                  "field": "Company.name",
+                  "type": "string",
+                  "role": "heading",
+                  "affordances": [
+                    "read"
+                  ]
+                }
+              ]
+            },
+            {
+              "field": "Deal.amount",
+              "from": "shows",
+              "type": "money",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Deal.stage",
+              "from": "shows",
+              "type": "choice",
+              "enum": "Stage",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Deal.close",
+              "from": "shows",
+              "type": "date",
+              "nullable": true,
+              "group": "dates",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Deal.owner",
+              "from": "shows",
+              "type": "record",
+              "record": "User",
+              "group": "people",
+              "options": {
+                "loader": "team"
+              },
+              "affordances": [],
+              "components": [
+                {
+                  "field": "User.name",
+                  "type": "string",
+                  "affordances": [
+                    "read"
+                  ]
+                }
+              ]
+            },
+            {
+              "field": "Deal.notes",
+              "from": "shows",
+              "type": "text",
+              "lines": [
+                3,
+                12
+              ],
+              "nullable": true,
+              "importance": "optional",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Delete",
+              "target": {
+                "handler": "ask_to_delete"
+              },
+              "affordance": "press"
+            }
+          ],
+          "under": "deals"
+        }
+      ]
+    },
+    {
+      "id": "new_deal",
+      "frames": [
+        {
+          "purpose": "Create a deal",
+          "edit": {
+            "record": "Deal"
+          },
+          "submit": {
+            "label": "Create a deal",
+            "handler": "create_deal"
+          },
+          "components": [
+            {
+              "field": "Deal.name",
+              "from": "edit",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Deal.company",
+              "from": "edit",
+              "type": "record",
+              "record": "Company",
+              "pick": "pick_company",
+              "affordances": [
+                "press"
+              ],
+              "components": [
+                {
+                  "field": "Company.name",
+                  "type": "string",
+                  "role": "heading",
+                  "affordances": [
+                    "read"
+                  ]
+                }
+              ]
+            },
+            {
+              "field": "Deal.amount",
+              "from": "edit",
+              "type": "money",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Deal.stage",
+              "from": "edit",
+              "type": "choice",
+              "enum": "Stage",
+              "affordances": [
+                "choose"
+              ]
+            },
+            {
+              "field": "Deal.close",
+              "from": "edit",
+              "type": "date",
+              "nullable": true,
+              "group": "dates",
+              "affordances": [
+                "choose"
+              ]
+            },
+            {
+              "field": "Deal.owner",
+              "from": "edit",
+              "type": "record",
+              "record": "User",
+              "group": "people",
+              "options": {
+                "loader": "team"
+              },
+              "affordances": [
+                "choose"
+              ],
+              "components": [
+                {
+                  "field": "User.name",
+                  "type": "string",
+                  "affordances": [
+                    "read"
+                  ]
+                }
+              ]
+            },
+            {
+              "field": "Deal.notes",
+              "from": "edit",
+              "type": "text",
+              "lines": [
+                3,
+                12
+              ],
+              "nullable": true,
+              "importance": "optional",
+              "affordances": [
+                "write"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pick_company",
+      "frames": [
+        {
+          "purpose": "Pick a company",
+          "shows": [
+            {
+              "record": "Companies"
+            }
+          ],
+          "edit": {
+            "record": "Search"
+          },
+          "enter": {
+            "loader": "load_companies"
+          },
+          "components": [
+            {
+              "field": "Companies.companies",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Company",
+                "components": [
+                  {
+                    "field": "Company.name",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "affordances": [
+                "read",
+                "scroll"
+              ]
+            },
+            {
+              "field": "Search.q",
+              "from": "edit",
+              "type": "string",
+              "importance": "optional",
+              "kind": "search",
+              "commit": "change",
+              "affordances": [
+                "write"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Choose",
+              "target": {
+                "type": "done",
+                "result": {
+                  "item": "Company"
+                }
+              },
+              "affordance": "press",
+              "on": "Company"
+            }
+          ],
+          "on_change": [
+            {
+              "field": "Search.q",
+              "handler": "search_companies"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "confirm_delete",
+      "frames": [
+        {
+          "purpose": "Confirm that a deal goes",
+          "shows": [
+            {
+              "record": "Doomed"
+            }
+          ],
+          "enter": {
+            "loader": "load_doomed"
+          },
+          "components": [
+            {
+              "field": "Doomed.name",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Delete",
+              "target": {
+                "type": "done",
+                "result": true
+              },
+              "affordance": "press",
+              "role": "primary"
+            },
+            {
+              "label": "Keep",
+              "target": {
+                "type": "done",
+                "result": false
+              },
+              "affordance": "press"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "contacts",
+      "frames": [
+        {
+          "purpose": "Find a contact",
+          "shows": [
+            {
+              "record": "Contacts"
+            }
+          ],
+          "enter": {
+            "loader": "load_contacts"
+          },
+          "components": [
+            {
+              "field": "Contacts.contacts",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Contact",
+                "components": [
+                  {
+                    "field": "Contact.name",
+                    "type": "string",
+                    "role": "heading",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Contact.company",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Contact.email",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "contact",
+                "args": {
+                  "contact_id": {
+                    "field": "Contact.id"
+                  }
+                }
+              },
+              "surface": true,
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "contact",
+      "frames": [
+        {
+          "purpose": "Review a contact's history",
+          "address": "/contacts/{contact_id}",
+          "shows": [
+            {
+              "record": "ContactPage"
+            }
+          ],
+          "enter": {
+            "loader": "load_contact"
+          },
+          "components": [
+            {
+              "field": "ContactPage.contact",
+              "from": "shows",
+              "type": "record",
+              "record": "Contact",
+              "affordances": [],
+              "components": [
+                {
+                  "field": "Contact.name",
+                  "type": "string",
+                  "role": "heading",
+                  "affordances": [
+                    "read"
+                  ]
+                },
+                {
+                  "field": "Contact.company",
+                  "type": "string",
+                  "affordances": [
+                    "read"
+                  ]
+                },
+                {
+                  "field": "Contact.email",
+                  "type": "string",
+                  "affordances": [
+                    "read"
+                  ]
+                }
+              ]
+            },
+            {
+              "field": "ContactPage.history",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Touch",
+                "components": [
+                  {
+                    "field": "Touch.when",
+                    "type": "date",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Touch.what",
+                    "type": "richtext",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "affordances": [
+                "read",
+                "scroll"
+              ]
+            }
+          ],
+          "under": "contacts"
+        }
+      ]
+    }
+  ],
+  "records": {
+    "Companies": {
+      "additionalProperties": false,
+      "properties": {
+        "companies": {
+          "items": {
+            "$ref": "#/records/Company"
+          },
+          "title": "Companies",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Company"
+            }
+          }
+        }
+      },
+      "required": [
+        "companies"
+      ],
+      "title": "Companies",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Company": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Company",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Contact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "company": {
+          "title": "Company",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "email": {
+          "title": "Email",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "company",
+        "email"
+      ],
+      "title": "Contact",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "ContactPage": {
+      "additionalProperties": false,
+      "properties": {
+        "contact": {
+          "$ref": "#/records/Contact",
+          "x-vt": {
+            "type": "record",
+            "record": "Contact"
+          }
+        },
+        "history": {
+          "items": {
+            "$ref": "#/records/Touch"
+          },
+          "title": "History",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Touch"
+            }
+          }
+        }
+      },
+      "required": [
+        "contact",
+        "history"
+      ],
+      "title": "ContactPage",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Contacts": {
+      "additionalProperties": false,
+      "properties": {
+        "contacts": {
+          "items": {
+            "$ref": "#/records/Contact"
+          },
+          "title": "Contacts",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Contact"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "contact",
+              "args": {
+                "contact_id": {
+                  "field": "Contact.id"
+                }
+              }
+            },
+            "surface": true
+          }
+        }
+      },
+      "required": [
+        "contacts"
+      ],
+      "title": "Contacts",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Deal": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "company": {
+          "$ref": "#/records/Company",
+          "x-vt": {
+            "type": "record",
+            "record": "Company",
+            "pick": "pick_company"
+          }
+        },
+        "amount": {
+          "additionalProperties": false,
+          "properties": {
+            "amount": {
+              "pattern": "^-?\\d+(\\.\\d+)?$",
+              "type": "string"
+            },
+            "currency": {
+              "pattern": "^[A-Z]{3}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "amount",
+            "currency"
+          ],
+          "title": "Amount",
+          "type": "object",
+          "x-vt": {
+            "type": "money",
+            "ge": 0
+          }
+        },
+        "stage": {
+          "$ref": "#/records/Stage",
+          "x-vt": {
+            "type": "choice",
+            "enum": "Stage"
+          }
+        },
+        "close": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Close",
+          "x-vt": {
+            "type": "date",
+            "nullable": true,
+            "group": "dates"
+          }
+        },
+        "owner": {
+          "$ref": "#/records/User",
+          "x-vt": {
+            "type": "record",
+            "record": "User",
+            "group": "people",
+            "options": {
+              "loader": "team"
+            }
+          }
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string",
+              "x-vt": {
+                "type": "text"
+              }
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes",
+          "x-vt": {
+            "type": "text",
+            "lines": [
+              3,
+              12
+            ],
+            "nullable": true,
+            "importance": "optional"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "company",
+        "amount",
+        "stage",
+        "owner"
+      ],
+      "title": "Deal",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Doomed": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Doomed",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Pipeline": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "deals": {
+          "items": {
+            "$ref": "#/records/Deal"
+          },
+          "title": "Deals",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Deal"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "deal",
+              "args": {
+                "deal_id": {
+                  "field": "Deal.id"
+                }
+              }
+            },
+            "group_by": {
+              "field": "Deal.stage"
+            }
+          }
+        },
+        "forecast": {
+          "$ref": "#/types/vt.Series",
+          "x-vt": {
+            "type": "series",
+            "importance": "optional"
+          }
+        },
+        "can_export": {
+          "default": false,
+          "title": "Can Export",
+          "type": "boolean",
+          "x-vt": {
+            "type": "boolean",
+            "state": true
+          }
+        }
+      },
+      "required": [
+        "deals",
+        "forecast"
+      ],
+      "title": "Pipeline",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Search": {
+      "additionalProperties": false,
+      "properties": {
+        "q": {
+          "title": "Q",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "importance": "optional",
+            "kind": "search",
+            "commit": "change"
+          }
+        }
+      },
+      "required": [
+        "q"
+      ],
+      "title": "Search",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Stage": {
+      "enum": [
+        "lead",
+        "qualified",
+        "proposal",
+        "won"
+      ],
+      "title": "Stage",
+      "type": "string"
+    },
+    "Touch": {
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "format": "date",
+          "title": "When",
+          "type": "string",
+          "x-vt": {
+            "type": "date"
+          }
+        },
+        "what": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext"
+          }
+        }
+      },
+      "required": [
+        "when",
+        "what"
+      ],
+      "title": "Touch",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "User": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "User",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    }
+  },
+  "types": {
+    "vt.CodeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "code",
+          "default": "code",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "CodeBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.ListBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list",
+          "default": "list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ordered": {
+          "default": false,
+          "title": "Ordered",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "items": {
+              "$ref": "#/types/vt.Span"
+            },
+            "type": "array"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ListBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Paragraph": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/vt.Span"
+          },
+          "title": "Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "spans"
+      ],
+      "title": "Paragraph",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.RichText": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "code": "#/types/vt.CodeBlock",
+                "list": "#/types/vt.ListBlock",
+                "paragraph": "#/types/vt.Paragraph"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/types/vt.Paragraph"
+              },
+              {
+                "$ref": "#/types/vt.ListBlock"
+              },
+              {
+                "$ref": "#/types/vt.CodeBlock"
+              }
+            ]
+          },
+          "title": "Blocks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "blocks"
+      ],
+      "title": "RichText",
+      "type": "object",
+      "x-vt": {
+        "type": "richtext"
+      }
+    },
+    "vt.Series": {
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "x": {
+          "title": "X",
+          "type": "string"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          ],
+          "title": "Y"
+        }
+      },
+      "required": [
+        "rows",
+        "x",
+        "y"
+      ],
+      "title": "Series",
+      "type": "object",
+      "x-vt": {
+        "type": "series"
+      }
+    },
+    "vt.Span": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "emphasis": {
+          "anyOf": [
+            {
+              "enum": [
+                "em",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emphasis"
+        },
+        "code": {
+          "default": false,
+          "title": "Code",
+          "type": "boolean"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "mention": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mention"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Span",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    }
+  },
+  "handlers": {
+    "ask_to_delete": {
+      "params": [
+        {
+          "name": "d",
+          "type": "record",
+          "record": "Deal",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "call",
+          "tape": "confirm_delete",
+          "args": [
+            "deal_id"
+          ],
+          "then": {
+            "handler": "delete_confirmed"
+          }
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "create_deal": {
+      "params": [
+        {
+          "name": "d",
+          "type": "record",
+          "record": "Deal",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "deals"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "delete_confirmed": {
+      "params": [
+        {
+          "name": "d",
+          "type": "record",
+          "record": "Deal",
+          "required": true
+        },
+        {
+          "name": "result",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        },
+        {
+          "type": "jump",
+          "tape": "deals"
+        }
+      ]
+    },
+    "export_csv": {
+      "params": [
+        {
+          "name": "p",
+          "type": "record",
+          "record": "Pipeline",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "download"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "move_deal": {
+      "params": [
+        {
+          "name": "deal",
+          "type": "record",
+          "record": "Deal",
+          "required": true
+        },
+        {
+          "name": "to",
+          "type": "choice",
+          "enum": "Stage",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "search_companies": {
+      "params": [
+        {
+          "name": "s",
+          "type": "record",
+          "record": "Search",
+          "required": true
+        },
+        {
+          "name": "c",
+          "type": "record",
+          "record": "Companies",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    }
+  },
+  "loaders": {
+    "load_companies": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Companies"
+        }
+      ]
+    },
+    "load_contact": {
+      "params": [
+        {
+          "name": "contact_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "ContactPage"
+        }
+      ]
+    },
+    "load_contacts": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Contacts"
+        }
+      ]
+    },
+    "load_deal": {
+      "params": [
+        {
+          "name": "deal_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Deal"
+        }
+      ]
+    },
+    "load_doomed": {
+      "params": [
+        {
+          "name": "deal_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Doomed"
+        }
+      ]
+    },
+    "load_pipeline": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Pipeline"
+        }
+      ]
+    },
+    "team": {
+      "params": [],
+      "returns": [
+        {
+          "type": "collection",
+          "item": {
+            "type": "record",
+            "record": "User"
+          }
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "from": "deals",
+      "to": "new_deal",
+      "type": "jump",
+      "tape": "new_deal",
+      "via": {
+        "action": "New deal"
+      }
+    },
+    {
+      "from": "deals",
+      "to": "deal",
+      "type": "jump",
+      "tape": "deal",
+      "via": {
+        "select": "Pipeline.deals"
+      }
+    },
+    {
+      "from": "deal",
+      "to": "confirm_delete",
+      "type": "call",
+      "tape": "confirm_delete",
+      "via": {
+        "action": "Delete",
+        "handler": "ask_to_delete"
+      }
+    },
+    {
+      "from": "deal",
+      "to": "deals",
+      "type": "jump",
+      "tape": "deals",
+      "via": {
+        "then": "confirm_delete",
+        "handler": "delete_confirmed"
+      }
+    },
+    {
+      "from": "new_deal",
+      "to": "deals",
+      "type": "jump",
+      "tape": "deals",
+      "via": {
+        "submit": "Create a deal",
+        "handler": "create_deal"
+      }
+    },
+    {
+      "from": "new_deal",
+      "to": "pick_company",
+      "type": "call",
+      "tape": "pick_company",
+      "via": {
+        "pick": "Deal.company"
+      }
+    },
+    {
+      "from": "pick_company",
+      "type": "done",
+      "via": {
+        "action": "Choose",
+        "on": "Company"
+      }
+    },
+    {
+      "from": "confirm_delete",
+      "type": "done",
+      "via": {
+        "action": "Delete"
+      }
+    },
+    {
+      "from": "confirm_delete",
+      "type": "done",
+      "via": {
+        "action": "Keep"
+      }
+    },
+    {
+      "from": "contacts",
+      "to": "contact",
+      "type": "jump",
+      "tape": "contact",
+      "via": {
+        "select": "Contacts.contacts"
+      }
+    }
+  ]
+}

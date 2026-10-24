@@ -18,7 +18,7 @@ from enum import Enum
 from typing import Annotated, Any, ClassVar, Literal, Union, get_args, get_origin
 
 import pydantic
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic.errors import PydanticUndefinedAnnotation
 from pydantic.fields import FieldInfo
@@ -30,7 +30,7 @@ from .values import BUILTIN_TYPES, VT, Id, Phrase, Text
 ROLES = ("heading", "primary", "secondary", "navigation", "status", "supporting")
 IMPORTANCE = ("required", "normal", "optional")
 OPTION_NAMES = (
-    "role", "importance", "group", "order", "format", "lines", "kind", "commit", "options", "select",
+    "role", "importance", "group", "order", "format", "lines", "kind", "commit", "pause", "options", "select",
     "anchor", "min_items", "max_items", "group_by", "surface", "show", "visible", "hidden", "press", "label",
 )  # fmt: skip
 _CLOSED = {
@@ -44,6 +44,20 @@ _CLOSED = {
 class RecordError(TypeError):
     """A record that cannot be read: an undefined name in an annotation, two ids, or an option on a
     field of the wrong type."""
+
+
+def explain_invalid(record: type, error: ValidationError) -> None:
+    """Adds a note to a record's validation error when required fields are missing (Q67): a record a
+    handler creates must be valid; only its `vt.Id` may be missing until the app saves it."""
+    missing = [".".join(str(p) for p in e["loc"]) for e in error.errors() if e["type"] == "missing"]
+    if not missing:
+        return
+    name = missing[0].split(".")[-1]
+    error.add_note(
+        f"{record.__name__} was created without {', '.join(missing)}. A record must be valid when it is created; "
+        f"only its vt.Id may be missing until the app saves it. A value that does not exist yet is an optional "
+        f"field: `{name}: ... | None = None`."
+    )
 
 
 # ── field references ─────────────────────────────────────────────────────────
@@ -118,6 +132,11 @@ class FieldOptions:
                 raise TypeError(f"{key}= takes True or False")
         if "order" in self.values and not isinstance(self.values["order"], int):
             raise TypeError("order= takes an int")
+        if "pause" in self.values:
+            pause = self.values["pause"]
+            if isinstance(pause, bool) or not isinstance(pause, (int, float)) or pause <= 0:
+                raise TypeError("pause= takes the seconds of quiet before on_change runs, such as pause=0.5")
+            self.values["pause"] = float(pause)
         for key in ("visible", "hidden", "group_by"):
             if key in self.values and not isinstance(self.values[key], FieldRef):
                 raise TypeError(f"{key}= takes a field reference such as Post.liked, never an expression")
@@ -168,6 +187,7 @@ def Field(
     format: str | None = None,
     kind: str | None = None,
     commit: str | None = None,
+    pause: float | None = None,
     options: Any = None,
     select: Any = None,
     anchor: str | None = None,
@@ -192,7 +212,7 @@ def Field(
         raise TypeError("pages= is gone: register the loader after the record with @vt.pages(Record.field)")
     opts = FieldOptions(
         role=role, importance=importance, group=group, order=order, format=format, lines=lines, kind=kind,
-        commit=commit, options=options, select=select, anchor=anchor, min_items=min_items,
+        commit=commit, pause=pause, options=options, select=select, anchor=anchor, min_items=min_items,
         max_items=max_items, group_by=group_by, surface=surface, show=show, visible=visible, hidden=hidden,
         press=press, label=label,
     )  # fmt: skip
@@ -233,7 +253,7 @@ class Kind:
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {"type": self.type}
-        if self.type == "record":
+        if self.type in ("record", "draft"):
             out["record"] = self.target.__name__
         elif self.type == "choice":
             if self.target is not None:
@@ -293,6 +313,9 @@ def kind_of(annotation: Any, metadata: list[Any] | tuple[Any, ...] = ()) -> Kind
         if t in BUILTIN_TYPES:
             return Kind(BUILTIN_TYPES[t], target=t, nullable=nullable)
         if issubclass(t, Record):
+            drafted = t.__dict__.get("__vt_draft__")
+            if drafted is not None:
+                return Kind("draft", target=drafted, nullable=nullable)
             return Kind("record", target=t, nullable=nullable)
         if issubclass(t, Enum):
             return Kind("choice", target=t, nullable=nullable)
@@ -534,6 +557,10 @@ class RecordMeta(ModelMetaclass):
         return super().__getattr__(name)  # type: ignore[misc]
 
 
+_tracked: dict[int, tuple[Any, Any]] = {}
+"""Records the app protocol tracks (`videotape.tracking`): id(record) → (record, its owner)."""
+
+
 class Record(BaseModel, metaclass=RecordMeta):
     """A typed record: what a frame shows or edits, and what handlers receive (05 §6.1).
 
@@ -553,6 +580,19 @@ class Record(BaseModel, metaclass=RecordMeta):
                 "or make the field an Enum whose members are message keys"
             )
         return value
+
+    def __init__(self, /, **data: Any) -> None:
+        try:
+            super().__init__(**data)
+        except ValidationError as e:
+            explain_invalid(type(self), e)
+            raise
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        super().__setattr__(name, value)
+        entry = _tracked.get(id(self))
+        if entry is not None and entry[0] is self:
+            entry[1].field_set(self, name)
 
     def update(self, other: BaseModel | dict[str, Any] | None = None, /, **values: Any) -> Record:
         """Merges fields into this record: `msg.update(saved, pending=False)`."""
@@ -597,3 +637,73 @@ def pages(ref: FieldRef) -> Any:
         return loader
 
     return register
+
+
+# ── drafts (Q75) ─────────────────────────────────────────────────────────────
+
+_drafts: dict[type, type] = {}
+
+
+def draft_problems(record: type[Record], data: Any) -> dict[str, list[str]]:
+    """What keeps `data` from being a valid `record`, by field: what a draft reports, not enforces."""
+    try:
+        record.model_validate(data)
+    except ValidationError as e:
+        out: dict[str, list[str]] = {}
+        for err in e.errors():
+            field = str(err["loc"][0]) if err["loc"] else record.__name__
+            out.setdefault(field, []).append(err["msg"])
+        return out
+    return {}
+
+
+def draft_of(record: type[Record]) -> type[Record]:
+    """The draft of a record: the same fields, all optional and unconstrained, with the problems that
+    keep it from being valid reported on it (`draft.problems`) rather than enforced. A handler that
+    takes `vt.Draft[Deal]` gets the edited document unfinished; one that takes `Deal` waits until it
+    validates (Q75). Nested records keep their own rules."""
+    known = _drafts.get(record)
+    if known is not None:
+        return known
+    ensure_complete(record)
+    annotations: dict[str, Any] = {}
+    namespace: dict[str, Any] = {}
+    for name, info in record.model_fields.items():
+        annotations[name] = info.annotation | None
+        # A field keeps its own default; one without becomes empty (None) rather than required.
+        if info.default_factory is not None:
+            namespace[name] = pydantic.Field(default_factory=info.default_factory)
+        else:
+            namespace[name] = None if info.default is PydanticUndefined else info.default
+    namespace.update({
+        "__annotations__": annotations,
+        "__module__": record.__module__,
+        "__qualname__": f"Draft[{record.__name__}]",
+        "__vt_draft__": record,
+        "_problems": pydantic.PrivateAttr(default_factory=dict),
+        "problems": property(lambda self: dict(self._problems), doc="What keeps it from being valid, by field."),
+    })  # fmt: skip
+    cls = type(record)(f"Draft[{record.__name__}]", (record,), namespace)
+    _drafts[record] = cls
+    return cls
+
+
+def build_draft(record: type[Record], data: Any) -> Record:
+    """A draft of `record` from the engine's JSON, with its problems; values that do not fit their
+    type are kept as they are."""
+    cls = draft_of(record)
+    try:
+        draft = cls.model_validate(data)
+    except ValidationError:
+        draft = cls.model_construct(**data) if isinstance(data, dict) else cls()
+    draft._problems = draft_problems(record, data)
+    return draft
+
+
+class Draft:
+    """`vt.Draft[Deal]`: a handler parameter that receives the edited `Deal` unfinished (Q75)."""
+
+    def __class_getitem__(cls, record: Any) -> type[Record]:
+        if not (isinstance(record, type) and issubclass(record, Record)):
+            raise TypeError(f"vt.Draft[...] takes a record type, such as vt.Draft[Deal]; got {record!r}")
+        return draft_of(record)

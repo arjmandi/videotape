@@ -3,6 +3,7 @@
     videotape intent module:app     prints the app's intent JSON
     videotape check module:app      prints what check finds; exits 1 on errors
     videotape schema                prints the intent document's JSON Schema
+    videotape serve module:app --engine ws://...   serves the app to an engine (the app protocol)
 
 `module:app` names a module and the `vt.app(...)` in it (`app` when left out). The module is
 imported from the current directory, or from `--app-dir`.
@@ -55,6 +56,11 @@ def main(argv: list[str] | None = None) -> int:
         if name == "check":
             sub.add_argument("--json", action="store_true", help="print diagnostics as JSON")
     commands.add_parser("schema", help="print the intent document's JSON Schema")
+    sub = commands.add_parser("serve", help="serve the app to an engine over the app protocol")
+    sub.add_argument("target", metavar="module:app")
+    sub.add_argument("--app-dir", default=".", help="where to import the module from (default: .)")
+    sub.add_argument("--engine", required=True, help="the engine's app endpoint, such as ws://127.0.0.1:8787/app")
+    sub.add_argument("--once", action="store_true", help="exit when the connection ends instead of reconnecting")
     args = parser.parse_args(argv)
 
     if args.command == "schema":
@@ -67,6 +73,11 @@ def main(argv: list[str] | None = None) -> int:
     except UsageError as e:
         print(f"videotape: {e}", file=sys.stderr)
         return 2
+
+    if args.command == "serve":
+        from .serve import main as serve_main
+
+        return serve_main(app, args.engine, retry=not args.once)
 
     if args.command == "intent":
         try:

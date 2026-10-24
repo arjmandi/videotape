@@ -1,0 +1,1121 @@
+{
+  "format": "videotape.intent/2",
+  "app": "journeys",
+  "entry": "welcome",
+  "keep_journeys": 604800,
+  "hub": [
+    {
+      "tape": "home",
+      "label": "Home"
+    },
+    {
+      "tape": "inbox",
+      "label": "Inbox"
+    },
+    {
+      "tape": "account",
+      "label": "Account"
+    }
+  ],
+  "tapes": [
+    {
+      "id": "welcome",
+      "frames": [
+        {
+          "purpose": "Sign in",
+          "edit": {
+            "record": "Login"
+          },
+          "submit": {
+            "label": "Sign in",
+            "handler": "sign_in"
+          },
+          "components": [
+            {
+              "field": "Login.name",
+              "from": "edit",
+              "type": "string",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Login.password",
+              "from": "edit",
+              "type": "secret",
+              "affordances": [
+                "write"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Sign in here",
+              "target": {
+                "handler": "sign_in_here"
+              },
+              "affordance": "press"
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "home",
+      "frames": [
+        {
+          "purpose": "See home",
+          "shows": [
+            {
+              "record": "Home"
+            }
+          ],
+          "enter": {
+            "loader": "load_home"
+          },
+          "components": [
+            {
+              "field": "Home.greeting",
+              "from": "shows",
+              "type": "string",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Home.visits",
+              "from": "shows",
+              "type": "integer",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Plan something",
+              "target": {
+                "type": "jump",
+                "tape": "wizard",
+                "args": {
+                  "topic": "garden"
+                }
+              },
+              "affordance": "press",
+              "role": "primary"
+            },
+            {
+              "label": "Confirm",
+              "target": {
+                "handler": "ask"
+              },
+              "affordance": "press"
+            },
+            {
+              "label": "Wave",
+              "target": {
+                "handler": "wave"
+              },
+              "affordance": "press"
+            },
+            {
+              "label": "Wave too much",
+              "target": {
+                "handler": "overdo"
+              },
+              "affordance": "press"
+            },
+            {
+              "label": "Wave later",
+              "target": {
+                "handler": "wave_later"
+              },
+              "affordance": "press"
+            },
+            {
+              "label": "Export",
+              "target": {
+                "handler": "export"
+              },
+              "affordance": "press"
+            },
+            {
+              "label": "Help",
+              "target": {
+                "type": "open",
+                "url": "https://example.com/help"
+              },
+              "affordance": "press"
+            },
+            {
+              "label": "Copy greeting",
+              "target": {
+                "type": "copy",
+                "field": "Home.greeting"
+              },
+              "affordance": "press"
+            },
+            {
+              "label": "Write a note",
+              "target": {
+                "type": "jump",
+                "tape": "notes"
+              },
+              "affordance": "press"
+            }
+          ],
+          "root": "sometimes"
+        }
+      ]
+    },
+    {
+      "id": "wizard",
+      "frames": [
+        {
+          "id": "name",
+          "purpose": "Name the plan",
+          "edit": {
+            "record": "Plan"
+          },
+          "enter": {
+            "loader": "load_plan"
+          },
+          "submit": {
+            "label": "Name the plan",
+            "handler": "name_plan"
+          },
+          "components": [
+            {
+              "field": "Plan.title",
+              "from": "edit",
+              "type": "string",
+              "commit": "change",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Plan.steps",
+              "from": "edit",
+              "type": "integer",
+              "affordances": [
+                "adjust"
+              ]
+            }
+          ],
+          "on_change": [
+            {
+              "field": "Plan.title",
+              "handler": "save_plan"
+            }
+          ]
+        },
+        {
+          "id": "review",
+          "purpose": "Review the plan",
+          "shows": [
+            {
+              "record": "Summary"
+            }
+          ],
+          "enter": {
+            "loader": "load_summary"
+          },
+          "components": [
+            {
+              "field": "Summary.topic",
+              "from": "shows",
+              "type": "string",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Summary.text",
+              "from": "shows",
+              "type": "string",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Done",
+              "target": {
+                "type": "jump",
+                "tape": "home"
+              },
+              "affordance": "press",
+              "role": "primary"
+            }
+          ],
+          "back": false
+        }
+      ]
+    },
+    {
+      "id": "confirm",
+      "frames": [
+        {
+          "purpose": "Confirm",
+          "shows": [
+            {
+              "record": "Question"
+            }
+          ],
+          "components": [
+            {
+              "field": "Question.text",
+              "from": "shows",
+              "type": "string",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Yes",
+              "target": {
+                "type": "done",
+                "result": true
+              },
+              "affordance": "press",
+              "role": "primary"
+            },
+            {
+              "label": "No",
+              "target": {
+                "type": "done",
+                "result": false
+              },
+              "affordance": "press"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "inbox",
+      "frames": [
+        {
+          "purpose": "See the inbox",
+          "shows": [
+            {
+              "record": "Inbox"
+            }
+          ],
+          "enter": {
+            "loader": "load_inbox"
+          },
+          "components": [
+            {
+              "field": "Inbox.items",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Item",
+                "components": [
+                  {
+                    "field": "Item.title",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "item",
+                "args": {
+                  "item_id": {
+                    "field": "Item.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "item",
+      "frames": [
+        {
+          "purpose": "Read an item",
+          "address": "/items/{item_id}",
+          "shows": [
+            {
+              "record": "Item"
+            }
+          ],
+          "enter": {
+            "loader": "load_item"
+          },
+          "components": [
+            {
+              "field": "Item.title",
+              "from": "shows",
+              "type": "string",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "hub": false,
+          "under": "inbox"
+        }
+      ]
+    },
+    {
+      "id": "account",
+      "frames": [
+        {
+          "purpose": "Your account",
+          "components": [],
+          "actions": [
+            {
+              "label": "Sign out",
+              "target": {
+                "handler": "sign_out"
+              },
+              "affordance": "press"
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "notes",
+      "frames": [
+        {
+          "purpose": "Write a note",
+          "edit": {
+            "record": "Note"
+          },
+          "enter": {
+            "loader": "load_note"
+          },
+          "submit": {
+            "label": "Keep",
+            "handler": "keep_note"
+          },
+          "components": [
+            {
+              "field": "Note.title",
+              "from": "edit",
+              "type": "string",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Note.body",
+              "from": "edit",
+              "type": "text",
+              "lines": [
+                1,
+                6
+              ],
+              "commit": "change",
+              "affordances": [
+                "write"
+              ]
+            }
+          ],
+          "on_change": [
+            {
+              "field": "Note.body",
+              "handler": "save_note"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "records": {
+    "Home": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "greeting": {
+          "title": "Greeting",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "visits": {
+          "default": 0,
+          "title": "Visits",
+          "type": "integer",
+          "x-vt": {
+            "type": "integer"
+          }
+        }
+      },
+      "required": [
+        "greeting"
+      ],
+      "title": "Home",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Inbox": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "items": {
+          "items": {
+            "$ref": "#/records/Item"
+          },
+          "title": "Items",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Item"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "item",
+              "args": {
+                "item_id": {
+                  "field": "Item.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "Inbox",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Item": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "Item",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Login": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "password": {
+          "format": "password",
+          "title": "Password",
+          "type": "string",
+          "writeOnly": true,
+          "x-vt": {
+            "type": "secret"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "password"
+      ],
+      "title": "Login",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Note": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "body": {
+          "default": "",
+          "title": "Body",
+          "type": "string",
+          "x-vt": {
+            "type": "text",
+            "lines": [
+              1,
+              6
+            ],
+            "commit": "change"
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "Note",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Plan": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "default": "",
+          "maxLength": 20,
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "commit": "change"
+          }
+        },
+        "steps": {
+          "default": 1,
+          "maximum": 9,
+          "minimum": 1,
+          "title": "Steps",
+          "type": "integer",
+          "x-vt": {
+            "type": "integer"
+          }
+        }
+      },
+      "title": "Plan",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Question": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "default": "Are you sure?",
+          "title": "Text",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        }
+      },
+      "title": "Question",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Summary": {
+      "additionalProperties": false,
+      "properties": {
+        "topic": {
+          "title": "Topic",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "text": {
+          "title": "Text",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "topic",
+        "text"
+      ],
+      "title": "Summary",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    }
+  },
+  "types": {},
+  "handlers": {
+    "answered": {
+      "params": [
+        {
+          "name": "home",
+          "type": "record",
+          "record": "Home",
+          "required": true
+        },
+        {
+          "name": "result",
+          "type": "boolean",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "ask": {
+      "params": [],
+      "outcomes": [
+        {
+          "type": "call",
+          "tape": "confirm",
+          "then": {
+            "handler": "answered"
+          }
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "export": {
+      "params": [
+        {
+          "name": "home",
+          "type": "record",
+          "record": "Home",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "download"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "keep_note": {
+      "params": [
+        {
+          "name": "note",
+          "type": "record",
+          "record": "Note",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "home"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "name_plan": {
+      "params": [
+        {
+          "name": "plan",
+          "type": "record",
+          "record": "Plan",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "goto",
+          "frame": "review"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "overdo": {
+      "params": [
+        {
+          "name": "home",
+          "type": "record",
+          "record": "Home",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "save_note": {
+      "params": [
+        {
+          "name": "note",
+          "type": "draft",
+          "record": "Note",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "save_plan": {
+      "params": [
+        {
+          "name": "plan",
+          "type": "record",
+          "record": "Plan",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "sign_in": {
+      "params": [
+        {
+          "name": "login",
+          "type": "record",
+          "record": "Login",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "home",
+          "resets_history": true,
+          "signs_in": true
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "sign_in_here": {
+      "params": [
+        {
+          "name": "login",
+          "type": "record",
+          "record": "Login",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "home",
+          "resets_history": true,
+          "signs_in": true
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "sign_out": {
+      "params": [],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "welcome",
+          "resets_history": true
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "wave": {
+      "params": [
+        {
+          "name": "home",
+          "type": "record",
+          "record": "Home",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "wave_later": {
+      "params": [
+        {
+          "name": "home",
+          "type": "record",
+          "record": "Home",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    }
+  },
+  "loaders": {
+    "load_home": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Home"
+        }
+      ]
+    },
+    "load_inbox": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Inbox"
+        }
+      ]
+    },
+    "load_item": {
+      "params": [
+        {
+          "name": "item_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Item"
+        }
+      ]
+    },
+    "load_note": {
+      "params": [],
+      "returns": [
+        {
+          "type": "draft",
+          "record": "Note"
+        }
+      ]
+    },
+    "load_plan": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Plan"
+        }
+      ]
+    },
+    "load_summary": {
+      "params": [
+        {
+          "name": "topic",
+          "type": "string",
+          "required": true
+        },
+        {
+          "name": "plan",
+          "type": "record",
+          "record": "Plan",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Summary"
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "from": "welcome",
+      "to": "home",
+      "type": "jump",
+      "tape": "home",
+      "resets_history": true,
+      "signs_in": true,
+      "via": {
+        "submit": "Sign in",
+        "handler": "sign_in"
+      }
+    },
+    {
+      "from": "welcome",
+      "to": "home",
+      "type": "jump",
+      "tape": "home",
+      "resets_history": true,
+      "signs_in": true,
+      "via": {
+        "action": "Sign in here",
+        "handler": "sign_in_here"
+      }
+    },
+    {
+      "from": "home",
+      "to": "wizard/name",
+      "type": "jump",
+      "tape": "wizard",
+      "via": {
+        "action": "Plan something"
+      }
+    },
+    {
+      "from": "home",
+      "to": "confirm",
+      "type": "call",
+      "tape": "confirm",
+      "via": {
+        "action": "Confirm",
+        "handler": "ask"
+      }
+    },
+    {
+      "from": "home",
+      "to": "notes",
+      "type": "jump",
+      "tape": "notes",
+      "via": {
+        "action": "Write a note"
+      }
+    },
+    {
+      "from": "wizard/name",
+      "to": "wizard/review",
+      "type": "goto",
+      "frame": "review",
+      "via": {
+        "submit": "Name the plan",
+        "handler": "name_plan"
+      }
+    },
+    {
+      "from": "wizard/review",
+      "to": "home",
+      "type": "jump",
+      "tape": "home",
+      "via": {
+        "action": "Done"
+      }
+    },
+    {
+      "from": "confirm",
+      "type": "done",
+      "via": {
+        "action": "Yes"
+      }
+    },
+    {
+      "from": "confirm",
+      "type": "done",
+      "via": {
+        "action": "No"
+      }
+    },
+    {
+      "from": "inbox",
+      "to": "item",
+      "type": "jump",
+      "tape": "item",
+      "via": {
+        "select": "Inbox.items"
+      }
+    },
+    {
+      "from": "account",
+      "to": "welcome",
+      "type": "jump",
+      "tape": "welcome",
+      "resets_history": true,
+      "via": {
+        "action": "Sign out",
+        "handler": "sign_out"
+      }
+    },
+    {
+      "from": "notes",
+      "to": "home",
+      "type": "jump",
+      "tape": "home",
+      "via": {
+        "submit": "Keep",
+        "handler": "keep_note"
+      }
+    }
+  ]
+}

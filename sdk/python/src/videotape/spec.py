@@ -55,6 +55,8 @@ class LoaderRef(_Spec):
 class _Identity(_Spec):
     sign_in: Any = None
     sign_out: Literal[True] | None = None
+    resume: Literal[False] | None = None
+    """`resume=False` on a sign-in: land where the outcome points, not in a journey the user has (Q70)."""
 
 
 class Jump(_Identity):
@@ -155,6 +157,7 @@ class Component(_Spec):
     format: str | None = None
     kind: str | None = None
     commit: Literal["submit", "blur", "change"] | None = None
+    pause: float | None = Field(default=None, gt=0, description="With commit='change': seconds of quiet before on_change runs (Q74).")
     options: Any = None
     select: Target | None = None
     pages: LoaderRef | None = None
@@ -328,6 +331,7 @@ class Intent(_Spec):
     app: Name
     entry: str
     world: str | None = None
+    keep_journeys: int = Field(ge=0, description="How long a signed-in journey is kept, in seconds (Q69).")
     hub: list[Destination] | None = None
     tapes: list[Tape]
     records: dict[str, dict[str, Any]] = Field(

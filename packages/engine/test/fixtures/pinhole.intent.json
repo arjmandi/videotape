@@ -1,0 +1,1564 @@
+{
+  "format": "videotape.intent/2",
+  "app": "pinhole",
+  "entry": "feed",
+  "world": "darkroom",
+  "keep_journeys": 2592000,
+  "hub": [
+    {
+      "tape": "feed",
+      "label": "Feed",
+      "symbol": "house"
+    },
+    {
+      "tape": "explore",
+      "label": "Explore",
+      "symbol": "magnifier"
+    },
+    {
+      "tape": "activity",
+      "label": "Activity",
+      "symbol": "heart"
+    }
+  ],
+  "tapes": [
+    {
+      "id": "feed",
+      "frames": [
+        {
+          "purpose": "See what people I follow posted",
+          "shows": [
+            {
+              "record": "Feed"
+            }
+          ],
+          "enter": {
+            "loader": "load_feed"
+          },
+          "components": [
+            {
+              "field": "Feed.posts",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Post",
+                "components": [
+                  {
+                    "field": "Post.author",
+                    "type": "record",
+                    "record": "Author",
+                    "press": {
+                      "type": "jump",
+                      "tape": "profile",
+                      "args": {
+                        "user_id": {
+                          "field": "Author.id"
+                        }
+                      }
+                    },
+                    "affordances": [
+                      "press"
+                    ],
+                    "components": [
+                      {
+                        "field": "Author.name",
+                        "type": "string",
+                        "affordances": [
+                          "read"
+                        ]
+                      },
+                      {
+                        "field": "Author.avatar",
+                        "type": "image",
+                        "affordances": [
+                          "read"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "field": "Post.photo",
+                    "type": "image",
+                    "role": "primary",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Post.likes",
+                    "type": "integer",
+                    "format": "count",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Post.caption",
+                    "type": "richtext",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ],
+                "states": [
+                  "Post.liked"
+                ]
+              },
+              "pages": {
+                "loader": "feed_page"
+              },
+              "affordances": [
+                "read",
+                "scroll"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Like",
+              "target": {
+                "handler": "like"
+              },
+              "affordance": "press",
+              "on": "Post",
+              "gesture": "double-tap",
+              "hidden": {
+                "field": "Post.liked"
+              }
+            },
+            {
+              "label": "Liked",
+              "target": {
+                "handler": "unlike"
+              },
+              "affordance": "press",
+              "on": "Post",
+              "visible": {
+                "field": "Post.liked"
+              }
+            },
+            {
+              "label": "Comments",
+              "target": {
+                "type": "jump",
+                "tape": "post",
+                "args": {
+                  "post_id": {
+                    "field": "Post.id"
+                  }
+                }
+              },
+              "affordance": "press",
+              "on": "Post"
+            },
+            {
+              "label": "Stories",
+              "target": {
+                "type": "jump",
+                "tape": "stories"
+              },
+              "affordance": "press"
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "explore",
+      "frames": [
+        {
+          "purpose": "Discover posts",
+          "shows": [
+            {
+              "record": "Explore"
+            }
+          ],
+          "enter": {
+            "loader": "load_explore"
+          },
+          "components": [
+            {
+              "field": "Explore.posts",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Post",
+                "components": [
+                  {
+                    "field": "Post.author",
+                    "type": "record",
+                    "record": "Author",
+                    "press": {
+                      "type": "jump",
+                      "tape": "profile",
+                      "args": {
+                        "user_id": {
+                          "field": "Author.id"
+                        }
+                      }
+                    },
+                    "affordances": [
+                      "press"
+                    ],
+                    "components": [
+                      {
+                        "field": "Author.name",
+                        "type": "string",
+                        "affordances": [
+                          "read"
+                        ]
+                      },
+                      {
+                        "field": "Author.avatar",
+                        "type": "image",
+                        "affordances": [
+                          "read"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "field": "Post.photo",
+                    "type": "image",
+                    "role": "primary",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Post.likes",
+                    "type": "integer",
+                    "format": "count",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Post.caption",
+                    "type": "richtext",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ],
+                "states": [
+                  "Post.liked"
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "post",
+                "args": {
+                  "post_id": {
+                    "field": "Post.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "activity",
+      "frames": [
+        {
+          "purpose": "See who reacted",
+          "shows": [
+            {
+              "record": "Activity"
+            }
+          ],
+          "enter": {
+            "loader": "load_activity"
+          },
+          "components": [
+            {
+              "field": "Activity.reactions",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Reaction",
+                "components": [
+                  {
+                    "field": "Reaction.who",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Reaction.what",
+                    "type": "string",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "post",
+                "args": {
+                  "post_id": {
+                    "field": "Reaction.post_id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "root": "always"
+        }
+      ]
+    },
+    {
+      "id": "profile",
+      "frames": [
+        {
+          "purpose": "Look at someone",
+          "address": "/u/{user_id}",
+          "public": true,
+          "shows": [
+            {
+              "record": "Profile"
+            }
+          ],
+          "enter": {
+            "loader": "load_profile"
+          },
+          "components": [
+            {
+              "field": "Profile.name",
+              "from": "shows",
+              "type": "string",
+              "role": "heading",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Profile.avatar",
+              "from": "shows",
+              "type": "image",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Profile.posts",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Post",
+                "components": [
+                  {
+                    "field": "Post.author",
+                    "type": "record",
+                    "record": "Author",
+                    "press": {
+                      "type": "jump",
+                      "tape": "profile",
+                      "args": {
+                        "user_id": {
+                          "field": "Author.id"
+                        }
+                      }
+                    },
+                    "affordances": [
+                      "press"
+                    ],
+                    "components": [
+                      {
+                        "field": "Author.name",
+                        "type": "string",
+                        "affordances": [
+                          "read"
+                        ]
+                      },
+                      {
+                        "field": "Author.avatar",
+                        "type": "image",
+                        "affordances": [
+                          "read"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "field": "Post.photo",
+                    "type": "image",
+                    "role": "primary",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Post.likes",
+                    "type": "integer",
+                    "format": "count",
+                    "affordances": [
+                      "read"
+                    ]
+                  },
+                  {
+                    "field": "Post.caption",
+                    "type": "richtext",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ],
+                "states": [
+                  "Post.liked"
+                ]
+              },
+              "select": {
+                "type": "jump",
+                "tape": "post",
+                "args": {
+                  "post_id": {
+                    "field": "Post.id"
+                  }
+                }
+              },
+              "affordances": [
+                "read",
+                "press",
+                "scroll"
+              ]
+            }
+          ],
+          "under": "feed"
+        }
+      ]
+    },
+    {
+      "id": "stories",
+      "frames": [
+        {
+          "purpose": "Watch one story",
+          "shows": [
+            {
+              "record": "Story"
+            }
+          ],
+          "enter": {
+            "loader": "load_story"
+          },
+          "components": [
+            {
+              "field": "Story.picture",
+              "from": "shows",
+              "type": "image",
+              "role": "primary",
+              "affordances": [
+                "read"
+              ]
+            },
+            {
+              "field": "Story.who",
+              "from": "shows",
+              "type": "string",
+              "role": "supporting",
+              "affordances": [
+                "read"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "label": "Next",
+              "target": {
+                "handler": "next_story"
+              },
+              "affordance": "press",
+              "gesture": "tap-trailing"
+            },
+            {
+              "label": "Previous",
+              "target": {
+                "handler": "previous_story"
+              },
+              "affordance": "press",
+              "gesture": "tap-leading"
+            }
+          ],
+          "after": {
+            "seconds": 5,
+            "then": {
+              "handler": "next_story"
+            }
+          },
+          "hub": false
+        }
+      ]
+    },
+    {
+      "id": "post",
+      "frames": [
+        {
+          "purpose": "Read one post and what people said",
+          "address": "/p/{post_id}",
+          "public": true,
+          "shows": [
+            {
+              "record": "PostPage"
+            }
+          ],
+          "enter": {
+            "loader": "load_post"
+          },
+          "components": [
+            {
+              "field": "PostPage.post",
+              "from": "shows",
+              "type": "record",
+              "record": "Post",
+              "affordances": [],
+              "components": [
+                {
+                  "field": "Post.author",
+                  "type": "record",
+                  "record": "Author",
+                  "press": {
+                    "type": "jump",
+                    "tape": "profile",
+                    "args": {
+                      "user_id": {
+                        "field": "Author.id"
+                      }
+                    }
+                  },
+                  "affordances": [
+                    "press"
+                  ],
+                  "components": [
+                    {
+                      "field": "Author.name",
+                      "type": "string",
+                      "affordances": [
+                        "read"
+                      ]
+                    },
+                    {
+                      "field": "Author.avatar",
+                      "type": "image",
+                      "affordances": [
+                        "read"
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "field": "Post.photo",
+                  "type": "image",
+                  "role": "primary",
+                  "affordances": [
+                    "read"
+                  ]
+                },
+                {
+                  "field": "Post.likes",
+                  "type": "integer",
+                  "format": "count",
+                  "affordances": [
+                    "read"
+                  ]
+                },
+                {
+                  "field": "Post.caption",
+                  "type": "richtext",
+                  "affordances": [
+                    "read"
+                  ]
+                }
+              ],
+              "states": [
+                "Post.liked"
+              ]
+            },
+            {
+              "field": "PostPage.comments",
+              "from": "shows",
+              "type": "collection",
+              "item": {
+                "type": "record",
+                "record": "Comment",
+                "components": [
+                  {
+                    "field": "Comment.author",
+                    "type": "record",
+                    "record": "Author",
+                    "affordances": [],
+                    "components": [
+                      {
+                        "field": "Author.name",
+                        "type": "string",
+                        "affordances": [
+                          "read"
+                        ]
+                      },
+                      {
+                        "field": "Author.avatar",
+                        "type": "image",
+                        "affordances": [
+                          "read"
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "field": "Comment.text",
+                    "type": "richtext",
+                    "affordances": [
+                      "read"
+                    ]
+                  }
+                ]
+              },
+              "affordances": [
+                "read",
+                "scroll"
+              ]
+            }
+          ],
+          "under": "feed"
+        }
+      ]
+    }
+  ],
+  "records": {
+    "Activity": {
+      "additionalProperties": false,
+      "properties": {
+        "reactions": {
+          "items": {
+            "$ref": "#/records/Reaction"
+          },
+          "title": "Reactions",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Reaction"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "post",
+              "args": {
+                "post_id": {
+                  "field": "Reaction.post_id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "reactions"
+      ],
+      "title": "Activity",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Author": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "avatar": {
+          "$ref": "#/types/vt.Image",
+          "x-vt": {
+            "type": "image"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "avatar"
+      ],
+      "title": "Author",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Comment": {
+      "additionalProperties": false,
+      "properties": {
+        "author": {
+          "$ref": "#/records/Author",
+          "x-vt": {
+            "type": "record",
+            "record": "Author"
+          }
+        },
+        "text": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext"
+          }
+        }
+      },
+      "required": [
+        "author",
+        "text"
+      ],
+      "title": "Comment",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Explore": {
+      "additionalProperties": false,
+      "properties": {
+        "posts": {
+          "items": {
+            "$ref": "#/records/Post"
+          },
+          "title": "Posts",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Post"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "post",
+              "args": {
+                "post_id": {
+                  "field": "Post.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "posts"
+      ],
+      "title": "Explore",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Feed": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "posts": {
+          "items": {
+            "$ref": "#/records/Post"
+          },
+          "title": "Posts",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Post"
+            },
+            "pages": {
+              "loader": "feed_page"
+            }
+          }
+        }
+      },
+      "required": [
+        "posts"
+      ],
+      "title": "Feed",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "Post": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "default": null,
+          "title": "Id",
+          "type": "string",
+          "x-vt": {
+            "type": "id"
+          }
+        },
+        "author": {
+          "$ref": "#/records/Author",
+          "x-vt": {
+            "type": "record",
+            "record": "Author",
+            "press": {
+              "type": "jump",
+              "tape": "profile",
+              "args": {
+                "user_id": {
+                  "field": "Author.id"
+                }
+              }
+            }
+          }
+        },
+        "photo": {
+          "$ref": "#/types/vt.Image",
+          "x-vt": {
+            "type": "image",
+            "role": "primary"
+          }
+        },
+        "liked": {
+          "default": false,
+          "title": "Liked",
+          "type": "boolean",
+          "x-vt": {
+            "type": "boolean",
+            "state": true
+          }
+        },
+        "likes": {
+          "title": "Likes",
+          "type": "integer",
+          "x-vt": {
+            "type": "integer",
+            "format": "count"
+          }
+        },
+        "caption": {
+          "$ref": "#/types/vt.RichText",
+          "x-vt": {
+            "type": "richtext"
+          }
+        }
+      },
+      "required": [
+        "author",
+        "photo",
+        "likes",
+        "caption"
+      ],
+      "title": "Post",
+      "type": "object",
+      "x-vt": {
+        "type": "record",
+        "id": "id"
+      }
+    },
+    "PostPage": {
+      "additionalProperties": false,
+      "properties": {
+        "post": {
+          "$ref": "#/records/Post",
+          "x-vt": {
+            "type": "record",
+            "record": "Post"
+          }
+        },
+        "comments": {
+          "items": {
+            "$ref": "#/records/Comment"
+          },
+          "title": "Comments",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Comment"
+            }
+          }
+        }
+      },
+      "required": [
+        "post",
+        "comments"
+      ],
+      "title": "PostPage",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Profile": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "heading"
+          }
+        },
+        "avatar": {
+          "$ref": "#/types/vt.Image",
+          "x-vt": {
+            "type": "image"
+          }
+        },
+        "posts": {
+          "items": {
+            "$ref": "#/records/Post"
+          },
+          "title": "Posts",
+          "type": "array",
+          "x-vt": {
+            "type": "collection",
+            "item": {
+              "type": "record",
+              "record": "Post"
+            },
+            "select": {
+              "type": "jump",
+              "tape": "post",
+              "args": {
+                "post_id": {
+                  "field": "Post.id"
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "name",
+        "avatar",
+        "posts"
+      ],
+      "title": "Profile",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Reaction": {
+      "additionalProperties": false,
+      "properties": {
+        "who": {
+          "title": "Who",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "what": {
+          "title": "What",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "post_id": {
+          "title": "Post Id",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "show": false
+          }
+        }
+      },
+      "required": [
+        "who",
+        "what",
+        "post_id"
+      ],
+      "title": "Reaction",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Story": {
+      "additionalProperties": false,
+      "properties": {
+        "picture": {
+          "$ref": "#/types/vt.Image",
+          "x-vt": {
+            "type": "image",
+            "role": "primary"
+          }
+        },
+        "who": {
+          "title": "Who",
+          "type": "string",
+          "x-vt": {
+            "type": "string",
+            "role": "supporting"
+          }
+        }
+      },
+      "required": [
+        "picture",
+        "who"
+      ],
+      "title": "Story",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    }
+  },
+  "types": {
+    "vt.CodeBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "code",
+          "default": "code",
+          "title": "Kind",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "CodeBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Image": {
+      "additionalProperties": false,
+      "properties": {
+        "src": {
+          "title": "Src",
+          "type": "string"
+        },
+        "alt": {
+          "title": "Alt",
+          "type": "string"
+        },
+        "width": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Width"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        }
+      },
+      "required": [
+        "src",
+        "alt"
+      ],
+      "title": "Image",
+      "type": "object",
+      "x-vt": {
+        "type": "image"
+      }
+    },
+    "vt.ListBlock": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "list",
+          "default": "list",
+          "title": "Kind",
+          "type": "string"
+        },
+        "ordered": {
+          "default": false,
+          "title": "Ordered",
+          "type": "boolean"
+        },
+        "items": {
+          "items": {
+            "items": {
+              "$ref": "#/types/vt.Span"
+            },
+            "type": "array"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ListBlock",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.Paragraph": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "paragraph",
+          "default": "paragraph",
+          "title": "Kind",
+          "type": "string"
+        },
+        "spans": {
+          "items": {
+            "$ref": "#/types/vt.Span"
+          },
+          "title": "Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "spans"
+      ],
+      "title": "Paragraph",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    },
+    "vt.RichText": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "code": "#/types/vt.CodeBlock",
+                "list": "#/types/vt.ListBlock",
+                "paragraph": "#/types/vt.Paragraph"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/types/vt.Paragraph"
+              },
+              {
+                "$ref": "#/types/vt.ListBlock"
+              },
+              {
+                "$ref": "#/types/vt.CodeBlock"
+              }
+            ]
+          },
+          "title": "Blocks",
+          "type": "array"
+        }
+      },
+      "required": [
+        "blocks"
+      ],
+      "title": "RichText",
+      "type": "object",
+      "x-vt": {
+        "type": "richtext"
+      }
+    },
+    "vt.Span": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "emphasis": {
+          "anyOf": [
+            {
+              "enum": [
+                "em",
+                "strong"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Emphasis"
+        },
+        "code": {
+          "default": false,
+          "title": "Code",
+          "type": "boolean"
+        },
+        "link": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Link"
+        },
+        "mention": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mention"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "Span",
+      "type": "object",
+      "x-vt": {
+        "part": "richtext"
+      }
+    }
+  },
+  "handlers": {
+    "like": {
+      "params": [
+        {
+          "name": "post",
+          "type": "record",
+          "record": "Post",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "next_story": {
+      "params": [
+        {
+          "name": "s",
+          "type": "record",
+          "record": "Story",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "back"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "previous_story": {
+      "params": [
+        {
+          "name": "s",
+          "type": "record",
+          "record": "Story",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "stories"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
+    "unlike": {
+      "params": [
+        {
+          "name": "post",
+          "type": "record",
+          "record": "Post",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    }
+  },
+  "loaders": {
+    "feed_page": {
+      "params": [
+        {
+          "name": "cursor",
+          "type": "string",
+          "nullable": true,
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "page",
+          "item": {
+            "type": "record",
+            "record": "Post"
+          }
+        }
+      ]
+    },
+    "load_activity": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Activity"
+        }
+      ]
+    },
+    "load_explore": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Explore"
+        }
+      ]
+    },
+    "load_feed": {
+      "params": [],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Feed"
+        }
+      ]
+    },
+    "load_post": {
+      "params": [
+        {
+          "name": "post_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "PostPage"
+        }
+      ]
+    },
+    "load_profile": {
+      "params": [
+        {
+          "name": "user_id",
+          "type": "string",
+          "required": true
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Profile"
+        }
+      ]
+    },
+    "load_story": {
+      "params": [
+        {
+          "name": "index",
+          "type": "integer",
+          "required": false,
+          "default": 0
+        }
+      ],
+      "returns": [
+        {
+          "type": "record",
+          "record": "Story"
+        }
+      ]
+    }
+  },
+  "edges": [
+    {
+      "from": "feed",
+      "to": "post",
+      "type": "jump",
+      "tape": "post",
+      "via": {
+        "action": "Comments",
+        "on": "Post"
+      }
+    },
+    {
+      "from": "feed",
+      "to": "stories",
+      "type": "jump",
+      "tape": "stories",
+      "via": {
+        "action": "Stories"
+      }
+    },
+    {
+      "from": "feed",
+      "to": "profile",
+      "type": "jump",
+      "tape": "profile",
+      "via": {
+        "press": "Post.author"
+      }
+    },
+    {
+      "from": "explore",
+      "to": "post",
+      "type": "jump",
+      "tape": "post",
+      "via": {
+        "select": "Explore.posts"
+      }
+    },
+    {
+      "from": "explore",
+      "to": "profile",
+      "type": "jump",
+      "tape": "profile",
+      "via": {
+        "press": "Post.author"
+      }
+    },
+    {
+      "from": "activity",
+      "to": "post",
+      "type": "jump",
+      "tape": "post",
+      "via": {
+        "select": "Activity.reactions"
+      }
+    },
+    {
+      "from": "profile",
+      "to": "post",
+      "type": "jump",
+      "tape": "post",
+      "via": {
+        "select": "Profile.posts"
+      }
+    },
+    {
+      "from": "profile",
+      "to": "profile",
+      "type": "jump",
+      "tape": "profile",
+      "via": {
+        "press": "Post.author"
+      }
+    },
+    {
+      "from": "stories",
+      "type": "back",
+      "via": {
+        "action": "Next",
+        "handler": "next_story"
+      }
+    },
+    {
+      "from": "stories",
+      "to": "stories",
+      "type": "jump",
+      "tape": "stories",
+      "via": {
+        "action": "Previous",
+        "handler": "previous_story"
+      }
+    },
+    {
+      "from": "stories",
+      "type": "back",
+      "via": {
+        "after": 5,
+        "handler": "next_story"
+      }
+    },
+    {
+      "from": "post",
+      "to": "profile",
+      "type": "jump",
+      "tape": "profile",
+      "via": {
+        "press": "Post.author"
+      }
+    }
+  ]
+}

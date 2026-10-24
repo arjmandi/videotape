@@ -35,6 +35,9 @@ class Built:
     records: list[type[Record]] = field(default_factory=list)
     problems: list[Diagnostic] = field(default_factory=list)
     """What building found: two handlers, loaders, or records with one name."""
+    handlers: dict[str, Callable[..., Any]] = field(default_factory=dict)
+    loaders: dict[str, Callable[..., Any]] = field(default_factory=dict)
+    """The functions the intent names, by name: what `decide` and `load` call."""
 
 
 def resolve(app: App, frame: Frame, kind: str, name: str | None) -> str | None:
@@ -240,6 +243,7 @@ class Builder:
         out: dict[str, Any] = {"format": FORMAT, "app": app.name, "entry": app.entry}
         if app.world is not None:
             out["world"] = app.world
+        out["keep_journeys"] = int(app.keep_journeys.total_seconds())
         if app.hub is not None:
             out["hub"] = [
                 {"tape": d.tape, "label": encode(d.label), **({"symbol": d.symbol} if d.symbol else {})}
@@ -251,7 +255,7 @@ class Builder:
         out["records"], out["types"] = self.record_schemas()
         out["handlers"], out["loaders"] = handlers, loaders
         out["edges"] = [e.to_json() for e in self.edges]
-        return Built(out, self.edges, self.records, self.problems)
+        return Built(out, self.edges, self.records, self.problems, dict(self.handlers.items), dict(self.loaders.items))
 
     def handler(self, fn: Callable[..., Any]) -> dict[str, Any]:
         sig = read(fn)

@@ -337,3 +337,23 @@ def test_pages_registers_a_loader_after_its_record():
 def test_page_takes_items_and_next_positionally():
     page = vt.Page(*([Company(id="c1", name="Acme")], "c2"))
     assert page.next == "c2" and page.items[0].name == "Acme"
+
+
+class _Stamped(vt.Record):
+    id: vt.Id
+    text: str
+    sent_at: datetime
+
+
+def test_a_new_record_must_be_valid_and_says_what_is_missing():
+    # Q67: only the vt.Id may be missing until the app saves the record.
+    assert _Stamped(text="hi", sent_at=datetime(2026, 10, 24)).id is None
+    with pytest.raises(ValidationError) as caught:
+        _Stamped(text="hi")
+    notes = "\n".join(caught.value.__notes__)
+    assert "_Stamped was created without sent_at" in notes
+    assert "only its vt.Id may be missing until the app saves it" in notes
+    assert "`sent_at: ... | None = None`" in notes
+    with pytest.raises(ValidationError) as wrong:
+        _Stamped(text=5, sent_at=datetime(2026, 10, 24))
+    assert not getattr(wrong.value, "__notes__", None)        # a wrong value is not a missing one

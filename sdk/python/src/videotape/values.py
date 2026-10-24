@@ -12,7 +12,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Any, Generic, Literal, TypeVar
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 from pydantic_core import core_schema as cs
 
 VT = "x-vt"
@@ -133,7 +133,10 @@ class Money:
         object.__setattr__(self, "currency", currency)
 
     def __setattr__(self, name: str, value: Any) -> None:
-        raise AttributeError("Money is immutable")
+        raise TypeError(
+            "vt.Money is immutable (Q71): assign a new value to the field instead, such as "
+            "deal.amount = deal.amount + 5 or deal.amount = vt.Money('12.50', 'EUR')"
+        )
 
     def __repr__(self) -> str:
         return f"Money('{self.amount}', '{self.currency}')"
@@ -169,6 +172,29 @@ class Money:
 
     def __ge__(self, other: object) -> bool:
         return self.amount >= self._other(other)
+
+    # A changed amount is a new Money: `deal.amount = deal.amount + 5`.
+
+    def __add__(self, other: object) -> Money:
+        return Money(self.amount + self._other(other), self.currency)
+
+    __radd__ = __add__
+
+    def __sub__(self, other: object) -> Money:
+        return Money(self.amount - self._other(other), self.currency)
+
+    def __rsub__(self, other: object) -> Money:
+        return Money(self._other(other) - self.amount, self.currency)
+
+    def __mul__(self, factor: object) -> Money:
+        if not isinstance(factor, (int, float, Decimal)) or isinstance(factor, bool):
+            return NotImplemented
+        return Money(self.amount * Decimal(str(factor)), self.currency)
+
+    __rmul__ = __mul__
+
+    def __neg__(self) -> Money:
+        return Money(-self.amount, self.currency)
 
     def to_json(self) -> dict[str, str]:
         return {"amount": str(self.amount), "currency": self.currency}
@@ -206,10 +232,59 @@ class Money:
 # ── facts ────────────────────────────────────────────────────────────────────
 
 
+class Frozen(tuple):  # type: ignore[type-arg]
+    """A sequence inside an immutable value (Q71): it reads like a list and refuses to change in
+    place, saying what to do instead."""
+
+    hint = "build a new value and assign it to the field"
+
+    def _refuse(self, *args: Any, **kwargs: Any) -> Any:
+        raise TypeError(f"this part of an immutable value cannot change in place (Q71): {self.hint}")
+
+    append = extend = insert = remove = pop = clear = sort = reverse = _refuse
+    __setitem__ = __delitem__ = _refuse
+
+
+class _Row(dict):  # type: ignore[type-arg]
+    """A row of a `Series`: read like a dict, never changed in place."""
+
+    def _refuse(self, *args: Any, **kwargs: Any) -> Any:
+        raise TypeError("a Series row cannot change in place (Q71): build a new Series, such as chart = chart.with_row({...})")
+
+    __setitem__ = __delitem__ = update = pop = popitem = clear = setdefault = _refuse
+
+    def __copy__(self) -> dict[str, Any]:
+        return dict(self)
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> dict[str, Any]:
+        import copy
+
+        return copy.deepcopy(dict(self), memo)
+
+
+def _frozen(hint: str) -> AfterValidator:
+    def freeze(value: Any) -> Frozen:
+        out = Frozen(value)
+        out.hint = hint
+        return out
+
+    return AfterValidator(freeze)
+
+
 class Value(BaseModel):
-    """A built-in value: immutable, closed, and marked in JSON Schema with its Videotape type."""
+    """A built-in value: immutable, closed, and marked in JSON Schema with its Videotape type. A
+    handler assigns a new one instead of changing one in place (Q71), so every change is an op."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise TypeError(
+            f"vt.{type(self).__name__} is immutable (Q71): assign a new value to the field that holds it instead"
+            f"{self._hint()}"
+        )
+
+    def _hint(self) -> str:
+        return ""
 
 
 class Image(Value):
@@ -256,11 +331,14 @@ class Span(Value):
     mention: str | None = None
 
 
+_TEXT_HINT = "build a new RichText and assign it, such as msg.text = msg.text + 'More.'"
+
+
 class Paragraph(Value):
     model_config = ConfigDict(json_schema_extra={VT: {"part": "richtext"}})
 
     kind: Literal["paragraph"] = "paragraph"
-    spans: list[Span]
+    spans: Annotated[tuple[Span, ...], _frozen(_TEXT_HINT)]
 
 
 class ListBlock(Value):
@@ -268,7 +346,7 @@ class ListBlock(Value):
 
     kind: Literal["list"] = "list"
     ordered: bool = False
-    items: list[list[Span]]
+    items: Annotated[tuple[Annotated[tuple[Span, ...], _frozen(_TEXT_HINT)], ...], _frozen(_TEXT_HINT)]
 
 
 class CodeBlock(Value):
@@ -321,7 +399,23 @@ class RichText(Value):
 
     model_config = ConfigDict(json_schema_extra={VT: {"type": "richtext"}})
 
-    blocks: list[Block]
+    blocks: Annotated[tuple[Block, ...], _frozen(_TEXT_HINT)]
+
+    def _hint(self) -> str:
+        return ", such as msg.text = msg.text + 'More.' or msg.text = vt.RichText.from_markdown('...')"
+
+    def __add__(self, other: object) -> RichText:
+        """This text followed by more: another RichText, or plain text as paragraphs."""
+        if isinstance(other, str):
+            other = RichText.from_text(other)
+        if not isinstance(other, RichText):
+            return NotImplemented
+        return RichText(blocks=(*self.blocks, *other.blocks))
+
+    def __radd__(self, other: object) -> RichText:
+        if isinstance(other, str):
+            return RichText.from_text(other) + self
+        return NotImplemented
 
     @model_validator(mode="before")
     @classmethod
@@ -395,14 +489,28 @@ class Series(Value):
 
     model_config = ConfigDict(json_schema_extra={VT: {"type": "series"}})
 
-    rows: list[dict[str, Any]]
+    rows: Annotated[
+        tuple[Annotated[dict[str, Any], AfterValidator(_Row)], ...],
+        _frozen("build a new Series, such as chart = chart.with_row({...})"),
+    ]
     x: str
-    y: str | list[str]
+    y: str | Annotated[tuple[str, ...], _frozen("build a new Series with the columns you want")]
 
-    def __init__(self, rows: list[dict[str, Any]] | None = None, /, **data: Any) -> None:
+    def __init__(self, rows: Any = None, /, **data: Any) -> None:
         if rows is not None:
             data["rows"] = rows
         super().__init__(**data)
+
+    def _hint(self) -> str:
+        return ", such as chart = chart.with_row({...}) or chart = chart.with_rows([...])"
+
+    def with_row(self, row: dict[str, Any]) -> Series:
+        """This series with one more row at the end."""
+        return Series((*self.rows, row), x=self.x, y=self.y)
+
+    def with_rows(self, rows: Any) -> Series:
+        """This series with its rows replaced."""
+        return Series(tuple(rows), x=self.x, y=self.y)
 
     @model_validator(mode="after")
     def _columns_exist(self) -> Series:
