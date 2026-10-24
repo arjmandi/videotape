@@ -323,6 +323,12 @@ topic, and no optimistic declaration.
 - **New records are valid.** A record a handler creates must validate; only its `vt.Id` may be
   missing until the app saves it. A value that does not exist yet is an optional field (a pending
   message has no `sent_at` until the service stamps it).
+- **Immutable values.** `vt.RichText`, `vt.Money`, and `vt.Series` are immutable: a handler assigns
+  a new value instead of changing one in place, so every change is seen, sent, and confirmed.
+- **Drafts.** An edited document belongs to its session, so a half-typed draft does not follow the
+  user to another device and ends with the session; the engine never keeps it. An app that wants
+  drafts to last keeps them in its own services: the loader returns the saved draft as the edited
+  document's starting value, and an `on_change` handler saves it.
 
 ```python
 class Message(vt.Record):
@@ -374,7 +380,9 @@ lands. Reels are keyed by user and device. A signed-in journey is kept for 30 da
 (`vt.app(keep_journeys=timedelta(days=30))`) as its position and history only, never its documents,
 which loaders fetch again on resume; opening the app on any device signed in as the user resumes the
 most recent of their journeys. A sign-in on another device resumes that journey rather than landing
-where its outcome points, unless the outcome says `resume=False`, as after a password change; the app
+where its outcome points, unless the outcome says `resume=False`, as after a password change. After
+a release, a kept journey resumes at the deepest place in its history that the release still has,
+with the history beneath it, and lands where the sign-in points only if none survives. The app
 process can address a user's documents; a deleted account ends every session. Credentials stay with
 the app. A document carries the tape version it was loaded under, so a release never changes a
 journey under a user (§7.1).
@@ -1049,6 +1057,9 @@ where §6 was open, and they were confirmed or changed here. Its letters are in 
 | Q68 | Do two decisions on one document see each other's pending changes? [P] | No: each works on the confirmed values plus its own changes; the screen shows all pending changes (§6.2). |
 | Q69 | How long does a journey wait, and which one does a device resume? [Q] | Signed-in journeys are kept 30 days by default (`keep_journeys=`), positions and history only; any device resumes the user's most recent journey (§6.2). |
 | Q70 | Where does a sign-in on another device land? [R] | In the resumed journey, unless the outcome says `resume=False` (§6.2). |
+| Q71 | May a handler change a `RichText`, `Money`, or `Series` value in place? [S] | No: they are immutable, and a handler assigns a new value (§6.2). |
+| Q72 | Do drafts follow the user across devices and sessions? [T] | No, by default; an app keeps them in its own services, loaded as the edited document's starting value and saved on change (§6.2). |
+| Q73 | What does a kept journey resume after a release removed its place? [U] | The deepest place in its history the release still has; the sign-in's target only if none survives (§6.2). |
 
 Also folded from [08](08-leverage-review.md) without a question of their own: affordances (P4,
 §6.4), the agent surface (§6.5), and its corrections to §8, §9, and §14. From
