@@ -34,22 +34,30 @@ export interface Doc {
   layers: Layer[];
   /** Who holds it: one entry per tape visit of a reel that has it (`<session>:<visit>`). */
   holders: Set<string>;
-  /** Grows with every change a reader can see, tentative or not. */
+  /** Grows with every change to what readers see, tentative or not; the app's mirror follows it. */
   version: number;
 }
+
+/** Where a change came from: the app (a decision, or `vt.docs`), a user's edit, or the engine itself
+ *  (a rollback, a confirm that reorders layers, a reload). */
+export type Origin = "app" | "user" | "engine";
 
 export interface DocChange {
   doc: Doc;
   state: DocState;
-  /** The ops that changed what readers see (none for a confirm or a rollback, which re-apply). */
+  origin: Origin;
+  /** The version before the change; equal to `doc.version` when readers see no difference. */
+  from: number;
+  /** The ops that took the value from `from` to `doc.version`, unless `whole`. */
   ops: Op[];
+  /** The value changed in a way no ops describe (a rollback, a reload): send it whole. */
+  whole?: true;
   /** The decision the change belongs to. */
   decision?: string;
-  /** The whole value was replaced: a reload of a held document. */
-  reset?: true;
 }
 
 export type DocListener = (change: DocChange) => void;
+export type DropListener = (ref: DocRef) => void;
 
 export function refKey(ref: DocRef): string {
   return "id" in ref ? `${ref.record}#${ref.id}` : `~${ref.local}`;
@@ -60,6 +68,7 @@ export class DocumentStore {
   /** The documents each open decision has layers on. */
   private readonly decisions = new Map<string, Set<string>>();
   private readonly listeners = new Set<DocListener>();
+  private readonly dropListeners = new Set<DropListener>();
   private minted = 0;
   private locals = 0;
 
@@ -92,8 +101,19 @@ export class DocumentStore {
     return () => this.listeners.delete(listener);
   }
 
+  /** Hears of every document that is dropped, because its last holder let go. */
+  onDrop(listener: DropListener): () => void {
+    this.dropListeners.add(listener);
+    return () => this.dropListeners.delete(listener);
+  }
+
   private notify(change: DocChange): void {
     for (const l of this.listeners) l(change);
+  }
+
+  private forget(key: string, doc: Doc): void {
+    this.docs.delete(key);
+    for (const l of this.dropListeners) l(doc.ref);
   }
 
   // ── holding ────────────────────────────────────────────────────────────────
@@ -144,8 +164,8 @@ export class DocumentStore {
   private refresh(doc: Doc, value: Json): void {
     if (JSON.stringify(stripKeys(doc.confirmed)) === JSON.stringify(stripKeys(value))) return;
     doc.confirmed = value;
-    this.recompute(doc);
-    this.notify({ doc, state: "confirmed", ops: [], reset: true });
+    const from = doc.version;
+    if (this.recompute(doc)) this.notify({ doc, state: "confirmed", origin: "engine", from, ops: [], whole: true });
   }
 
   hold(ref: DocRef, holder: string): void {
@@ -156,13 +176,13 @@ export class DocumentStore {
   drop(ref: DocRef, holder: string): void {
     const key = refKey(ref);
     const d = this.docs.get(key);
-    if (d && d.holders.delete(holder) && d.holders.size === 0) this.docs.delete(key);
+    if (d && d.holders.delete(holder) && d.holders.size === 0) this.forget(key, d);
   }
 
   /** Lets go of every document `holder` holds; a document nobody holds is dropped. */
   release(holder: string): void {
     for (const [key, d] of this.docs) {
-      if (d.holders.delete(holder) && d.holders.size === 0) this.docs.delete(key);
+      if (d.holders.delete(holder) && d.holders.size === 0) this.forget(key, d);
     }
   }
 
@@ -178,12 +198,14 @@ export class DocumentStore {
     return applied;
   }
 
-  /** The visible value again: the confirmed value with every open layer on top. */
-  private recompute(doc: Doc): void {
+  /** The visible value again: the confirmed value with every open layer on top. Says whether readers see a difference. */
+  private recompute(doc: Doc): boolean {
     const value = structuredClone(doc.confirmed);
     for (const layer of doc.layers) this.applyAll(doc, value, layer.ops, false, true);
+    const changed = JSON.stringify(value) !== JSON.stringify(doc.value);
     doc.value = value;
-    doc.version += 1;
+    if (changed) doc.version += 1;
+    return changed;
   }
 
   /** A user's edit of a field (a local change): confirmed at once, without the app. */
@@ -191,7 +213,7 @@ export class DocumentStore {
     return this.confirmNow(ref, ops, true);
   }
 
-  /** The app's changes outside any decision (`vt.docs` from a service): confirmed at once. */
+  /** The app's changes outside any decision (`vt.docs`, and work a handler left running): confirmed at once. */
   apply(ref: DocRef, ops: Op[]): Op[] {
     return this.confirmNow(ref, ops, false);
   }
@@ -204,12 +226,16 @@ export class DocumentStore {
     }
     const applied = this.applyAll(doc, doc.confirmed, ops, edit);
     if (!applied.length) return applied;
-    if (doc.layers.length) this.recompute(doc);
-    else {
+    const from = doc.version;
+    const origin: Origin = edit ? "user" : "app";
+    if (doc.layers.length) {
+      // Open layers go on top again; readers may see more than these ops changed.
+      if (this.recompute(doc)) this.notify({ doc, state: "confirmed", origin, from, ops: [], whole: true });
+    } else {
       this.applyAll(doc, doc.value, applied, edit, true);
       doc.version += 1;
+      this.notify({ doc, state: "confirmed", origin, from, ops: applied });
     }
-    this.notify({ doc, state: "confirmed", ops: applied });
     return applied;
   }
 
@@ -225,11 +251,12 @@ export class DocumentStore {
     const last = doc.layers[doc.layers.length - 1];
     if (last && last.decision === decision) last.ops.push(...applied);
     else doc.layers.push({ decision, ops: applied });
+    const from = doc.version;
     doc.version += 1;
     let touched = this.decisions.get(decision);
     if (!touched) this.decisions.set(decision, (touched = new Set()));
     touched.add(refKey(ref));
-    this.notify({ doc, state: "tentative", ops: applied, decision });
+    this.notify({ doc, state: "tentative", origin: "app", from, ops: applied, decision });
     return applied;
   }
 
@@ -253,8 +280,11 @@ export class DocumentStore {
       if (!mine.length) continue;
       doc.layers = doc.layers.filter((l) => l.decision !== decision);
       if (keep) for (const layer of mine) this.applyAll(doc, doc.confirmed, layer.ops, false, true);
-      this.recompute(doc);
-      this.notify({ doc, state: keep ? "confirmed" : "rolledback", ops: [], decision });
+      const from = doc.version;
+      // A decision whose layers were the only ones changes nothing readers see when it returns:
+      // the confirmed value has caught up with the visible one, op by op.
+      const changed = keep && doc.layers.length === 0 ? false : this.recompute(doc);
+      this.notify({ doc, state: keep ? "confirmed" : "rolledback", origin: "engine", from, ops: [], decision, ...(changed ? { whole: true as const } : {}) });
     }
   }
 

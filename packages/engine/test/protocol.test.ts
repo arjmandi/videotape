@@ -19,6 +19,8 @@ class Host implements AppHost {
   sync(_link: AppLink, msg: SyncMessage): void {
     this.syncs.push(msg);
   }
+  forget(): void {}
+  fetch(): void {}
   closed(): void {
     this.closes += 1;
   }
@@ -153,8 +155,8 @@ describe.skipIf(NO_PYTHON)("the Python client over WebSocket", () => {
       conv.messages[0]["@key"] = "~e1";
       const user = { record: "User", id: "u1", value: { id: "u1", name: "Ada" } };
       const documents = {
-        conv: { ref: { record: "Conversation", id: "c1" }, value: conv },
-        draft: { ref: { record: "Draft", local: "d1" }, value: { text: "On my way" } },
+        conv: { ref: { record: "Conversation", id: "c1" }, version: 0, value: conv },
+        draft: { ref: { record: "Draft", local: "d1" }, version: 0, value: { text: "On my way" } },
       };
       let order: string[] = [];
       host.sync = (_l, msg) => {
@@ -194,7 +196,7 @@ describe.skipIf(NO_PYTHON)("the Python client over WebSocket", () => {
     const app = startApp("hello", server.url);
     try {
       await ready;
-      const creds = { ref: { record: "Credentials", local: "d1" }, value: { username: "ada@example.com", password: "wrong-horse-9" } };
+      const creds = { ref: { record: "Credentials", local: "d1" }, version: 0, value: { username: "ada@example.com", password: "wrong-horse-9" } };
       const result = await link!.decide({ handler: "sign_in", session: "s1", user: null, documents: { c: creds } }, ["wrong-horse-9"]);
       expect(result).toEqual({ t: "result", id: "r1", reject: { message: "That email and password do not match." } });
       const ok = await link!.decide({ handler: "sign_in", session: "s1", user: null, documents: { c: { ...creds, value: { ...creds.value, password: "correct horse" } } } }, ["correct horse"]);

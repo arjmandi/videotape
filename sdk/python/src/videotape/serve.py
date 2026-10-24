@@ -3,12 +3,14 @@
     videotape serve app:app --engine ws://127.0.0.1:8787/app
 
 It sends `register` with the intent, then answers the engine: `load` runs an enter loader, `page`
-a list's paging loader, and `decide` a handler, as `vt.invoke` does. While a handler runs, every
-change it makes to its documents is sent at once as a `sync` delta, tentative under that decision;
-the decision's `result` confirms them, and an error or a `Reject` rolls them back. Changes made
-outside a handler (`vt.docs[...]` from a service) are confirmed at once. Secrets reach the handler
-once and are never sent back or logged: the SDK scrubs them from errors and forwarded log lines.
-The message shapes are written down in `packages/engine/README.md`.
+a list's paging loader, and `decide` a handler, as `vt.invoke` does. Requests name documents by
+reference and version, and the client hands handlers its mirror's copies (`videotape.mirror`),
+answering `stale` when a copy is missing or behind. While a handler runs, every change it makes is
+sent at once as a `sync` delta, tentative under that decision; the decision's `result` confirms
+them, and an error or a `Reject` rolls them back. Changes made outside a decision (`vt.docs[...]`
+from a service, or work a handler left running) are confirmed at once (Q54). Secrets reach the
+handler once and are never sent back or logged: the SDK scrubs them from errors and forwarded log
+lines. The message shapes are written down in `packages/engine/README.md`.
 """
 
 from __future__ import annotations
@@ -26,10 +28,11 @@ from pydantic import TypeAdapter
 
 from ._encode import encode
 from .decisions import Context, Reject, call, read
+from .mirror import Mirror, mirrorable
 from .outcomes import Outcome
 from .records import Record, fields_of, id_field
 from .serialize import build
-from .tracking import KEY, Tracker, current, dump, key_of, keys_scope, load
+from .tracking import KEY, Tracker, current, dump, key_of, keys_scope, known_key, load
 
 PROTOCOL = 1
 SDK_VERSION = "0.0.1"
@@ -64,7 +67,7 @@ def _walk(value: Any, path: list[Any]) -> Any:
     """The object at `path` inside a tracked record: field names, and `{"key": ...}` for list items."""
     for seg in path:
         if isinstance(seg, dict):
-            value = next((v for v in value if isinstance(v, Record) and key_of(v) == seg.get("key")), None)
+            value = next((v for v in value if isinstance(v, Record) and known_key(v) == seg.get("key")), None)
         else:
             value = getattr(value, seg, None)
         if value is None:
@@ -93,6 +96,10 @@ class AppClient:
         self.modules = {getattr(f, "__module__", "") for f in functions} | {r.__module__ for r in built.records}
         self.outside: Tracker | None = None
         """Changes made outside any decision (`vt.docs` from a service), confirmed at once."""
+        self.mirror = Mirror(self.record, self._forget)
+        self.running = 0
+        self.fetches: dict[str, asyncio.Future[None]] = {}
+        self._fetched = 0
 
     # ── connection ──
 
@@ -100,6 +107,7 @@ class AppClient:
         loop = asyncio.get_running_loop()
         self.registered = loop.create_future()
         self.outside = Tracker(self._sync, None)
+        self.outside.on_local = self.mirror.sent
         global client
         client = self
         self.send({"t": "register", "v": PROTOCOL, "intent": self.intent, "sdk": {"language": "python", "version": SDK_VERSION}})
@@ -110,6 +118,7 @@ class AppClient:
             client = None
         for task in list(self.tasks):
             task.cancel()
+        self.mirror.clear()
 
     def receive(self, msg: dict[str, Any]) -> None:
         t = msg.get("t")
@@ -123,9 +132,24 @@ class AppClient:
             else:
                 log.error("the engine says %s", error)
         elif t in ("load", "decide", "page"):
+            stale = self._prepare(msg)
+            if stale:
+                self.send({"t": "result", "id": msg["id"], "stale": stale})
+                return
             task = asyncio.ensure_future(self._answer(msg))
             self.tasks.add(task)
             task.add_done_callback(self.tasks.discard)
+        elif t == "sync":
+            for change in msg.get("changes") or []:
+                self.mirror.apply(change)
+            for ref in msg.get("drop") or []:
+                self.mirror.drop(ref)
+        elif t == "fetched":
+            for doc in msg.get("documents") or []:
+                self.mirror.adopt(doc["doc"], doc["value"], doc["version"])
+            future = self.fetches.pop(msg.get("id", ""), None)
+            if future is not None and not future.done():
+                future.set_result(None)
         elif t == "pong":
             pass
         else:
@@ -133,9 +157,58 @@ class AppClient:
 
     # ── answering ──
 
+    def _prepare(self, msg: dict[str, Any]) -> list[dict[str, Any]]:
+        """Takes the documents a request sends whole into the mirror, and says which of those it names
+        by version the mirror does not hold at that version. Runs as the request arrives, before any
+        later `sync` can move a copy on."""
+        stale = []
+        for entry in (msg.get("documents") or {}).values():
+            record = self.record(entry["ref"].get("record", ""))
+            if record is None or not mirrorable(record):
+                continue
+            if "value" in entry:
+                self.mirror.adopt(entry["ref"], entry["value"], entry["version"])
+                continue
+            copy = self.mirror.get(entry["ref"])
+            if copy is None or copy.version != entry["version"]:
+                stale.append({"doc": entry["ref"], "have": copy.version if copy else None})
+        return stale
+
+    def _document(self, entry: dict[str, Any], record: type[Record] | None, tracker: Tracker | None) -> Any:
+        """What a handler or loader receives for one entry (`record` is what it receives: the item's
+        record for an item): the mirror's copy, or the item in it at `path`; or, where the document's
+        record is one the mirror never holds, a record of its own."""
+        container = self.record(entry["ref"].get("record", ""))
+        if container is not None and mirrorable(container):
+            copy = self.mirror.get(entry["ref"])
+            if copy is None:
+                raise ProtocolError(f"the app holds no copy of {entry['ref']}")
+            found = _walk(copy.obj, entry.get("path") or [])
+            if found is None:
+                raise ProtocolError(f"no item at {entry.get('path')} in {entry['ref']}")
+            return found
+        if record is None:
+            return entry.get("value")
+        if tracker is not None:
+            return tracker.adopt(record, entry["value"], entry["ref"], entry.get("path") or ())
+        return load(record, entry["value"])
+
+    async def fetch(self, refs: list[dict[str, Any]]) -> None:
+        """Asks the engine for documents the app does not hold (`await vt.docs.fetch(...)`)."""
+        self._fetched += 1
+        key = f"f{self._fetched}"
+        future = asyncio.get_running_loop().create_future()
+        self.fetches[key] = future
+        self.send({"t": "fetch", "id": key, "docs": refs})
+        await future
+
+    def _forget(self, refs: list[dict[str, Any]]) -> None:
+        self.send({"t": "forget", "docs": refs})
+
     async def _answer(self, msg: dict[str, Any]) -> None:
         secrets = self._secrets_in(msg)
         self.secrets |= secrets
+        self.running += 1
         try:
             with keys_scope():
                 if msg["t"] == "decide":
@@ -149,6 +222,9 @@ class AppClient:
             log.error("%s %s raised %s", msg["t"], msg.get("handler") or msg.get("loader"), self.scrub(_trace(e)))
         finally:
             self.secrets -= secrets
+            self.running -= 1
+            if self.running == 0:
+                self.mirror.release_retired()
         self.send({"t": "result", "id": msg["id"], **reply})
 
     def _ctx(self, msg: dict[str, Any]) -> Context:
@@ -178,31 +254,16 @@ class AppClient:
             raise ProtocolError(f"the app has no handler {msg['handler']}")
         sig = read(handler)
         tracker = Tracker(self._sync, msg["id"])
+        tracker.on_local = self.mirror.sent
         token = current.set(tracker)
         try:
             kwargs: dict[str, Any] = {}
-            docs: dict[str, tuple[dict[str, Any], Any]] = {}
-            items: list[tuple[str, dict[str, Any]]] = []
-            for name, value in (msg.get("documents") or {}).items():
-                if value.get("path"):
-                    items.append((name, value))
-                    continue
+            for name, entry in (msg.get("documents") or {}).items():
                 p = sig.param(name)
-                record = self._record(p.annotation if p else None, value["ref"].get("record"))
+                record = self._record(p.annotation if p else None, entry.get("record") or entry["ref"].get("record"))
                 if record is None:
                     raise ProtocolError(f"{msg['handler']}() takes {name}, whose record the app does not have")
-                kwargs[name] = tracker.adopt(record, value["value"], value["ref"])
-                docs[name] = (value["ref"], kwargs[name])
-            for name, value in items:
-                holder = next((obj for ref, obj in docs.values() if ref == value["ref"]), None)
-                found = _walk(holder, value["path"]) if holder is not None else None
-                if found is None:
-                    p = sig.param(name)
-                    record = self._record(p.annotation if p else None, value.get("record"))
-                    if record is None:
-                        raise ProtocolError(f"{msg['handler']}() takes {name}, whose record the app does not have")
-                    found = tracker.adopt(record, value["value"], value["ref"], value["path"])
-                kwargs[name] = found
+                kwargs[name] = self._document(entry, record, tracker)
             kwargs.update(msg.get("values") or {})
             try:
                 outcome = await call(handler, self._ctx(msg), **kwargs)
@@ -233,9 +294,8 @@ class AppClient:
             if p.name in extra:
                 kwargs[p.name] = extra[p.name]
             elif p.name in documents:
-                value = documents[p.name]
-                record = self._record(p.annotation, value["ref"].get("record"))
-                kwargs[p.name] = load(record, value["value"]) if record else value["value"]
+                entry = documents[p.name]
+                kwargs[p.name] = self._document(entry, self._record(p.annotation, entry["ref"].get("record")), None)
             elif p.name in args:
                 raw = args[p.name]
                 kwargs[p.name] = raw if p.annotation is inspect.Parameter.empty else TypeAdapter(p.annotation).validate_python(raw)

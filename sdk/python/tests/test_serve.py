@@ -51,13 +51,13 @@ def play(app, body):
     return asyncio.run(main())
 
 
-def draft(ref="d1", **value):
-    return {"ref": {"record": "Draft", "local": ref}, "value": {"text": "", **value}}
+def draft(ref="d1", version=0, **value):
+    return {"ref": {"record": "Draft", "local": ref}, "version": version, "value": {"text": "", **value}}
 
 
-def conversation():
+def conversation(version=0):
     return {
-        "ref": {"record": "Conversation", "id": "c1"},
+        "ref": {"record": "Conversation", "id": "c1"}, "version": version,
         "value": {
             "id": "c1", "title": "Launch", "typing": None,
             "messages": [{"author": {"id": "u2", "name": "Grace"}, "text": "Ready when you are.",
@@ -97,7 +97,7 @@ def test_load_failures_come_back_as_errors():
 
 def test_decide_signs_in_with_the_users_record():
     async def body(e):
-        creds = {"ref": {"record": "Credentials", "local": "d1"}, "value": {"username": "ada@example.com", "password": "correct horse"}}
+        creds = {"ref": {"record": "Credentials", "local": "d1"}, "version": 0, "value": {"username": "ada@example.com", "password": "correct horse"}}
         return await e.ask({"t": "decide", "id": "7", "handler": "sign_in", "session": "s1", "user": None, "documents": {"c": creds}})
 
     result = play(hello.app, body)
@@ -109,7 +109,7 @@ def test_decide_signs_in_with_the_users_record():
 
 def test_reject_comes_back_and_the_secret_never_does(caplog):
     async def body(e):
-        creds = {"ref": {"record": "Credentials", "local": "d1"}, "value": {"username": "ada@example.com", "password": "nope-nope"}}
+        creds = {"ref": {"record": "Credentials", "local": "d1"}, "version": 0, "value": {"username": "ada@example.com", "password": "nope-nope"}}
         result = await e.ask({"t": "decide", "id": "8", "handler": "sign_in", "session": "s1", "user": None, "documents": {"c": creds}})
         return result, e.out
 
@@ -128,7 +128,7 @@ def test_errors_are_scrubbed_of_secrets(caplog):
     app = vt.app("leaky", entry="t", tapes=[vt.tape("t", [vt.frame("Sign in", edit=hello.Credentials, submit=leaky)])])
 
     async def body(e):
-        creds = {"ref": {"record": "Credentials", "local": "d1"}, "value": {"username": "ada", "password": "s3cr3t-value"}}
+        creds = {"ref": {"record": "Credentials", "local": "d1"}, "version": 0, "value": {"username": "ada", "password": "s3cr3t-value"}}
         return await e.ask({"t": "decide", "id": "9", "handler": "leaky", "session": "s1", "user": None, "documents": {"c": creds}})
 
     with caplog.at_level(logging.ERROR):
@@ -177,7 +177,7 @@ def test_a_handler_that_raises_still_sends_what_it_changed_then_the_error():
 def test_an_item_is_found_in_the_document_that_holds_it():
     async def body(e):
         conv = conversation()
-        item = {"ref": conv["ref"], "path": ["messages", {"key": "~e1"}], "record": "Message", "value": conv["value"]["messages"][0]}
+        item = {**conv, "path": ["messages", {"key": "~e1"}], "record": "Message"}
         result = await e.ask({
             "t": "decide", "id": "13", "handler": "start_reply", "session": "s1", "user": ADA,
             "documents": {"msg": item, "draft": draft()},
@@ -205,7 +205,7 @@ def test_vt_docs_outside_a_handler_is_confirmed_and_inside_is_tentative():
 def test_vt_docs_needs_the_engine():
     with pytest.raises(RuntimeError, match="videotape serve"):
         vt.docs[relay.Conversation, "c1"].messages.append(relay.Message(author=relay.User(id="u2", name="G"), text="x"))
-    with pytest.raises(AttributeError, match="does not read"):
+    with pytest.raises(AttributeError, match="can change it but not read"):
         vt.docs[relay.Conversation, "c1"].title
     with pytest.raises(TypeError, match="no vt.Id"):
         vt.docs[relay.Draft, "x"]

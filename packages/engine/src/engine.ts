@@ -8,7 +8,8 @@ import { type DocChange, DocumentStore } from "./documents";
 import { IntentError, type Intent, type JsonObject } from "./intent";
 import { Places } from "./journey";
 import { type Logger, consoleLogger } from "./log";
-import type { SyncMessage, UserRecord } from "./protocol";
+import { AppMirror } from "./mirror";
+import type { DocRef, FetchMessage, SyncMessage, UserRecord } from "./protocol";
 import { Records } from "./records";
 import { type AppServer, type AppServerOptions, listenForApps } from "./server";
 import { type Listener, Session } from "./session";
@@ -46,6 +47,7 @@ export class Engine implements AppHost {
   private readonly resumeTtlMs: number;
   private played: Played | undefined;
   private current: AppLink | undefined;
+  private appMirror: AppMirror | undefined;
   private readonly sessions = new Map<string, Session>();
   private readonly byToken = new Map<string, Session>();
   private waiting: Array<() => void> = [];
@@ -78,6 +80,11 @@ export class Engine implements AppHost {
     return this.current;
   }
 
+  /** What the connected app holds of the documents (Q53). */
+  get mirror(): AppMirror | undefined {
+    return this.appMirror;
+  }
+
   // ── the app ────────────────────────────────────────────────────────────────
 
   /** Listens for the app process on a WebSocket (`/app`). */
@@ -107,13 +114,20 @@ export class Engine implements AppHost {
       // A new intent keeps the documents only when the records are the same; sessions continue.
       const keep = this.played && JSON.stringify(this.played.intent.records) === JSON.stringify(intent.records);
       const docs = keep ? this.played!.docs : new DocumentStore(records, this.log);
-      if (!keep) docs.onChange((change) => this.fanOut(change));
+      if (!keep) {
+        docs.onChange((change) => {
+          this.appMirror?.changed(change);
+          this.fanOut(change);
+        });
+        docs.onDrop((ref) => this.appMirror?.dropped(ref));
+      }
       this.played = { intent, records, places, docs };
     }
     for (const [name, h] of Object.entries(intent.handlers)) {
       if (h.unreadable) this.log.warn("a handler's outcomes cannot be read; deciding with it will fail", { app: intent.app, handler: name });
     }
     this.current = link;
+    this.appMirror = new AppMirror(link, this.played.docs, this.played.records);
     const waiting = this.waiting;
     this.waiting = [];
     queueMicrotask(() => waiting.forEach((w) => w()));
@@ -123,17 +137,32 @@ export class Engine implements AppHost {
     if (link !== this.current || !this.played) return;
     const docs = this.played.docs;
     for (const change of msg.changes) {
-      if (msg.decision !== undefined) {
-        if (link.isOpen(msg.decision)) docs.tentative(msg.decision, change.doc, change.ops);
-        else this.log.warn("changes for a decision that has ended were dropped", { decision: msg.decision });
+      const from = docs.get(change.doc)?.version;
+      let applied;
+      if (msg.decision !== undefined && link.isOpen(msg.decision)) {
+        applied = docs.tentative(msg.decision, change.doc, change.ops);
       } else {
-        docs.apply(change.doc, change.ops);
+        // Q54: changes outside a decision, or after it ended (a handler's background work), are the
+        // app's own changes: applied at once, never tentative.
+        applied = docs.apply(change.doc, change.ops);
       }
+      this.appMirror?.echo(change.doc, from, applied.length === change.ops.length);
     }
   }
 
+  forget(link: AppLink, refs: DocRef[]): void {
+    if (link === this.current) this.appMirror?.forget(refs);
+  }
+
+  fetch(link: AppLink, msg: FetchMessage): void {
+    if (link === this.current) this.appMirror?.fetched(msg.id, msg.docs);
+  }
+
   closed(link: AppLink): void {
-    if (this.current === link) this.current = undefined;
+    if (this.current === link) {
+      this.current = undefined;
+      this.appMirror = undefined;
+    }
   }
 
   /** Every session that shows a changed document hears of it (05 §6.2: showing is subscribing). */

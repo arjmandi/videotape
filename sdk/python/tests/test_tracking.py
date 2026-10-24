@@ -182,9 +182,9 @@ def test_closing_stops_tracking_and_forgets_everything():
         kept["note"] = t.adopt(Note, note_json(), REF)
 
     run(body)
-    before = len(_tracked)
-    kept["note"].title = "after"                           # nothing to send it to
-    assert len(_tracked) == before == 0
+    note = kept["note"]
+    assert id(note) not in _tracked and id(note.author) not in _tracked
+    note.title = "after"                                   # nothing to send it to
 
 
 def test_copies_are_plain():

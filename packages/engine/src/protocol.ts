@@ -68,6 +68,8 @@ export const ResultSchema = z.union([
   z.object({ t: z.literal("result"), id, documents: z.array(loaded).max(64) }).strict(),
   z.object({ t: z.literal("result"), id, page: z.object({ items: z.array(z.unknown()), next: z.string().nullable() }).strict() }).strict(),
   z.object({ t: z.literal("result"), id, error: z.object({ type: z.string().max(256), message: z.string().max(8192) }).strict() }).strict(),
+  /** The app's copy of these documents is missing or not at the version the request named: it ran nothing. */
+  z.object({ t: z.literal("result"), id, stale: z.array(z.object({ doc: DocRefSchema, have: z.number().int().nonnegative().nullable() }).strict()).min(1).max(64) }).strict(),
 ]);
 
 export const SyncSchema = z.object({
@@ -84,14 +86,21 @@ export const LogSchema = z.object({
   logger: z.string().max(256).optional(),
 }).strict();
 
+/** The app dropped its copy of these documents: the engine stops keeping them current there. */
+export const ForgetSchema = z.object({ t: z.literal("forget"), docs: z.array(DocRefSchema).min(1).max(1000) }).strict();
+
+/** The app asks for documents it does not hold (`await vt.docs.fetch(...)`). */
+export const FetchSchema = z.object({ t: z.literal("fetch"), id, docs: z.array(DocRefSchema).min(1).max(64) }).strict();
+
 export const PingSchema = z.object({ t: z.literal("ping") }).strict();
 
-export const AppMessageSchema = z.union([RegisterSchema, ResultSchema, SyncSchema, LogSchema, PingSchema]);
+export const AppMessageSchema = z.union([RegisterSchema, ResultSchema, SyncSchema, LogSchema, ForgetSchema, FetchSchema, PingSchema]);
 export type AppMessage = z.infer<typeof AppMessageSchema>;
 export type RegisterMessage = z.infer<typeof RegisterSchema>;
 export type ResultMessage = z.infer<typeof ResultSchema>;
 export type SyncMessage = z.infer<typeof SyncSchema>;
 export type LogMessage = z.infer<typeof LogSchema>;
+export type FetchMessage = z.infer<typeof FetchSchema>;
 export type Loaded = z.infer<typeof loaded>;
 
 // ── engine → app ─────────────────────────────────────────────────────────────
@@ -103,12 +112,28 @@ export interface UserRecord {
   value: JsonObject;
 }
 
-/** A document a loader or handler receives: a whole document, or an item at `path` in one. */
+/**
+ * A document a loader or handler receives, or an item at `path` in one. It names the document and
+ * its version; `value` is there only when the app does not hold that version (or never may: a
+ * record with secret fields, which then carries the secrets of that one decision).
+ */
 export interface DocValue {
   ref: DocRef;
-  value: Json;
+  version: number;
+  value?: Json;
   path?: PathSegment[];
   record?: string;
+}
+
+/** What keeps the app's copy of a document current: ops from version `from`, the whole value, or
+ *  an echo of the app's own changes (it applied them already). */
+export interface MirrorChange {
+  doc: DocRef;
+  version: number;
+  from?: number;
+  ops?: Op[];
+  value?: Json;
+  origin?: "app";
 }
 
 export interface LoadRequest {
@@ -148,6 +173,8 @@ export type EngineMessage =
   | { t: "registered"; v: number; app: string }
   | { t: "error"; code: string; message: string }
   | { t: "pong" }
+  | { t: "sync"; changes?: MirrorChange[]; drop?: DocRef[] }
+  | { t: "fetched"; id: string; documents: Array<{ doc: DocRef; version: number; value: Json }> }
   | AppRequest;
 
 /** Parses raw text into a message from the app, or says why it was refused (never echoing content). */

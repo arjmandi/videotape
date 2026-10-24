@@ -117,6 +117,13 @@
               "affordance": "press"
             },
             {
+              "label": "Wave later",
+              "target": {
+                "handler": "wave_later"
+              },
+              "affordance": "press"
+            },
+            {
               "label": "Export",
               "target": {
                 "handler": "export"
@@ -758,6 +765,21 @@
       ]
     },
     "wave": {
+      "params": [
+        {
+          "name": "home",
+          "type": "record",
+          "record": "Home",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "wave_later": {
       "params": [
         {
           "name": "home",

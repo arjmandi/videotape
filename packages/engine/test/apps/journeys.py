@@ -8,6 +8,8 @@ by its address (under inbox). account signs out back to welcome.
 
 from __future__ import annotations
 
+import asyncio
+
 import videotape as vt
 
 
@@ -91,6 +93,16 @@ async def overdo(ctx, home: Home):
     return vt.stay()
 
 
+async def _wave_soon(home_id: str) -> None:
+    await asyncio.sleep(0.02)
+    vt.docs[Home, home_id].visits += 1                 # after the decision: the app's own change (Q54)
+
+
+async def wave_later(ctx, home: Home):
+    asyncio.get_running_loop().create_task(_wave_soon(home.id))
+    return vt.stay()
+
+
 async def export(ctx, home: Home):
     return vt.download("home.txt", home.greeting)
 
@@ -101,6 +113,7 @@ home = vt.tape("home", [
         vt.action("Confirm", ask),
         vt.action("Wave", wave),
         vt.action("Wave too much", overdo),
+        vt.action("Wave later", wave_later),
         vt.action("Export", export),
         vt.action("Help", vt.open("https://example.com/help")),
         vt.action("Copy greeting", vt.copy(Home.greeting)),

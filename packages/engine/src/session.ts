@@ -391,24 +391,25 @@ export class Session {
       return;
     }
     const secrets = opts.secrets ?? {};
-    const documents: Record<string, DocValue> = {};
     const values: JsonObject = { ...(opts.values ?? {}) };
     const edit = this.frame.edit?.record;
-    for (const p of spec.params) {
-      if (p.name in values) continue;
-      if (p.type !== "record" || !p.record) continue;
-      if (opts.item && opts.item.record === p.record) {
-        documents[p.name] = { ref: opts.item.ref, path: opts.item.path, record: p.record, value: opts.item.value };
-        continue;
+    /** The documents by reference and version (Q57); whole only where the app does not hold them. */
+    const documents = (): Record<string, DocValue> => {
+      const out: Record<string, DocValue> = {};
+      const mirror = engine.mirror;
+      for (const p of spec.params) {
+        if (p.name in values || p.type !== "record" || !p.record || !mirror) continue;
+        if (opts.item && opts.item.record === p.record) {
+          const entry = mirror.entry(opts.item.ref);
+          if (entry) out[p.name] = { ...entry, path: opts.item.path, record: p.record };
+          continue;
+        }
+        const ref = this.ref(p.record) ?? this.reel.head.visit.docs.get(p.record);
+        const entry = ref && mirror.entry(ref, p.record === edit ? secrets : undefined);
+        if (entry) out[p.name] = entry;
       }
-      const ref = this.ref(p.record) ?? this.reel.head.visit.docs.get(p.record);
-      const doc = ref && this.docs.get(ref);
-      if (!ref || !doc) continue;
-      const value = p.record === edit && isObject(doc.value) ? { ...doc.value, ...secrets } : doc.value;
-      documents[p.name] = { ref, value };
-    }
-    const request: Omit<DecideRequest, "id" | "t"> = { handler, session: this.id, user: this.user, documents };
-    if (Object.keys(values).length) request.values = values;
+      return out;
+    };
 
     this.status.pending = true;
     this.status.error = null;
@@ -416,7 +417,14 @@ export class Session {
     let decision: string | undefined;
     let result: ResultMessage | undefined;
     try {
-      result = await link.decide(request, Object.values(secrets), (id) => (decision = id));
+      for (let attempt = 0; ; attempt++) {
+        const request: Omit<DecideRequest, "id" | "t"> = { handler, session: this.id, user: this.user, documents: documents() };
+        if (Object.keys(values).length) request.values = values;
+        result = await link.decide(request, Object.values(secrets), (id) => (decision = id));
+        // The app's copy was missing or behind: send those documents whole, once, and ask again.
+        if (!("stale" in result) || attempt > 0) break;
+        engine.mirror?.stale(result.stale.map((s) => s.doc));
+      }
     } catch (e) {
       if (decision) this.docs.rollback(decision);
       this.status.pending = false;
@@ -442,6 +450,9 @@ export class Session {
     this.docs.rollback(decision!);
     if ("reject" in result) {
       this.status.error = result.reject.message;
+    } else if ("stale" in result) {
+      this.log.error("the app's copy of a document stayed stale", { session: this.id, handler });
+      this.status.error = SOMETHING_WENT_WRONG;
     } else {
       const error = "error" in result ? result.error : { type: "BadResult", message: "" };
       this.log.error("a handler raised", { session: this.id, handler, type: error.type, message: scrub(error.message, Object.values(secrets)).slice(0, 500) });
@@ -582,15 +593,22 @@ export class Session {
       this.status.error = APP_UNAVAILABLE;
       return [];
     }
-    const documents: Record<string, DocValue> = {};
-    for (const p of spec.params) {
-      if (p.type !== "record" || !p.record) continue;
-      const ref = visit.docs.get(p.record);
-      const doc = ref && this.docs.get(ref);
-      if (ref && doc) documents[p.name] = { ref, value: doc.value };
-    }
+    const documents = (): Record<string, DocValue> => {
+      const out: Record<string, DocValue> = {};
+      for (const p of spec.params) {
+        if (p.type !== "record" || !p.record) continue;
+        const ref = visit.docs.get(p.record);
+        const entry = ref && engine.mirror?.entry(ref);
+        if (entry) out[p.name] = entry;
+      }
+      return out;
+    };
     try {
-      const result = await link.load({ loader, session: this.id, user: this.user, args: visit.args, documents });
+      let result = await link.load({ loader, session: this.id, user: this.user, args: visit.args, documents: documents() });
+      if ("stale" in result) {
+        engine.mirror?.stale(result.stale.map((s) => s.doc));
+        result = await link.load({ loader, session: this.id, user: this.user, args: visit.args, documents: documents() });
+      }
       if ("documents" in result) return result.documents;
       const error = "error" in result ? result.error : { type: "BadResult", message: "" };
       this.log.error("a loader raised", { session: this.id, loader, type: error.type, message: error.message.slice(0, 500) });

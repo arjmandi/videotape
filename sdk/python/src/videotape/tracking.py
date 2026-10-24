@@ -1,11 +1,13 @@
 """Documents in the app process (05 §6.2): what a handler changes becomes `sync` ops as it is made.
 
-The engine sends a handler the documents its frame shows and edits; the SDK builds records from
-them and tracks each one, so `draft.text = ""`, `conv.messages.append(msg)`, and
-`msg.update(saved, pending=False)` each become an op on that document, sent in the same turn of
-the event loop. Paths name fields, and the items of lists of records by their key: the item's
-`vt.Id`, or a key the engine (or the SDK, for an item a handler adds) gave it. Lists of plain
-values change as a whole. Secret fields are never sent back.
+The app keeps a mirror of the documents its handlers touch (Q53), and their records are tracked,
+so `draft.text = ""`, `conv.messages.append(msg)`, and `msg.update(saved, pending=False)` each
+become an op on that document, sent in the same turn of the event loop: tentative under the
+decision whose task made it, or, outside any decision (a service, or work a handler left running),
+confirmed at once (Q54). Paths name fields, and the items of lists of records by their key: the
+item's `vt.Id`, or a key the engine (or the SDK, for an item a handler adds) gave it. Lists of
+plain values change as a whole. Secret fields are never sent back. `apply_op` patches a mirrored
+record with a change from the engine, without sending anything.
 """
 
 from __future__ import annotations
@@ -44,8 +46,9 @@ def mint() -> str:
 
 # ── keys ─────────────────────────────────────────────────────────────────────
 
-_keys: dict[int, tuple[Any, str]] = {}
-"""The key of each record item the SDK tracks: id(item) → (item, key)."""
+_keys: dict[int, tuple[Any, str, bool]] = {}
+"""The key of each record item the SDK tracks: id(item) → (item, key, pinned). Keys of items in the
+mirror are pinned: they outlive the decision that gave them out."""
 
 _scope: ContextVar[list[int] | None] = ContextVar("videotape_keys", default=None)
 
@@ -61,7 +64,9 @@ class keys_scope:
     def __exit__(self, *exc: Any) -> None:
         _scope.reset(self.token)
         for oid in self.ids:
-            _keys.pop(oid, None)
+            entry = _keys.get(oid)
+            if entry is not None and not entry[2]:
+                del _keys[oid]
 
 
 def key_of(item: Record) -> str:
@@ -76,11 +81,17 @@ def key_of(item: Record) -> str:
     return key
 
 
-def _set_key(item: Record, key: str) -> None:
-    _keys[id(item)] = (item, key)
+def _set_key(item: Record, key: str, pinned: bool = False) -> None:
+    _keys[id(item)] = (item, key, pinned)
     scope = _scope.get()
-    if scope is not None:
+    if scope is not None and not pinned:
         scope.append(id(item))
+
+
+def known_key(item: Any) -> str | None:
+    """The key an item was given, without giving it one."""
+    entry = _keys.get(id(item))
+    return entry[1] if entry is not None and entry[0] is item else None
 
 
 # ── to and from the wire ─────────────────────────────────────────────────────
@@ -183,65 +194,40 @@ def load_item(record: type[Record], data: Any, key: str | None) -> Record:
 # ── tracking ─────────────────────────────────────────────────────────────────
 
 
-class Tracker:
-    """Turns changes to tracked records into ops, and hands them to `emit` once per event-loop turn.
+def active() -> Tracker | None:
+    """Where a change to a mirrored record goes: the decision this task runs, while it runs; else the
+    app's own changes, confirmed at once (Q54)."""
+    t = current.get()
+    if t is not None and not t.closed:
+        return t
+    from . import serve
 
-    A tracker belongs to one decision (its ops are tentative under it) or to no decision (its ops are
-    confirmed at once, as `vt.docs` outside a handler makes them).
-    """
+    return serve.client.outside if serve.client is not None else None
 
-    def __init__(self, emit: Callable[[list[dict[str, Any]], str | None], None], decision: str | None = None) -> None:
-        self.emit = emit
-        self.decision = decision
-        self.changes: list[dict[str, Any]] = []
-        self.objects: list[int] = []
-        self.closed = False
-        self._scheduled = False
-        try:
-            self.loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
-        except RuntimeError:
-            self.loop = None
 
-    # ── ops ──
+class Binding:
+    """Attaches records to a document so their changes become ops: a decision's tracker, or the app's
+    mirror, whose records send each change to whichever decision is running (`active`)."""
+
+    local = False
+    """Whether changes also land in the app's mirror as they are made (its records are the mirror)."""
+
+    def target(self) -> Tracker | None:
+        raise NotImplementedError
 
     def op(self, ref: dict[str, Any], op: dict[str, Any]) -> None:
-        if self.closed:
-            return
-        if self.changes and self.changes[-1]["doc"] == ref:
-            self.changes[-1]["ops"].append(op)
-        else:
-            self.changes.append({"doc": ref, "ops": [op]})
-        if not self._scheduled:
-            self._scheduled = True
-            if self.loop is not None and not self.loop.is_closed():
-                self.loop.call_soon_threadsafe(self.flush)
+        t = self.target()
+        if t is not None:
+            t.op(ref, op, self.local)
 
-    def flush(self) -> None:
-        self._scheduled = False
-        if not self.changes:
-            return
-        changes, self.changes = self.changes, []
-        self.emit(changes, self.decision)
-
-    def close(self) -> None:
-        """Sends what is left and stops tracking: later changes to these records are not sent."""
-        self.flush()
-        self.closed = True
-        for oid in self.objects:
-            _tracked.pop(oid, None)
-        self.objects.clear()
-
-    # ── attaching ──
-
-    def adopt(self, record: type[Record], data: Any, ref: dict[str, Any], path: Iterable[Any] = ()) -> Record:
-        """A tracked record from the engine's JSON: a whole document, or an item at `path` in one."""
-        path = tuple(path)
-        if path and isinstance(path[-1], dict) and "key" in path[-1]:
-            value = load_item(record, data, path[-1]["key"])
-        else:
-            value = load(record, data)
-        self.attach(value, ref, path)
-        return value
+    def key(self, item: Record, key: str | None = None) -> str:
+        """The item's key, given now if it has none; the mirror pins it."""
+        key = key or key_of(item)
+        if self.local:
+            _set_key(item, key, pinned=True)
+        elif known_key(item) != key:
+            _set_key(item, key)
+        return key
 
     def attach(self, value: Any, ref: dict[str, Any], path: Path) -> None:
         if not isinstance(value, Record):
@@ -264,7 +250,102 @@ class Tracker:
             record.__dict__[name] = tracked
             for item in tracked:
                 if isinstance(item, Record):
-                    self.attach(item, ref, (*path, name, {"key": key_of(item)}))
+                    self.attach(item, ref, (*path, name, {"key": self.key(item)}))
+
+    def _own(self, obj: Any, owner: Owner) -> None:
+        _tracked[id(obj)] = (obj, owner)
+
+    def release(self, obj: Any) -> None:
+        untrack(obj)
+
+
+def untrack(obj: Any) -> None:
+    """Stops tracking a record and everything in it, and forgets the keys of its items."""
+    if isinstance(obj, Record):
+        entry = _tracked.get(id(obj))
+        if entry is not None and entry[0] is obj:
+            del _tracked[id(obj)]
+        known = _keys.get(id(obj))
+        if known is not None and known[0] is obj:
+            del _keys[id(obj)]
+        for spec in fields_of(type(obj)):
+            child = obj.__dict__.get(spec.name)
+            if isinstance(child, list):
+                for item in child:
+                    untrack(item)
+            elif isinstance(child, Record):
+                untrack(child)
+
+
+class Tracker(Binding):
+    """Turns changes to tracked records into ops, and hands them to `emit` once per event-loop turn.
+
+    A tracker belongs to one decision (its ops are tentative under it) or to no decision (its ops are
+    confirmed at once, as the app's own changes are). Records it adopts itself (those the mirror
+    never holds: records with secrets) go to it alone.
+    """
+
+    def __init__(self, emit: Callable[[list[dict[str, Any]], str | None], None], decision: str | None = None) -> None:
+        self.emit = emit
+        self.decision = decision
+        self.changes: list[dict[str, Any]] = []
+        self.objects: list[int] = []
+        self.closed = False
+        self.on_local: Callable[[dict[str, Any]], None] | None = None
+        """Told of each change it sends that the app's mirror applied already (its own records' changes)."""
+        self._scheduled = False
+        try:
+            self.loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = None
+
+    def target(self) -> Tracker | None:
+        return self
+
+    # ── ops ──
+
+    def op(self, ref: dict[str, Any], op: dict[str, Any], local: bool = False) -> None:  # type: ignore[override]
+        if self.closed:
+            return
+        last = self.changes[-1] if self.changes else None
+        if last is not None and last["doc"] == ref and last["local"] == local:
+            last["ops"].append(op)
+        else:
+            self.changes.append({"doc": ref, "ops": [op], "local": local})
+        if not self._scheduled:
+            self._scheduled = True
+            if self.loop is not None and not self.loop.is_closed():
+                self.loop.call_soon_threadsafe(self.flush)
+
+    def flush(self) -> None:
+        self._scheduled = False
+        if not self.changes:
+            return
+        changes, self.changes = self.changes, []
+        for change in changes:
+            if change.pop("local") and self.on_local is not None:
+                self.on_local(change["doc"])
+        self.emit(changes, self.decision)
+
+    def close(self) -> None:
+        """Sends what is left and stops tracking: later changes to its own records are not sent."""
+        self.flush()
+        self.closed = True
+        for oid in self.objects:
+            _tracked.pop(oid, None)
+        self.objects.clear()
+
+    # ── attaching ──
+
+    def adopt(self, record: type[Record], data: Any, ref: dict[str, Any], path: Iterable[Any] = ()) -> Record:
+        """A tracked record from the engine's JSON: a whole document, or an item at `path` in one."""
+        path = tuple(path)
+        if path and isinstance(path[-1], dict) and "key" in path[-1]:
+            value = load_item(record, data, path[-1]["key"])
+        else:
+            value = load(record, data)
+        self.attach(value, ref, path)
+        return value
 
     def _own(self, obj: Any, owner: Owner) -> None:
         _tracked[id(obj)] = (obj, owner)
@@ -276,21 +357,33 @@ class Tracker:
             del _tracked[id(obj)]
 
 
+class MirrorBinding(Binding):
+    """The binding of the app's mirrored records: permanent, sending each change where `active` says."""
+
+    local = True
+
+    def target(self) -> Tracker | None:
+        return active()
+
+
+MIRROR = MirrorBinding()
+
+
 class Owner:
-    """Where a tracked record sits: its document and the path to it."""
+    """Where a tracked record sits: its binding, its document, and the path to it."""
 
-    __slots__ = ("tracker", "ref", "path")
+    __slots__ = ("binding", "ref", "path")
 
-    def __init__(self, tracker: Tracker, ref: dict[str, Any], path: Path) -> None:
-        self.tracker, self.ref, self.path = tracker, ref, path
+    def __init__(self, binding: Binding, ref: dict[str, Any], path: Path) -> None:
+        self.binding, self.ref, self.path = binding, ref, path
 
     def field_set(self, record: Record, name: str) -> None:
         """Called after `record.name = value` was validated and stored."""
         spec = next((s for s in fields_of(type(record)) if s.name == name), None)
         if spec is None or _secret(spec.kind):
             return
-        self.tracker.op(self.ref, {"op": "set", "path": _wire((*self.path, name)), "value": field_json(record, name)})
-        self.tracker.attach_field(record, name, self.ref, self.path)
+        self.binding.op(self.ref, {"op": "set", "path": _wire((*self.path, name)), "value": field_json(record, name)})
+        self.binding.attach_field(record, name, self.ref, self.path)
 
 
 def _wire(path: Path) -> list[Any]:
@@ -301,9 +394,9 @@ class TrackedList(list):
     """A list in a tracked document. `append`, `prepend`, `insert`, `remove`, `pop`, and `replace`
     become ops on its items; anything else (sorting, slices, `clear`) sets the whole list."""
 
-    def __init__(self, items: Iterable[Any], tracker: Tracker, ref: dict[str, Any], path: Path, item: Kind, annotation: Any) -> None:
+    def __init__(self, items: Iterable[Any], binding: Binding, ref: dict[str, Any], path: Path, item: Kind, annotation: Any) -> None:
         super().__init__(items)
-        self._tracker, self._ref, self._path, self._item = tracker, ref, path, item
+        self._binding, self._ref, self._path, self._item = binding, ref, path, item
         self._adapter = TypeAdapter(_item_annotation(annotation))
 
     @property
@@ -316,7 +409,7 @@ class TrackedList(list):
         return self._adapter.validate_python(value)
 
     def _op(self, op: dict[str, Any]) -> None:
-        self._tracker.op(self._ref, {**op, "path": _wire(self._path)})
+        self._binding.op(self._ref, {**op, "path": _wire(self._path)})
 
     def _json(self, value: Any) -> Any:
         return _item_json(value) if isinstance(value, Record) else self._adapter.dump_python(value, mode="json")
@@ -325,14 +418,14 @@ class TrackedList(list):
         self._op({"op": "set", "value": [self._json(v) for v in self]})
         for item in self:
             if isinstance(item, Record):
-                self._tracker.attach(item, self._ref, (*self._path, {"key": key_of(item)}))
+                self._binding.attach(item, self._ref, (*self._path, {"key": self._binding.key(item)}))
 
     def _added(self, item: Any, at: Any) -> Any:
         if not self._records:
             self._whole()
             return item
-        key = key_of(item)
-        self._tracker.attach(item, self._ref, (*self._path, {"key": key}))
+        key = self._binding.key(item)
+        self._binding.attach(item, self._ref, (*self._path, {"key": key}))
         self._op({"op": "insert", "key": key, "value": dump(item), "at": at})
         return item
 
@@ -369,7 +462,7 @@ class TrackedList(list):
             self._whole()
             return
         self._op({"op": "remove", "key": key_of(item)})
-        self._tracker.release(item)
+        self._binding.release(item)
 
     def remove(self, value: Any) -> None:
         index = next((i for i, v in enumerate(self) if v is value), None)
@@ -403,9 +496,9 @@ class TrackedList(list):
         old = self[index]
         key = key_of(old)
         super().__setitem__(index, item)
-        self._tracker.release(old)
-        _set_key(item, key)
-        self._tracker.attach(item, self._ref, (*self._path, {"key": key}))
+        self._binding.release(old)
+        self._binding.key(item, key)
+        self._binding.attach(item, self._ref, (*self._path, {"key": key}))
         self._op({"op": "replace", "key": key, "value": dump(item)})
         return item
 
@@ -422,9 +515,9 @@ class TrackedList(list):
         old = self[index]
         key = key_of(old)
         super().__setitem__(index, item)
-        self._tracker.release(old)
-        _set_key(item, key)
-        self._tracker.attach(item, self._ref, (*self._path, {"key": key}))
+        self._binding.release(old)
+        self._binding.key(item, key)
+        self._binding.attach(item, self._ref, (*self._path, {"key": key}))
         self._op({"op": "replace", "key": key, "value": dump(item)})
 
     def __copy__(self) -> list[Any]:
@@ -438,7 +531,7 @@ class TrackedList(list):
 
     def clear(self) -> None:
         for item in self:
-            self._tracker.release(item)
+            self._binding.release(item)
         super().clear()
         self._whole()
 
@@ -465,3 +558,123 @@ def _item_annotation(annotation: Any) -> Any:
             break
     args = get_args(t)
     return args[0] if args else Any
+
+
+# ── changes from the engine ──────────────────────────────────────────────────
+
+
+class Unapplicable(Exception):
+    """An engine change does not fit the app's copy: the copy is dropped and fetched whole again."""
+
+
+def _spec(record: type[Record], name: str) -> Any:
+    spec = next((s for s in fields_of(record) if s.name == name), None)
+    if spec is None:
+        raise Unapplicable(f"{record.__name__} has no field {name}")
+    return spec
+
+
+def _find(items: list[Any], key: str | None, ident: str | None) -> int:
+    for i, item in enumerate(items):
+        if key is not None and known_key(item) == key:
+            return i
+    if ident is not None:
+        for i, item in enumerate(items):
+            field = id_field(type(item)) if isinstance(item, Record) else None
+            if field and getattr(item, field) is not None and str(getattr(item, field)) == ident:
+                return i
+    raise Unapplicable(f"no item {key or ident}")
+
+
+def _owner(obj: Any) -> Owner:
+    entry = _tracked.get(id(obj))
+    if entry is None or entry[0] is not obj:
+        raise Unapplicable("the copy is not tracked")
+    return entry[1]
+
+
+def _set_field(record: Record, name: str, value: Any) -> None:
+    """Sets a field of a mirrored record from engine JSON: validated, tracked again, and not sent."""
+    from pydantic import BaseModel
+
+    spec = _spec(type(record), name)
+    built: Any = value
+    if value is not None and spec.kind.type == "record" and isinstance(value, dict):
+        built = load(spec.kind.target, value)
+    elif value is not None and spec.kind.type == "collection" and spec.kind.item is not None and spec.kind.item.type == "record":
+        built = [load_item(spec.kind.item.target, v, v.get(KEY)) for v in value]
+    old = record.__dict__.get(name)
+    BaseModel.__setattr__(record, name, built)            # validates; skips Record's tracking hook
+    if isinstance(old, (Record, list)):
+        for item in old if isinstance(old, list) else [old]:
+            untrack(item)
+    owner = _owner(record)
+    MIRROR.attach_field(record, name, owner.ref, owner.path)
+
+
+def apply_op(root: Record, op: dict[str, Any]) -> None:
+    """Applies one engine op to a mirrored record in place, as the engine applied it, sending nothing."""
+    path = op["path"]
+    if not path:
+        raise Unapplicable("an empty path")
+    parent: Any = root
+    for seg in path[:-1]:
+        if isinstance(seg, dict):
+            parent = parent[_find(parent, seg.get("key"), None)] if isinstance(parent, list) else None
+        else:
+            parent = getattr(parent, seg, None) if isinstance(parent, Record) else None
+        if parent is None:
+            raise Unapplicable("the path is not in the copy")
+    last = path[-1]
+    kind = op["op"]
+    if kind == "set":
+        if isinstance(last, dict):
+            if not isinstance(parent, TrackedList) or parent._item.type != "record":
+                raise Unapplicable("not a list of records")
+            i = _find(parent, last.get("key"), None)
+            _swap(parent, i, op["value"], last["key"])
+        elif isinstance(parent, Record):
+            _set_field(parent, last, op["value"])
+        else:
+            raise Unapplicable("not a record")
+        return
+    if not isinstance(parent, Record) or isinstance(last, dict):
+        raise Unapplicable("not a list field")
+    items = getattr(parent, last, None)
+    if items is None:
+        _set_field(parent, last, [])
+        items = getattr(parent, last)
+    if not isinstance(items, TrackedList) or items._item.type != "record":
+        raise Unapplicable("not a list of records")
+    if kind == "remove":
+        i = _find(items, op.get("key"), op.get("id"))
+        untrack(list.pop(items, i))
+    elif kind == "insert":
+        item = load_item(items._item.target, op["value"], op["key"])
+        at = op.get("at", "end")
+        if at == "end":
+            index = len(items)
+        elif at == "start":
+            index = 0
+        else:
+            anchor = at.get("before") or at.get("after")
+            try:
+                index = _find(items, anchor, None) + (0 if "before" in at else 1)
+            except Unapplicable:
+                index = len(items)
+        list.insert(items, index, item)
+        MIRROR.key(item, op["key"])
+        MIRROR.attach(item, items._ref, (*items._path, {"key": op["key"]}))
+    elif kind == "replace":
+        i = _find(items, op.get("key"), op.get("id"))
+        _swap(items, i, op["value"], known_key(items[i]) or op.get("key") or mint())
+    else:
+        raise Unapplicable(f"no op {kind}")
+
+
+def _swap(items: TrackedList, index: int, value: Any, key: str) -> None:
+    item = load_item(items._item.target, value, key)
+    untrack(items[index])
+    list.__setitem__(items, index, item)
+    MIRROR.key(item, key)
+    MIRROR.attach(item, items._ref, (*items._path, {"key": key}))

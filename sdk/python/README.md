@@ -41,8 +41,9 @@ warnings, 1 on errors, and 2 when it cannot load the app.
 | `spec` | The intent document's JSON Schema, published as [`intent.schema.json`](src/videotape/intent.schema.json) |
 | `graph`, `check`, `cli` | The journey graph (ported from prototype-0) with history roots, back, and the hub; the check rules; the `videotape` command |
 | `serve` | The app protocol's client: `register`, then `load`, `page`, and `decide` answered with the app's loaders and handlers (as `vt.invoke` calls them), `sync` for document changes, `log` for the app's log lines, scrubbed of secrets. The shapes are in [`packages/engine/README.md`](../../packages/engine/README.md) |
-| `tracking` | The documents a handler receives are tracked: each assignment and list change (`append` returns the item; `prepend`, `insert`, `remove`, `pop`, `replace` by `vt.Id`) becomes a `sync` op in the same event-loop turn, tentative under the decision; secret fields are never sent |
-| `documents` | `vt.docs[Record, id]`: a write handle on a document the engine holds, for code outside handlers; its changes are confirmed at once (tentative inside a handler) |
+| `mirror` | The app's copy of the documents its handlers touch (Q53): requests name them by version, `sync` from the engine keeps them current, and a copy that does not line up is dropped (`forget`) and sent whole again |
+| `tracking` | The documents a handler receives are tracked: each assignment and list change (`append` returns the item; `prepend`, `insert`, `remove`, `pop`, `replace` by `vt.Id`) becomes a `sync` op in the same event-loop turn, tentative under the decision whose task made it, or confirmed when no decision runs (Q54); secret fields are never sent; `apply_op` patches a copy with the engine's changes |
+| `documents` | `vt.docs[Record, id]`: the app's copy of a document when it holds one (it reads and writes), else a handle that writes; `await vt.docs.fetch(Record, id)` asks the engine for a copy. Changes outside a running decision are confirmed at once |
 
 **Records and frames.** A frame shows the records the user reads (`shows=Page`, or
 `shows=[Page, Results]`) and edits the one the user writes. A record with a `vt.Id` field is a
@@ -278,4 +279,4 @@ no new ones.
 
 The composer and its reference screens, `vt.testing.play` (the engine's headless driver plays
 journeys from TypeScript for now), `vt.world`, `videotape new`, `dev`, `graph`, `release`, and
-`export`, and the TypeScript SDK. `vt.docs` writes and does not read (engine question Q-A).
+`export`, and the TypeScript SDK.

@@ -5,8 +5,8 @@
 import { IntentError, type Intent, loadIntent } from "./intent";
 import { type Logger, scrub } from "./log";
 import {
-  APP_PROTOCOL_VERSION, type AppRequest, type DecideRequest, type EngineMessage, type LoadRequest, type LogMessage,
-  type PageRequest, type ResultMessage, type SyncMessage, decodeAppMessage,
+  APP_PROTOCOL_VERSION, type AppRequest, type DecideRequest, type DocRef, type EngineMessage, type FetchMessage,
+  type LoadRequest, type LogMessage, type PageRequest, type ResultMessage, type SyncMessage, decodeAppMessage,
 } from "./protocol";
 
 export interface Transport {
@@ -20,6 +20,10 @@ export interface AppHost {
   registered(link: AppLink, intent: Intent): void;
   /** Document changes: tentative under `msg.decision`, or confirmed. */
   sync(link: AppLink, msg: SyncMessage): void;
+  /** The app dropped its copy of these documents. */
+  forget(link: AppLink, docs: DocRef[]): void;
+  /** The app asks for documents it does not hold. */
+  fetch(link: AppLink, msg: FetchMessage): void;
   /** The connection ended; every request still open has failed. */
   closed(link: AppLink): void;
 }
@@ -110,7 +114,7 @@ export class AppLink {
     });
   }
 
-  private send(msg: EngineMessage): void {
+  send(msg: EngineMessage): void {
     if (!this.open) return;
     this.transport.send(JSON.stringify(msg));
   }
@@ -167,6 +171,10 @@ export class AppLink {
         return;
       case "log":
         return this.appLog(msg);
+      case "forget":
+        return this.host.forget(this, msg.docs);
+      case "fetch":
+        return this.host.fetch(this, msg);
     }
   }
 

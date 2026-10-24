@@ -21,7 +21,7 @@ export interface DocSeen {
   state: "confirmed" | "tentative" | "rolledback";
   /** Whether the document still carried changes of a running decision after this change. */
   tentative: boolean;
-  /** The document as the session saw it right after the change. */
+  /** The document as the session saw it right after the change (unless the driver keeps no snapshots). */
   value: any;
   /** When it was heard, in ms (performance.now()). */
   at: number;
@@ -39,9 +39,14 @@ export class Headless {
   changes: DocSeen[] = [];
   private seq = 0;
   private readonly secrets = new Map<string, string>();
+  private readonly snapshots: boolean;
 
-  /** A driver for a session; `events` are what it heard before (its first frame), if it listened. */
-  constructor(readonly session: Session, events?: SessionEvent[]) {
+  /**
+   * A driver for a session; `events` are what it heard before (its first frame), if it listened.
+   * Without `snapshots`, changes are recorded without a copy of the document (for measurements).
+   */
+  constructor(readonly session: Session, events?: SessionEvent[], opts: { snapshots?: boolean } = {}) {
+    this.snapshots = opts.snapshots ?? true;
     if (events) {
       this.events = events;
       session.on((e) => this.hear(e, false));
@@ -51,10 +56,10 @@ export class Headless {
   }
 
   /** Opens a session on `engine` and drives it from its first frame. */
-  static async open(engine: Engine, opts: OpenOptions = {}): Promise<Headless> {
+  static async open(engine: Engine, opts: OpenOptions = {}, driver: { snapshots?: boolean } = {}): Promise<Headless> {
     const events: SessionEvent[] = [];
     const session = await engine.open({ ...opts, listener: (e) => events.push(e) });
-    return new Headless(session, events);
+    return new Headless(session, events, driver);
   }
 
   private get engine(): Engine {
@@ -66,7 +71,8 @@ export class Headless {
     if (e.t === "clear") for (const f of e.fields) this.secrets.delete(f);
     if (e.t === "doc") {
       const docs = this.engine.docs;
-      this.changes.push({ record: e.record, state: e.state, tentative: docs.isTentative(e.ref), value: docs.read(e.ref), at: performance.now() });
+      const value = this.snapshots ? docs.read(e.ref) : undefined;
+      this.changes.push({ record: e.record, state: e.state, tentative: docs.isTentative(e.ref), value, at: performance.now() });
     }
   }
 

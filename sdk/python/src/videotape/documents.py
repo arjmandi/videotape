@@ -1,10 +1,12 @@
 """Documents (05 §6.2): the engine holds each record instance once and syncs it to every screen.
 
-`vt.docs[Conversation, cid]` is a handle on a document the engine holds, for code that runs outside
-a handler, such as a service receiving a message. A handle writes: assignments and list changes
-become `sync` ops, confirmed at once (tentative, when it is used inside a handler, under that
-handler's decision). It does not read: the app process keeps no copy of documents, and a handler
-receives the ones it needs. Changes to a document no session shows are dropped by the engine.
+`vt.docs[Conversation, cid]` is a document the engine holds, for code that runs outside a handler,
+such as a service receiving a message, or work a handler left running. When the app holds a copy
+of it (the mirror, Q53: every document a handler has received), it is that copy: it reads, and its
+changes become `sync` ops. Otherwise it is a handle that only writes; `await vt.docs.fetch(...)`
+asks the engine for a copy. Changes made outside a running decision are confirmed at once, never
+tentative (Q54); inside one, they are tentative under it. Changes to a document no session shows
+are dropped by the engine.
 """
 
 from __future__ import annotations
@@ -17,13 +19,11 @@ from .records import Record, fields_of, id_field
 
 
 def _emit(ref: dict[str, Any], op: dict[str, Any]) -> None:
-    from . import serve, tracking
+    from .tracking import active
 
-    tracker = tracking.current.get()
+    tracker = active()
     if tracker is None:
-        if serve.client is None or serve.client.outside is None:
-            raise RuntimeError("vt.docs needs the engine: run the app with `videotape serve`")
-        tracker = serve.client.outside
+        raise RuntimeError("vt.docs needs the engine: run the app with `videotape serve`")
     tracker.op(ref, op)
 
 
@@ -50,8 +50,10 @@ class DocHandle:
             return ListHandle(self._record, name, annotation, self._ref, (*self._path, name))
         if spec.kind.type == "record":
             return DocHandle(spec.kind.target, self._ref, (*self._path, name))
+        ref = self._ref
         raise AttributeError(
-            f"vt.docs[...] changes documents and does not read them; {self._record.__name__}.{name} is read in a handler"
+            f"the app holds no copy of {ref['record']} {ref['id']}, so vt.docs[...] can change it but not read "
+            f"{self._record.__name__}.{name}; `await vt.docs.fetch({ref['record']}, ...)` asks the engine for a copy"
         )
 
     def __setattr__(self, name: str, value: Any) -> None:
@@ -122,16 +124,40 @@ class ListHandle:
         return item
 
 
+def _ref(record: Any, ident: Any) -> dict[str, Any]:
+    if not (isinstance(record, type) and issubclass(record, Record)):
+        raise TypeError("vt.docs takes a record type and an id: vt.docs[Conversation, conversation_id]")
+    if id_field(record) is None:
+        raise TypeError(f"{record.__name__} has no vt.Id, so it is a session's own document and has no address")
+    return {"record": record.__name__, "id": str(ident)}
+
+
 class _Documents:
     """`vt.docs[Conversation, cid]`: a document by record type and id, from anywhere in the app process."""
 
-    def __getitem__(self, key: tuple[type, Any]) -> DocHandle:
-        if not (isinstance(key, tuple) and len(key) == 2 and isinstance(key[0], type) and issubclass(key[0], Record)):
+    def __getitem__(self, key: tuple[type, Any]) -> Any:
+        if not (isinstance(key, tuple) and len(key) == 2):
             raise TypeError("vt.docs takes a record type and an id: vt.docs[Conversation, conversation_id]")
         record, ident = key
-        if id_field(record) is None:
-            raise TypeError(f"{record.__name__} has no vt.Id, so it is a session's own document and has no address")
-        return DocHandle(record, {"record": record.__name__, "id": str(ident)})
+        ref = _ref(record, ident)
+        from . import serve
+
+        copy = serve.client.mirror.get(ref) if serve.client is not None else None
+        return copy.obj if copy is not None else DocHandle(record, ref)
+
+    async def fetch(self, record: type[Record], ident: Any) -> Record | None:
+        """The app's copy of a document, asked of the engine if the app holds none; None when no
+        session holds the document."""
+        ref = _ref(record, ident)
+        from . import serve
+
+        c = serve.client
+        if c is None:
+            raise RuntimeError("vt.docs needs the engine: run the app with `videotape serve`")
+        if c.mirror.get(ref) is None:
+            await c.fetch([ref])
+        copy = c.mirror.get(ref)
+        return copy.obj if copy is not None else None
 
 
 docs = _Documents()

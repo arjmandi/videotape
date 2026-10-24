@@ -35,6 +35,18 @@ export async function play(name: string, opts: { timeoutMs?: number } = {}): Pro
   };
 }
 
+/** Records every message the engine sends the connected app, from now on. */
+export function spy(engine: Engine): any[] {
+  const link = engine.link!;
+  const seen: any[] = [];
+  const send = link.send.bind(link);
+  link.send = (msg) => {
+    seen.push(structuredClone(msg));
+    send(msg);
+  };
+  return seen;
+}
+
 type Reply = Omit<ResultMessage, "t" | "id"> | Record<string, unknown>;
 
 export interface FakeApp {
@@ -42,6 +54,10 @@ export interface FakeApp {
   lines: LogLine[];
   link: AppLink;
   requests: AppRequest[];
+  /** Everything the engine sent the app. */
+  received: any[];
+  /** Sends any message as the app would. */
+  say(msg: unknown): void;
   /** Sends changes as the app would; tentative when `decision` is given. */
   sync(changes: unknown[], decision?: string): void;
   /** The app goes away. */
@@ -53,11 +69,13 @@ export function fake(name: string, answer: (req: AppRequest, app: FakeApp) => Re
   const logger = memoryLogger();
   const engine = new Engine({ logger, ...opts });
   const requests: AppRequest[] = [];
+  const received: any[] = [];
   let open = true;
   const app = {} as FakeApp;
   const link: AppLink = new AppLink(engine, {
     send: (text) => {
       const msg = JSON.parse(text);
+      received.push(msg);
       if (msg.t !== "load" && msg.t !== "decide" && msg.t !== "page") return;
       requests.push(msg);
       void Promise.resolve(answer(msg, app)).then((reply) => {
@@ -70,7 +88,8 @@ export function fake(name: string, answer: (req: AppRequest, app: FakeApp) => Re
     },
   }, { logger, timeoutMs: opts.timeoutMs ?? 5_000 });
   Object.assign(app, {
-    engine, lines: logger.lines, link, requests,
+    engine, lines: logger.lines, link, requests, received,
+    say: (msg: unknown) => link.receive(JSON.stringify(msg)),
     sync: (changes: unknown[], decision?: string) => link.receive(JSON.stringify({ t: "sync", changes, ...(decision ? { decision } : {}) })),
     disconnect: () => {
       open = false;

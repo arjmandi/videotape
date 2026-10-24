@@ -37,17 +37,37 @@ with `error` and dropped, and its content is never echoed or logged.
 | engine → app | `load` | `id`, `loader`, `session`, `user`, `args` (the tape's arguments), `documents` (earlier frames' documents the loader takes, by parameter) |
 | engine → app | `page` | `id`, `loader`, `session`, `user`, `cursor`, `documents` |
 | engine → app | `decide` | `id`, `handler`, `session`, `user`, `documents` (by parameter), `values` (a call's `result`) |
-| app → engine | `result` | `id`, and one of `outcome`, `reject: {message}`, `documents: [{record, value}]`, `page: {items, next}`, `error: {type, message}` |
+| app → engine | `result` | `id`, and one of `outcome`, `reject: {message}`, `documents: [{record, value}]`, `page: {items, next}`, `error: {type, message}`, `stale: [{doc, have}]` |
 | app → engine | `sync` | `changes: [{doc, ops}]`, and `decision` when they are tentative under a decision |
+| engine → app | `sync` | `changes: [{doc, version, from, ops}` or `{doc, version, value}` or `{doc, version, from, origin: "app"}]`, `drop: [doc]`: keeps the app's mirror current |
+| app → engine | `forget` | `docs`: the app dropped its copies of these |
+| app → engine | `fetch` / engine → app `fetched` | `id`, `docs` / `id`, `documents: [{doc, version, value}]`: a copy the app asks for (`await vt.docs.fetch(...)`) |
 | app → engine | `log` | `level`, `message`, `logger`: the app's log lines, scrubbed of secrets by the SDK and again by the engine |
 | app → engine | `ping` / engine → app `pong` | keepalive |
 
 **Documents on the wire.** A shared document is addressed as `{record, id}` (its `vt.Id`), a
 session's own as `{record, local}` with a key the engine chose. A document's value is its record's
 JSON, and each record item of a list carries its key as `"@key"`: its `vt.Id` when it has one, or a
-key the engine (`~e…`) or the SDK (`~<process>.<n>`) minted. A `documents` entry that is an item
-of a list also has `path` and `record`. `user` is `{record, id, value}`, the record `sign_in=`
-passed, and an outcome that signs in carries `sign_in` in that shape.
+key the engine (`~e…`) or the SDK (`~<process>.<n>`) minted. An item keeps its first key after it is
+saved with an Id (Q55). A `documents` entry is `{ref, version}`, plus `value` (the whole document)
+only when the app does not hold that version (below); one that is an item of a list also has `path`
+and `record`. `user` is `{record, id, value}`, the record `sign_in=` passed, and an outcome that
+signs in carries `sign_in` in that shape.
+
+**The app's mirror (Q53, Q57).** The app keeps a copy of every document a request has sent it, and
+the engine records which version it holds (`src/mirror.ts`; `videotape/mirror.py` on the app's
+side). A request names a document by reference and version, and sends it whole only when the app
+does not hold that version; the app answers with changes only, so the cost of a decision does not
+grow with the document. Every change the app did not make reaches its copy as `sync`: ops from the
+version it holds, or the whole value when no ops describe it (a rollback, a reload). The app's own
+changes land in its copy as they are made, so the engine echoes them with the version they reached
+(`origin: "app"`) instead of sending them back; if it refused any of them, it sends the whole value.
+When a copy does not line up (a version gap, a change from elsewhere while the app's own are in
+flight, an op that does not fit), the app drops it and says `forget`; when a request names a version
+the app does not hold, it answers `stale` without running anything, and the engine asks once more
+with those documents whole. A document the engine drops is dropped from the mirror (`drop`).
+Records with secret fields are never mirrored: a decision gets them whole, with its secrets.
+`vt.docs[Record, id]` is the app's copy when it holds one, so it reads as well as writes.
 
 **Ops.** A path is a list of field names and `{"key": ...}` segments for items of lists of records.
 
@@ -58,11 +78,12 @@ passed, and an outcome that signs in carries `sign_in` in that shape.
 | `{op: "remove", path, key \| id}` | remove the item with this key, or with this `vt.Id` (from `vt.docs`) |
 | `{op: "replace", path, key \| id, value}` | replace an item; the new item keeps the old one's key |
 
-**Tentative and confirmed.** While a handler runs, the SDK sends each change as it is made: the
-changes of one event-loop turn travel as one `sync` with the decision's id. The decision's
-`result` confirms them; an `error` or a `reject` rolls them back. A `sync` without `decision`
-(`vt.docs` outside a handler) is confirmed at once. The SDK sends all of a decision's changes
-before its result, and the WebSocket keeps that order.
+**Tentative and confirmed (Q54).** While a handler runs, the SDK sends each change as it is made:
+the changes of one event-loop turn travel as one `sync` with the decision's id. The decision's
+`result` confirms them; an `error` or a `reject` rolls them back. A change made outside a running
+decision (`vt.docs` from a service, or work a handler started in the background and left running)
+is the app's own change: sent without `decision`, applied at once, never tentative. The SDK sends
+all of a decision's changes before its result, and the WebSocket keeps that order.
 
 **Secrets.** A secret travels from the client to the engine only with the press that submits it,
 is merged into the edited document of that one `decide`, and is dropped when the decision ends.
@@ -160,22 +181,22 @@ with it.
 ## Latency (E5, E10)
 
 `npx -y pnpm@9.15.0 --filter @videotape/engine latency` (bench/latency.ts) plays the sample apps'
-Python processes over a local WebSocket, 300 times after 30 warm-ups. On an Apple-silicon Mac,
-Node 20.18, Python 3.14 (2026-10-24):
+Python processes over a local WebSocket, 300 times after 30 warm-ups, with the driver keeping no
+document snapshots. On an Apple-silicon Mac, Node 20.18, Python 3.14 (2026-10-24), p50 / p95:
 
-| What | p50 | p95 | p99 |
-|------|-----|-----|-----|
-| A local change: a fill until the session hears the document change | 0.024 ms | 0.047 ms | 0.070 ms |
-| A decision (journeys' Wave, no service call): press → change shown, tentative | 0.32 ms | 0.46 ms | 0.85 ms |
-| The same: press → outcome played, confirmed | 0.36 ms | 0.52 ms | 0.90 ms |
-| relay's Send (its fake service waits 1 ms), 32–131 messages: press → shown in the other session | 2.1 ms | 3.5 ms | 3.6 ms |
-| The same: press → confirmed in the other session | 3.6 ms | 5.2 ms | 5.5 ms |
-| relay's Send, 232–331 messages: press → shown in the other session | 6.5 ms | 8.3 ms | 12.7 ms |
-| The same: press → confirmed in the other session | 8.7 ms | 11.9 ms | 15.4 ms |
+| What | Before the mirror (8185a75) | With the mirror |
+|------|-----------------------------|-----------------|
+| A local change: a fill until the session hears it | 0.017 / 0.028 ms | 0.037 / 0.067 ms |
+| A decision with no service call (journeys' Wave): press → outcome played | 0.31 / 0.41 ms | 0.32 / 0.43 ms |
+| relay's Send, 32–131 messages: press → shown in the other session, tentative | 2.02 / 2.84 ms | 0.46 / 0.79 ms |
+| relay's Send, 32–131 messages: press → confirmed in the other session | 3.51 / 4.39 ms | 1.69 / 1.98 ms |
+| relay's Send, 232–331 messages: press → shown in the other session, tentative | 5.91 / 7.07 ms | 0.38 / 0.51 ms |
+| relay's Send, 232–331 messages: press → confirmed in the other session | 7.87 / 9.18 ms | 1.60 / 1.76 ms |
 
-The engine's own work is small; a decision costs what moving its documents costs. A `decide` carries
-every document the handler takes, whole, and the SDK validates them into records, so Send slows
-as the conversation grows (Q-E below).
+relay's fake service waits 1 ms inside Send, which is most of what is left. Before the mirror a
+decide carried the conversation whole both ways, and the SDK validated it into records each time, so
+Send grew with the conversation; now it names it by version, and the two sizes cost the same. The
+local change gained some 20 µs: a fill to a document the app holds is also sent to the app.
 
 ## Decisions this engine took, as questions for the design
 

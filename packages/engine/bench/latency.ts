@@ -7,8 +7,9 @@
 // - decision: a press until the handler's first change is shown (tentative) and until its outcome
 //   has played (confirmed), for journeys' "Wave" (a handler with no service call) and relay's "Send"
 //   (whose fake service waits 1 ms), and for relay the same moments in a second session showing the
-//   conversation (fan-out). Each send adds a message, and a decide carries the whole conversation
-//   both ways, so relay's figures are reported by the conversation's size.
+//   conversation (fan-out). Each send adds a message, so relay's figures are reported by the
+//   conversation's size: with the app's mirror (Q57) a decide names it by version, and the two should
+//   be close. The driver keeps no document snapshots here, so the figures are the engine's and the app's.
 
 import { Headless } from "../src/driver";
 import { play } from "../test/harness";
@@ -34,7 +35,7 @@ async function journeys(): Promise<void> {
   const p = await play("journeys");
   try {
     const user = { record: "Person", id: "p1", value: { id: "p1", name: "Ada" } };
-    const s = await Headless.open(p.engine, { tape: "home", user });
+    const s = await Headless.open(p.engine, { tape: "home", user }, { snapshots: false });
     const samples: Sample[] = [];
     for (let i = 0; i < N + WARMUP; i++) {
       const seen = s.changes.length;
@@ -55,8 +56,8 @@ async function relay(): Promise<void> {
   try {
     const ada = { record: "User", id: "u1", value: { id: "u1", name: "Ada" } };
     const grace = { record: "User", id: "u2", value: { id: "u2", name: "Grace" } };
-    const a = await Headless.open(p.engine, { address: "/c/c1", user: ada });
-    const b = await Headless.open(p.engine, { address: "/c/c1", user: grace });
+    const a = await Headless.open(p.engine, { address: "/c/c1", user: ada }, { snapshots: false });
+    const b = await Headless.open(p.engine, { address: "/c/c1", user: grace }, { snapshots: false });
     const local: Sample[] = [];
     const decisions: Sample[] = [];
     for (let i = 0; i < N + WARMUP; i++) {
@@ -82,7 +83,7 @@ async function relay(): Promise<void> {
       }
     }
     report("relay: a local change (Draft.text)", local);
-    // Every send adds a message, and a decide carries the whole conversation: report by its size.
+    // Every send adds a message: report by the conversation's size.
     const third = Math.floor(decisions.length / 3);
     report(`relay: a decision (Send; its fake service waits 1 ms), conversation of ${WARMUP + 2}–${WARMUP + third + 1} messages`, decisions.slice(0, third));
     report(`relay: the same, conversation of ${WARMUP + 2 * third + 2}–${WARMUP + N + 1} messages`, decisions.slice(2 * third));
