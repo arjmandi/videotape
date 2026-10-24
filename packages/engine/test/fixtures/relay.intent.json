@@ -2,6 +2,7 @@
   "format": "videotape.intent/2",
   "app": "relay",
   "entry": "chats",
+  "keep_journeys": 2592000,
   "hub": [
     {
       "tape": "chats",

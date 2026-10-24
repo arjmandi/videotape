@@ -7,6 +7,7 @@ import { type AppHost, AppLink } from "./app-link";
 import { type DocChange, DocumentStore } from "./documents";
 import { IntentError, type Intent, type JsonObject } from "./intent";
 import { Places } from "./journey";
+import { type JourneyStore, type KeptJourney, MemoryJourneys } from "./journeys";
 import { type Logger, consoleLogger } from "./log";
 import { AppMirror } from "./mirror";
 import type { DocRef, FetchMessage, SyncMessage, UserRecord } from "./protocol";
@@ -18,8 +19,12 @@ export interface EngineOptions {
   logger?: Logger;
   /** How long a load or decide may take. */
   timeoutMs?: number;
-  /** How long a detached session can be resumed. */
+  /** How long a detached session can be resumed (an anonymous one, by its token). */
   resumeTtlMs?: number;
+  /** Where signed-in journeys are kept (Q69); in memory by default. */
+  journeys?: JourneyStore;
+  /** The clock, in ms since the epoch: for tests of how long journeys are kept. */
+  now?: () => number;
 }
 
 export interface OpenOptions {
@@ -31,7 +36,7 @@ export interface OpenOptions {
   /** Start signed in as this user, as if a sign-in had happened: for tests (06 §8.1's `user=`).
    *  Without an address or a tape, a journey the user has resumes, as after a sign-in. */
   user?: UserRecord;
-  /** The device the client runs on; reels are keyed by user and device (Q62). A fresh one by default. */
+  /** The device the client runs on; journeys are kept by user and device (Q62, Q69). A fresh one by default. */
   device?: string;
   /** Hears the session from its first frame on. */
   listener?: Listener;
@@ -53,14 +58,17 @@ export class Engine implements AppHost {
   private appMirror: AppMirror | undefined;
   private readonly sessions = new Map<string, Session>();
   private readonly byToken = new Map<string, Session>();
-  /** Signed-in sessions by user and device: whose journey resumes where (Q62). */
-  private readonly journeys = new Map<string, Map<string, Session>>();
+  /** Signed-in journeys, kept by user and device: positions and history only (Q69). */
+  readonly journeys: JourneyStore;
+  readonly now: () => number;
   private waiting: Array<() => void> = [];
 
   constructor(opts: EngineOptions = {}) {
     this.log = opts.logger ?? consoleLogger();
     this.timeoutMs = opts.timeoutMs ?? 30_000;
     this.resumeTtlMs = opts.resumeTtlMs ?? 10 * 60_000;
+    this.journeys = opts.journeys ?? new MemoryJourneys();
+    this.now = opts.now ?? Date.now;
   }
 
   private get state(): Played {
@@ -198,45 +206,41 @@ export class Engine implements AppHost {
     this.byToken.set(token, session);
     if (opts.listener) session.on(opts.listener);
     this.log.info("session started", { session: id });
-    const from = opts.user ? this.signedIn(session) : undefined;
-    if (from && opts.address === undefined && opts.tape === undefined) {
-      session.resumeFrom(from);
-      await session.begin({ resume: true });
-    } else {
-      await session.begin(opts);
-    }
+    // Opening the app signed in resumes the user's most recent journey, from any device (Q69).
+    const kept = opts.user && opts.address === undefined && opts.tape === undefined ? this.keptFor(opts.user) : undefined;
+    if (kept && session.reel.resume(kept)) await session.begin({ resume: true });
+    else await session.begin(opts);
     return session;
   }
 
-  // ── reels by user and device (05 §6.2, Q62) ────────────────────────────────
+  // ── kept journeys (05 §6.2, Q62, Q69) ────────────────────────────────────────
 
   private static userKey(user: UserRecord): string {
     return `${user.record}#${user.id}`;
   }
 
-  /**
-   * A session has signed in: it becomes the journey of its user on its device, and gets the journey
-   * to resume, if the user has one: this device's own (an earlier session here, which ends), or else
-   * the most recently active one on another device.
-   */
-  signedIn(session: Session): Session | undefined {
-    const user = session.user;
-    if (!user) return undefined;
-    const key = Engine.userKey(user);
-    let devices = this.journeys.get(key);
-    if (!devices) this.journeys.set(key, (devices = new Map()));
-    const own = devices.get(session.device);
-    const others = [...devices.entries()].filter(([d, s]) => d !== session.device && s !== session && !s.closed).map(([, s]) => s);
-    devices.set(session.device, session);
-    if (own && own !== session && !own.closed) return own;
-    return others.sort((a, b) => b.lastActive - a.lastActive)[0];
+  /** How long a signed-in journey is kept: the intent's `keep_journeys`, 30 days by default. */
+  get keepMs(): number {
+    return (this.intent.keep_journeys ?? 30 * 24 * 3600) * 1000;
   }
 
-  /** A session has signed out: it is no longer its user's journey on its device. */
+  /** The user's most recent kept journey, from any device, if one is still kept. */
+  keptFor(user: UserRecord): KeptJourney | undefined {
+    if (this.keepMs <= 0) return undefined;
+    const since = this.now() - this.keepMs;
+    this.journeys.sweep(since);
+    return this.journeys.latest(Engine.userKey(user), since);
+  }
+
+  /** Keeps a signed-in session's journey on its device: where it is and its history, no documents. */
+  keep(session: Session): void {
+    if (!session.user || this.keepMs <= 0) return;
+    this.journeys.save({ ...session.reel.kept(), user: Engine.userKey(session.user), device: session.device, savedAt: this.now() });
+  }
+
+  /** A session signs out: the user's journey on that device is forgotten. */
   signedOut(session: Session): void {
-    if (!session.user) return;
-    const devices = this.journeys.get(Engine.userKey(session.user));
-    if (devices?.get(session.device) === session) devices.delete(session.device);
+    if (session.user) this.journeys.forget(Engine.userKey(session.user), session.device);
   }
 
   /** The session a resume token names, while it can still be resumed. */
@@ -253,8 +257,8 @@ export class Engine implements AppHost {
     session.detachedAt = Date.now();
   }
 
+  /** Ends a session; a signed-in user's journey stays kept (Q69). */
   close(session: Session): void {
-    if (session.user) this.signedOut(session);
     session.close();
     this.sessions.delete(session.id);
     this.byToken.delete(session.token);

@@ -351,3 +351,16 @@ def test_a_frame_belongs_to_one_tape():
     vt.tape("a", [f])
     with pytest.raises(ValueError, match="already in tape"):
         vt.tape("b", [f])
+
+
+def test_how_long_journeys_are_kept_is_in_the_intent():
+    """Q69: a signed-in journey is kept 30 days unless the app says otherwise; the intent carries it."""
+    from datetime import timedelta
+
+    tapes = [vt.tape("t", [vt.frame("Home")])]
+    assert vt.app("a", entry="t", tapes=tapes).intent()["keep_journeys"] == 30 * 24 * 3600
+    assert vt.app("a", entry="t", tapes=tapes, keep_journeys=timedelta(days=7)).intent()["keep_journeys"] == 7 * 24 * 3600
+    with pytest.raises(TypeError, match="keep_journeys"):
+        vt.app("a", entry="t", tapes=tapes, keep_journeys=30)
+    with pytest.raises(TypeError, match="keep_journeys"):
+        vt.app("a", entry="t", tapes=tapes, keep_journeys=timedelta(days=-1))

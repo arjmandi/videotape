@@ -3,6 +3,7 @@
   "app": "pipeline",
   "entry": "deals",
   "world": "quiet-office",
+  "keep_journeys": 2592000,
   "hub": [
     {
       "tape": "deals",

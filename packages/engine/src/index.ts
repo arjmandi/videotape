@@ -9,5 +9,6 @@ export * from "./documents";
 export * from "./driver";
 export * from "./engine";
 export * from "./journey";
+export * from "./journeys";
 export * from "./ops";
 export * from "./session";

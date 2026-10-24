@@ -127,15 +127,29 @@ history (or a call to leave) and the frame does not say `back=False`. The hub sh
 history began at a destination, outside calls, unless the frame says `hub=False`. Each
 destination keeps its own history; the current destination's door starts it over.
 
-**Across devices (Q62).** A session runs on a device (`open({device})`, a fresh one by default).
-After a sign-in, reels are keyed by user and device: signing in on a device the user has a journey
-on takes that journey back (the earlier session there ends); signing in on a new device resumes the
-user's most recently active journey from another one, step for step, with its history, calls, and
-saved hub histories; shared documents are held again, and a session's own (a draft) are copied, so
-the two devices then go their own ways. A sign-out ends the user's journey on that device. A
-session opened already signed in (`user`) resumes the same way, unless it opens at an address or
-a tape. A sign-in whose outcome says `resume=False` (`vt.jump("home", sign_in=user, resume=False)`,
-as after a password change) lands where it points instead (Q70).
+**Across devices (Q62, Q69, Q70).** A session runs on a device (`open({device})`, a fresh one by
+default). A signed-in session's journey is kept (`src/journeys.ts`) by user and device every time
+it moves, for the app's `keep_journeys` (`vt.app(keep_journeys=timedelta(days=30))`, carried in the
+intent as seconds; 30 days by default), and it outlives the session. Only the position and history
+are kept: which tape visits, at which frames, with which tape arguments, the root, open calls, and
+each hub destination's saved history; never a document. A sign-in on any device resumes the user's
+most recent kept journey, whichever device made it: the same places in new tape visits, none of
+them entered, so each frame's loader runs again when the user gets there and documents come fresh
+from the app; the devices then go their own ways. A sign-in whose outcome says `resume=False`
+(`vt.jump("home", sign_in=user, resume=False)`, as after a password change) lands where it points
+(Q70). A session opened already signed in (`user`) resumes the same way, unless it opens at an
+address or a tape. A sign-out forgets the user's journey on that device. Anonymous sessions keep
+prototype-0's resume by token, for 10 minutes after the client goes away.
+
+**A durable journey store** (the `JourneyStore` interface; `MemoryJourneys` keeps them in memory
+here) needs: journeys keyed by app, user, and device, each replaced whole on save
+(last writer wins per device) with the time it was saved; the user's most recent journey in one
+read; expiry after `keep_journeys`; forgetting a device's journey on sign-out and all of a user's
+on account deletion; and the release (tape versions, 05 §7.1) a journey was saved under, so a
+resume can tell when its places changed (this engine checks that every place still exists, and
+lands normally otherwise). It holds no documents, but tape arguments are part of the position (a
+conversation id, a search term), so it is the user's data: kept per region, encrypted at rest,
+and named in the privacy labels.
 
 **Inputs** stand in for the client protocol until it exists: `fill` (a field of the edited
 record), `press` (an action by id: `submit`, `action:<n>`, `select:<field>`, `press:<field>`; an

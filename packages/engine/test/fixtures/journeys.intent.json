@@ -2,6 +2,7 @@
   "format": "videotape.intent/2",
   "app": "journeys",
   "entry": "welcome",
+  "keep_journeys": 604800,
   "hub": [
     {
       "tape": "home",

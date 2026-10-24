@@ -33,8 +33,8 @@ warnings, 1 on errors, and 2 when it cannot load the app.
 |--------|--------------|
 | `values` | The built-in types: `vt.Id`, `vt.Text`, `vt.Secret`, `vt.Money`, `vt.Image`, `vt.Video`, `vt.Audio`, `vt.RichText`, `vt.Series`, `vt.Page`, and `vt.t(...)` |
 | `records` | `vt.Record` on Pydantic v2; `vt.Field(...)` with the options of 06 §4, `vt.State(...)`, `vt.pick("tape")`, `@vt.pages(Record.field)`; `Deal.amount` on the class is a field reference, and `Deal.company.name` chains into a nested record |
-| `outcomes` | `jump`, `goto`, `back`, `stay`, `call(tape, then=)`, `done`, `open`, `download`, `copy`. Wherever a tape is named (outcomes, `vt.destination`, `vt.app(entry=)`, `vt.pick`), the tape itself or its id works |
-| `intent` | `vt.tape`, `vt.frame` (`shows=` one record or a list, `back=`, `hub=`, `under=`), `vt.text`, `vt.show` (with `on=`), `vt.action`, `vt.after`, `vt.hub`, `vt.destination`, `vt.app`. Builders raise at once on what they cannot hold (a wrong type, a malformed id or address) |
+| `outcomes` | `jump`, `goto`, `back`, `stay` (with `sign_in=`, `sign_out=`, and `resume=`, Q70), `call(tape, then=)`, `done`, `open`, `download`, `copy`. Wherever a tape is named (outcomes, `vt.destination`, `vt.app(entry=)`, `vt.pick`), the tape itself or its id works |
+| `intent` | `vt.tape`, `vt.frame` (`shows=` one record or a list, `back=`, `hub=`, `under=`), `vt.text`, `vt.show` (with `on=`), `vt.action`, `vt.after`, `vt.hub`, `vt.destination`, `vt.app` (with `keep_journeys=`, Q69). Builders raise at once on what they cannot hold (a wrong type, a malformed id or address) |
 | `derive` | What a frame derives from its records: components, affordances, states, how often it holds each record, and every place where something happens |
 | `decisions` | Reads handlers' parameters with `typing.get_type_hints` and their edges from their bodies; `@vt.outcomes`, `vt.Reject`, `vt.Context`, `vt.invoke` |
 | `serialize` | `app.intent()`: the deterministic intent JSON |

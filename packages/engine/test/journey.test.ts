@@ -1,6 +1,7 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { APP_UNAVAILABLE, SOMETHING_WENT_WRONG } from "../src/session";
 import { Headless } from "../src/driver";
+import type { MemoryJourneys } from "../src/journeys";
 import { ADA, type Played, fake, play } from "./harness";
 import { NO_PYTHON } from "./python";
 
@@ -10,11 +11,13 @@ describe.skipIf(NO_PYTHON)("the journey runtime, with the journeys app", () => {
     p = await play("journeys");
   }, 20_000);
   afterAll(() => p?.stop());
-  // A user's journey resumes on another device (Q62): each test closes its sessions, so the next starts afresh.
+  // A signed-in journey is kept and resumes on any device (Q69): each test closes its sessions and
+  // forgets the kept journeys, so the next starts afresh.
   let opened: Headless[] = [];
   afterEach(() => {
     for (const s of opened) s.close();
     opened = [];
+    (p.engine.journeys as MemoryJourneys).clear();
   });
 
   const open = async (opts = {}) => {

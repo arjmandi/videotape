@@ -1,26 +1,41 @@
-// Reels are keyed by user and device (05 §6.2, Q62): a journey resumes on another device signed in
-// as the same user, and a device that signs in again takes back its own.
+// Journeys across devices (05 §6.2, Q62, Q69, Q70): a signed-in journey is kept, positions and
+// history only, for the app's keep_journeys (7 days in the journeys app); any device the user signs
+// in on resumes the most recent one, with its loaders run again; resume=False lands where it points.
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { Headless } from "../src/driver";
+import { Engine } from "../src/engine";
+import { MemoryJourneys } from "../src/journeys";
+import { memoryLogger } from "../src/log";
 import { type Played, play } from "./harness";
-import { NO_PYTHON } from "./python";
+import { NO_PYTHON, startApp } from "./python";
 
 describe.skipIf(NO_PYTHON)("a journey across devices", () => {
   let p: Played;
+  let opened: Headless[] = [];
   beforeAll(async () => {
     p = await play("journeys");
   }, 20_000);
   afterAll(() => p?.stop());
+  afterEach(() => {
+    for (const s of opened) s.close();
+    opened = [];
+    (p.engine.journeys as MemoryJourneys).clear();
+  });
 
+  const open = async (opts: Parameters<typeof Headless.open>[1]) => {
+    const s = await Headless.open(p.engine, opts);
+    opened.push(s);
+    return s;
+  };
   const signIn = async (device: string, name = "Ada") => {
-    const s = await Headless.open(p.engine, { device });
+    const s = await open({ device });
     await s.fill({ name, password: "pw" });
     await s.press("Sign in");
     return s;
   };
 
-  it("resumes on a second device where the first one is, and each device keeps its own reel", async () => {
+  it("resumes on any device the most recent journey, positions only, and each device then goes its own way", async () => {
     const phone = await signIn("phone");
     await phone.press("Plan something");
     await phone.fill({ title: "Garden" });
@@ -30,64 +45,104 @@ describe.skipIf(NO_PYTHON)("a journey across devices", () => {
     const laptop = await signIn("laptop");
     expect(laptop.user).toEqual({ record: "Person", id: "p1", value: { id: "p1", name: "Ada" } });
     expect(laptop.reel).toMatchObject({ head: "wizard/steps", history: ["home", "wizard/name"], hub: { current: "home" }, args: { topic: "garden" } });
-    expect(laptop.doc("Plan")).toEqual({ title: "Garden", steps: 1 });
+    expect(laptop.doc("Plan")).toEqual({ title: "", steps: 1 });        // documents are never kept: the draft starts afresh
     expect(laptop.error).toBeNull();
 
-    // Two reels now: the draft was copied, and moving on one device leaves the other where it is.
     await laptop.fill({ steps: 5 });
     expect(phone.doc("Plan").steps).toBe(1);
     await laptop.back();
     expect(laptop.place).toBe("wizard/name");
     expect(phone.place).toBe("wizard/steps");
-    await laptop.back();
+    await laptop.back();                                                // the loader runs again on the way back
     expect(laptop.doc("Home")).toEqual({ id: "home-p1", greeting: "Hello, Ada", visits: 0 });
     await laptop.press("Wave");
     await phone.back();
     await phone.back();
-    expect(phone.doc("Home").visits).toBe(1);                  // a shared document stays shared
+    expect(phone.doc("Home").visits).toBe(1);                           // a shared document stays shared
 
-    // The phone's app goes away; signing in on the phone again takes back the phone's own journey.
+    // The most recent journey wins, whichever device made it: the phone moved last.
     await phone.press("Plan something");
-    p.engine.detach(phone.session);
-    const again = await signIn("phone");
+    const again = await signIn("tablet");
     expect(again.reel).toMatchObject({ head: "wizard/name", history: ["home"] });
-    expect(phone.session.closed).toBe(true);
-    expect(laptop.place).toBe("home");
 
     // Another user has no journey yet: the sign-in goes where it says.
-    const grace = await signIn("tablet", "Grace");
+    const grace = await signIn("watch", "Grace");
     expect(grace.reel).toMatchObject({ head: "home", history: [] });
     expect(grace.doc("Home").id).toBe("home-p2");
+  });
 
-    // A device that signs out is no longer the user's journey there: a new device resumes the phone.
-    await laptop.door("account");
-    await laptop.press("Sign out");
-    const desk = await signIn("desk");
-    expect(desk.reel).toMatchObject({ head: "wizard/name", history: ["home"] });
-    for (const s of [again, grace, laptop, desk]) s.close();
+  it("keeps only positions and history, never a document", async () => {
+    const phone = await signIn("phone");
+    await phone.press("Plan something");
+    await phone.fill({ title: "Secret garden plans" });
+    await phone.press("Name the plan");
+    await phone.press("Wave");
+    const kept = (p.engine.journeys as MemoryJourneys).all();
+    expect(kept).toHaveLength(1);
+    const [j] = kept;
+    expect(Object.keys(j!).sort()).toEqual(["calls", "device", "head", "history", "root", "savedAt", "stacks", "user"]);
+    expect(Object.keys(j!.head).sort()).toEqual(["args", "frame", "tape", "visit"]);
+    expect(j).toMatchObject({ user: "Person#p1", device: "phone", root: "home", head: { tape: "wizard", frame: "steps", args: { topic: "garden" } } });
+    const text = JSON.stringify(kept);
+    expect(text).not.toContain("Secret garden plans");
+    expect(text).not.toContain("Hello, Ada");
+  });
+
+  it("keeps a journey after the session ends, until the user signs out on that device", async () => {
+    const phone = await signIn("phone");
+    await phone.press("Plan something");
+    phone.close();
+    const later = await signIn("phone");
+    expect(later.place).toBe("wizard/name");
+    await later.door("home");
+    await later.door("account");
+    await later.press("Sign out");
+    const next = await signIn("laptop");
+    expect(next.reel).toMatchObject({ head: "home", history: [] });
   });
 
   it("lands where a sign-in points when it says resume=False (Q70)", async () => {
-    const phone = await signIn("phone-3");
+    const phone = await signIn("phone");
     await phone.press("Plan something");
-    const laptop = await Headless.open(p.engine, { device: "laptop-3" });
+    const laptop = await open({ device: "laptop" });
     await laptop.fill({ name: "Ada" });
     await laptop.press("Sign in here", { secrets: { password: "pw" } });
     expect(laptop.user?.id).toBe("p1");
     expect(laptop.reel).toMatchObject({ head: "home", history: [] });
-    const desk = await signIn("desk-3");                            // a plain sign-in still resumes
-    expect(desk.place).not.toBe("welcome");
-    for (const s of [phone, laptop, desk]) s.close();
   });
 
-  it("resumes a journey for a session that opens signed in, unless it opens at an address", async () => {
+  it("resumes for a session that opens signed in, unless it opens at an address or a tape", async () => {
     const ada = { record: "Person", id: "p1", value: { id: "p1", name: "Ada" } };
-    const phone = await Headless.open(p.engine, { device: "phone-2", tape: "home", user: ada });
+    const phone = await open({ device: "phone", tape: "home", user: ada });
     await phone.door("inbox");
-    const watch = await Headless.open(p.engine, { device: "watch", user: ada });
+    const watch = await open({ device: "watch", user: ada });
     expect(watch.reel).toMatchObject({ head: "inbox", hub: { current: "inbox" } });
-    const linked = await Headless.open(p.engine, { device: "car", address: "/items/i3", user: ada });
+    const linked = await open({ device: "car", address: "/items/i3", user: ada });
     expect(linked.place).toBe("item");
-    for (const s of [phone, watch, linked]) s.close();
   });
+});
+
+describe.skipIf(NO_PYTHON)("how long a journey is kept", () => {
+  it("forgets a journey older than the app's keep_journeys", async () => {
+    let clock = Date.parse("2026-10-24T09:00:00Z");
+    const engine = new Engine({ logger: memoryLogger(), now: () => clock });
+    const server = await engine.listen();
+    const app = startApp("journeys", server.url);
+    try {
+      await engine.ready();
+      expect(engine.keepMs).toBe(7 * 24 * 3600 * 1000);
+      const ada = { record: "Person", id: "p1", value: { id: "p1", name: "Ada" } };
+      const phone = await Headless.open(engine, { device: "phone", tape: "home", user: ada });
+      await phone.door("inbox");
+      clock += 6 * 24 * 3600 * 1000;
+      const soon = await Headless.open(engine, { device: "laptop", user: ada });
+      expect(soon.place).toBe("inbox");
+      clock += 8 * 24 * 3600 * 1000;                                   // more than 7 days after anything was saved
+      const late = await Headless.open(engine, { device: "tablet", user: ada });
+      expect(late.place).toBe("welcome");
+    } finally {
+      await app.stop();
+      await server.close();
+    }
+  }, 20_000);
 });

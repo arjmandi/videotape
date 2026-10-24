@@ -330,6 +330,7 @@ class Intent(_Spec):
     app: Name
     entry: str
     world: str | None = None
+    keep_journeys: int = Field(ge=0, description="How long a signed-in journey is kept, in seconds (Q69).")
     hub: list[Destination] | None = None
     tapes: list[Tape]
     records: dict[str, dict[str, Any]] = Field(

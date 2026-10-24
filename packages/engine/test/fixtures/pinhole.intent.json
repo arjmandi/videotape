@@ -3,6 +3,7 @@
   "app": "pinhole",
   "entry": "feed",
   "world": "darkroom",
+  "keep_journeys": 2592000,
   "hub": [
     {
       "tape": "feed",

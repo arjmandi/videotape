@@ -3,6 +3,7 @@
   "app": "screening",
   "entry": "home",
   "world": "screening-room",
+  "keep_journeys": 2592000,
   "hub": [
     {
       "tape": "home",

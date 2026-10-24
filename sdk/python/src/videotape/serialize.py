@@ -243,6 +243,7 @@ class Builder:
         out: dict[str, Any] = {"format": FORMAT, "app": app.name, "entry": app.entry}
         if app.world is not None:
             out["world"] = app.world
+        out["keep_journeys"] = int(app.keep_journeys.total_seconds())
         if app.hub is not None:
             out["hub"] = [
                 {"tape": d.tape, "label": encode(d.label), **({"symbol": d.symbol} if d.symbol else {})}

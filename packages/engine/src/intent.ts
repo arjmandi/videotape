@@ -227,6 +227,8 @@ export interface Intent {
   app: string;
   entry: string;
   world?: string;
+  /** How long a signed-in journey is kept, in seconds (Q69). */
+  keep_journeys?: number;
   hub?: Destination[];
   tapes: Tape[];
   records: Record<string, RecordSchema>;

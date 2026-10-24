@@ -3,6 +3,7 @@
   "app": "hello",
   "entry": "landing",
   "world": "studio",
+  "keep_journeys": 2592000,
   "tapes": [
     {
       "id": "landing",

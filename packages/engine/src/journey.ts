@@ -7,6 +7,7 @@
 
 import type { Action, Component, Frame, Intent, Json, JsonObject, Label, Tape, Target } from "./intent";
 import { placeName } from "./intent";
+import type { KeptJourney, KeptStep } from "./journeys";
 import type { DocRef } from "./protocol";
 import type { Records } from "./records";
 
@@ -252,14 +253,42 @@ export class Reel {
     this.stacks = new Map(state.stacks);
   }
 
-  /** Takes another reel's journey, step for step; `visit` gives each of its visits a counterpart here. */
-  copy(src: Reel, visit: (v: Visit) => Visit): void {
-    const step = (s: Step): Step => ({ visit: visit(s.visit), frame: s.frame, entered: s.entered });
-    this.head = step(src.head);
-    this.history = src.history.map(step);
-    this.root = src.root;
-    this.calls = src.calls.map((c) => ({ ...c, caller: step(c.caller), history: c.history.map(step) }));
-    this.stacks = new Map([...src.stacks].map(([tape, st]) => [tape, { head: step(st.head), history: st.history.map(step) }]));
+  /** The journey as a kept one keeps it: positions and history only, never documents (Q69). */
+  kept(): Omit<KeptJourney, "user" | "device" | "savedAt"> {
+    const step = (s: Step): KeptStep => ({
+      visit: s.visit.n, tape: s.visit.tape, frame: this.places.frame(s.visit.tape, s.frame).id ?? null, args: structuredClone(s.visit.args),
+    });
+    return {
+      head: step(this.head),
+      history: this.history.map(step),
+      root: this.root,
+      calls: this.calls.map((c) => ({ tape: c.tape, ...(c.then ? { then: c.then } : {}), caller: step(c.caller), history: c.history.map(step), root: c.root })),
+      stacks: [...this.stacks].map(([tape, st]) => ({ tape, head: step(st.head), history: st.history.map(step) })),
+    };
+  }
+
+  /**
+   * Takes up a kept journey: the same places, in new tape visits with their arguments and no
+   * documents, none of them entered, so each frame's loader runs when the user gets there. False,
+   * with the reel unchanged, when a place it names no longer exists.
+   */
+  resume(kept: Omit<KeptJourney, "user" | "device" | "savedAt">): boolean {
+    const places = this.places;
+    const all = [kept.head, ...kept.history, ...kept.calls.flatMap((c) => [c.caller, ...c.history]), ...kept.stacks.flatMap((s) => [s.head, ...s.history])];
+    const index = (s: KeptStep) => (s.frame === null ? (places.hasTape(s.tape) && places.tape(s.tape).frames.length === 1 ? 0 : -1) : places.hasTape(s.tape) ? places.frameIndex(s.tape, s.frame) : -1);
+    if (all.some((s) => index(s) < 0)) return false;
+    const visits = new Map<number, Visit>();
+    const step = (s: KeptStep): Step => {
+      let v = visits.get(s.visit);
+      if (!v) visits.set(s.visit, (v = this.visit(s.tape, structuredClone(s.args))));
+      return this.step(v, index(s));
+    };
+    this.head = step(kept.head);
+    this.history = kept.history.map(step);
+    this.root = kept.root;
+    this.calls = kept.calls.map((c) => ({ tape: c.tape, ...(c.then ? { then: c.then } : {}), caller: step(c.caller), history: c.history.map(step), root: c.root }));
+    this.stacks = new Map(kept.stacks.map((st) => [st.tape, { head: step(st.head), history: st.history.map(step) }]));
+    return true;
   }
 
   visit(tape: string, args: JsonObject = {}): Visit {

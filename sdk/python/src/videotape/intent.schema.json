@@ -1548,6 +1548,12 @@
       "title": "World",
       "type": "string"
     },
+    "keep_journeys": {
+      "description": "How long a signed-in journey is kept, in seconds (Q69).",
+      "minimum": 0,
+      "title": "Keep Journeys",
+      "type": "integer"
+    },
     "hub": {
       "title": "Hub",
       "items": {
@@ -1606,6 +1612,7 @@
     "format",
     "app",
     "entry",
+    "keep_journeys",
     "tapes",
     "records",
     "types",

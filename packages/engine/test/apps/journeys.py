@@ -9,6 +9,7 @@ by its address (under inbox). account signs out back to welcome.
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 import videotape as vt
 
@@ -197,5 +198,6 @@ account = vt.tape("account", [vt.frame("Your account", actions=[vt.action("Sign 
 
 
 app = vt.app("journeys", entry=welcome, tapes=[welcome, home, wizard, confirm, inbox, item, account],
+             keep_journeys=timedelta(days=7),
              hub=vt.hub([vt.destination(home, "Home"), vt.destination(inbox, "Inbox"),
                          vt.destination(account, "Account")]))
