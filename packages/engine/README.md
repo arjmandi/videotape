@@ -132,6 +132,13 @@ refused as an error. A `Reject` stays and shows its message as the frame's error
 raised error or an app that is gone or too slow (30 s) stays with the engine's own message. After
 every press that carried secrets the session tells the client to clear those fields.
 
+**Failed loaders (Q65).** A move enters its frame (runs the loader) before it shows it, and inputs
+are read against the frame on screen meanwhile. When the loader fails on the way (a jump, a goto, a
+call, a door, back to a destination beneath a linked frame), the move does not happen: the reel
+and the signed-in user go back to where they were, and the engine's message shows as the error
+status of the frame the user is on. Only an entry or an address, where there is nowhere to stay,
+enters the frame with its defaults and the error.
+
 ## Documents
 
 `DocumentStore` (`src/documents.ts`) holds every document a reel holds. A loaded document whose

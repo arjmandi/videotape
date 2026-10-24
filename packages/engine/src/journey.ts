@@ -219,6 +219,15 @@ interface Stack {
   history: Step[];
 }
 
+/** Where a reel is, kept aside so a move can be undone. */
+export interface ReelState {
+  head: Step;
+  history: Step[];
+  root: string | null;
+  calls: CallFrame[];
+  stacks: Map<string, Stack>;
+}
+
 /** One session's journey. The methods change where it is; the session enters frames and holds documents. */
 export class Reel {
   head!: Step;
@@ -230,6 +239,18 @@ export class Reel {
   private visits = 0;
 
   constructor(private readonly places: Places) {}
+
+  save(): ReelState {
+    return { head: this.head, history: [...this.history], root: this.root, calls: [...this.calls], stacks: new Map(this.stacks) };
+  }
+
+  restore(state: ReelState): void {
+    this.head = state.head;
+    this.history = [...state.history];
+    this.root = state.root;
+    this.calls = [...state.calls];
+    this.stacks = new Map(state.stacks);
+  }
 
   visit(tape: string, args: JsonObject = {}): Visit {
     return { n: ++this.visits, tape, args, docs: new Map() };

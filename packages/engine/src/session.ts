@@ -9,9 +9,9 @@ import { AppUnavailable } from "./app-link";
 import type { DocState } from "./documents";
 import type { Engine } from "./engine";
 import type { Declared, Frame, Json, JsonObject, Label, Outcome, Target } from "./intent";
-import { type FrameAction, type FrameField, type ReelView, Reel, type Step, type Visit, labelText } from "./journey";
+import { type FrameAction, type FrameField, Reel, type ReelState, type ReelView, type Step, type Visit, labelText } from "./journey";
 import { scrub } from "./log";
-import type { DecideRequest, DocRef, DocValue, Op, ResultMessage, UserRecord } from "./protocol";
+import type { DecideRequest, DocRef, DocValue, Loaded, Op, ResultMessage, UserRecord } from "./protocol";
 import { KEY, type PathSegment, stripKeys } from "./records";
 
 export const SOMETHING_WENT_WRONG = "Something went wrong. Please try again.";
@@ -93,6 +93,8 @@ export class Session {
   private readonly listeners = new Set<Listener>();
   private queue: Promise<void> = Promise.resolve();
   private readonly held = new Set<Visit>();
+  /** The step on screen: inputs are read against it while a move waits for its frame's loader. */
+  private shown!: Step;
 
   constructor(private readonly engine: Engine, readonly id: string, readonly token: string, user: UserRecord | null) {
     this.reel = new Reel(engine.places);
@@ -140,25 +142,25 @@ export class Session {
       if (!places.hasTape(tape)) throw new Error(`no tape ${tape}`);
       this.reel.start(tape, opts.args ?? {});
     }
-    this.version += 1;
     await this.arrive();
   }
 
   // ── reading ────────────────────────────────────────────────────────────────
 
+  /** The frame on screen: the reel's step once its frame was entered (a move waits for its loader). */
   get frame(): Frame {
-    return this.reel.frame;
+    return this.engine.places.frame(this.shown.visit.tape, this.shown.frame);
   }
 
-  /** The document a frame slot holds: a record name, or `Item[]` for a shown list. */
+  /** The document a slot of the frame on screen holds: a record name, or `Item[]` for a shown list. */
   ref(slot: string): DocRef | undefined {
-    return this.reel.head.visit.docs.get(slot);
+    return this.shown.visit.docs.get(slot);
   }
 
   /** Whether the frame on screen shows (or edits) this document. */
   shows(ref: DocRef): boolean {
     const key = JSON.stringify(ref);
-    const visit = this.reel.head.visit;
+    const visit = this.shown.visit;
     return this.engine.places.slots(this.frame).some((s) => {
       const held = visit.docs.get(s.slot);
       return held !== undefined && JSON.stringify(held) === key;
@@ -168,7 +170,7 @@ export class Session {
   view(): FrameView {
     const frame = this.frame;
     const places = this.engine.places;
-    const visit = this.reel.head.visit;
+    const visit = this.shown.visit;
     const documents: Record<string, DocRef> = {};
     for (const s of places.slots(frame)) {
       const ref = visit.docs.get(s.slot);
@@ -245,16 +247,16 @@ export class Session {
         return this.press(msg);
       case "back": {
         if (!this.reel.canGoBack) return this.drop(msg.seq, "no history here");
+        const undo = this.undoable();
         this.reel.back();
-        this.version += 1;
-        return this.arrive();
+        return this.arrive(undo);
       }
       case "hub": {
         if (!this.reel.showsHub) return this.drop(msg.seq, "this frame shows no hub");
         if (!this.engine.places.isDestination(msg.tape)) return this.drop(msg.seq, "not a hub destination");
+        const undo = this.undoable();
         this.reel.door(msg.tape);
-        this.version += 1;
-        return this.arrive();
+        return this.arrive(undo);
       }
     }
   }
@@ -404,7 +406,7 @@ export class Session {
           if (entry) out[p.name] = { ...entry, path: opts.item.path, record: p.record };
           continue;
         }
-        const ref = this.ref(p.record) ?? this.reel.head.visit.docs.get(p.record);
+        const ref = this.ref(p.record);
         const entry = ref && mirror.entry(ref, p.record === edit ? secrets : undefined);
         if (entry) out[p.name] = entry;
       }
@@ -475,6 +477,7 @@ export class Session {
   /** Plays an outcome: moves the reel, changes who is signed in, or hands the client an effect. */
   private async play(o: Outcome, ctx: { item?: Item | undefined }): Promise<void> {
     const identity = "sign_in" in o && o.sign_in !== undefined ? "in" : "sign_out" in o && o.sign_out ? "out" : undefined;
+    const undo = this.undoable();
     if (identity === "in") this.user = (o as unknown as { sign_in: UserRecord }).sign_in;
     if (identity === "out") this.user = null;
     const reel = this.reel;
@@ -505,8 +508,7 @@ export class Session {
           this.log.warn("done outside a call", { session: this.id });
           return;
         }
-        this.version += 1;
-        await this.arrive();
+        await this.arrive(undo);
         if (returned.then) await this.decide(returned.then, { values: { result: (o.result ?? null) as Json } });
         return;
       }
@@ -522,22 +524,42 @@ export class Session {
         return;
       }
     }
-    this.version += 1;
-    await this.arrive();
+    await this.arrive(undo);
   }
 
-  /** The head changed: lets go of what the reel no longer holds, enters the frame, and says so. */
-  private async arrive(): Promise<void> {
-    const version = this.version;
-    this.release();
-    this.status.error = null;
-    this.status.invalid = {};
+  /** What a move undoes if the frame it goes to cannot be entered: where the reel was, and who was signed in. */
+  private undoable(): Undo {
+    return { reel: this.reel.save(), user: this.user };
+  }
+
+  /**
+   * The head changed: enters its frame (runs its loader) and then shows it. If the loader fails on the
+   * way (`undo` given), the move does not happen: the reel goes back to where it was and the error
+   * shows on the frame the user is on (Q65). Only an entry or an address, with nowhere to stay,
+   * enters the frame with its defaults and the error.
+   */
+  private async arrive(undo?: Undo): Promise<void> {
     const step = this.reel.head;
+    let error: Label | null = null;
     if (!step.entered) {
+      const entered = await this.enter(step, undo === undefined);
+      if (this.closed) return;
+      if (!entered.ok && undo) {
+        this.reel.restore(undo.reel);
+        this.user = undo.user;
+        this.release();
+        this.status.error = entered.error;
+        this.statusChanged();
+        return;
+      }
       step.entered = true;
-      await this.enter(step);
+      error = entered.error;
     }
-    if (version !== this.version || this.closed) return;
+    this.version += 1;
+    this.shown = step;
+    this.release();
+    this.status.error = error;
+    this.status.invalid = {};
     this.emit({ t: "frame", view: this.view() });
   }
 
@@ -555,17 +577,26 @@ export class Session {
     }
   }
 
-  /** Enters a frame: runs its loader, holds what it returns, and starts the rest from their defaults. */
-  private async enter(step: Step): Promise<void> {
+  /**
+   * Enters a frame: runs its loader, holds what it returns, and starts the rest from their defaults.
+   * When the loader fails, it stops there, unless `anyway` (an entry, an address), where the frame
+   * starts from its defaults and carries the error.
+   */
+  private async enter(step: Step, anyway: boolean): Promise<{ ok: boolean; error: Label | null }> {
     const engine = this.engine;
     const frame = engine.places.frame(step.visit.tape, step.frame);
     const visit = step.visit;
     const holder = this.holder(visit);
     this.held.add(visit);
     const slots = engine.places.slots(frame);
+    let error: Label | null = null;
     if (frame.enter) {
-      const loaded = await this.load(frame.enter.loader, visit);
-      for (const d of loaded) {
+      const result = await this.load(frame.enter.loader, visit);
+      if (!result.ok) {
+        error = result.error;
+        if (!anyway) return { ok: false, error };
+      }
+      for (const d of result.documents) {
         const slot = "record" in d ? d.record : `${d.collection}[]`;
         const wanted = slots.find((s) => s.slot === slot);
         if (!wanted) {
@@ -583,16 +614,15 @@ export class Session {
       const value: Json = s.list ? [] : engine.records.defaults(s.record);
       visit.docs.set(s.slot, this.docs.own(s.list ? s.slot : s.record, value, holder));
     }
+    return { ok: error === null, error };
   }
 
-  private async load(loader: string, visit: Visit): Promise<Array<{ record: string; value: unknown } | { collection: string | null; value: unknown[] }>> {
+  /** Runs a loader over the app protocol; a failure is the engine's own message, never the app's text. */
+  private async load(loader: string, visit: Visit): Promise<{ ok: true; documents: Loaded[] } | { ok: false; error: Label; documents: [] }> {
     const engine = this.engine;
     const link = engine.link;
     const spec = engine.intent.loaders[loader];
-    if (!link || !spec) {
-      this.status.error = APP_UNAVAILABLE;
-      return [];
-    }
+    if (!link || !spec) return { ok: false, error: APP_UNAVAILABLE, documents: [] };
     const documents = (): Record<string, DocValue> => {
       const out: Record<string, DocValue> = {};
       for (const p of spec.params) {
@@ -609,16 +639,14 @@ export class Session {
         engine.mirror?.stale(result.stale.map((s) => s.doc));
         result = await link.load({ loader, session: this.id, user: this.user, args: visit.args, documents: documents() });
       }
-      if ("documents" in result) return result.documents;
+      if ("documents" in result) return { ok: true, documents: result.documents };
       const error = "error" in result ? result.error : { type: "BadResult", message: "" };
       this.log.error("a loader raised", { session: this.id, loader, type: error.type, message: error.message.slice(0, 500) });
     } catch (e) {
       this.log.warn("a loader failed", { session: this.id, loader, reason: e instanceof AppUnavailable ? e.code : String(e) });
-      this.status.error = e instanceof AppUnavailable ? APP_UNAVAILABLE : SOMETHING_WENT_WRONG;
-      return [];
+      return { ok: false, error: e instanceof AppUnavailable ? APP_UNAVAILABLE : SOMETHING_WENT_WRONG, documents: [] };
     }
-    this.status.error = SOMETHING_WENT_WRONG;
-    return [];
+    return { ok: false, error: SOMETHING_WENT_WRONG, documents: [] };
   }
 
   /** Ends the session: its documents are let go. */
@@ -629,6 +657,11 @@ export class Session {
     this.held.clear();
     this.listeners.clear();
   }
+}
+
+interface Undo {
+  reel: ReelState;
+  user: UserRecord | null;
 }
 
 interface Item {

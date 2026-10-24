@@ -233,13 +233,49 @@ describe("when the app fails", () => {
     expect(c.view.status.error).toBe(APP_UNAVAILABLE);
   });
 
-  it("enters a frame with defaults when its loader fails", async () => {
+  it("enters an entry or an address with defaults when its loader fails, where there is nowhere to stay", async () => {
     const app = fake("journeys", (req) => (req.t === "load" ? { error: { type: "OSError", message: "db down" } } : { documents: [] }));
     await app.engine.ready();
     const c = await Headless.open(app.engine, { tape: "inbox", user: ADA });
     expect(c.place).toBe("inbox");
     expect(c.view.status.error).toBe(SOMETHING_WENT_WRONG);
     expect(c.doc("Inbox")).toEqual({ id: null });
+    const linked = await Headless.open(app.engine, { address: "/items/i9", user: ADA });
+    expect(linked.view.reel).toMatchObject({ head: "item", history: ["inbox"] });
+    expect(linked.error).toBe(SOMETHING_WENT_WRONG);
+  });
+
+  it("keeps the user where they are when a loader fails on the way to a frame (Q65)", async () => {
+    let down = true;
+    const app = fake("journeys", (req) => {
+      if (req.t !== "load") return { outcome: { type: "stay" } };
+      if (req.loader === "load_home") return { documents: [{ record: "Home", value: { id: "home-p1", greeting: "Hello", visits: 0 } }] };
+      if (down) return { error: { type: "OSError", message: "db down at /var/secret" } };
+      if (req.loader === "load_inbox") return { documents: [{ record: "Inbox", value: { id: "inbox-p1", items: [{ id: "i1", title: "First" }] } }] };
+      return { documents: [{ record: req.loader === "load_item" ? "Item" : "Summary", value: req.loader === "load_item" ? { id: "i1", title: "First" } : { topic: "t", text: "x" } }] };
+    });
+    await app.engine.ready();
+    const c = await Headless.open(app.engine, { tape: "home", user: ADA });
+    const version = c.view.version;
+    await c.door("inbox");                                          // a destination's first door
+    expect(c.view.reel).toMatchObject({ head: "home", hub: { current: "home" } });
+    expect(c.view.version).toBe(version);
+    expect(c.error).toBe(SOMETHING_WENT_WRONG);
+    expect(JSON.stringify(c.events)).not.toContain("/var/secret");
+    await c.press("Wave");                                          // the frame on screen still works
+    expect(c.error).toBeNull();
+
+    const linked = await Headless.open(app.engine, { address: "/items/i1", user: ADA });
+    down = true;
+    await linked.back();                                            // back to the destination beneath: not entered yet
+    expect(linked.view.reel).toMatchObject({ head: "item", history: ["inbox"] });
+    expect(linked.error).toBe(SOMETHING_WENT_WRONG);
+    down = false;
+    await linked.back();
+    expect(linked.view.reel).toMatchObject({ head: "inbox", root: true });
+    expect(linked.error).toBeNull();
+    await linked.select("Inbox.items", 0);
+    expect(linked.place).toBe("item");
   });
 });
 
@@ -260,8 +296,12 @@ describe.skipIf(NO_PYTHON)("the journey runtime, with the sample apps", () => {
       const linked = await Headless.open(p.engine, { address: "/projects/p7" });
       expect(linked.view.reel).toMatchObject({ head: "report", history: [], root: true, back: false, args: { project_id: "p7" } });
       expect(linked.doc("Report")).toMatchObject({ id: "p7", title: "Q3" });
-      await linked.press("All projects");
-      expect(linked.view.reel).toMatchObject({ head: "workspace", history: ["report"] });
+      await linked.press("All projects");                     // the workspace's loader needs a signed-in user
+      expect(linked.view.reel).toMatchObject({ head: "report", history: [] });
+      expect(linked.error).toBe(SOMETHING_WENT_WRONG);       // Q65: the move does not happen
+      const signedIn = await Headless.open(p.engine, { address: "/projects/p7", user: c.user! });
+      await signedIn.press("All projects");
+      expect(signedIn.view.reel).toMatchObject({ head: "workspace", history: ["report"] });
     } finally {
       await p.stop();
     }
