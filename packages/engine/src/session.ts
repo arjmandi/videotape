@@ -96,7 +96,10 @@ export class Session {
   /** The step on screen: inputs are read against it while a move waits for its frame's loader. */
   private shown!: Step;
 
-  constructor(private readonly engine: Engine, readonly id: string, readonly token: string, user: UserRecord | null) {
+  /** When the session last moved or took an input: the most recent journey is the one a new device resumes. */
+  lastActive = Date.now();
+
+  constructor(private readonly engine: Engine, readonly id: string, readonly token: string, user: UserRecord | null, readonly device: string) {
     this.reel = new Reel(engine.places);
     this.user = user;
   }
@@ -130,10 +133,13 @@ export class Session {
 
   // ── starting ───────────────────────────────────────────────────────────────
 
-  /** Starts the journey: at the entry, at a tape, or at the frame an address opens. */
-  async begin(opts: { address?: string; tape?: string; args?: JsonObject }): Promise<void> {
+  /** Starts the journey: at the entry, at a tape, at the frame an address opens, or (`resume`) where
+   *  `resumeFrom` put the reel. */
+  async begin(opts: { address?: string; tape?: string; args?: JsonObject; resume?: boolean }): Promise<void> {
     const places = this.engine.places;
-    if (opts.address !== undefined) {
+    if (opts.resume) {
+      // the reel holds a journey taken over from another session
+    } else if (opts.address !== undefined) {
       const m = places.matchAddress(opts.address);
       if (!m) throw new Error(`no frame has the address ${opts.address}`);
       this.reel.open(m.tape, m.frame, m.args);
@@ -143,6 +149,36 @@ export class Session {
       this.reel.start(tape, opts.args ?? {});
     }
     await this.arrive();
+  }
+
+  /**
+   * Takes over another session's journey (05 §6.2, Q62): where it is, its history, its calls, and
+   * its saved hub histories. Shared documents are held again; a session's own (a draft) are copied.
+   */
+  resumeFrom(src: Session): void {
+    const visits = new Map<Visit, Visit>();
+    const sameDevice = src.device === this.device;
+    this.reel.copy(src.reel, (v) => {
+      const known = visits.get(v);
+      if (known) return known;
+      const copy = this.reel.visit(v.tape, structuredClone(v.args));
+      const holder = this.holder(copy);
+      for (const [slot, ref] of v.docs) {
+        const doc = this.docs.get(ref);
+        if (!doc) continue;
+        if ("id" in ref) {
+          this.docs.hold(ref, holder);
+          copy.docs.set(slot, ref);
+        } else {
+          copy.docs.set(slot, this.docs.own(doc.record, structuredClone(doc.value), holder));
+        }
+      }
+      this.held.add(copy);
+      visits.set(v, copy);
+      return copy;
+    });
+    // An earlier session on this device ends: this one is its user's journey here now.
+    if (sameDevice) this.engine.close(src);
   }
 
   // ── reading ────────────────────────────────────────────────────────────────
@@ -478,8 +514,17 @@ export class Session {
   private async play(o: Outcome, ctx: { item?: Item | undefined }): Promise<void> {
     const identity = "sign_in" in o && o.sign_in !== undefined ? "in" : "sign_out" in o && o.sign_out ? "out" : undefined;
     const undo = this.undoable();
-    if (identity === "in") this.user = (o as unknown as { sign_in: UserRecord }).sign_in;
+    if (identity === "out" && this.user) this.engine.signedOut(this);
     if (identity === "out") this.user = null;
+    if (identity === "in") {
+      this.user = (o as unknown as { sign_in: UserRecord }).sign_in;
+      // Reels are keyed by user and device: a journey this user has elsewhere resumes here (Q62).
+      const from = this.engine.signedIn(this);
+      if (from) {
+        this.resumeFrom(from);
+        return this.arrive(undo);
+      }
+    }
     const reel = this.reel;
     switch (o.type) {
       case "stay":
@@ -539,6 +584,7 @@ export class Session {
    * enters the frame with its defaults and the error.
    */
   private async arrive(undo?: Undo): Promise<void> {
+    this.lastActive = Date.now();
     const step = this.reel.head;
     let error: Label | null = null;
     if (!step.entered) {

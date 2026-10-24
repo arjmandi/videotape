@@ -56,10 +56,13 @@ class Inbox(vt.Record):
 # ── welcome ──
 
 
+PEOPLE = {"Ada": "p1", "Grace": "p2"}
+
+
 async def sign_in(ctx, login: Login):
     if login.password != "pw":
         raise vt.Reject("Wrong password.")
-    return vt.jump("home", sign_in=Person(id="p1", name=login.name))
+    return vt.jump("home", sign_in=Person(id=PEOPLE.get(login.name, "p0"), name=login.name))
 
 
 welcome = vt.tape("welcome", [vt.frame("Sign in", edit=Login, submit=sign_in)])

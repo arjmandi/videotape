@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { APP_UNAVAILABLE, SOMETHING_WENT_WRONG } from "../src/session";
 import { Headless } from "../src/driver";
 import { ADA, type Played, fake, play } from "./harness";
@@ -10,8 +10,18 @@ describe.skipIf(NO_PYTHON)("the journey runtime, with the journeys app", () => {
     p = await play("journeys");
   }, 20_000);
   afterAll(() => p?.stop());
+  // A user's journey resumes on another device (Q62): each test closes its sessions, so the next starts afresh.
+  let opened: Headless[] = [];
+  afterEach(() => {
+    for (const s of opened) s.close();
+    opened = [];
+  });
 
-  const open = (opts = {}) => Headless.open(p.engine, opts);
+  const open = async (opts = {}) => {
+    const s = await Headless.open(p.engine, opts);
+    opened.push(s);
+    return s;
+  };
   const signedIn = async () => {
     const c = await open();
     await c.fill("Login.name", "Ada");

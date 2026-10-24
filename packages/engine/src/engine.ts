@@ -28,8 +28,11 @@ export interface OpenOptions {
   /** Start at this tape, with these arguments: for tests that begin mid-journey. */
   tape?: string;
   args?: JsonObject;
-  /** Start signed in as this user, as if a sign-in had happened: for tests (06 §8.1's `user=`). */
+  /** Start signed in as this user, as if a sign-in had happened: for tests (06 §8.1's `user=`).
+   *  Without an address or a tape, a journey the user has resumes, as after a sign-in. */
   user?: UserRecord;
+  /** The device the client runs on; reels are keyed by user and device (Q62). A fresh one by default. */
+  device?: string;
   /** Hears the session from its first frame on. */
   listener?: Listener;
 }
@@ -50,6 +53,8 @@ export class Engine implements AppHost {
   private appMirror: AppMirror | undefined;
   private readonly sessions = new Map<string, Session>();
   private readonly byToken = new Map<string, Session>();
+  /** Signed-in sessions by user and device: whose journey resumes where (Q62). */
+  private readonly journeys = new Map<string, Map<string, Session>>();
   private waiting: Array<() => void> = [];
 
   constructor(opts: EngineOptions = {}) {
@@ -186,13 +191,51 @@ export class Engine implements AppHost {
     this.sweep();
     const id = `s_${randomBytes(6).toString("hex")}`;
     const token = randomBytes(24).toString("base64url");
-    const session = new Session(this, id, token, opts.user ?? null);
+    const device = opts.device ?? `dev_${randomBytes(6).toString("hex")}`;
+    const session = new Session(this, id, token, opts.user ?? null, device);
     this.sessions.set(id, session);
     this.byToken.set(token, session);
     if (opts.listener) session.on(opts.listener);
     this.log.info("session started", { session: id });
-    await session.begin(opts);
+    const from = opts.user ? this.signedIn(session) : undefined;
+    if (from && opts.address === undefined && opts.tape === undefined) {
+      session.resumeFrom(from);
+      await session.begin({ resume: true });
+    } else {
+      await session.begin(opts);
+    }
     return session;
+  }
+
+  // ── reels by user and device (05 §6.2, Q62) ────────────────────────────────
+
+  private static userKey(user: UserRecord): string {
+    return `${user.record}#${user.id}`;
+  }
+
+  /**
+   * A session has signed in: it becomes the journey of its user on its device, and gets the journey
+   * to resume, if the user has one: this device's own (an earlier session here, which ends), or else
+   * the most recently active one on another device.
+   */
+  signedIn(session: Session): Session | undefined {
+    const user = session.user;
+    if (!user) return undefined;
+    const key = Engine.userKey(user);
+    let devices = this.journeys.get(key);
+    if (!devices) this.journeys.set(key, (devices = new Map()));
+    const own = devices.get(session.device);
+    const others = [...devices.entries()].filter(([d, s]) => d !== session.device && s !== session && !s.closed).map(([, s]) => s);
+    devices.set(session.device, session);
+    if (own && own !== session && !own.closed) return own;
+    return others.sort((a, b) => b.lastActive - a.lastActive)[0];
+  }
+
+  /** A session has signed out: it is no longer its user's journey on its device. */
+  signedOut(session: Session): void {
+    if (!session.user) return;
+    const devices = this.journeys.get(Engine.userKey(session.user));
+    if (devices?.get(session.device) === session) devices.delete(session.device);
   }
 
   /** The session a resume token names, while it can still be resumed. */
@@ -210,6 +253,7 @@ export class Engine implements AppHost {
   }
 
   close(session: Session): void {
+    if (session.user) this.signedOut(session);
     session.close();
     this.sessions.delete(session.id);
     this.byToken.delete(session.token);

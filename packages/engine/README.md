@@ -116,6 +116,15 @@ history (or a call to leave) and the frame does not say `back=False`. The hub sh
 history began at a destination, outside calls, unless the frame says `hub=False`. Each
 destination keeps its own history; the current destination's door starts it over.
 
+**Across devices (Q62).** A session runs on a device (`open({device})`, a fresh one by default).
+After a sign-in, reels are keyed by user and device: signing in on a device the user has a journey
+on takes that journey back (the earlier session there ends); signing in on a new device resumes the
+user's most recently active journey from another one, step for step, with its history, calls, and
+saved hub histories; shared documents are held again, and a session's own (a draft) are copied, so
+the two devices then go their own ways. A sign-out ends the user's journey on that device. A
+session opened already signed in (`user`) resumes the same way, unless it opens at an address or
+a tape.
+
 **Inputs** stand in for the client protocol until it exists: `fill` (a field of the edited
 record), `press` (an action by id: `submit`, `action:<n>`, `select:<field>`, `press:<field>`; an
 `item` key for actions on items; `secrets` for the secret fields it submits), `back`, and `hub`.

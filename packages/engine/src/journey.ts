@@ -252,6 +252,16 @@ export class Reel {
     this.stacks = new Map(state.stacks);
   }
 
+  /** Takes another reel's journey, step for step; `visit` gives each of its visits a counterpart here. */
+  copy(src: Reel, visit: (v: Visit) => Visit): void {
+    const step = (s: Step): Step => ({ visit: visit(s.visit), frame: s.frame, entered: s.entered });
+    this.head = step(src.head);
+    this.history = src.history.map(step);
+    this.root = src.root;
+    this.calls = src.calls.map((c) => ({ ...c, caller: step(c.caller), history: c.history.map(step) }));
+    this.stacks = new Map([...src.stacks].map(([tape, st]) => [tape, { head: step(st.head), history: st.history.map(step) }]));
+  }
+
   visit(tape: string, args: JsonObject = {}): Visit {
     return { n: ++this.visits, tape, args, docs: new Map() };
   }

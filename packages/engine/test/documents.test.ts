@@ -130,7 +130,7 @@ describe("documents across sessions", () => {
     await app.engine.ready();
     const a = await Headless.open(app.engine, { tape: "inbox", user: ADA });
     const b = await Headless.open(app.engine, { tape: "inbox", user: ADA });
-    const elsewhere = await Headless.open(app.engine, { user: ADA });
+    const elsewhere = await Headless.open(app.engine, { tape: "home", user: ADA });
     app.sync([{ doc: { record: "Inbox", id: "inbox-p1" }, ops: [{ op: "insert", path: ["items"], key: "i2", value: { id: "i2", title: "Second" } }] }]);
     for (const c of [a, b]) {
       expect(c.changes.map(({ at: _, ...rest }) => rest)).toEqual([
