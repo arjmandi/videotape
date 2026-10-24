@@ -263,7 +263,10 @@ is called, and reports problems per field. A fill that breaks a constraint is ke
 invalid while the user types; a fill of the wrong shape is dropped. A secret travels only with the
 submit press and is cleared on the client after any press that carried it, whether it succeeded,
 was rejected, or failed; a validation failure before the app does not clear it, since it never
-left the editor.
+left the editor. A handler that takes the edited record by its type runs only when the record
+validates: a submit checks first, and a change handler waits. A handler that should see an
+unfinished form takes `vt.Draft[Deal]` instead: the same fields, all optional, with problems
+reported rather than enforced.
 
 ```python
 import videotape as vt
@@ -329,6 +332,9 @@ topic, and no optimistic declaration.
   user to another device and ends with the session; the engine never keeps it. An app that wants
   drafts to last keeps them in its own services: the loader returns the saved draft as the edited
   document's starting value, and an `on_change` handler saves it.
+- **Change handlers.** A field with `commit="change"` runs the frame's `on_change` handler for it
+  after a pause in typing (300 ms by default, `pause=` on the field), on blur, and before a submit.
+  A newer change replaces a run that has not started, so the latest text always wins.
 
 ```python
 class Message(vt.Record):
@@ -1060,6 +1066,8 @@ where §6 was open, and they were confirmed or changed here. Its letters are in 
 | Q71 | May a handler change a `RichText`, `Money`, or `Series` value in place? [S] | No: they are immutable, and a handler assigns a new value (§6.2). |
 | Q72 | Do drafts follow the user across devices and sessions? [T] | No, by default; an app keeps them in its own services, loaded as the edited document's starting value and saved on change (§6.2). |
 | Q73 | What does a kept journey resume after a release removed its place? [U] | The deepest place in its history the release still has; the sign-in's target only if none survives (§6.2). |
+| Q74 | How often does `on_change` run? [V] | After a pause in typing (300 ms by default, `pause=`), on blur, and before a submit; the newest change wins (§6.2). |
+| Q75 | Can a handler see an unfinished edited document? [W] | Only if it asks for `vt.Draft[X]`; a handler that takes `X` runs once the record validates (§6.1). |
 
 Also folded from [08](08-leverage-review.md) without a question of their own: affordances (P4,
 §6.4), the agent surface (§6.5), and its corrections to §8, §9, and §14. From
