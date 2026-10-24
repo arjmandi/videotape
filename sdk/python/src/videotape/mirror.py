@@ -21,8 +21,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .records import Record, fields_of
-from .tracking import MIRROR, Unapplicable, apply_op, load, untrack
+from .records import Record, draft_problems, fields_of
+from .tracking import MIRROR, Unapplicable, apply_op, dump, is_draft, load, load_draft, untrack
 
 
 def ref_key(ref: dict[str, Any]) -> tuple[str, str, str]:
@@ -62,7 +62,10 @@ class Mirror:
         record = self.record(ref["record"])
         if record is None or not mirrorable(record) or not isinstance(value, dict):
             return None
-        obj = load(record, value)
+        try:
+            obj = load(record, value)
+        except ValidationError:
+            obj = load_draft(record, value)      # an edited document not finished yet: held as a draft (Q75)
         old = self.copies.pop(ref_key(ref), None)
         if old is not None:
             self.retired.append(old.obj)
@@ -123,3 +126,17 @@ class Mirror:
             self.drop(ref, tell=True)
             return
         copy.version = change["version"]
+        if is_draft(copy.obj):
+            self._recheck(copy)
+
+    def _recheck(self, copy: Copy) -> None:
+        """A draft after a change: its problems again, and the record itself once it validates."""
+        record = type(copy.obj).__vt_draft__
+        problems = draft_problems(record, copy.obj.model_dump())
+        if problems:
+            copy.obj._problems = problems
+            return
+        obj = load(record, dump(copy.obj))
+        self.retired.append(copy.obj)
+        MIRROR.attach(obj, copy.ref, ())
+        copy.obj = obj

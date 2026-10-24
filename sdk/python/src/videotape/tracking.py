@@ -22,7 +22,7 @@ from typing import Annotated, Any, Union, get_args, get_origin
 
 from pydantic import TypeAdapter, ValidationError
 
-from .records import Kind, Record, _tracked, explain_invalid, fields_of, id_field
+from .records import Kind, Record, _tracked, build_draft, draft_of, explain_invalid, fields_of, id_field
 
 KEY = "@key"
 """Each record item of a list carries its key under this name on the wire."""
@@ -184,6 +184,19 @@ def load(record: type[Record], data: Any) -> Record:
     return value
 
 
+def load_draft(record: type[Record], data: Any) -> Record:
+    """A draft of `record` from the engine's JSON (Q75): its fields optional, its problems reported."""
+    data = copy.deepcopy(data)
+    tree = _strip(record, data)
+    value = build_draft(record, data)
+    _register(value, tree)
+    return value
+
+
+def is_draft(value: Any) -> bool:
+    return "__vt_draft__" in type(value).__dict__
+
+
 def load_item(record: type[Record], data: Any, key: str | None) -> Record:
     item = load(record, data if not isinstance(data, dict) else {k: v for k, v in data.items() if k != KEY})
     if key is not None:
@@ -342,26 +355,34 @@ class Tracker(Binding):
 
     # ── attaching ──
 
-    def working(self, src: Record, ref: dict[str, Any]) -> Record:
+    def working(self, src: Record, ref: dict[str, Any], draft: bool = False) -> Record:
         """This decision's own copy of a mirrored document (Q68): the confirmed value as the mirror
         holds it, with records and lists of its own and values shared, tracked under this decision,
-        and items keyed as in the mirror. One copy per document per decision."""
-        key = _ref_key(ref)
+        and items keyed as in the mirror. One copy per document per decision; `draft` makes it a
+        `vt.Draft` of its record (Q75)."""
+        key = (*_ref_key(ref), draft)
         known = self.copies.get(key)
         if known is not None:
             return known
-        copy = self._clone(src, ref, ())
+        cls = None
+        if draft and not is_draft(src):
+            cls = draft_of(type(src))
+        copy = self._clone(src, ref, (), cls)
         self.copies[key] = copy
         return copy
 
-    def _clone(self, obj: Record, ref: dict[str, Any], path: Path) -> Record:
-        cls = type(obj)
+    def _clone(self, obj: Record, ref: dict[str, Any], path: Path, cls: type[Record] | None = None) -> Record:
+        cls = cls or type(obj)
         new = object.__new__(cls)
         data = dict(obj.__dict__)
         object.__setattr__(new, "__dict__", data)
         object.__setattr__(new, "__pydantic_fields_set__", set(obj.__pydantic_fields_set__))
         object.__setattr__(new, "__pydantic_extra__", None)
-        object.__setattr__(new, "__pydantic_private__", None)
+        private = None
+        if "__vt_draft__" in cls.__dict__:
+            problems = obj.__pydantic_private__.get("_problems", {}) if is_draft(obj) and obj.__pydantic_private__ else {}
+            private = {"_problems": dict(problems)}
+        object.__setattr__(new, "__pydantic_private__", private)
         self._own(new, Owner(self, ref, path))
         for spec in fields_of(cls):
             value = data.get(spec.name)
@@ -380,9 +401,13 @@ class Tracker(Binding):
         return new
 
     def adopt(self, record: type[Record], data: Any, ref: dict[str, Any], path: Iterable[Any] = ()) -> Record:
-        """A tracked record from the engine's JSON: a whole document, or an item at `path` in one."""
+        """A tracked record from the engine's JSON: a whole document, or an item at `path` in one; a
+        `vt.Draft` record gets a draft (Q75)."""
         path = tuple(path)
-        if path and isinstance(path[-1], dict) and "key" in path[-1]:
+        drafted = record.__dict__.get("__vt_draft__")
+        if drafted is not None and not path:
+            value = load_draft(drafted, data)
+        elif path and isinstance(path[-1], dict) and "key" in path[-1]:
             value = load_item(record, data, path[-1]["key"])
         else:
             value = load(record, data)

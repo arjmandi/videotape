@@ -356,9 +356,27 @@ export class Session {
     }
   }
 
-  private async runChange(handler: string, field: string): Promise<void> {
-    if (this.status.invalid[field]) return;                 // nothing valid to hand it yet
+  /** A change handler that takes the edited record by its type waits until it validates; one that
+   *  takes `vt.Draft[X]` runs on the unfinished document (Q75). */
+  private async runChange(handler: string, _field: string): Promise<void> {
+    if (this.takesEdited(handler) === "record" && !this.editValid()) return;
     await this.decide(handler, {});
+  }
+
+  /** How a handler takes the record the frame edits: by its type, as a draft, or not at all. */
+  private takesEdited(handler: string): "record" | "draft" | undefined {
+    const edit = this.frame.edit?.record;
+    const params = this.engine.intent.handlers[handler]?.params ?? [];
+    if (!edit) return undefined;
+    if (params.some((p) => p.type === "record" && p.record === edit)) return "record";
+    if (params.some((p) => p.type === "draft" && p.record === edit)) return "draft";
+    return undefined;
+  }
+
+  private editValid(): boolean {
+    const edit = this.frame.edit?.record;
+    const ref = edit ? this.ref(edit) : undefined;
+    return !edit || !ref || this.engine.records.validate(edit, this.docs.read(ref)).length === 0;
   }
 
   /** The frame changed: changes still waiting belong to the frame that was left. */
@@ -416,7 +434,10 @@ export class Session {
     const target = action.target;
     if (action.kind === "submit") await this.settleChanges();
     if ("handler" in target) {
-      if (action.kind === "submit" && !this.valid(secrets)) return;
+      // A submit, and any handler that takes the edited record by its type, runs only once the record
+      // validates; the problems show by field instead (Q63, Q75).
+      const checks = action.kind === "submit" || this.takesEdited(target.handler) === "record";
+      if (checks && !this.valid(secrets)) return;
       return this.decide(target.handler, { item, secrets });
     }
     return this.play(this.resolve(target, item), { item });
@@ -492,7 +513,7 @@ export class Session {
       const out: Record<string, DocValue> = {};
       const mirror = engine.mirror;
       for (const p of spec.params) {
-        if (p.name in values || p.type !== "record" || !p.record || !mirror) continue;
+        if (p.name in values || (p.type !== "record" && p.type !== "draft") || !p.record || !mirror) continue;
         if (opts.item && opts.item.record === p.record) {
           const entry = mirror.entry(opts.item.ref);
           if (entry) out[p.name] = { ...entry, path: opts.item.path, record: p.record };

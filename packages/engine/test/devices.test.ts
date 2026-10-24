@@ -117,6 +117,23 @@ describe.skipIf(NO_PYTHON)("a journey across devices", () => {
     expect(laptop.doc("Plan")).toEqual({ title: "Roses", steps: 1 });
   });
 
+  it("saves a draft while a required field is still empty, and brings it back unfinished (Q75)", async () => {
+    const ada = { record: "Person", id: "p1", value: { id: "p1", name: "Ada" } };
+    const s = await open({ device: "phone", tape: "notes", user: ada });
+    expect(s.doc("Note")).toEqual({ body: "" });
+    await s.fill({ body: "half a thought" });
+    await s.blur("body");                                           // save_note takes vt.Draft[Note]: it runs without a title
+    expect(s.error).toBeNull();
+    const later = await open({ device: "laptop", tape: "notes", user: ada });
+    expect(later.doc("Note")).toEqual({ body: "half a thought" });
+    await later.press("Keep");                                      // keep_note takes Note: the submit checks first
+    expect(later.invalid).toEqual({ "Note.title": ["is required"] });
+    expect(later.place).toBe("notes");
+    await later.fill({ title: "Plan" });
+    await later.press("Keep");
+    expect(later.place).toBe("home");
+  });
+
   it("lands where a sign-in points when it says resume=False (Q70)", async () => {
     const phone = await signIn("phone");
     await phone.press("Plan something");

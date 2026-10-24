@@ -155,6 +155,14 @@
                 "field": "Home.greeting"
               },
               "affordance": "press"
+            },
+            {
+              "label": "Write a note",
+              "target": {
+                "type": "jump",
+                "tape": "notes"
+              },
+              "affordance": "press"
             }
           ],
           "root": "sometimes"
@@ -417,6 +425,53 @@
           "root": "always"
         }
       ]
+    },
+    {
+      "id": "notes",
+      "frames": [
+        {
+          "purpose": "Write a note",
+          "edit": {
+            "record": "Note"
+          },
+          "enter": {
+            "loader": "load_note"
+          },
+          "submit": {
+            "label": "Keep",
+            "handler": "keep_note"
+          },
+          "components": [
+            {
+              "field": "Note.title",
+              "from": "edit",
+              "type": "string",
+              "affordances": [
+                "write"
+              ]
+            },
+            {
+              "field": "Note.body",
+              "from": "edit",
+              "type": "text",
+              "lines": [
+                1,
+                6
+              ],
+              "commit": "change",
+              "affordances": [
+                "write"
+              ]
+            }
+          ],
+          "on_change": [
+            {
+              "field": "Note.body",
+              "handler": "save_note"
+            }
+          ]
+        }
+      ]
     }
   ],
   "records": {
@@ -556,6 +611,39 @@
         "password"
       ],
       "title": "Login",
+      "type": "object",
+      "x-vt": {
+        "type": "record"
+      }
+    },
+    "Note": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "title": "Title",
+          "type": "string",
+          "x-vt": {
+            "type": "string"
+          }
+        },
+        "body": {
+          "default": "",
+          "title": "Body",
+          "type": "string",
+          "x-vt": {
+            "type": "text",
+            "lines": [
+              1,
+              6
+            ],
+            "commit": "change"
+          }
+        }
+      },
+      "required": [
+        "title"
+      ],
+      "title": "Note",
       "type": "object",
       "x-vt": {
         "type": "record"
@@ -715,6 +803,26 @@
         }
       ]
     },
+    "keep_note": {
+      "params": [
+        {
+          "name": "note",
+          "type": "record",
+          "record": "Note",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "jump",
+          "tape": "home"
+        },
+        {
+          "type": "stay",
+          "implied": true
+        }
+      ]
+    },
     "name_plan": {
       "params": [
         {
@@ -741,6 +849,21 @@
           "name": "home",
           "type": "record",
           "record": "Home",
+          "required": true
+        }
+      ],
+      "outcomes": [
+        {
+          "type": "stay"
+        }
+      ]
+    },
+    "save_note": {
+      "params": [
+        {
+          "name": "note",
+          "type": "draft",
+          "record": "Note",
           "required": true
         }
       ],
@@ -888,6 +1011,15 @@
         }
       ]
     },
+    "load_note": {
+      "params": [],
+      "returns": [
+        {
+          "type": "draft",
+          "record": "Note"
+        }
+      ]
+    },
     "load_plan": {
       "params": [],
       "returns": [
@@ -964,6 +1096,15 @@
       }
     },
     {
+      "from": "home",
+      "to": "notes",
+      "type": "jump",
+      "tape": "notes",
+      "via": {
+        "action": "Write a note"
+      }
+    },
+    {
       "from": "wizard/name",
       "to": "wizard/steps",
       "type": "goto",
@@ -1024,6 +1165,16 @@
       "via": {
         "action": "Sign out",
         "handler": "sign_out"
+      }
+    },
+    {
+      "from": "notes",
+      "to": "home",
+      "type": "jump",
+      "tape": "home",
+      "via": {
+        "submit": "Keep",
+        "handler": "keep_note"
       }
     }
   ]

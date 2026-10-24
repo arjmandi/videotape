@@ -265,6 +265,12 @@ class _Checker:
                 if p.annotation is _EMPTY:
                     message = f"{sig.name}() takes {p.name} without a type; annotate it with the record it receives"
                     self.report(error("unknown-document", message, f.node))
+                elif p.kind is not None and p.kind.type == "draft":
+                    # Q75: a draft is the edited record, unfinished.
+                    if f.edit is not p.kind.target:
+                        message = (f"{sig.name}() takes {p.name}: vt.Draft[{p.kind.target.__name__}], but this frame "
+                                   f"does not edit {p.kind.target.__name__}")  # fmt: skip
+                        self.report(error("unknown-document", message, f.node))
                 elif p.record is None:
                     shown = getattr(p.annotation, "__name__", repr(p.annotation))
                     message = (f"{sig.name}() takes {p.name}: {shown}, which is neither a record this frame "
@@ -393,6 +399,9 @@ class _Checker:
         if f.edit is not None:
             documents.append(kind_of(f.edit))
         wanted = [{**k.to_json(), "nullable": None} for k in documents]
+        if f.edit is not None:
+            # A saved draft is a starting value for the edited record too (Q72, Q75).
+            wanted.append({"type": "draft", "record": f.edit.__name__, "nullable": None})
         for got in returns_kinds(sig.returns):
             if {**got.to_json(), "nullable": None} in wanted:
                 continue
@@ -513,7 +522,8 @@ class _Checker:
         if f.edit is None or f.submit is not None or f.on_change:
             return
         for u in uses(f):
-            if u.handler is not None and any(p.record is f.edit for p in read(u.handler).params):
+            if u.handler is not None and any(p.record is f.edit or (p.kind is not None and p.kind.type == "draft"
+                                                                      and p.kind.target is f.edit) for p in read(u.handler).params):
                 return
         message = f"the frame edits {f.edit.__name__}, but no submit, on_change, or action receives it"
         self.report(warning("unused-edit", message, f.node))

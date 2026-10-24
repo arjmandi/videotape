@@ -253,7 +253,7 @@ class Kind:
 
     def to_json(self) -> dict[str, Any]:
         out: dict[str, Any] = {"type": self.type}
-        if self.type == "record":
+        if self.type in ("record", "draft"):
             out["record"] = self.target.__name__
         elif self.type == "choice":
             if self.target is not None:
@@ -313,6 +313,9 @@ def kind_of(annotation: Any, metadata: list[Any] | tuple[Any, ...] = ()) -> Kind
         if t in BUILTIN_TYPES:
             return Kind(BUILTIN_TYPES[t], target=t, nullable=nullable)
         if issubclass(t, Record):
+            drafted = t.__dict__.get("__vt_draft__")
+            if drafted is not None:
+                return Kind("draft", target=drafted, nullable=nullable)
             return Kind("record", target=t, nullable=nullable)
         if issubclass(t, Enum):
             return Kind("choice", target=t, nullable=nullable)
@@ -634,3 +637,73 @@ def pages(ref: FieldRef) -> Any:
         return loader
 
     return register
+
+
+# ── drafts (Q75) ─────────────────────────────────────────────────────────────
+
+_drafts: dict[type, type] = {}
+
+
+def draft_problems(record: type[Record], data: Any) -> dict[str, list[str]]:
+    """What keeps `data` from being a valid `record`, by field: what a draft reports, not enforces."""
+    try:
+        record.model_validate(data)
+    except ValidationError as e:
+        out: dict[str, list[str]] = {}
+        for err in e.errors():
+            field = str(err["loc"][0]) if err["loc"] else record.__name__
+            out.setdefault(field, []).append(err["msg"])
+        return out
+    return {}
+
+
+def draft_of(record: type[Record]) -> type[Record]:
+    """The draft of a record: the same fields, all optional and unconstrained, with the problems that
+    keep it from being valid reported on it (`draft.problems`) rather than enforced. A handler that
+    takes `vt.Draft[Deal]` gets the edited document unfinished; one that takes `Deal` waits until it
+    validates (Q75). Nested records keep their own rules."""
+    known = _drafts.get(record)
+    if known is not None:
+        return known
+    ensure_complete(record)
+    annotations: dict[str, Any] = {}
+    namespace: dict[str, Any] = {}
+    for name, info in record.model_fields.items():
+        annotations[name] = info.annotation | None
+        # A field keeps its own default; one without becomes empty (None) rather than required.
+        if info.default_factory is not None:
+            namespace[name] = pydantic.Field(default_factory=info.default_factory)
+        else:
+            namespace[name] = None if info.default is PydanticUndefined else info.default
+    namespace.update({
+        "__annotations__": annotations,
+        "__module__": record.__module__,
+        "__qualname__": f"Draft[{record.__name__}]",
+        "__vt_draft__": record,
+        "_problems": pydantic.PrivateAttr(default_factory=dict),
+        "problems": property(lambda self: dict(self._problems), doc="What keeps it from being valid, by field."),
+    })  # fmt: skip
+    cls = type(record)(f"Draft[{record.__name__}]", (record,), namespace)
+    _drafts[record] = cls
+    return cls
+
+
+def build_draft(record: type[Record], data: Any) -> Record:
+    """A draft of `record` from the engine's JSON, with its problems; values that do not fit their
+    type are kept as they are."""
+    cls = draft_of(record)
+    try:
+        draft = cls.model_validate(data)
+    except ValidationError:
+        draft = cls.model_construct(**data) if isinstance(data, dict) else cls()
+    draft._problems = draft_problems(record, data)
+    return draft
+
+
+class Draft:
+    """`vt.Draft[Deal]`: a handler parameter that receives the edited `Deal` unfinished (Q75)."""
+
+    def __class_getitem__(cls, record: Any) -> type[Record]:
+        if not (isinstance(record, type) and issubclass(record, Record)):
+            raise TypeError(f"vt.Draft[...] takes a record type, such as vt.Draft[Deal]; got {record!r}")
+        return draft_of(record)

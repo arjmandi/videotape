@@ -259,12 +259,23 @@ describe("on_change, paced (Q72, Q74)", () => {
     expect(app.engine.mirror!.holds(s.session.ref("Plan")!)).toBe(4);
   });
 
-  it("does not run while the field is invalid", async () => {
+  it("skips a handler that takes the edited record by its type while the record does not validate (Q75)", async () => {
     vi.useFakeTimers();
     const { s, decided } = await wizard();
     await s.fill({ title: "A name far longer than twenty letters" });
     await s.blur("title");
     expect(decided()).toEqual([]);
     expect(s.invalid).toEqual({ "Plan.title": ["/ must NOT have more than 20 characters"] });
+  });
+});
+
+describe("handlers that take the edited record by its type (Q75)", () => {
+  it("check the record first for any action, and show its problems instead of calling the app", async () => {
+    const app = fake("journeys", () => ({ outcome: { type: "stay" } }));
+    await app.engine.ready();
+    const s = await Headless.open(app.engine);
+    await s.press("Sign in here");                                   // sign_in_here takes Login by its type
+    expect(app.requests.filter((r) => r.t === "decide")).toEqual([]);
+    expect(s.invalid).toEqual({ "Login.name": ["is required"], "Login.password": ["is required"] });
   });
 });

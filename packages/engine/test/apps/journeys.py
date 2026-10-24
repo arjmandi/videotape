@@ -40,6 +40,11 @@ class Summary(vt.Record):
     text: str
 
 
+class Note(vt.Record):
+    title: str
+    body: vt.Text = vt.Field("", commit="change")
+
+
 class Question(vt.Record):
     text: str = "Are you sure?"
 
@@ -129,7 +134,32 @@ home = vt.tape("home", [
         vt.action("Export", export),
         vt.action("Help", vt.open("https://example.com/help")),
         vt.action("Copy greeting", vt.copy(Home.greeting)),
+        vt.action("Write a note", vt.jump("notes")),
     ]),
+])
+
+
+# ── a note, kept as a draft until it has a title (Q72, Q75) ──
+
+NOTES: dict[str, dict] = {}
+
+
+async def load_note(ctx) -> vt.Draft[Note]:
+    return vt.Draft[Note](**NOTES.get(ctx.user.id, {}))      # the saved draft, unfinished or not
+
+
+async def save_note(ctx, note: vt.Draft[Note]):
+    NOTES[ctx.user.id] = note.model_dump(exclude_none=True)   # saved even while the title is empty
+    return vt.stay()
+
+
+async def keep_note(ctx, note: Note):
+    NOTES.pop(ctx.user.id, None)
+    return vt.jump("home")
+
+
+notes = vt.tape("notes", [
+    vt.frame("Write a note", edit=Note, enter=load_note, submit=vt.action("Keep", keep_note), on_change={Note.body: save_note}),
 ])
 
 
@@ -210,7 +240,7 @@ async def sign_out(ctx):
 account = vt.tape("account", [vt.frame("Your account", actions=[vt.action("Sign out", sign_out)])])
 
 
-app = vt.app("journeys", entry=welcome, tapes=[welcome, home, wizard, confirm, inbox, item, account],
+app = vt.app("journeys", entry=welcome, tapes=[welcome, home, wizard, confirm, inbox, item, account, notes],
              keep_journeys=timedelta(days=7),
              hub=vt.hub([vt.destination(home, "Home"), vt.destination(inbox, "Inbox"),
                          vt.destination(account, "Account")]))

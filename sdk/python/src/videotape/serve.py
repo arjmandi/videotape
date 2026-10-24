@@ -33,7 +33,7 @@ from .mirror import Mirror, mirrorable
 from .outcomes import Outcome
 from .records import Record, fields_of, id_field
 from .serialize import build
-from .tracking import KEY, Tracker, current, dump, key_of, keys_scope, known_key, load
+from .tracking import KEY, Tracker, current, dump, is_draft, key_of, keys_scope, known_key, load
 
 PROTOCOL = 1
 SDK_VERSION = "0.0.1"
@@ -44,6 +44,14 @@ log = logging.getLogger("videotape.serve")
 
 class ProtocolError(Exception):
     """The engine refused the app, or said something the client cannot follow."""
+
+
+class IncompleteRecord(TypeError):
+    """A handler takes the edited record by its type while it is not complete (Q75)."""
+
+
+def _problems(draft: Any) -> str:
+    return "; ".join(f"{field}: {', '.join(msgs)}" for field, msgs in draft.problems.items())
 
 
 def find_record(name: str, modules: set[str] = frozenset()) -> type[Record] | None:  # type: ignore[assignment]
@@ -182,12 +190,18 @@ class AppClient:
         record for an item): the mirror's copy, or the item in it at `path`; or, where the document's
         record is one the mirror never holds, a record of its own."""
         container = self.record(entry["ref"].get("record", ""))
+        draft = record is not None and "__vt_draft__" in record.__dict__ and not entry.get("path")
         if container is not None and mirrorable(container):
             copy = self.mirror.get(entry["ref"])
             if copy is None:
                 raise ProtocolError(f"the app holds no copy of {entry['ref']}")
+            if not draft and not entry.get("path") and is_draft(copy.obj):
+                raise IncompleteRecord(
+                    f"{container.__name__} is not complete yet ({_problems(copy.obj)}); a handler that takes it by its "
+                    f"type runs once it validates, and one that takes vt.Draft[{container.__name__}] gets it unfinished"
+                )
             # A decision works on its own copy of the confirmed value (Q68); a loader reads the mirror.
-            root = tracker.working(copy.obj, entry["ref"]) if tracker is not None else copy.obj
+            root = tracker.working(copy.obj, entry["ref"], draft) if tracker is not None else copy.obj
             found = _walk(root, entry.get("path") or [])
             if found is None:
                 raise ProtocolError(f"no item at {entry.get('path')} in {entry['ref']}")
@@ -317,7 +331,12 @@ class AppClient:
         values = result if isinstance(result, tuple) else (result,)
         documents = []
         for value in values:
-            if isinstance(value, Record):
+            if isinstance(value, Record) and is_draft(value):
+                # A saved draft as the edited document's starting value (Q72, Q75): its empty fields stay empty.
+                record = type(value).__vt_draft__
+                data = {k: v for k, v in dump(value).items() if v is not None or kind_of_field(record, k).nullable}
+                documents.append({"record": record.__name__, "value": data})
+            elif isinstance(value, Record):
                 documents.append({"record": type(value).__name__, "value": dump(value)})
             elif isinstance(value, list) and all(isinstance(v, Record) for v in value):
                 item = type(value[0]).__name__ if value else None
@@ -361,6 +380,10 @@ class AppClient:
         for secret in sorted(self.secrets, key=len, reverse=True):
             text = text.replace(secret, MASK)
         return text
+
+
+def kind_of_field(record: type[Record], name: str) -> Any:
+    return next(s.kind for s in fields_of(record) if s.name == name)
 
 
 def _json(value: Any) -> Any:

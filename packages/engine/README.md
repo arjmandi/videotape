@@ -171,6 +171,15 @@ refused as an error. A `Reject` stays and shows its message as the frame's error
 raised error or an app that is gone or too slow (30 s) stays with the engine's own message. After
 every press that carried secrets the session tells the client to clear those fields (Q58).
 
+**Unfinished forms (Q75).** A handler that takes the edited record by its type (`d: Deal`) runs only
+once the record validates: a submit, or any action whose handler takes it, checks first and shows
+the problems by field instead of calling the app, and a change handler that takes it is skipped
+while the record is incomplete. A handler that takes `vt.Draft[Deal]` (its parameter is
+`{"type": "draft", "record": "Deal"}` in the intent) gets the document unfinished: the same fields,
+all optional and unconstrained, with `problems` by field reported rather than enforced. The app's
+mirror holds an incomplete edited document as such a draft until it validates, and a loader may
+return a saved draft as the edited document's starting value.
+
 **Changes and drafts (Q72, Q74).** A field with an `on_change` handler (on the frame, or on a
 `vt.show`) runs it as a decision on the frame when its change commits: for `commit="change"`, after
 a pause in changes (300 ms, or the field's `vt.Field(pause=...)` in seconds, carried in the

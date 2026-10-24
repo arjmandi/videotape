@@ -20,5 +20,5 @@ wizard = vt.tape("wizard", [
              actions=[vt.action("Done", vt.jump("home"), role="primary")]),
 ])
 
-app = vt.app("journeys", entry=j.welcome, tapes=[j.welcome, j.home, wizard, j.confirm, j.inbox, j.item, j.account],
+app = vt.app("journeys", entry=j.welcome, tapes=[j.welcome, j.home, wizard, j.confirm, j.inbox, j.item, j.account, j.notes],
              keep_journeys=j.app.keep_journeys, hub=j.app.hub)
