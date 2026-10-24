@@ -1,10 +1,9 @@
 """06 §9.4, a chat app ("Relay"), with the app line from 06 §3.4.
 
-The guide's code is kept as written, except `Message.sent_at`, which is optional here: the guide's
-`send` builds a `Message` before the service has given it a time, and a required `sent_at` refuses
-that. Filled in: fake services (an in-memory store, with an outage for messages that start with
-"fail:"), `User`, the loaders, and the chats, contacts, and settings tapes. The engine's tests play
-this app (packages/engine).
+The guide's code is kept as written (06 at design/v2 93b00c3, where a pending message has no
+`sent_at` until the service stamps it, Q67). Filled in: fake services (an in-memory store, with an
+outage for messages that start with "fail:"), `User`, the loaders, and the chats, contacts, and
+settings tapes. The engine's tests play this app (packages/engine).
 """
 
 from __future__ import annotations
@@ -58,7 +57,7 @@ db = _Db()
 class Message(vt.Record):
     author: User
     text: vt.RichText
-    sent_at: datetime | None = vt.Field(format="time", importance="optional")   # optional here: see above
+    sent_at: datetime | None = vt.Field(None, format="time", importance="optional")   # stamped when sent
     pending: bool = vt.State(False)
 
 

@@ -18,7 +18,7 @@ from enum import Enum
 from typing import Annotated, Any, ClassVar, Literal, Union, get_args, get_origin
 
 import pydantic
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 from pydantic._internal._model_construction import ModelMetaclass
 from pydantic.errors import PydanticUndefinedAnnotation
 from pydantic.fields import FieldInfo
@@ -44,6 +44,20 @@ _CLOSED = {
 class RecordError(TypeError):
     """A record that cannot be read: an undefined name in an annotation, two ids, or an option on a
     field of the wrong type."""
+
+
+def explain_invalid(record: type, error: ValidationError) -> None:
+    """Adds a note to a record's validation error when required fields are missing (Q67): a record a
+    handler creates must be valid; only its `vt.Id` may be missing until the app saves it."""
+    missing = [".".join(str(p) for p in e["loc"]) for e in error.errors() if e["type"] == "missing"]
+    if not missing:
+        return
+    name = missing[0].split(".")[-1]
+    error.add_note(
+        f"{record.__name__} was created without {', '.join(missing)}. A record must be valid when it is created; "
+        f"only its vt.Id may be missing until the app saves it. A value that does not exist yet is an optional "
+        f"field: `{name}: ... | None = None`."
+    )
 
 
 # ── field references ─────────────────────────────────────────────────────────
@@ -557,6 +571,13 @@ class Record(BaseModel, metaclass=RecordMeta):
                 "or make the field an Enum whose members are message keys"
             )
         return value
+
+    def __init__(self, /, **data: Any) -> None:
+        try:
+            super().__init__(**data)
+        except ValidationError as e:
+            explain_invalid(type(self), e)
+            raise
 
     def __setattr__(self, name: str, value: Any) -> None:
         super().__setattr__(name, value)

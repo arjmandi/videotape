@@ -20,9 +20,9 @@ from collections.abc import Callable, Iterable
 from contextvars import ContextVar
 from typing import Annotated, Any, Union, get_args, get_origin
 
-from pydantic import TypeAdapter
+from pydantic import TypeAdapter, ValidationError
 
-from .records import Kind, Record, _tracked, fields_of, id_field
+from .records import Kind, Record, _tracked, explain_invalid, fields_of, id_field
 
 KEY = "@key"
 """Each record item of a list carries its key under this name on the wire."""
@@ -406,7 +406,12 @@ class TrackedList(list):
     def _coerce(self, value: Any) -> Any:
         if self._records and isinstance(value, self._item.target):
             return value
-        return self._adapter.validate_python(value)
+        try:
+            return self._adapter.validate_python(value)
+        except ValidationError as e:
+            if self._records:
+                explain_invalid(self._item.target, e)
+            raise
 
     def _op(self, op: dict[str, Any]) -> None:
         self._binding.op(self._ref, {**op, "path": _wire(self._path)})

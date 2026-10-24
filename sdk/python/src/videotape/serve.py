@@ -218,7 +218,8 @@ class AppClient:
                 else:
                     reply = await self._page(msg)
         except Exception as e:  # noqa: BLE001 - every failure of app code goes back as an error result
-            reply = {"error": {"type": type(e).__name__, "message": self.scrub(str(e))}}
+            text = "\n".join([str(e), *getattr(e, "__notes__", [])])
+            reply = {"error": {"type": type(e).__name__, "message": self.scrub(text)[:8000]}}
             log.error("%s %s raised %s", msg["t"], msg.get("handler") or msg.get("loader"), self.scrub(_trace(e)))
         finally:
             self.secrets -= secrets

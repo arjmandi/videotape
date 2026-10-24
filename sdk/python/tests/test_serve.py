@@ -263,3 +263,30 @@ def test_serve_stops_when_the_engine_refuses():
 
     with pytest.raises(ProtocolError, match="bad_intent"):
         asyncio.run(main())
+
+
+class _Stamped(vt.Record):
+    text: str
+    sent_at: relay.datetime
+
+
+class _Thread(vt.Record):
+    id: vt.Id
+    notes: list[_Stamped] = []
+
+
+async def add_unstamped(ctx, thread: _Thread):
+    thread.notes.append({"text": "no time"})
+    return vt.stay()
+
+
+def test_a_handler_that_builds_an_invalid_record_is_told_what_is_missing():
+    app = vt.app("unstamped", entry="t", tapes=[vt.tape("t", [vt.frame("Add", shows=_Thread, actions=[vt.action("Add", add_unstamped)])])])
+
+    async def body(e):
+        doc = {"ref": {"record": "_Thread", "id": "t1"}, "version": 0, "value": {"id": "t1", "notes": []}}
+        return await e.ask({"t": "decide", "id": "1", "handler": "add_unstamped", "session": "s1", "user": None, "documents": {"thread": doc}})
+
+    error = play(app, body)["error"]
+    assert error["type"] == "ValidationError"
+    assert "_Stamped was created without sent_at" in error["message"]
