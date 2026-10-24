@@ -259,7 +259,7 @@ sent to the app.
 
 ## Decisions (05 §18.2)
 
-The protocol details 05 left open were decided as Q53–Q70 (05 §18.2, on `design/v2` at `897813f`).
+The protocol details 05 left open were decided as Q53–Q73 (05 §18.2, on `design/v2` at `bb41cfc`).
 Where each lives here:
 
 | Q | Decision | Here |
@@ -282,20 +282,21 @@ Where each lives here:
 | Q68 | Each decision works on its own copy: the confirmed values plus its own changes, never another decision's pending ones | Each decision on its own copy; `Tracker.working`; the mirror holds confirmed values |
 | Q69 | Signed-in journeys kept 30 days by default (`keep_journeys=`), positions and history only; any device resumes the most recent | Across devices; a durable journey store; `src/journeys.ts` |
 | Q70 | A sign-in resumes the user's journey unless the outcome says `resume=False` | Across devices; the SDK's `resume=` |
+| Q71 | `RichText`, `Money`, and `Series` are immutable; a handler assigns a new value | The SDK's `values`: frozen sequences that say what to do instead, and builders |
+| Q72 | Drafts stay per session; an app keeps them in its own services, loaded as the edited document's starting value and saved on change | Changes and drafts; `on_change` runs on a committed change |
+| Q73 | A kept journey resumes at the deepest place in its history a release still has; the sign-in's target only if none survives | Across devices; `Reel.resume` |
 
-**New questions**, from building Q68–Q70:
+**New questions**, from building Q71–Q73:
 
-- **Q-S Plain values in a decision's copy.** A decision's copy has records and lists of its own, but
-  shares plain values (`vt.RichText`, `vt.Money`, `vt.Series`) with the mirror, so a handler that
-  changed one in place (`msg.text.blocks.append(...)`) would change the confirmed copy too, and send
-  no op. Should those value types be immutable, so a handler can only replace them?
-- **Q-T Drafts across devices and sessions.** Kept journeys hold no documents, so a draft typed on
-  one device (a session's own edited document) does not follow to another, and is gone when the
-  session ends: the form comes back empty. Is that the intended consequence, or should an app be
-  able to keep a draft itself (in its own services) and load it back?
-- **Q-U A kept journey after a release.** When a release removes or renames a place a kept journey
-  names, the engine does not resume it and lands where the sign-in points. Should it resume the
-  part of the history that still exists instead?
+- **Q-V How often `on_change` runs.** A field with `commit="change"` runs its `on_change` handler on
+  every committed change, so saving a draft calls the app's services at every keystroke the client
+  commits. Should the engine wait for a pause in typing before it runs `on_change`, or is pacing the
+  client protocol's commit policy?
+- **Q-W Handlers on an unfinished edited document.** A handler receives the edited document as a
+  record, which must validate (Q67), so an `on_change` handler cannot save a draft while a required
+  field is still empty: the decision fails. Should an edited document reach handlers before it is
+  complete (its required fields optional until the submit), or should a record meant for drafts give
+  every field a default?
 
 **Not built** (per the brief): the composer, embodiment, scene state, rendering, streaming,
 clients and the client protocol, release, and the TypeScript SDK. Also not built here: timers
