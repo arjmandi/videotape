@@ -280,25 +280,61 @@ export class Reel {
 
   /**
    * Takes up a kept journey: the same places, in new tape visits with their arguments and no
-   * documents, none of them entered, so each frame's loader runs when the user gets there. False,
-   * with the reel unchanged, when a place it names no longer exists.
+   * documents, none of them entered, so each frame's loader runs when the user gets there. Places a
+   * newer intent no longer has are dropped, and the journey resumes at the deepest place that
+   * survives, with the history beneath it (Q73): a call none of whose places survive is left, and a
+   * saved hub history keeps what survives of it. False, with the reel unchanged, when nothing survives.
    */
   resume(kept: Omit<KeptJourney, "user" | "device" | "savedAt">): boolean {
     const places = this.places;
-    const all = [kept.head, ...kept.history, ...kept.calls.flatMap((c) => [c.caller, ...c.history]), ...kept.stacks.flatMap((s) => [s.head, ...s.history])];
-    const index = (s: KeptStep) => (s.frame === null ? (places.hasTape(s.tape) && places.tape(s.tape).frames.length === 1 ? 0 : -1) : places.hasTape(s.tape) ? places.frameIndex(s.tape, s.frame) : -1);
-    if (all.some((s) => index(s) < 0)) return false;
+    const index = (s: KeptStep): number => {
+      if (!places.hasTape(s.tape)) return -1;
+      if (s.frame === null) return places.tape(s.tape).frames.length === 1 ? 0 : -1;
+      return places.frameIndex(s.tape, s.frame);
+    };
     const visits = new Map<number, Visit>();
     const step = (s: KeptStep): Step => {
       let v = visits.get(s.visit);
       if (!v) visits.set(s.visit, (v = this.visit(s.tape, structuredClone(s.args))));
       return this.step(v, index(s));
     };
-    this.head = step(kept.head);
-    this.history = kept.history.map(step);
-    this.root = kept.root;
-    this.calls = kept.calls.map((c) => ({ tape: c.tape, ...(c.then ? { then: c.then } : {}), caller: step(c.caller), history: c.history.map(step), root: c.root }));
-    this.stacks = new Map(kept.stacks.map((st) => [st.tape, { head: step(st.head), history: st.history.map(step) }]));
+
+    // The journey from its root to where it was, calls included, as one line of levels.
+    type Level = { kept: KeptStep; call?: KeptJourney["calls"][number] };
+    const line: Level[] = [];
+    for (const c of kept.calls) {
+      line.push(...c.history.map((k) => ({ kept: k })), { kept: c.caller, call: c });
+    }
+    line.push(...kept.history.map((k) => ({ kept: k })), { kept: kept.head });
+    const surviving = line.filter((l) => index(l.kept) >= 0);
+    if (surviving.length === 0) return false;
+
+    const baseRoot = kept.calls.length ? kept.calls[0]!.root : kept.root;
+    let root = baseRoot !== null && places.isDestination(baseRoot) ? baseRoot : null;
+    const calls: CallFrame[] = [];
+    let history: Step[] = [];
+    surviving.forEach((l, i) => {
+      const s = step(l.kept);
+      // A call goes on only if its tape still exists and something deeper than its caller survives.
+      if (l.call && places.hasTape(l.call.tape) && i < surviving.length - 1) {
+        calls.push({ tape: l.call.tape, caller: s, history, root, ...(l.call.then ? { then: l.call.then } : {}) });
+        history = [];
+        root = null;
+      } else {
+        history.push(s);
+      }
+    });
+    this.head = history.pop()!;
+    this.history = history;
+    this.root = root;
+    this.calls = calls;
+    this.stacks = new Map();
+    for (const st of kept.stacks) {
+      if (!places.isDestination(st.tape)) continue;
+      const left = [...st.history, st.head].filter((k) => index(k) >= 0).map(step);
+      const head = left.pop();
+      if (head) this.stacks.set(st.tape, { head, history: left });
+    }
     return true;
   }
 

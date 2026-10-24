@@ -136,7 +136,10 @@ are kept: which tape visits, at which frames, with which tape arguments, the roo
 each hub destination's saved history; never a document. A sign-in on any device resumes the user's
 most recent kept journey, whichever device made it: the same places in new tape visits, none of
 them entered, so each frame's loader runs again when the user gets there and documents come fresh
-from the app; the devices then go their own ways. A sign-in whose outcome says `resume=False`
+from the app; the devices then go their own ways. After a release, a kept journey resumes at the
+deepest place in its history that the intent still has, with the history beneath it: places that
+are gone are dropped, a call none of whose places survive is left, and a saved hub history keeps
+what survives of it; only when nothing survives does the sign-in land where it points (Q73). A sign-in whose outcome says `resume=False`
 (`vt.jump("home", sign_in=user, resume=False)`, as after a password change) lands where it points
 (Q70). A session opened already signed in (`user`) resumes the same way, unless it opens at an
 address or a tape. A sign-out forgets the user's journey on that device. Anonymous sessions keep
@@ -147,8 +150,8 @@ here) needs: journeys keyed by app, user, and device, each replaced whole on sav
 (last writer wins per device) with the time it was saved; the user's most recent journey in one
 read; expiry after `keep_journeys`; forgetting a device's journey on sign-out and all of a user's
 on account deletion; and the release (tape versions, 05 §7.1) a journey was saved under, so a
-resume can tell when its places changed (this engine checks that every place still exists, and
-lands normally otherwise). It holds no documents, but tape arguments are part of the position (a
+resume can tell when its places changed (this engine checks each place against the intent it plays,
+Q73). It holds no documents, but tape arguments are part of the position (a
 conversation id, a search term), so it is the user's data: kept per region, encrypted at rest,
 and named in the privacy labels.
 
