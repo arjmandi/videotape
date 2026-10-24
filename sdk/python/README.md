@@ -154,6 +154,7 @@ edges      [{from, to, type, tape | frame, resets_history, signs_in, via}]
 | `unreachable-frame` | warning | a frame cannot be reached from the entry | v1 |
 | `no-exit` | warning | a frame has no declared way out, no back, and no hub doors (a dead end) | v1, Q31, Q32, Q49 |
 | `closed-cycle` | warning | frames form a group the journey cannot leave, unless it holds the entry, a sign-in target, or a hub destination | v1, Q51 |
+| `done-without-call` | warning | a tape uses `done`, but no call (or pick) enters it, so there is nothing to return to | Q61 |
 
 **History and the hub (Q31, Q32, Q44, Q48, Q49).** The history roots are the app's entry, each
 hub destination's first frame, wherever an outcome with `sign_in` or `sign_out` lands, and a frame

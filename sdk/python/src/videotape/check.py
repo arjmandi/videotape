@@ -58,6 +58,7 @@ RULES: dict[str, tuple[str, str]] = {
     "unreachable-frame": ("warning", "a frame cannot be reached from the entry"),
     "no-exit": ("warning", "a frame has no way out: no declared exit, no back, and no hub (a dead end)"),
     "closed-cycle": ("warning", "frames form a cycle the journey cannot leave"),
+    "done-without-call": ("warning", "a tape uses done, but no call enters it"),
 }
 """Every rule `check` runs: code → (level, what it finds). Errors make `videotape check` fail."""
 
@@ -166,6 +167,7 @@ class _Checker:
         self.pages()
         self.arguments()
         self.journey()
+        self.calls()
         return self.out
 
     # ── names ──
@@ -605,6 +607,20 @@ class _Checker:
         for scc in closed_cycles(g, j.fresh):
             if all(n in live for n in scc):
                 self.report(warning("closed-cycle", f"frames {', '.join(scc)} form a cycle with no way out", scc[0]))
+
+
+    def calls(self) -> None:
+        """`done` returns from a call, so a tape that uses it and that no call (or pick) enters has
+        nowhere to return to (Q61): its done does nothing."""
+        called = {e.target for e in self.built.edges if e.type == "call"}
+        warned: set[str] = set()
+        for e in self.built.edges:
+            tape = e.source.split("/", 1)[0]
+            if e.type != "done" or tape in called or tape in warned:
+                continue
+            warned.add(tape)
+            message = f"{_source(e.via)} returns with done, but no call enters tape '{tape}', so there is nothing to return to"
+            self.report(warning("done-without-call", message, e.source))
 
 
 def tape_arguments(tape: Tape) -> tuple[set[str], dict[str, str], bool]:
