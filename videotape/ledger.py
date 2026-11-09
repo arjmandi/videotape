@@ -24,8 +24,8 @@ def totals(lines: list[dict]) -> dict:
     pods = [line for line in lines if line["kind"] == "pod"]
     return {
         "takes": len(takes),
-        "gpu_seconds": round(sum(line["seconds"] for line in takes), 1),
+        "gpu_seconds": round(sum((line["seconds"] for line in takes), 0.0), 1),
         "pods": len(pods),
-        "pod_hours": round(sum(line["seconds"] for line in pods) / 3600, 3),
-        "usd": round(sum(line["usd"] for line in pods), 2),
+        "pod_hours": round(sum((line["seconds"] for line in pods), 0.0) / 3600, 3),
+        "usd": round(sum((line["usd"] for line in pods), 0.0), 2),
     }
