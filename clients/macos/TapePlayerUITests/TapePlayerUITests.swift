@@ -43,15 +43,16 @@ final class TapePlayerUITests: XCTestCase {
         attachment.name = summary
         attachment.lifetime = .keepAlways
         add(attachment)
-        XCTAssertLessThan(gallery, 5, "the window shows the gallery key: \(summary)")
-        XCTAssertGreaterThan(entrance, gallery + 4, "the window is clearly not the entrance key: \(summary)")
+        XCTAssertLessThan(gallery, 2, "the window shows the gallery key: \(summary)")
+        XCTAssertGreaterThan(entrance, gallery + 8, "the window is clearly not the entrance key: \(summary)")
     }
 }
 
 private let columns = 20, rows = 11, cell = 8
 
-/// The image as the mean sRGB colour of each cell in a `columns` by `rows` grid, so scaling and video encoding
-/// wash out while a different screen does not.
+/// The image as the mean sRGB colour of each cell in a `columns` by `rows` grid, less the image's mean colour. Scaling,
+/// video encoding and the colour shift from the display's profile and the clips' untagged colour matrix wash out,
+/// while a different screen does not.
 private func grid(_ png: Data) throws -> [Double] {
     guard let source = CGImageSourceCreateWithData(png as CFData, nil),
           let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
@@ -77,7 +78,10 @@ private func grid(_ png: Data) throws -> [Double] {
             }
         }
     }
-    return cells.map { $0 / Double(cell * cell) }
+    let means = (0..<3).map { channel in
+        stride(from: channel, to: cells.count, by: 3).map { cells[$0] }.reduce(0, +) / Double(columns * rows)
+    }
+    return cells.enumerated().map { ($1 - means[$0 % 3]) / Double(cell * cell) }
 }
 
 /// Mean absolute difference per channel, from 0 for the same picture to 255.
