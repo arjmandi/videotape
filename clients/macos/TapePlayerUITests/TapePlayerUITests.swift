@@ -14,15 +14,7 @@ final class TapePlayerUITests: XCTestCase {
 
     @MainActor
     func testBrowsingAsGuestRestsOnTheGallery() throws {
-        let tape = Self.tape
-        guard FileManager.default.fileExists(atPath: tape.appending(path: "tape.json").path(percentEncoded: false)) else {
-            XCTFail("No tape.json in \(tape.path(percentEncoded: false)). From the repo root, run: videotape render examples/surf_shop --model stand-in")
-            return
-        }
-        let app = XCUIApplication()
-        app.launchArguments = [tape.path(percentEncoded: false)]
-        app.launch()
-
+        let (app, tape) = try launch()
         let screen = app.images["tape"]
         let enter = app.buttons["Enter shop"]
         XCTAssertTrue(enter.waitForExistence(timeout: 30), "the opening rests on welcome, which offers Enter shop")
@@ -45,6 +37,42 @@ final class TapePlayerUITests: XCTestCase {
         add(attachment)
         XCTAssertLessThan(gallery, 2, "the window shows the gallery key: \(summary)")
         XCTAssertGreaterThan(entrance, gallery + 8, "the window is clearly not the entrance key: \(summary)")
+    }
+
+    @MainActor
+    func testLoginAndSignupBothRestOnLogin() throws {
+        let (app, _) = try launch()
+        let screen = app.images["tape"]
+        walk(app, ["Enter shop", "I have an account"], to: "login")
+        XCTAssertTrue(screen.buttons.firstMatch.waitForNonExistence(timeout: 5), "login offers nothing to press")
+        app.typeKey("r", modifierFlags: .command)
+        walk(app, ["Enter shop", "Create an account"], to: "signup")
+        walk(app, ["Sign up"], to: "login")
+    }
+
+    /// Launches TapePlayer on the surf shop tape, or fails with the command that renders it.
+    @MainActor
+    private func launch() throws -> (XCUIApplication, URL) {
+        let exists = FileManager.default.fileExists(atPath: Self.tape.appending(path: "tape.json").path(percentEncoded: false))
+        let tape = try XCTUnwrap(
+            exists ? Self.tape : nil,
+            "No tape.json in \(Self.tape.path(percentEncoded: false)). From the repo root, run: videotape render examples/surf_shop --model stand-in"
+        )
+        let app = XCUIApplication()
+        app.launchArguments = [tape.path(percentEncoded: false)]
+        app.launch()
+        return (app, tape)
+    }
+
+    /// Clicks each button as soon as its scene offers it, then waits for the tape to rest on `scene`.
+    @MainActor
+    private func walk(_ app: XCUIApplication, _ labels: [String], to scene: String) {
+        for label in labels {
+            let button = app.buttons[label]
+            XCTAssertTrue(button.waitForExistence(timeout: 30), "a resting scene offers \(label)")
+            button.click()
+        }
+        XCTAssertTrue(app.images["tape"].wait(for: \.label, toEqual: scene, timeout: 30), "\(labels.last!) plays into \(scene)")
     }
 }
 
