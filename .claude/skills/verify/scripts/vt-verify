@@ -7,7 +7,7 @@ cd "$ROOT" || exit 2
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
-  echo "usage: vt-verify launch [qwen] | doctor | run <run-dir> <name> -- <videotape args...> | screenshot <run-dir> <name> <html-file> | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
+  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> -- <videotape args...> | exec <run-dir> <name> -- <command...> | screenshot <run-dir> <name> <html-file> | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
   exit 2
 }
 
@@ -28,8 +28,15 @@ case "${1:-}" in
     case "${2:-}" in
       "") uv sync && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv" ;;
       qwen) uv sync --extra qwen && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv with the qwen extra" ;;
+      wan) uv sync --extra wan --extra qwen && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv with the wan and qwen extras" ;;
       *) usage ;;
     esac
+    ;;
+  exec)
+    [ $# -ge 4 ] && [ "$4" = "--" ] || usage
+    dir="$2"; name="$3"; shift 4
+    mkdir -p "$dir"
+    capture "$dir" "$name" "$@"
     ;;
   doctor)
     status=0

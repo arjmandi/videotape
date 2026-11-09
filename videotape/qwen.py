@@ -26,15 +26,8 @@ class Spot:
 
 
 def spots(reply: str, width: int, height: int) -> tuple[Spot, ...]:
-    fenced = re.search(r"```(?:json)?\s*(.*?)```", reply, re.S)
-    try:
-        elements = json.loads(fenced.group(1) if fenced else reply)
-    except json.JSONDecodeError:
-        return ()
-    if not isinstance(elements, list):
-        return ()
     found = []
-    for element in elements:
+    for element in _elements(reply):
         try:
             text, (x1, y1, x2, y2) = element["text"], element["bbox_2d"]
             # Qwen3-VL grounds in coordinates relative to the image, from 0 to 1000 on each axis.
@@ -45,6 +38,26 @@ def spots(reply: str, width: int, height: int) -> tuple[Spot, ...]:
         if isinstance(text, str) and text.strip():
             found.append(Spot(text.strip(), box, element.get("button") is True))
     return tuple(found)
+
+
+def _elements(reply: str) -> list:
+    """The objects of the reply's JSON array, in order. On garbled lettering Qwen can repeat one element until it runs
+    out of tokens, so a cut-off array still yields every element that was complete before the cut."""
+    fenced = re.search(r"```(?:json)?\s*(.*?)(?:```|$)", reply, re.S)
+    body = (fenced.group(1) if fenced else reply).lstrip()
+    if not body.startswith("["):
+        return []
+    decoder, at, elements = json.JSONDecoder(), 1, []
+    while True:
+        while at < len(body) and body[at] in " \t\r\n,":
+            at += 1
+        if at >= len(body) or body[at] == "]":
+            return elements
+        try:
+            element, at = decoder.raw_decode(body, at)
+        except json.JSONDecodeError:
+            return elements
+        elements.append(element)
 
 
 class QwenEye:

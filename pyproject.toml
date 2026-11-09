@@ -8,6 +8,28 @@ dependencies = []
 
 [project.optional-dependencies]
 qwen = ["accelerate>=1.0", "pillow>=11", "torch>=2.5", "torchvision>=0.20", "transformers>=4.57"]
+# diffusers runs TI2V-5B. The rest is what importing VideoX-Fun (pinned in videotape/wan.py) needs at import time;
+# its own requirements.txt also lists gradio, datasets, tensorboard and decord, which the render never touches.
+wan = [
+    "diffusers==0.42.1",
+    "transformers>=4.57",
+    "torch>=2.5",
+    "torchvision>=0.20",
+    "accelerate>=1.0",
+    "huggingface_hub>=0.34",
+    "pillow>=11",
+    "numpy>=2",
+    "safetensors>=0.4",
+    "einops>=0.8",
+    "omegaconf>=2.3",
+    "opencv-python-headless>=4.10",
+    "imageio>=2.35",
+    "librosa>=0.10",
+    "func_timeout>=4.3",
+    "ftfy>=6.2",
+    "sentencepiece>=0.2",
+    "requests>=2.32",
+]
 
 [project.scripts]
 videotape = "videotape.cli:main"

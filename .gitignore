@@ -8,3 +8,6 @@ clients/macos/TapeKit/.build/
 .swiftpm/
 xcuserdata/
 !clients/macos/TapeKit/Tests/TapeKitTests/Fixtures/surf_shop/tape/
+.runpod/
+probe/
+probe-keyed/

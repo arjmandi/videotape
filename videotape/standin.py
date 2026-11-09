@@ -73,11 +73,15 @@ class Drawn:
 
 class StandIn:
     name = "stand-in"
+    device = "cpu"
 
     def __init__(self, flaw: Callable[[str, int], Flaw] | None = None):
         self.flaw = flaw
         self.calls: list[Call] = []
         self.drawn: dict[Path, tuple[Drawn, ...]] = {}
+
+    def settings(self, mode: Mode) -> dict:
+        return {}
 
     def text_to_video(self, prompt: str, seed: int, out: Path) -> None:
         self._film(Mode.TEXT_TO_VIDEO, prompt, seed, None, None, out)

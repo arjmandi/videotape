@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from videotape import dailies, frames
+from videotape import dailies, frames, ledger
 from videotape.checks import MAX_DIFFERENCE
 from videotape.cli import main
 from videotape.loader import load
@@ -187,6 +187,46 @@ def test_dailies_page_is_a_view_of_its_record_with_a_keys_section(first):
     assert "5 keys checked by stand-in, all passing" in page
 
 
+def test_dailies_record_has_each_keys_seams_and_render_time(first):
+    directory, _, result = first
+    record = json.loads((directory / "tape" / "dailies.json").read_text())
+    scenes = {scene["scene"]: scene for scene in record["keys"]["scenes"]}
+    seams = {name: [(seam["move"], seam["edge"], seam["passed"]) for seam in scene["seams"]] for name, scene in scenes.items()}
+    assert seams == {
+        "welcome": [("welcome--enter-shop", "leaves", True)],
+        "entrance": [("entrance--i-have-an-account", "leaves", True), ("entrance--create-an-account", "leaves", True),
+                     ("entrance--browse-as-guest", "leaves", True)],
+        "login": [("signup--sign-up", "enters", True)],
+        "signup": [("signup--sign-up", "leaves", True)],
+        "gallery": [],
+    }
+    kept = {filmed.shot.move: filmed.kept for filmed in result.shots}
+    assert scenes["login"]["seams"][0]["difference"] == kept["signup--sign-up"].checks.end
+    assert scenes["signup"]["seams"][0]["difference"] == kept["signup--sign-up"].checks.start
+    for filmed in result.shots:
+        if filmed.key:
+            assert scenes[filmed.shot.land]["time"] == {
+                "move": filmed.shot.move, "kept": filmed.kept.seconds, "gpu": "cpu",
+                "total": round(sum(take.seconds for take in filmed.takes), 3)}
+    assert record["ledger"] == ledger.totals(ledger.read(directory / "tape"))
+    page = (directory / "tape" / "dailies.html").read_text()
+    assert "seam: enters by signup--sign-up" in page and "seam: leaves by entrance--browse-as-guest" in page
+    assert f". Ledger: {record['ledger']['gpu_seconds']} GPU seconds, 0.0 pod hours, $0.00." in page
+
+
+def test_dailies_command_rewrites_the_page_with_the_ledgers_pod_totals(first, tmp_path, capsys):
+    directory = copy_of(first, tmp_path)
+    tape = directory / "tape"
+    ledger.append(tape, {"kind": "pod", "at": "2026-11-09T12:00:00+00:00", "pod": "abc123", "gpu": "NVIDIA H100 80GB HBM3",
+                         "usd_per_hour": 3.99, "started": "2026-11-09T11:00:00+00:00", "stopped": "2026-11-09T12:00:00+00:00",
+                         "seconds": 1800, "usd": 1.995})
+    assert main(["dailies", str(directory)]) == 0
+    record = json.loads((tape / "dailies.json").read_text())
+    assert record["ledger"]["pods"] == 1 and record["ledger"]["pod_hours"] == 0.5 and record["ledger"]["usd"] == 2.0
+    assert ", 0.5 pod hours, $2.00." in (tape / "dailies.html").read_text()
+    assert capsys.readouterr().out.startswith(f"wrote {tape / 'dailies.html'} with ")
+
+
 def test_second_render_is_cached(first, tmp_path):
     directory = copy_of(first, tmp_path)
     before = tape_files(directory)
@@ -195,6 +235,75 @@ def test_second_render_is_cached(first, tmp_path):
     assert model.calls == []
     assert [filmed.rendered for filmed in result.shots] == [0] * 6
     assert tape_files(directory) == before
+
+
+def test_stand_in_cache_keys_are_unchanged_so_old_tapes_stay_cached(first):
+    # sha256 of the JSON list [mode, prompt, start hash, end hash, model name, seed] for the opening's first take.
+    opening = first[2].shots[0]
+    assert opening.takes[0].path.name == "77832968eafaf4794a47c40856b716a61bedb0784f376d98672fc2f84f7f2321.mp4"
+
+
+class Tuned(StandIn):
+    def __init__(self, knobs: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.knobs = knobs
+
+    def settings(self, mode):
+        return self.knobs
+
+
+def test_each_filmed_take_records_its_render_time_and_a_ledger_line(first):
+    directory, _, result = first
+    tape = directory / "tape"
+    for filmed in result.shots:
+        for take in filmed.takes:
+            assert take.seconds > 0 and take.gpu == "cpu"
+            assert json.loads(take.path.with_suffix(".json").read_text()) == {"seconds": take.seconds, "gpu": "cpu"}
+    lines = ledger.read(tape)
+    assert [(line["kind"], line["model"], line["shot"], line["mode"], line["seed"], line["gpu"]) for line in lines] == [
+        ("take", "stand-in", filmed.shot.move, filmed.shot.mode.value, take.seed, "cpu")
+        for filmed in result.shots for take in filmed.takes]
+    assert [line["seconds"] for line in lines] == [take.seconds for filmed in result.shots for take in filmed.takes]
+    assert all(line["at"].endswith("+00:00") for line in lines)
+    assert ledger.totals(lines) == {"takes": 18, "gpu_seconds": round(sum(line["seconds"] for line in lines), 1),
+                                    "pods": 0, "pod_hours": 0.0, "usd": 0.0}
+
+
+def test_cached_takes_keep_their_render_time_and_add_no_ledger_lines(first, tmp_path):
+    directory = copy_of(first, tmp_path)
+    before = ledger.read(directory / "tape")
+    result = render(directory, StandIn(), StandInEye())
+    assert [[(take.seconds, take.gpu) for take in filmed.takes] for filmed in result.shots] == \
+        [[(take.seconds, take.gpu) for take in filmed.takes] for filmed in first[2].shots]
+    assert ledger.read(directory / "tape") == before
+
+
+def test_takes_flag_sets_the_takes_per_shot(tmp_path, capsys, monkeypatch):
+    directory = tmp_path / "surf_shop"
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    model = StandIn(flaw=lambda prompt, seed: Flaw.NONE)
+    monkeypatch.setitem(MODELS, "stand-in", lambda: model)
+    assert main(["render", str(directory), "--model", "stand-in", "--takes", "1"]) == 0
+    assert [call.seed for call in model.calls] == [1] * 6
+    assert capsys.readouterr().out.splitlines()[0] == "1. opening -> welcome  rendered 1 take, kept take 1"
+    with pytest.raises(SystemExit) as exit:
+        main(["render", str(directory), "--model", "stand-in", "--takes", "0"])
+    assert exit.value.code == 2
+    assert "--takes: must be at least 1, got 0" in capsys.readouterr().err
+
+
+def test_a_models_settings_are_part_of_the_cache_key(first, tmp_path):
+    directory = copy_of(first, tmp_path)
+    model = Tuned({"steps": 50, "frames": 81})
+    render(directory, model, StandInEye())
+    assert len(model.calls) == 18
+    same = Tuned({"frames": 81, "steps": 50})
+    render(directory, same, StandInEye())
+    assert same.calls == []
+    for knobs in ({"steps": 40, "frames": 81}, {"steps": 50, "frames": 121}, {"steps": 50, "frames": 81, "shift": 5.0}):
+        changed = Tuned(knobs)
+        render(directory, changed, StandInEye())
+        assert len(changed.calls) == 18, knobs
 
 
 @pytest.mark.parametrize("old, new, rerendered", [

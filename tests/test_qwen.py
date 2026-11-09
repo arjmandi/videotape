@@ -49,6 +49,12 @@ def test_malformed_replies_give_no_spots(reply):
     assert spots(reply, 1280, 704) == ()
 
 
+def test_a_reply_cut_off_mid_array_keeps_its_complete_elements():
+    reply = ('```json\n[\n\t{"text": "Toast", "bbox_2d": [493, 350, 595, 432], "button": false},\n'
+             '\t{"text": "D:", "bbox_2d": [265, 284, 285, 316], "button": false},\n\t{"text": "D:", "bbox_2d": [265,')
+    assert [spot.text for spot in spots(reply, 1000, 1000)] == ["Toast", "D:"]
+
+
 def test_elements_without_text_or_a_box_are_skipped():
     reply = '[{"text": "", "bbox_2d": [0, 0, 1, 1]}, {"text": "a"}, {"bbox_2d": [0, 0, 1, 1]}, ' \
             '{"text": "b", "bbox_2d": [0, 0]}, {"text": "c", "bbox_2d": [0, 0, 500, 500]}]'

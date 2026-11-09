@@ -1,0 +1,450 @@
+#!/usr/bin/env python3
+"""Rent one Runpod GPU, render a screenplay on it with Wan 2.2, bring the tape back, and delete the pod.
+
+    scripts/runpod-render examples/surf_shop --takes 3 --cap-usd 20 [--gpu "NVIDIA H100 80GB HBM3"] [--dry-run]
+
+Needs RUNPOD_API_KEY in the environment, except under --dry-run, which prints the plan and creates nothing.
+Only this script creates pods. Standard library only, on any Python from 3.9, so the system python3 can run it.
+
+Runpod REST API v2 (https://api.runpod.io/v2/openapi.json):
+  GET    /v2/catalog/gpus/{id}?include=AVAILABILITY&product=POD   the list price, stock and host CUDA versions
+  POST   /v2/pods                                                 create
+  GET    /v2/pods/{id}                                            status, cost and the ssh.direct host and port
+  DELETE /v2/pods/{id}                                            terminate; 204, then GET answers 404
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import datetime
+import json
+import os
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+API = "https://api.runpod.io/v2"
+ROOT = Path(__file__).resolve().parent.parent
+KEY = ROOT / ".runpod" / "id_ed25519"
+REMOTE = "/workspace/videotape"
+DEFAULT_GPU = "NVIDIA H100 80GB HBM3"
+CLOUD = "SECURE"
+# Published 2026-11-05 from runpod/containers main: Ubuntu 24.04, CUDA 13.0, uv, Python 3.12, ffmpeg, rsync, sshd from PUBLIC_KEY.
+IMAGE = "runpod/pytorch:2.0.0-cu1300-torch2130-ubuntu2404"
+# uv.lock's torch 2.15.0 wheels bundle the CUDA 13 runtime (nvidia-*-cu13), so the host driver has to report CUDA 13 or newer.
+MIN_CUDA = "13.0"
+# 34 GB TI2V-5B, 24 GB Fun-5B-InP and 17.5 GB Qwen3-VL-8B of weights, a venv of about 10 GB, VideoX-Fun, the repo and the tape.
+DISK_GB = 160
+# Secure-cloud list price read from the catalog on 2026-11-09. A keyless dry run assumes it; a real run reads the live price.
+ASSUMED_USD_PER_HOUR = 3.99
+TEARDOWN_MARGIN = 600
+MIN_RUN = 1200
+PROVISION_TIMEOUT = 1200
+POLL = 5
+
+
+class PlanError(Exception):
+    pass
+
+
+class ApiError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Plan:
+    directory: str
+    takes: int
+    gpu: str
+    cloud: str
+    usd_per_hour: float
+    price_source: str
+    cap_usd: float
+    deadline_seconds: int
+    image: str
+    disk_gb: int
+    min_cuda: str
+    public_key: str
+    name: str
+    command: str | None = None
+    fetch: str | None = None
+
+
+def deadline_seconds(cap_usd: float, usd_per_hour: float) -> int:
+    return int(cap_usd / usd_per_hour * 3600) - TEARDOWN_MARGIN
+
+
+def plan(directory: str, takes: int, gpu: str, cap_usd: float, usd_per_hour: float, price_source: str, public_key: str,
+         image: str = IMAGE, cloud: str = CLOUD, name: str | None = None, command: str | None = None,
+         fetch: str | None = None) -> Plan:
+    if usd_per_hour <= 0:
+        raise PlanError(f"{gpu} has no {cloud.lower()} price")
+    deadline = deadline_seconds(cap_usd, usd_per_hour)
+    if deadline < MIN_RUN:
+        least = (MIN_RUN + TEARDOWN_MARGIN) / 3600 * usd_per_hour
+        raise PlanError(f"a cap of ${cap_usd:.2f} buys {deadline / 60:.0f} minutes of render time at ${usd_per_hour:.2f}/h "
+                        f"after the {TEARDOWN_MARGIN // 60} minute teardown margin; the least that makes sense is ${least:.2f}")
+    stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return Plan(directory, takes, gpu, cloud, usd_per_hour, price_source, cap_usd, deadline, image, DISK_GB, MIN_CUDA,
+                public_key.strip(), name or f"videotape-{Path(directory).name}-{stamp}", command, fetch)
+
+
+def self_destruct(deadline: int) -> str:
+    """Runs inside the pod from boot. At the deadline it terminates the pod with the pod-scoped key, whatever happened to this laptop.
+
+    Runpod sets RUNPOD_POD_ID and RUNPOD_API_KEY (a pod-scoped key) in every pod and ships runpodctl
+    (docs.runpod.io/pods/templates/environment-variables, docs.runpod.io/pods/manage-pods). Terminate is tried
+    first, then stop, which ends GPU billing and is what Runpod's own docs schedule from inside a pod."""
+    api = f"{API}/pods/$RUNPOD_POD_ID"
+    auth = '-H "Authorization: Bearer $RUNPOD_API_KEY"'
+    return "\n".join([
+        f"sleep {deadline}",
+        "for attempt in 1 2 3 4 5 6 7 8 9 10; do",
+        f'  curl -fsS -X DELETE "{api}" {auth} && exit 0',
+        '  runpodctl pod delete "$RUNPOD_POD_ID" && exit 0',
+        '  runpodctl remove pod "$RUNPOD_POD_ID" && exit 0',
+        f'  curl -fsS -X POST "{api}/action" {auth} -H "Content-Type: application/json" -d "{{\\"action\\":\\"stop\\"}}" && exit 0',
+        '  runpodctl pod stop "$RUNPOD_POD_ID" && exit 0',
+        '  runpodctl stop pod "$RUNPOD_POD_ID" && exit 0',
+        "  sleep 30",
+        "done",
+        "",
+    ])
+
+
+def start_command(built: Plan) -> str:
+    """The pod's container command: arm the self-destruct timer, then run the image's own /start.sh, which starts sshd."""
+    encoded = base64.b64encode(self_destruct(built.deadline_seconds).encode()).decode()
+    inner = (f"echo {encoded} | base64 -d > /videotape-self-destruct.sh; "
+             "nohup bash /videotape-self-destruct.sh > /videotape-self-destruct.log 2>&1 & exec /start.sh")
+    return f"bash -c {shlex.quote(inner)}"
+
+
+def env(built: Plan) -> dict:
+    # The image sets HF_HUB_ENABLE_HF_TRANSFER=1 for its own Python; our venv has no hf_transfer, so turn it off.
+    return {"PUBLIC_KEY": built.public_key, "HF_HUB_ENABLE_HF_TRANSFER": "0", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
+
+
+def create_body(built: Plan) -> dict:
+    return {
+        "name": built.name,
+        "image": built.image,
+        "cloud": built.cloud,
+        "gpu": {"id": built.gpu, "count": 1, "minCudaVersion": built.min_cuda},
+        "disk": built.disk_gb,
+        "ports": ["22/tcp"],
+        "env": env(built),
+        "args": start_command(built),
+    }
+
+
+PREAMBLE = "\n".join([
+    "set -euo pipefail",
+    "[ -f /etc/rp_environment ] && source /etc/rp_environment",
+    'export HF_HUB_ENABLE_HF_TRANSFER=0 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True PATH="$HOME/.local/bin:$PATH"',
+    f"cd {REMOTE}",
+])
+
+
+def setup_script() -> str:
+    return "\n".join([
+        PREAMBLE,
+        "nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader",
+        "command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh",
+        "command -v ffmpeg >/dev/null || { apt-get update -qq && apt-get install -y -qq ffmpeg; }",
+        "uv sync --extra wan --extra qwen",
+        "uv run python -c 'import torch; assert torch.cuda.is_available(), \"torch sees no CUDA device\"; "
+        "print(\"torch\", torch.__version__, \"cuda\", torch.version.cuda, torch.cuda.get_device_name(0))'",
+        "uv run python -c 'from videotape import wan; wan.prefetch()'",
+        "uv run python -c 'from huggingface_hub import snapshot_download; from videotape import qwen; print(snapshot_download(qwen.MODEL_ID))'",
+        "df -h /workspace",
+        "",
+    ])
+
+
+def render_command(built: Plan) -> str:
+    if built.command:
+        return built.command
+    return (f"uv run videotape render {shlex.quote(built.directory)} --model wan2.2-5b --checks qwen3-vl-8b "
+            f"--takes {built.takes}")
+
+
+def render_script(built: Plan) -> str:
+    return "\n".join([PREAMBLE, render_command(built), ""])
+
+
+def ledger_line(pod_id: str, built: Plan, started: datetime.datetime, stopped: datetime.datetime) -> dict:
+    seconds = int((stopped - started).total_seconds())
+    return {"kind": "pod", "at": iso(stopped), "pod": pod_id, "gpu": built.gpu, "usd_per_hour": built.usd_per_hour,
+            "started": iso(started), "stopped": iso(stopped), "seconds": seconds,
+            "usd": round(seconds / 3600 * built.usd_per_hour, 4)}
+
+
+def describe(built: Plan) -> str:
+    hours = built.cap_usd / built.usd_per_hour
+    price = f"${built.usd_per_hour:.2f}/h ({built.price_source})"
+    return "\n".join([
+        f"screenplay    {built.directory}, {built.takes} take{'s' if built.takes > 1 else ''} per shot",
+        f"gpu           {built.gpu}, {built.cloud.lower()} cloud, {price}",
+        f"cap           ${built.cap_usd:.2f} buys {hours:.2f} h; the pod self-destructs after {built.deadline_seconds} s "
+        f"({built.deadline_seconds / 3600:.2f} h), leaving {TEARDOWN_MARGIN // 60} min to copy the tape back and delete",
+        f"pod           {built.name}: {built.image}, host CUDA >= {built.min_cuda}, {built.disk_gb} GB container disk, port 22/tcp",
+        f"ssh key       {KEY.with_suffix('.pub').relative_to(ROOT)} ({built.public_key[:40]}...)",
+        f"env           {', '.join(env(built))}",
+        f"create body   {json.dumps({**create_body(built), 'env': {**env(built), 'PUBLIC_KEY': '<the key above>'}, 'args': '<below>'})}",
+        f"start         {start_command(built)}",
+        "self-destruct " + self_destruct(built.deadline_seconds).strip().replace("\n", "\n              "),
+        "setup         " + setup_script().strip().replace("\n", "\n              "),
+        f"render        {render_command(built)}",
+        f"then          rsync {fetched(built)} back, DELETE the pod, confirm it is gone, append the pod line to "
+        f"{fetched(built)}/ledger.jsonl, and run uv run videotape dailies {built.directory} if it has a dailies record",
+    ])
+
+
+def iso(moment: datetime.datetime) -> str:
+    return moment.astimezone(datetime.timezone.utc).isoformat(timespec="seconds")
+
+
+def interrupt(*_) -> None:
+    raise KeyboardInterrupt
+
+
+def now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+class Api:
+    def __init__(self, key: str):
+        self.key = key
+
+    def call(self, method: str, path: str, body: dict | None = None, query: dict | None = None):
+        url = f"{API}{path}" + (f"?{urllib.parse.urlencode(query)}" if query else "")
+        data = json.dumps(body).encode() if body is not None else None
+        request = urllib.request.Request(url, data=data, method=method, headers={
+            "Authorization": f"Bearer {self.key}", "Content-Type": "application/json", "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=60) as response:
+                text = response.read().decode()
+                return json.loads(text) if text else None
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode(errors="replace")[:500]
+            raise ApiError(f"{method} {path} -> {error.code}: {detail}") from None
+
+
+def gpu_price(api: Api, gpu: str, cloud: str, min_cuda: str) -> tuple[float, str, list[str]]:
+    listing = api.call("GET", f"/catalog/gpus/{urllib.parse.quote(gpu, safe='')}",
+                       query={"include": "AVAILABILITY", "product": "POD", "cloud": cloud, "minCudaVersion": min_cuda})
+    price = listing.get("price", {}).get(cloud.lower()) or 0.0
+    versions = [v["version"] for v in listing.get("cudaVersions", []) if v.get("available")]
+    return float(price), listing.get("availability", "NONE"), versions
+
+
+def ensure_key() -> str:
+    public = KEY.with_suffix(".pub")
+    if not public.is_file():
+        KEY.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "videotape-runpod", "-f", str(KEY)], check=True)
+        print(f"made an SSH key for pods at {KEY.relative_to(ROOT)}")
+    return public.read_text().strip()
+
+
+class Ssh:
+    def __init__(self, host: str, port: int):
+        self.host, self.port = host, port
+        self.options = ["-i", str(KEY), "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null",
+                        "-o", "LogLevel=ERROR", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15"]
+
+    def command(self, *args: str) -> list[str]:
+        return ["ssh", *self.options, "-p", str(self.port), f"root@{self.host}", *args]
+
+    def run(self, script: str, check: bool = True, stdin: bytes | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run(self.command(script), input=stdin, capture_output=True, check=check)
+
+    def rsync(self, source: str, target: str, extra: list[str] = ()) -> None:
+        transport = " ".join(shlex.quote(word) for word in ["ssh", *self.options, "-p", str(self.port)])
+        subprocess.run(["rsync", "-az", "--timeout=120", *extra, "-e", transport, source, target], check=True)
+
+    def job(self, name: str, script: str, deadline: float) -> int:
+        """Run a script detached on the pod and stream its log until it exits, so a dropped connection does not kill it."""
+        runs = f"{REMOTE}/.runs"
+        self.run(f"mkdir -p {runs} && cat > {runs}/{name}.sh", stdin=script.encode())
+        self.run(f"cd {REMOTE} && rm -f {runs}/{name}.exit && "
+                 f"(nohup bash {runs}/{name}.sh > {runs}/{name}.log 2>&1 < /dev/null; echo $? > {runs}/{name}.exit) "
+                 f"> /dev/null 2>&1 &")
+        shown = 0
+        while True:
+            if time.time() > deadline:
+                raise TimeoutError(f"{name} ran past the self-destruct deadline")
+            time.sleep(POLL)
+            result = self.run(f"cat {runs}/{name}.log; printf '\\n__exit__'; cat {runs}/{name}.exit 2>/dev/null", check=False)
+            if result.returncode != 0:
+                print(f"[{name}] ssh poll failed: {result.stderr.decode(errors='replace').strip()}", flush=True)
+                continue
+            text = result.stdout.decode(errors="replace")
+            log, _, code = text.rpartition("\n__exit__")
+            sys.stdout.write(log[shown:])
+            sys.stdout.flush()
+            shown = len(log)
+            if code.strip():
+                return int(code.strip())
+
+
+def wait_for_ssh(api: Api, pod_id: str, deadline: float) -> Ssh:
+    while time.time() < deadline:
+        pod = api.call("GET", f"/pods/{pod_id}")
+        status, direct = pod.get("status"), (pod.get("ssh") or {}).get("direct")
+        print(f"pod {pod_id}: {status}" + (f", ssh {direct['host']}:{direct['port']}" if direct else ""), flush=True)
+        if status in ("EXITED", "ERROR", "TERMINATED"):
+            raise RuntimeError(f"pod {pod_id} is {status}")
+        if status == "RUNNING" and direct:
+            ssh = Ssh(direct["host"], int(direct["port"]))
+            if ssh.run("true", check=False).returncode == 0:
+                return ssh
+        time.sleep(10)
+    raise TimeoutError(f"pod {pod_id} did not come up with SSH within {PROVISION_TIMEOUT} s")
+
+
+def upload(ssh: Ssh, built: Plan) -> None:
+    tracked = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"], capture_output=True, check=True).stdout
+    listing = ROOT / ".runpod" / "tracked.txt"
+    listing.write_bytes(tracked)
+    ssh.run(f"mkdir -p {REMOTE}")
+    ssh.rsync(f"{ROOT}/", f"root@{ssh.host}:{REMOTE}/", ["--files-from", str(listing), "--from0"])
+    tape = ROOT / built.directory / "tape"
+    if tape.is_dir():
+        ssh.run(f"mkdir -p {REMOTE}/{built.directory}/tape")
+        ssh.rsync(f"{tape}/", f"root@{ssh.host}:{REMOTE}/{built.directory}/tape/")
+
+
+def fetched(built: Plan) -> str:
+    return built.fetch or f"{built.directory}/tape"
+
+
+def download(ssh: Ssh, built: Plan) -> None:
+    local = ROOT / fetched(built)
+    local.mkdir(parents=True, exist_ok=True)
+    ssh.rsync(f"root@{ssh.host}:{REMOTE}/{fetched(built)}/", f"{local}/")
+
+
+def delete_pod(api: Api, pod_id: str) -> bool:
+    for attempt in range(6):
+        try:
+            api.call("DELETE", f"/pods/{pod_id}")
+        except ApiError as error:
+            if "-> 404" in str(error):
+                return True
+            print(f"delete attempt {attempt + 1} failed: {error}", flush=True)
+        for _ in range(6):
+            time.sleep(5)
+            try:
+                pod = api.call("GET", f"/pods/{pod_id}")
+            except ApiError as error:
+                if "-> 404" in str(error):
+                    return True
+                continue
+            if pod.get("status") == "TERMINATED":
+                return True
+    return False
+
+
+def append_ledger(built: Plan, line: dict) -> None:
+    tape = ROOT / fetched(built)
+    tape.mkdir(parents=True, exist_ok=True)
+    with (tape / "ledger.jsonl").open("a") as ledger:
+        ledger.write(json.dumps(line, sort_keys=True) + "\n")
+    if shutil.which("uv") and (tape / "dailies.json").is_file():
+        subprocess.run(["uv", "run", "videotape", "dailies", built.directory], cwd=ROOT, check=False)
+
+
+def run(built: Plan, api: Api) -> int:
+    pod = api.call("POST", "/pods", create_body(built))
+    pod_id, started = pod["id"], now()
+    print(f"pod {pod_id} created at {iso(started)}, {pod.get('cost', built.usd_per_hour)} $/h, self-destructs after "
+          f"{built.deadline_seconds} s. Kill it by hand with:\n  curl -X DELETE {API}/pods/{pod_id} "
+          f'-H "Authorization: Bearer $RUNPOD_API_KEY"', flush=True)
+    deadline = time.time() + built.deadline_seconds
+    ssh = None
+    code = 1
+    try:
+        ssh = wait_for_ssh(api, pod_id, min(deadline, time.time() + PROVISION_TIMEOUT))
+        upload(ssh, built)
+        if (setup := ssh.job("setup", setup_script(), deadline)) != 0:
+            raise RuntimeError(f"setup exited {setup}")
+        code = ssh.job("render", render_script(built), deadline)
+        print(f"render exited {code}", flush=True)
+    finally:
+        try:
+            if ssh is not None:
+                download(ssh, built)
+                print(f"copied {fetched(built)} back", flush=True)
+        finally:
+            gone = delete_pod(api, pod_id)
+            stopped = now()
+            line = ledger_line(pod_id, built, started, stopped)
+            append_ledger(built, line)
+            print(f"pod {pod_id} {'deleted, confirmed gone' if gone else 'NOT CONFIRMED DELETED; check the console now'}; "
+                  f"{line['seconds']} s, ${line['usd']:.2f} at ${built.usd_per_hour:.2f}/h", flush=True)
+            if not gone:
+                code = 2
+    return code
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("directory", help="screenplay directory, relative to the repo root, such as examples/surf_shop")
+    parser.add_argument("--takes", type=int, default=3)
+    parser.add_argument("--cap-usd", type=float, required=True, help="the most this run may cost; sets the self-destruct deadline")
+    parser.add_argument("--gpu", default=DEFAULT_GPU, help=f"Runpod GPU type id (default {DEFAULT_GPU})")
+    parser.add_argument("--image", default=IMAGE)
+    parser.add_argument("--command", help="run this on the pod in place of the render, such as uv run scripts/wan-probe probe")
+    parser.add_argument("--fetch", help="repo-relative folder to copy back in place of <directory>/tape")
+    parser.add_argument("--usd-per-hour", type=float, default=ASSUMED_USD_PER_HOUR,
+                        help="price a keyless --dry-run assumes; with a key the catalog price is used")
+    parser.add_argument("--dry-run", action="store_true", help="print the plan and create nothing")
+    args = parser.parse_args(argv)
+    directory = Path(args.directory)
+    if not (ROOT / directory / "screenplay.py").is_file():
+        print(f"error: no screenplay.py in {directory} (paths are relative to {ROOT})", file=sys.stderr)
+        return 2
+    key = os.environ.get("RUNPOD_API_KEY")
+    if not key and not args.dry_run:
+        print("error: RUNPOD_API_KEY is not set; export it, or pass --dry-run to see the plan", file=sys.stderr)
+        return 2
+    api = Api(key) if key else None
+    try:
+        if api:
+            price, stock, versions = gpu_price(api, args.gpu, CLOUD, MIN_CUDA)
+            source = f"catalog, stock {stock}, host CUDA {', '.join(versions) if versions else 'none'} >= {MIN_CUDA} available"
+            if stock == "NONE" or not versions:
+                raise PlanError(f"no {args.gpu} with CUDA >= {MIN_CUDA} in the {CLOUD.lower()} cloud right now ({source})")
+        else:
+            price, source = args.usd_per_hour, "assumed, catalog read of 2026-11-09; set RUNPOD_API_KEY for the live price"
+        built = plan(directory.as_posix(), args.takes, args.gpu, args.cap_usd, price, source, ensure_key(), image=args.image,
+                     command=args.command, fetch=args.fetch)
+    except (PlanError, ApiError) as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    print(describe(built))
+    if args.dry_run:
+        print("dry run: nothing was created.")
+        return 0
+    # A SIGTERM then runs the same finally as Ctrl-C: copy the tape back, delete the pod, write the ledger line.
+    signal.signal(signal.SIGTERM, interrupt)
+    try:
+        return run(built, api)
+    except ApiError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

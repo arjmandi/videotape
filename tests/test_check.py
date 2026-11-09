@@ -47,6 +47,9 @@ def test_check_reports_each_scene_and_replaces_the_keys_section(tape, capsys):
     assert record["shots"] == stale["shots"]
     assert record["keys"]["checks"] == "stand-in"
     assert [scene["scene"] for scene in record["keys"]["scenes"]] == SCENES
+    # The keys section keeps the seams and render times, which come from the shots, not from the key images.
+    assert [seam["move"] for seam in record["keys"]["scenes"][2]["seams"]] == ["signup--sign-up"]
+    assert record["keys"]["scenes"][0]["time"]["move"] == "opening"
     assert (tape / "dailies.html").read_text() == dailies.page(record)
 
 

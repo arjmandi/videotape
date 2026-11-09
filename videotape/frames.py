@@ -71,9 +71,19 @@ def difference(a: Frame, b: Frame) -> float:
     return sum(abs(x - y) for x, y in zip(grey[:n], grey[n:])) / (255 * n)
 
 
+ENCODE = ("-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", str(FPS), "-movflags", "+faststart", "-f", "mp4", "-y")
+
+
 def crossfade(start: Path, end: Path, out: Path) -> None:
     _ffmpeg("-loop", "1", "-framerate", str(FPS), "-t", "0.5", "-i", str(start),
             "-loop", "1", "-framerate", str(FPS), "-t", "0.9", "-i", str(end),
-            "-filter_complex", "[0][1]xfade=transition=fade:duration=0.4:offset=0.1,format=yuv420p",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", str(FPS),
-            "-movflags", "+faststart", "-f", "mp4", "-y", str(out))
+            "-filter_complex", "[0][1]xfade=transition=fade:duration=0.4:offset=0.1,format=yuv420p", *ENCODE, str(out))
+
+
+def write_video(rgb_frames: list[bytes], out: Path) -> None:
+    """Encode rgb24 frames of WIDTH x HEIGHT into a clip with the same codec settings as every other clip in a tape."""
+    for number, frame in enumerate(rgb_frames):
+        if len(frame) != WIDTH * HEIGHT * 3:
+            raise FfmpegError(f"frame {number} has {len(frame)} bytes, not the {WIDTH * HEIGHT * 3} of a {WIDTH}x{HEIGHT} rgb24 frame")
+    _ffmpeg("-framerate", str(FPS), *_raw(Frame(WIDTH, HEIGHT, b"")), "-vf", "format=yuv420p", *ENCODE, str(out),
+            feed=b"".join(rgb_frames))
