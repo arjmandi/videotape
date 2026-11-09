@@ -9,3 +9,4 @@ clients/macos/TapeKit/.build/
 xcuserdata/
 !clients/macos/TapeKit/Tests/TapeKitTests/Fixtures/surf_shop/tape/
 .runpod/
+probe/

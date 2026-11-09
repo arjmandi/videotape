@@ -75,6 +75,8 @@ class Plan:
     min_cuda: str
     public_key: str
     name: str
+    command: str | None = None
+    fetch: str | None = None
 
 
 def deadline_seconds(cap_usd: float, usd_per_hour: float) -> int:
@@ -82,7 +84,8 @@ def deadline_seconds(cap_usd: float, usd_per_hour: float) -> int:
 
 
 def plan(directory: str, takes: int, gpu: str, cap_usd: float, usd_per_hour: float, price_source: str, public_key: str,
-         image: str = IMAGE, cloud: str = CLOUD, name: str | None = None) -> Plan:
+         image: str = IMAGE, cloud: str = CLOUD, name: str | None = None, command: str | None = None,
+         fetch: str | None = None) -> Plan:
     if usd_per_hour <= 0:
         raise PlanError(f"{gpu} has no {cloud.lower()} price")
     deadline = deadline_seconds(cap_usd, usd_per_hour)
@@ -92,7 +95,7 @@ def plan(directory: str, takes: int, gpu: str, cap_usd: float, usd_per_hour: flo
                         f"after the {TEARDOWN_MARGIN // 60} minute teardown margin; the least that makes sense is ${least:.2f}")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     return Plan(directory, takes, gpu, cloud, usd_per_hour, price_source, cap_usd, deadline, image, DISK_GB, MIN_CUDA,
-                public_key.strip(), name or f"videotape-{Path(directory).name}-{stamp}")
+                public_key.strip(), name or f"videotape-{Path(directory).name}-{stamp}", command, fetch)
 
 
 def self_destruct(deadline: int) -> str:
@@ -169,6 +172,8 @@ def setup_script() -> str:
 
 
 def render_command(built: Plan) -> str:
+    if built.command:
+        return built.command
     return (f"uv run videotape render {shlex.quote(built.directory)} --model wan2.2-5b --checks qwen3-vl-8b "
             f"--takes {built.takes}")
 
@@ -200,8 +205,8 @@ def describe(built: Plan) -> str:
         "self-destruct " + self_destruct(built.deadline_seconds).strip().replace("\n", "\n              "),
         "setup         " + setup_script().strip().replace("\n", "\n              "),
         f"render        {render_command(built)}",
-        f"then          rsync {built.directory}/tape back, DELETE the pod, confirm it is gone, append the pod line to "
-        f"{built.directory}/tape/ledger.jsonl, and run uv run videotape dailies {built.directory}",
+        f"then          rsync {fetched(built)} back, DELETE the pod, confirm it is gone, append the pod line to "
+        f"{fetched(built)}/ledger.jsonl, and refresh its dailies page if it has one",
     ])
 
 
@@ -320,10 +325,14 @@ def upload(ssh: Ssh, built: Plan) -> None:
         ssh.rsync(f"{tape}/", f"root@{ssh.host}:{REMOTE}/{built.directory}/tape/")
 
 
+def fetched(built: Plan) -> str:
+    return built.fetch or f"{built.directory}/tape"
+
+
 def download(ssh: Ssh, built: Plan) -> None:
-    tape = ROOT / built.directory / "tape"
-    tape.mkdir(parents=True, exist_ok=True)
-    ssh.rsync(f"root@{ssh.host}:{REMOTE}/{built.directory}/tape/", f"{tape}/")
+    local = ROOT / fetched(built)
+    local.mkdir(parents=True, exist_ok=True)
+    ssh.rsync(f"root@{ssh.host}:{REMOTE}/{fetched(built)}/", f"{local}/")
 
 
 def delete_pod(api: Api, pod_id: str) -> bool:
@@ -348,7 +357,7 @@ def delete_pod(api: Api, pod_id: str) -> bool:
 
 
 def append_ledger(built: Plan, line: dict) -> None:
-    tape = ROOT / built.directory / "tape"
+    tape = ROOT / fetched(built)
     tape.mkdir(parents=True, exist_ok=True)
     with (tape / "ledger.jsonl").open("a") as ledger:
         ledger.write(json.dumps(line, sort_keys=True) + "\n")
@@ -376,7 +385,7 @@ def run(built: Plan, api: Api) -> int:
         try:
             if ssh is not None:
                 download(ssh, built)
-                print(f"copied {built.directory}/tape back", flush=True)
+                print(f"copied {fetched(built)} back", flush=True)
         finally:
             gone = delete_pod(api, pod_id)
             stopped = now()
@@ -396,6 +405,8 @@ def main(argv=None) -> int:
     parser.add_argument("--cap-usd", type=float, required=True, help="the most this run may cost; sets the self-destruct deadline")
     parser.add_argument("--gpu", default=DEFAULT_GPU, help=f"Runpod GPU type id (default {DEFAULT_GPU})")
     parser.add_argument("--image", default=IMAGE)
+    parser.add_argument("--command", help="run this on the pod in place of the render, such as uv run scripts/wan-probe probe")
+    parser.add_argument("--fetch", help="repo-relative folder to copy back in place of <directory>/tape")
     parser.add_argument("--usd-per-hour", type=float, default=ASSUMED_USD_PER_HOUR,
                         help="price a keyless --dry-run assumes; with a key the catalog price is used")
     parser.add_argument("--dry-run", action="store_true", help="print the plan and create nothing")
@@ -417,7 +428,8 @@ def main(argv=None) -> int:
                 raise PlanError(f"no {args.gpu} with CUDA >= {MIN_CUDA} in the {CLOUD.lower()} cloud right now ({source})")
         else:
             price, source = args.usd_per_hour, "assumed, catalog read of 2026-11-09; set RUNPOD_API_KEY for the live price"
-        built = plan(directory.as_posix(), args.takes, args.gpu, args.cap_usd, price, source, ensure_key(), image=args.image)
+        built = plan(directory.as_posix(), args.takes, args.gpu, args.cap_usd, price, source, ensure_key(), image=args.image,
+                     command=args.command, fetch=args.fetch)
     except (PlanError, ApiError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
