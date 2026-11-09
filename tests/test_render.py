@@ -197,6 +197,35 @@ def test_second_render_is_cached(first, tmp_path):
     assert tape_files(directory) == before
 
 
+def test_stand_in_cache_keys_are_unchanged_so_old_tapes_stay_cached(first):
+    # sha256 of the JSON list [mode, prompt, start hash, end hash, model name, seed] for the opening's first take.
+    opening = first[2].shots[0]
+    assert opening.takes[0].path.name == "77832968eafaf4794a47c40856b716a61bedb0784f376d98672fc2f84f7f2321.mp4"
+
+
+class Tuned(StandIn):
+    def __init__(self, knobs: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.knobs = knobs
+
+    def settings(self, mode):
+        return self.knobs
+
+
+def test_a_models_settings_are_part_of_the_cache_key(first, tmp_path):
+    directory = copy_of(first, tmp_path)
+    model = Tuned({"steps": 50, "frames": 81})
+    render(directory, model, StandInEye())
+    assert len(model.calls) == 18
+    same = Tuned({"frames": 81, "steps": 50})
+    render(directory, same, StandInEye())
+    assert same.calls == []
+    for knobs in ({"steps": 40, "frames": 81}, {"steps": 50, "frames": 121}, {"steps": 50, "frames": 81, "shift": 5.0}):
+        changed = Tuned(knobs)
+        render(directory, changed, StandInEye())
+        assert len(changed.calls) == 18, knobs
+
+
 @pytest.mark.parametrize("old, new, rerendered", [
     ('"Create your account"', '"Open your account"', ["Create an account", "Sign up"]),
     ('"Log in"', '"Sign in"', ["I have an account", "Sign up"]),

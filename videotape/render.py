@@ -78,7 +78,10 @@ def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
 def _take(model: Model, eye: Eye, shot: Shot, scene: Scene, start: Path | None, end: Path | None, seed: int,
           folder: Path) -> Take:
     fields = [shot.mode.value, shot.prompt, _sha256(start), _sha256(end), model.name, seed]
-    path = folder / f"{hashlib.sha256(json.dumps(fields).encode()).hexdigest()}.mp4"
+    # A model with settings gets them in its key, so changing steps or frames re-renders. The stand-in has none, so its keys stay as they were.
+    if settings := model.settings(shot.mode):
+        fields.append(settings)
+    path = folder / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
     cached = path.exists()
     if not cached:
         publish(path, lambda partial: _film(model, shot, start, end, seed, partial))
