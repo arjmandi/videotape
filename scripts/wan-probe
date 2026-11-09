@@ -2,6 +2,7 @@
 """Try prompt variants for the surf shop's first two shots on a CUDA GPU and score what Wan draws with Qwen.
 
     uv run scripts/wan-probe probe
+    uv run scripts/wan-probe keyed probe-keyed
 
 Each variant renders the opening (text-to-video) and the Enter shop move (image-to-video from that opening's last
 frame). Qwen reads both last frames. The report is <out>/report.json, and every clip and key stays under <out>.
@@ -62,6 +63,60 @@ def score(eye: QwenEye, frame: frames.Frame, lines: list[str], buttons: list[str
     }
 
 
+KEYED = {
+    "signage": (
+        'Static wide shot of a small whitewashed surf shop on a sunny California beach. Above the open door a large '
+        'hand-painted sign reads "Brushstroke Surf Co." and below it smaller letters read "Hand-painted surfboards '
+        'from California". In front of the door is one big flat orange rectangular button with bold black letters '
+        '"Enter shop". Sharp, legible lettering.',
+        'Static shot inside a bright whitewashed surf shop, by the wooden counter, surfboards on the walls. A sign on '
+        'the wall reads "How would you like to come in?". Below it three big flat orange rectangular buttons are '
+        'stacked, with bold black letters "I have an account", "Create an account" and "Browse as guest". Sharp, '
+        'legible lettering.'),
+    "interface": (
+        'A flat app screen in the style of a surf shop: a warm sand-coloured background with a painted surfboard. '
+        'Big title text "Brushstroke Surf Co.", a subtitle "Hand-painted surfboards from California", and one '
+        'large orange rounded button with the text "Enter shop". Crisp, legible text.',
+        'A flat app screen in the style of a surf shop: a warm sand-coloured background with painted surfboards. '
+        'Title text "How would you like to come in?" and three large orange rounded buttons stacked, with the texts '
+        '"I have an account", "Create an account" and "Browse as guest". Crisp, legible text.'),
+}
+MOVE = 'The button labelled "Enter shop" is pressed. The camera walks through the open door into the shop.'
+
+
+def keyed(out: Path) -> int:
+    """Each scene keyed by its own text-to-video take, and the move drawn by Fun-InP between the two pinned keys."""
+    out.mkdir(parents=True, exist_ok=True)
+    wan, eye, report = Wan(), QwenEye(out), {}
+    for name, (welcome_prompt, entrance_prompt) in KEYED.items():
+        folder = out / name
+        folder.mkdir(exist_ok=True)
+        started = time.time()
+        for scene, prompt in (("welcome", welcome_prompt), ("entrance", entrance_prompt)):
+            wan.text_to_video(prompt, 1, folder / f"{scene}-key.mp4")
+            frames.write_png(frames.last_frame(folder / f"{scene}-key.mp4"), folder / f"{scene}.png")
+        report[name] = {"keys_seconds": round(time.time() - started, 1)}
+        (out / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+    for name in KEYED:
+        folder, started = out / name, time.time()
+        move = folder / "move.mp4"
+        wan.first_last_frame(MOVE, folder / "welcome.png", folder / "entrance.png", 1, move)
+        report[name] |= {
+            "move_seconds": round(time.time() - started, 1),
+            "welcome": score(eye, frames.read_png(folder / "welcome.png"), WELCOME_LINES, WELCOME_BUTTONS),
+            "entrance": score(eye, frames.read_png(folder / "entrance.png"), ENTRANCE_LINES, ENTRANCE_BUTTONS),
+            "move_motion": round(frames.difference(frames.first_frame(move), frames.last_frame(move)), 4),
+            "seam_start": round(frames.difference(frames.first_frame(move), frames.read_png(folder / "welcome.png")), 4),
+            "seam_end": round(frames.difference(frames.last_frame(move), frames.read_png(folder / "entrance.png")), 4),
+        }
+        (out / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+        row = report[name]
+        print(f"{name:10s} welcome buttons {sum(row['welcome']['buttons'].values())}/1, "
+              f"entrance buttons {sum(row['entrance']['buttons'].values())}/3, motion {row['move_motion']}, "
+              f"seams {row['seam_start']} / {row['seam_end']}", flush=True)
+    return 0
+
+
 def main(out: Path) -> int:
     out.mkdir(parents=True, exist_ok=True)
     wan, eye, report = Wan(), QwenEye(out), {}
@@ -90,4 +145,6 @@ def main(out: Path) -> int:
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["keyed"]:
+        sys.exit(keyed(Path(sys.argv[2] if len(sys.argv) > 2 else "probe-keyed")))
     sys.exit(main(Path(sys.argv[1] if len(sys.argv) > 1 else "probe")))
