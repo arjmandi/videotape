@@ -206,7 +206,7 @@ def describe(built: Plan) -> str:
         "setup         " + setup_script().strip().replace("\n", "\n              "),
         f"render        {render_command(built)}",
         f"then          rsync {fetched(built)} back, DELETE the pod, confirm it is gone, append the pod line to "
-        f"{fetched(built)}/ledger.jsonl, and refresh its dailies page if it has one",
+        f"{fetched(built)}/ledger.jsonl, and run uv run videotape dailies {built.directory} if it has a dailies record",
     ])
 
 
