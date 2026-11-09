@@ -63,7 +63,18 @@ final class TapeView: NSView {
         }
         buttons = hotspots.map { HotspotButton(hotspot: $0, view: self) }
         window?.invalidateCursorRects(for: self)
+        updateCursor()
         NSAccessibility.post(element: self, notification: .layoutChanged)
+    }
+
+    /// Cursor rects only change the cursor when the pointer crosses their edge, so a hotspot that vanishes under a
+    /// resting pointer would leave the hand showing for the whole clip.
+    private func updateCursor() {
+        guard let window else { return }
+        let point = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+        guard bounds.contains(point) else { return }
+        let overHotspot = hotspots.contains { rect(for: $0.box).contains(point) }
+        (overHotspot ? NSCursor.pointingHand : NSCursor.arrow).set()
     }
 
     private var hotspots: [Hotspot] {

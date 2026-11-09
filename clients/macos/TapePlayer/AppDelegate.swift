@@ -22,8 +22,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-
     @objc func openDocument(_ sender: Any?) {
         let panel = NSOpenPanel()
         panel.message = "Choose a tape folder or its tape.json."
@@ -38,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     /// Opens the tape in a new window. The window that was showing stays until the new one has a frame to show, so
-    /// the app always has a visible window and never quits for having closed its last one.
+    /// switching tapes never shows an empty screen.
     private func play(_ url: URL) throws(TapeError) {
         let tape = try Tape.load(url)
         let window = NSWindow(
