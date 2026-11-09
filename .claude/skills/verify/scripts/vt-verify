@@ -7,7 +7,7 @@ cd "$ROOT" || exit 2
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
-  echo "usage: vt-verify launch | doctor | run <run-dir> <name> -- <videotape args...> | screenshot <run-dir> <name> <html-file> | player-build <run-dir> | player-test <run-dir>" >&2
+  echo "usage: vt-verify launch | doctor | run <run-dir> <name> -- <videotape args...> | screenshot <run-dir> <name> <html-file> | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
   exit 2
 }
 
@@ -97,6 +97,11 @@ case "${1:-}" in
     [ -d "$dir/player-test.xcresult" ] && xcrun xcresulttool export attachments --path "$dir/player-test.xcresult" \
       --output-path "$dir/player-test.attachments" >/dev/null && echo "player-test: attachments -> $dir/player-test.attachments"
     exit $code
+    ;;
+  player-cuts)
+    [ $# -ge 2 ] && [ $# -le 3 ] || usage
+    mkdir -p "$2"
+    capture "$2" player-cuts .claude/skills/verify/scripts/player-cuts/run ${3:+"$3"}
     ;;
   *) usage ;;
 esac

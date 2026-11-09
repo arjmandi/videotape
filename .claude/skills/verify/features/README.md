@@ -42,4 +42,4 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 - [Authoring a screenplay](./authoring.md) covers what a developer's own screenplay controls: custom moves, plain-name actions, scenes without text or buttons, and a return to an already-keyed scene.
 - [Screenplay errors](./screenplay-errors.md) covers each mistake the CLI rejects with `error:` and exit 1.
 - [Render](./render.md) covers rendering the surf shop into a tape: the first render, the cached rerun, the cascade after editing one line, the files in `tape/`, and the dailies page.
-- [Player](./player.md) covers the TapePlayer macOS app: building it, clicking through the surf shop tape, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
+- [Player](./player.md) covers the TapePlayer macOS app: building it, clicking through the surf shop tape, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.

@@ -13,6 +13,7 @@ TapePlayer is the macOS app a person uses to click through a rendered tape as if
 - `player-open` shows the Open panel when launched without a tape, and File > Open (⌘O) switches to a tape folder or its `tape.json`.
 - `player-bad-tape` shows an alert headed `This tape cannot play.` with the reason, and File > Open still works after it.
 - `player-window` keeps the tape's shape through resizing and zoom with the video reaching every edge.
+- `player-cuts` cuts from clip to clip with no blank, black or half-faded frame between them.
 
 ## How to get to it (user POV)
 
@@ -37,7 +38,8 @@ Preconditions:
 - **Open.** Quit TapePlayer, then run `open clients/macos/build/TapePlayer.app`. An Open panel asks `Choose a tape folder or its tape.json.` Choose `examples/surf_shop/tape`. The `surf_shop` window plays the opening. File > Open… (⌘O) with `examples/surf_shop/tape/tape.json` replaces the window with a new one that plays the opening.
 - **Bad tape.** Quit TapePlayer, then run `open clients/macos/build/TapePlayer.app --args examples/surf_shop`. An alert headed `This tape cannot play.` reads `No tape.json at examples/surf_shop in / or in any folder above <repo>/clients/macos/build/TapePlayer.app.` After OK, File > Open… still opens the Open panel.
 - **Window.** Ask the user to drag a window corner, then click the green zoom button. The window keeps the tape's shape, the video reaches all four edges with no grey band, and zoom grows the window as far as the screen allows in that shape.
-- **Proof.** For `player-build` cite `.cmd`, `.exit` and `.stdout`. For `player-test` cite `.exit`, the `** TEST SUCCEEDED **` line and the screenshot from `player-test.attachments`. For the journeys a person drives, quote what the user reported and the command you ran. Report any you could not run as skipped, with the reason.
+- **Cuts.** Run `.claude/skills/verify/scripts/vt-verify player-cuts "$RUN"`. It plays `examples/surf_shop/tape` in a borderless window through TapePlayer's own view and projector, presses the next hotspot the moment each scene rests, and captures the window about every 8 ms. Then it does the same with a control projector that swaps clips the naive way. `$RUN/player-cuts.exit` is `0` and `.stdout` ends with `ok: no flash in 30 cuts, and the control flashed`. Under `== TapePlayer's projector`, `largest edge change from the first frame` is a few units of 255 with `captures over 40: 0`, and `fewest captures in the 200 ms after a cut` is at least 5. Under `== control`, `captures over 40` is above 0 with `flash at` lines a few ms after a cut. A second argument sets the number of cuts.
+- **Proof.** For `player-build` cite `.cmd`, `.exit` and `.stdout`. For `player-test` cite `.exit`, the `** TEST SUCCEEDED **` line and the screenshot from `player-test.attachments`. For `player-cuts` cite `.exit` and both summaries from `.stdout`. For the journeys a person drives, quote what the user reported and the command you ran. Report any you could not run as skipped, with the reason.
 
 ## Gotchas
 
@@ -49,3 +51,6 @@ Preconditions:
 - The screenshot's colours sit off the keys by 7.78 on that scale on the Dell P3223QE where it was measured. macOS decodes the untagged clips with the BT.709 matrix they were not encoded with, and the display's profile shifts them again. The UI test removes each image's mean colour, so it compares which screen shows, not its exact colours.
 - Window tiling (dragging to a screen edge, or Window > Move & Resize) ignores the tape's shape. The video then crops at two edges. That is expected and is not a `player-window` failure.
 - A pointer already over a hotspot when its scene comes to rest stays an arrow until it moves.
+
+- `player-cuts` builds its harness with `swiftc` from `clients/macos/TapePlayer/TapeView.swift`, `Projector.swift` and TapeKit's sources, outside Xcode. A change to `TapeView(tape:firstFrame:)`, its `startOver(_:)`, its accessibility children or the `Projector` API must keep `.claude/skills/verify/scripts/player-cuts/main.swift` and `control/Projector.swift` building. A build failure exits 2.
+- `player-cuts` needs no Screen Recording permission, because a process may capture its own windows. It does not move the mouse, but its window plays on screen for about a minute.

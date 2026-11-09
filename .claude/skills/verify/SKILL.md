@@ -56,9 +56,10 @@ TapePlayer drives use the same `$RUN`:
 ```bash
 .claude/skills/verify/scripts/vt-verify player-build "$RUN"
 .claude/skills/verify/scripts/vt-verify player-test "$RUN"
+.claude/skills/verify/scripts/vt-verify player-cuts "$RUN"
 ```
 
-Each writes `player-build.*` or `player-test.*` under `$RUN` like `run` does. `player-test` also keeps the result bundle as `player-test.xcresult` and exports its screenshot into `player-test.attachments/`. Ask the user before `player-test` and before any journey that opens TapePlayer, because they take over the mouse and screen. [features/player.md](features/player.md) lists the journeys.
+Each writes `player-build.*`, `player-test.*` or `player-cuts.*` under `$RUN` like `run` does. `player-test` also keeps the result bundle as `player-test.xcresult` and exports its screenshot into `player-test.attachments/`. Ask the user before `player-test`, `player-cuts` and any journey that opens TapePlayer, because they take over the screen. [features/player.md](features/player.md) lists the journeys.
 
 Screenplays to drive:
 
@@ -99,3 +100,4 @@ This removes only scratch screenplay dirs, so name yours `"${TMPDIR:-/tmp}"/vide
 - `.claude/skills/verify/scripts/vt-verify screenshot <run-dir> <name> <html-file>` captures a page with headless Chrome as `<name>.light.png` and `<name>.dark.png`. It needs Google Chrome in `/Applications`, and doctor reports whether it is there.
 - `.claude/skills/verify/scripts/vt-verify player-build <run-dir>` runs `clients/macos/build.sh` and captures it as `player-build.*`. It needs Xcode, and doctor reports whether it is there.
 - `.claude/skills/verify/scripts/vt-verify player-test <run-dir>` runs `clients/macos/test.sh` and captures it as `player-test.*`, with the result bundle and its exported screenshot. It takes over the mouse and screen.
+- `.claude/skills/verify/scripts/vt-verify player-cuts <run-dir> [cuts]` measures every cut between clips for a flash, against a control that must flash, and captures it as `player-cuts.*`. It plays a window on screen for about a minute.
