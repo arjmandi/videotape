@@ -1,8 +1,15 @@
+import io
 import json
+import sys
+import tarfile
 from dataclasses import fields
+from importlib.util import find_spec
 from pathlib import Path
 
+import pytest
+
 from videotape import wan
+from videotape.cli import main
 from videotape.loader import load
 from videotape.shots import Mode, plan
 
@@ -40,3 +47,49 @@ def test_settings_cover_every_field_a_shot_does_not_supply():
     assert json.dumps(settings, sort_keys=True)
     assert wan.request(Mode.IMAGE_TO_VIDEO, "another prompt", Path("other.png"), None, 8).settings() == settings
     assert wan.request(Mode.FIRST_AND_LAST_FRAME, "a prompt", Path("a.png"), Path("b.png"), 7).settings() != settings
+
+
+def test_the_model_puts_its_request_settings_in_the_cache_key():
+    for mode in Mode:
+        assert wan.Wan.settings(mode) == wan.request(mode, "any prompt", None, None, 99).settings()
+
+
+def test_wan_without_the_extra_names_the_install_command(capsys, monkeypatch):
+    monkeypatch.setitem(sys.modules, "diffusers", None)
+    assert main(["render", str(SURF_SHOP), "--model", "wan2.2-5b"]) == 1
+    assert capsys.readouterr().err == "error: wan2.2-5b needs the wan extra; install it with uv sync --extra wan\n"
+
+
+@pytest.mark.skipif(find_spec("diffusers") is None, reason="needs the wan extra")
+def test_wan_on_a_machine_without_cuda_says_so_before_rendering(tmp_path, capsys):
+    import torch
+
+    if torch.cuda.is_available():
+        pytest.skip("this machine has CUDA")
+    (tmp_path / "screenplay.py").write_text('import videotape as vt\n\nplay = vt.Screenplay("T", look="L")\n')
+    assert main(["render", str(tmp_path), "--model", "wan2.2-5b"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: wan2.2-5b needs a CUDA GPU with about 80 GB, and this machine has ")
+    assert err.endswith(" only; rent one with scripts/runpod-render\n")
+    assert not (tmp_path / "tape").exists()
+
+
+def test_videox_fun_source_is_fetched_once_from_the_pinned_archive(tmp_path, monkeypatch):
+    repo, sha = wan.VIDEOX_FUN
+    payload = io.BytesIO()
+    with tarfile.open(fileobj=payload, mode="w:gz") as archive:
+        for name, text in ((f"VideoX-Fun-{sha}/videox_fun/__init__.py", ""), (f"VideoX-Fun-{sha}/config/wan2.2/wan_civitai_5b.yaml", "format: civitai\n")):
+            info = tarfile.TarInfo(name)
+            info.size = len(text.encode())
+            archive.addfile(info, io.BytesIO(text.encode()))
+    archive_path = tmp_path / "archive.tar.gz"
+    archive_path.write_bytes(payload.getvalue())
+    monkeypatch.setattr(wan, "VIDEOX_FUN_ARCHIVE", archive_path.as_uri())
+    monkeypatch.setenv("VIDEOX_FUN_DIR", str(tmp_path / "code" / "videox"))
+    source = wan.videox_fun_dir()
+    assert source == tmp_path / "code" / "videox"
+    assert (source / "videox_fun" / "__init__.py").is_file()
+    assert (source / "config" / "wan2.2" / "wan_civitai_5b.yaml").read_text() == "format: civitai\n"
+    assert sorted(path.name for path in source.parent.iterdir()) == ["videox"]
+    archive_path.unlink()
+    assert wan.videox_fun_dir() == source

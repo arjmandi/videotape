@@ -12,6 +12,7 @@ from videotape.model import MODELS
 from videotape.render import render
 from videotape.screenplay import ScreenplayError
 from videotape.shots import plan
+from videotape.wan import WanError
 
 
 def shots(args) -> int:
@@ -105,6 +106,6 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.run(args)
-    except (ScreenplayError, FfmpegError, ChecksError) as error:
+    except (ScreenplayError, FfmpegError, ChecksError, WanError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

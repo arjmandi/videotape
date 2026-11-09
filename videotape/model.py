@@ -4,6 +4,7 @@ from typing import Protocol
 
 from videotape.shots import Mode
 from videotape.standin import StandIn
+from videotape.wan import Wan
 
 
 class Model(Protocol):
@@ -23,4 +24,5 @@ class Model(Protocol):
 
 MODELS: dict[str, Callable[[], Model]] = {
     "stand-in": StandIn,
+    "wan2.2-5b": Wan,
 }
