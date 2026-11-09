@@ -1,0 +1,6 @@
+source: https://commons.wikimedia.org/wiki/File:Outer_Banks_Scenic_Byway_-_Gift_and_Seafood_Shop_-_NARA_-_7720881.jpg
+author: unknown, U.S. National Archives and Records Administration, record 7720881
+license: public domain (a work of the U.S. federal government)
+changes: downscaled from 2272x1704 to 1024x768
+text: LOCAL OYSTERS
+box: 780,356,132,106

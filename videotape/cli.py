@@ -44,9 +44,9 @@ def check_tape(args) -> int:
         raise ChecksError(f"no tape.json in {tape}; render the screenplay first, then pass its tape directory")
     if not (tape / "dailies.json").is_file():
         raise ChecksError(f"no dailies.json in {tape}; render the screenplay again to write it")
+    eye = CHECKS[args.checks](tape)
     screenplay = load(tape.parent)
     scenes = json.loads((tape / "tape.json").read_text())["scenes"]
-    eye = CHECKS[args.checks](tape)
     scored, failures = [], []
     for name, scene in screenplay.scenes.items():
         if name not in scenes:
