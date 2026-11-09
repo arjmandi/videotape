@@ -3,3 +3,8 @@ __pycache__/
 *.egg-info/
 .verify/
 tape/
+clients/macos/build/
+clients/macos/TapeKit/.build/
+.swiftpm/
+xcuserdata/
+!clients/macos/TapeKit/Tests/TapeKitTests/Fixtures/surf_shop/tape/

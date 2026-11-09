@@ -1,0 +1,108 @@
+{
+  "size": {
+    "width": 1280,
+    "height": 704
+  },
+  "fps": 24,
+  "opening": {
+    "clip": "moves/opening.mp4",
+    "lands": "welcome"
+  },
+  "scenes": {
+    "welcome": {
+      "key": "keys/welcome.png",
+      "hotspots": [
+        {
+          "label": "Enter shop",
+          "box": {
+            "x": 0.3984,
+            "y": 0.5568,
+            "w": 0.2031,
+            "h": 0.0739
+          },
+          "move": "welcome--enter-shop"
+        }
+      ]
+    },
+    "entrance": {
+      "key": "keys/entrance.png",
+      "hotspots": [
+        {
+          "label": "I have an account",
+          "box": {
+            "x": 0.3328,
+            "y": 0.5568,
+            "w": 0.3344,
+            "h": 0.0739
+          },
+          "move": "entrance--i-have-an-account"
+        },
+        {
+          "label": "Create an account",
+          "box": {
+            "x": 0.3328,
+            "y": 0.6477,
+            "w": 0.3344,
+            "h": 0.0739
+          },
+          "move": "entrance--create-an-account"
+        },
+        {
+          "label": "Browse as guest",
+          "box": {
+            "x": 0.3516,
+            "y": 0.7386,
+            "w": 0.2969,
+            "h": 0.0739
+          },
+          "move": "entrance--browse-as-guest"
+        }
+      ]
+    },
+    "login": {
+      "key": "keys/login.png",
+      "hotspots": []
+    },
+    "signup": {
+      "key": "keys/signup.png",
+      "hotspots": [
+        {
+          "label": "Sign up",
+          "box": {
+            "x": 0.4266,
+            "y": 0.5568,
+            "w": 0.1469,
+            "h": 0.0739
+          },
+          "move": "signup--sign-up"
+        }
+      ]
+    },
+    "gallery": {
+      "key": "keys/gallery.png",
+      "hotspots": []
+    }
+  },
+  "moves": {
+    "welcome--enter-shop": {
+      "clip": "moves/welcome--enter-shop.mp4",
+      "lands": "entrance"
+    },
+    "entrance--i-have-an-account": {
+      "clip": "moves/entrance--i-have-an-account.mp4",
+      "lands": "login"
+    },
+    "entrance--create-an-account": {
+      "clip": "moves/entrance--create-an-account.mp4",
+      "lands": "signup"
+    },
+    "entrance--browse-as-guest": {
+      "clip": "moves/entrance--browse-as-guest.mp4",
+      "lands": "gallery"
+    },
+    "signup--sign-up": {
+      "clip": "moves/signup--sign-up.mp4",
+      "lands": "login"
+    }
+  }
+}
