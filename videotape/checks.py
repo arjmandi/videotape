@@ -11,6 +11,8 @@ MAX_DIFFERENCE = 0.05
 
 
 class Eye(Protocol):
+    name: str
+
     def find(self, frame: Frame, label: str) -> Box | None: ...
 
     def read(self, frame: Frame) -> list[str]: ...

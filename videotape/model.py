@@ -2,8 +2,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from videotape.checks import Eye
-from videotape.standin import StandIn, StandInEye
+from videotape.standin import StandIn
 
 
 class Model(Protocol):
@@ -16,6 +15,6 @@ class Model(Protocol):
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> None: ...
 
 
-MODELS: dict[str, Callable[[], tuple[Model, Eye]]] = {
-    "stand-in": lambda: (StandIn(), StandInEye()),
+MODELS: dict[str, Callable[[], Model]] = {
+    "stand-in": StandIn,
 }

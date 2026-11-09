@@ -1,6 +1,8 @@
 import argparse
 import sys
+from pathlib import Path
 
+from videotape.eyes import CHECKS
 from videotape.frames import FfmpegError
 from videotape.loader import load
 from videotape.model import MODELS
@@ -21,8 +23,7 @@ def shots(args) -> int:
 
 
 def render_tape(args) -> int:
-    model, eye = MODELS[args.model]()
-    result = render(args.directory, model, eye)
+    result = render(args.directory, MODELS[args.model](), CHECKS[args.checks](Path(args.directory) / "tape"))
     for number, filmed in enumerate(result.shots, 1):
         status = f"rendered {filmed.rendered} takes" if filmed.rendered else "cached"
         print(f"{number}. {filmed.shot.title}  {status}, kept take {filmed.kept.seed}")
@@ -43,6 +44,7 @@ def main(argv=None) -> int:
     rendering = commands.add_parser("render", help="render a screenplay into a tape of clips")
     rendering.add_argument("directory")
     rendering.add_argument("--model", required=True, choices=sorted(MODELS))
+    rendering.add_argument("--checks", default="stand-in", choices=sorted(CHECKS))
     rendering.set_defaults(run=render_tape)
     args = parser.parse_args(argv)
     try:

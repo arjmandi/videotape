@@ -119,6 +119,8 @@ class StandIn:
 
 
 class StandInEye:
+    name = "stand-in"
+
     def read(self, frame: Frame) -> list[str]:
         return [text for _, text in _segment(frame)]
 

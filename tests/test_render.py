@@ -194,8 +194,8 @@ def test_editing_a_line_rerenders_only_its_shots_and_their_dependents(first, tmp
 
 def test_cli_render_prints_each_shot(first, tmp_path, capsys, monkeypatch):
     directory = copy_of(first, tmp_path, '"The gallery"', '"The board room"')
-    monkeypatch.setitem(MODELS, "stand-in", lambda: (StandIn(flaw=lambda prompt, seed: Flaw.NONE), StandInEye()))
-    assert main(["render", str(directory), "--model", "stand-in"]) == 0
+    monkeypatch.setitem(MODELS, "stand-in", lambda: StandIn(flaw=lambda prompt, seed: Flaw.NONE))
+    assert main(["render", str(directory), "--model", "stand-in", "--checks", "stand-in"]) == 0
     assert capsys.readouterr().out.splitlines() == [
         "1. opening -> welcome  cached, kept take 1",
         '2. welcome -> entrance "Enter shop"  cached, kept take 1',
@@ -209,7 +209,7 @@ def test_cli_render_prints_each_shot(first, tmp_path, capsys, monkeypatch):
 
 def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take(first, tmp_path, capsys, monkeypatch):
     directory = copy_of(first, tmp_path, '"The gallery"', '"The board room"')
-    monkeypatch.setitem(MODELS, "stand-in", lambda: (StandIn(flaw=lambda prompt, seed: Flaw.MISSPELL), StandInEye()))
+    monkeypatch.setitem(MODELS, "stand-in", lambda: StandIn(flaw=lambda prompt, seed: Flaw.MISSPELL))
     assert main(["render", str(directory), "--model", "stand-in"]) == 1
     err = capsys.readouterr().err
     assert err.startswith('fail: 5. entrance -> gallery "Browse as guest"  kept take 1 fails text "The board room": CER ')
@@ -217,8 +217,10 @@ def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take(first, t
     assert "entrance--browse-as-guest" in json.loads((directory / "tape" / "tape.json").read_text())["moves"]
 
 
-def test_cli_render_rejects_an_unknown_model(tmp_path, capsys):
+@pytest.mark.parametrize("flag", ["--model", "--checks"])
+def test_cli_render_rejects_an_unknown_model_or_checks(tmp_path, capsys, flag):
+    arguments = {"--model": "stand-in", "--checks": "stand-in", flag: "sora"}
     with pytest.raises(SystemExit) as exit:
-        main(["render", str(tmp_path), "--model", "sora"])
+        main(["render", str(tmp_path), *(word for pair in arguments.items() for word in pair)])
     assert exit.value.code == 2
     assert "invalid choice: 'sora'" in capsys.readouterr().err
