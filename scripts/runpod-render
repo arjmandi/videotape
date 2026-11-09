@@ -266,7 +266,7 @@ class Ssh:
 
     def rsync(self, source: str, target: str, extra: list[str] = ()) -> None:
         transport = " ".join(shlex.quote(word) for word in ["ssh", *self.options, "-p", str(self.port)])
-        subprocess.run(["rsync", "-az", *extra, "-e", transport, source, target], check=True)
+        subprocess.run(["rsync", "-az", "--timeout=120", *extra, "-e", transport, source, target], check=True)
 
     def job(self, name: str, script: str, deadline: float) -> int:
         """Run a script detached on the pod and stream its log until it exits, so a dropped connection does not kill it."""
