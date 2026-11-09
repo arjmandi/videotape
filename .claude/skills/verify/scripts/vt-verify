@@ -37,9 +37,9 @@ case "${1:-}" in
     fi
     [ -x "$CHROME" ] && echo "info chrome found; screenshot works" || echo "info chrome not found; screenshot cannot run"
     if xcode=$(xcodebuild -version 2>/dev/null); then
-      echo "info ${xcode%%$'\n'*} at $(xcode-select -p); player-build and player-test work"
+      echo "info ${xcode%%$'\n'*} at $(xcode-select -p); player-build, player-test and player-cuts work"
     else
-      echo "info xcode not found; player-build and player-test cannot run"
+      echo "info xcode not found; player-build, player-test and player-cuts cannot run"
     fi
     [ -x .venv/bin/videotape ] || { echo "FAIL .venv/bin/videotape missing; run: vt-verify launch"; status=1; }
     # Call .venv directly: `uv run` would create or sync the venv, and doctor must not change anything.
