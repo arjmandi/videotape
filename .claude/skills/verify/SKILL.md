@@ -5,7 +5,7 @@ description: Drive the videotape CLI (`videotape shots <dir>`, `videotape render
 
 # Verify videotape
 
-videotape turns a screenplay (`<dir>/screenplay.py`) into the ordered shots a video model renders, and renders them into a tape of clips. The user surface is three short-lived CLI commands. `videotape shots <dir>` lists the shots. `videotape render <dir> --model stand-in` renders them with a stand-in model into `<dir>/tape/` and writes `dailies.html` there for review. `videotape check <dir>/tape --checks <name>` reads every key and scores it against its scene. The checks are `stand-in`, which decodes the stand-in's own font, or `qwen3-vl-8b`, which runs the vision model Qwen3-VL-8B on the pixels, and `render` takes the same `--checks`. There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
+videotape turns a screenplay (`<dir>/screenplay.py`) into the ordered shots a video model renders, and renders them into a tape of clips. The user surface is four short-lived CLI commands. `videotape shots <dir>` lists the shots. `videotape render <dir> --model stand-in [--takes N]` renders them with a stand-in model into `<dir>/tape/` and writes `dailies.html` there for review. `--model wan2.2-5b` renders with Wan 2.2 and needs a CUDA GPU, which `scripts/runpod-render <dir> --cap-usd <n>` rents on Runpod; see [features/gpu-render.md](features/gpu-render.md). `videotape check <dir>/tape --checks <name>` reads every key and scores it against its scene. The checks are `stand-in`, which decodes the stand-in's own font, or `qwen3-vl-8b`, which runs the vision model Qwen3-VL-8B on the pixels, and `render` takes the same `--checks`. `videotape dailies <dir>` rewrites the dailies page from its record and the ledger. There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
 
 TapePlayer (`clients/macos/`) is the macOS app a person uses to click through a rendered tape. `vt-verify player-build` builds it without opening anything. `vt-verify player-test` runs its unit tests and a UI test that takes over the real mouse and screen, so ask the user before running it.
 
@@ -21,7 +21,7 @@ Run once per checkout, and again after `pyproject.toml` or `uv.lock` changes:
 
 Ready means it prints `ready: videotape CLI installed in <repo>/.venv`. It runs `uv sync`, which creates `.venv` on Python 3.12 (pinned by `.python-version`) and installs the package in editable mode, so later source edits need no relaunch. Teardown is nothing: no process outlives a drive.
 
-For `--checks qwen3-vl-8b`, run `.claude/skills/verify/scripts/vt-verify launch qwen` instead. It runs `uv sync --extra qwen`, which adds torch and transformers, and prints `ready: videotape CLI installed in <repo>/.venv with the qwen extra`. A plain `launch` uninstalls the extra again.
+For `--checks qwen3-vl-8b`, run `.claude/skills/verify/scripts/vt-verify launch qwen` instead. It runs `uv sync --extra qwen`, which adds torch and transformers, and prints `ready: videotape CLI installed in <repo>/.venv with the qwen extra`. For `--model wan2.2-5b`, run `.claude/skills/verify/scripts/vt-verify launch wan`, which adds diffusers and what VideoX-Fun imports on top. A plain `launch` uninstalls the extras again.
 
 ## Doctor
 
@@ -97,9 +97,10 @@ This removes only scratch screenplay dirs, so name yours `"${TMPDIR:-/tmp}"/vide
 
 ## Helpers
 
-- `.claude/skills/verify/scripts/vt-verify launch [qwen]` installs the CLI, with the qwen extra when asked.
+- `.claude/skills/verify/scripts/vt-verify launch [qwen|wan]` installs the CLI, with the qwen extra, or the wan and qwen extras, when asked.
 - `.claude/skills/verify/scripts/vt-verify doctor` runs the read-only health check.
 - `.claude/skills/verify/scripts/vt-verify run <run-dir> <name> -- <videotape args...>` runs one drive and captures its evidence.
+- `.claude/skills/verify/scripts/vt-verify exec <run-dir> <name> -- <command...>` captures any other command the same way, such as `scripts/runpod-render`.
 - `.claude/skills/verify/scripts/vt-verify screenshot <run-dir> <name> <html-file>` captures a page with headless Chrome as `<name>.light.png` and `<name>.dark.png`. It needs Google Chrome in `/Applications`, and doctor reports whether it is there.
 - `.claude/skills/verify/scripts/vt-verify player-build <run-dir>` runs `clients/macos/build.sh` and captures it as `player-build.*`. It needs Xcode, and doctor reports whether it is there.
 - `.claude/skills/verify/scripts/vt-verify player-test <run-dir>` runs `clients/macos/test.sh` and captures it as `player-test.*`, with the result bundle and its exported screenshot. It takes over the mouse and screen.

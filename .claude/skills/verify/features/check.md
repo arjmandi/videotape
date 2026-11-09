@@ -7,7 +7,7 @@
 - `check-stand-in` scores the surf shop's five keys with the stand-in checks, prints every scene, and exits 0 with `checked 5 keys with stand-in, all passing`.
 - `check-qwen` scores the same keys with Qwen3-VL-8B. Every button is found and every line and label reads back at CER 0.000.
 - `check-qwen-cached` reruns the Qwen check. It loads no model, reads nothing new, prints the same lines, and takes under a second.
-- `check-dailies` rewrites the Keys section of `dailies.html` with each key image, the checks that scored it, and its items, and keeps the shot cards.
+- `check-dailies` rewrites the Keys section of `dailies.html` with each key image, the checks that scored it, and its items, keeps each key's seams and render time from the render, and keeps the shot cards.
 - `check-fail` reports a key that shows the wrong scene with a `fail:` line and exit 1.
 - `check-errors` rejects a directory with no `tape.json` and a tape with no screenplay beside it with `error:` and exit 1, and an unknown `--checks` with a usage error.
 - `check-no-extra` rejects `--checks qwen3-vl-8b` without the qwen extra with an `error:` line that names `uv sync --extra qwen`.

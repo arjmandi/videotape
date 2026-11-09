@@ -43,4 +43,5 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 - [Screenplay errors](./screenplay-errors.md) covers each mistake the CLI rejects with `error:` and exit 1.
 - [Render](./render.md) covers rendering the surf shop into a tape: the first render, the cached rerun, the cascade after editing one line, the files in `tape/`, the dailies page, rendering with `--checks qwen3-vl-8b`, and an unknown `--model` or `--checks`.
 - [Check](./check.md) covers scoring a rendered tape's keys with `videotape check`: the stand-in and Qwen3-VL-8B checks, the cached rerun, the Keys section of the dailies, a failing key, and its errors.
+- [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render`: the dry run, the refusals, the local `--model wan2.2-5b` error, the paid smoke and full runs behind the user's cap, and the ledger.
 - [Player](./player.md) covers the TapePlayer macOS app: building it, clicking through the surf shop tape, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
