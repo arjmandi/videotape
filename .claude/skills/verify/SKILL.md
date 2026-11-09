@@ -1,11 +1,11 @@
 ---
 name: verify
-description: Drive the videotape CLI (`videotape shots <dir>`) the way an app developer does, and capture the command, stdout, stderr and exit code as proof. Use after any change to the videotape package, the CLI, or a screenplay under examples/, before claiming the shot list, prompts, or screenplay errors behave.
+description: Drive the videotape CLI (`videotape shots <dir>` and `videotape render <dir> --model stand-in`) the way an app developer does, and capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, or a screenplay under examples/, before claiming the shot list, prompts, screenplay errors, or the rendered tape and dailies behave.
 ---
 
 # Verify videotape
 
-videotape turns a screenplay (`<dir>/screenplay.py`) into the ordered shots a video model would render. The only user surface is one short-lived CLI command, `videotape shots <dir>`. There is no server, port, database or browser. A drive is one command run, and its proof is the captured terminal output and exit code.
+videotape turns a screenplay (`<dir>/screenplay.py`) into the ordered shots a video model renders, and renders them into a tape of clips. The user surface is two short-lived CLI commands. `videotape shots <dir>` lists the shots. `videotape render <dir> --model stand-in` renders them with a stand-in model into `<dir>/tape/` and writes `dailies.html` there for review. There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
 
 All commands below run from the repo root. The helper is `.claude/skills/verify/scripts/vt-verify`; call it by that path.
 
@@ -27,7 +27,7 @@ Read-only. Run it first, and again whenever output looks wrong:
 .claude/skills/verify/scripts/vt-verify doctor
 ```
 
-Every line must start with `ok` or `info`, and the exit code must be 0. It never calls `uv`, which would create or sync `.venv`. It checks that `.venv/bin/videotape` exists, that `.venv/bin/python` imports `videotape` from this checkout's `videotape/__init__.py` on Python 3.12, and that `videotape --help` exits 0. The `info build` line names the commit and flags uncommitted changes to the package; put it in your report so the proof names what it ran against.
+Every line must start with `ok` or `info`, and the exit code must be 0. It never calls `uv`, which would create or sync `.venv`. It checks that ffmpeg is on PATH (render needs it), that `.venv/bin/videotape` exists, that `.venv/bin/python` imports `videotape` from this checkout's `videotape/__init__.py` on Python 3.12, and that `videotape --help` exits 0. The `info build` line names the commit and flags uncommitted changes to the package; put it in your report so the proof names what it ran against.
 
 ## Drive
 
@@ -36,6 +36,7 @@ Pick a run directory once per verification session and reuse it for every drive:
 ```bash
 RUN=.verify/runs/$(date -u +%Y%m%dT%H%M%SZ)
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> -- shots <screenplay-dir>
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> -- render <screenplay-dir> --model stand-in
 ```
 
 `run` invokes the installed `.venv/bin/videotape <args>`, the command a developer gets from `uv sync`, and writes, under `$RUN`:
@@ -64,7 +65,7 @@ Read [features/README.md](features/README.md) before driving, then follow the fe
 
 Proof lives in `$RUN` (`.verify/runs/<timestamp>/`, gitignored) and survives cleanup. A proof:
 
-- drives the real command a developer types, `videotape shots <dir>`, through `vt-verify run`, never by importing `plan` or `load` in a Python snippet;
+- drives the real command a developer types, `videotape shots <dir>` or `videotape render <dir> --model stand-in`, through `vt-verify run`, never by importing `plan`, `load` or `render` in a Python snippet;
 - quotes the asserted lines from `<name>.stdout` or `<name>.stderr` together with `<name>.exit`;
 - for a screenplay you wrote, includes its `<name>.screenplay.py` copy so the reader sees the input;
 - names the `info build` line from doctor.
@@ -77,10 +78,11 @@ Proof lives in `$RUN` (`.verify/runs/<timestamp>/`, gitignored) and survives cle
 find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'videotape-verify-*' -exec rm -rf {} +
 ```
 
-This removes only scratch screenplay dirs, so name yours `"${TMPDIR:-/tmp}"/videotape-verify-<something>`. Use `find`, not a bare glob, because zsh errors on a glob with no match. Never delete `.verify/runs/`, fixtures, or `examples/`. There are no processes to stop.
+This removes only scratch screenplay dirs, so name yours `"${TMPDIR:-/tmp}"/videotape-verify-<something>`. Use `find`, not a bare glob, because zsh errors on a glob with no match. Never delete `.verify/runs/`, fixtures, or `examples/`. The one exception is `examples/surf_shop/tape`, which is generated and gitignored, and which the first-render journey removes on purpose. There are no processes to stop.
 
 ## Helpers
 
 - `.claude/skills/verify/scripts/vt-verify launch` installs the CLI.
 - `.claude/skills/verify/scripts/vt-verify doctor` runs the read-only health check.
 - `.claude/skills/verify/scripts/vt-verify run <run-dir> <name> -- <videotape args...>` runs one drive and captures its evidence.
+- `.claude/skills/verify/scripts/vt-verify screenshot <run-dir> <name> <html-file>` captures a page with headless Chrome as `<name>.light.png` and `<name>.dark.png`. It needs Google Chrome in `/Applications`, and doctor reports whether it is there.

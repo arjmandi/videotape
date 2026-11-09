@@ -1,3 +1,4 @@
+import re
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
@@ -22,6 +23,16 @@ class Shot:
     land: str
     label: str | None
     prompt: str
+
+    @property
+    def title(self) -> str:
+        return f"{self.start or 'opening'} -> {self.land}" + (f' "{self.label}"' if self.label else "")
+
+    @property
+    def move(self) -> str:
+        if self.label is None:
+            return "opening"
+        return f"{self.start}--{re.sub(r'[^a-z0-9]+', '-', self.label.lower()).strip('-')}"
 
 
 def _quoted(items) -> str:

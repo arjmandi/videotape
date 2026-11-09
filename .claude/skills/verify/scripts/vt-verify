@@ -4,8 +4,10 @@ set -uo pipefail
 ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 cd "$ROOT" || exit 2
 
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
 usage() {
-  echo "usage: vt-verify launch | doctor | run <run-dir> <name> -- <videotape args...>" >&2
+  echo "usage: vt-verify launch | doctor | run <run-dir> <name> -- <videotape args...> | screenshot <run-dir> <name> <html-file>" >&2
   exit 2
 }
 
@@ -16,6 +18,12 @@ case "${1:-}" in
   doctor)
     status=0
     command -v uv >/dev/null || { echo "FAIL uv not on PATH"; status=1; }
+    if command -v ffmpeg >/dev/null; then
+      echo "ok   ffmpeg $(ffmpeg -hide_banner -version | head -1 | cut -d' ' -f3) at $(command -v ffmpeg)"
+    else
+      echo "FAIL ffmpeg not on PATH; render needs it (brew install ffmpeg)"; status=1
+    fi
+    [ -x "$CHROME" ] && echo "info chrome found; screenshot works" || echo "info chrome not found; screenshot cannot run"
     [ -x .venv/bin/videotape ] || { echo "FAIL .venv/bin/videotape missing; run: vt-verify launch"; status=1; }
     # Call .venv directly: `uv run` would create or sync the venv, and doctor must not change anything.
     where="no .venv/bin/python"
@@ -31,7 +39,7 @@ case "${1:-}" in
   run)
     [ $# -ge 4 ] && [ "$4" = "--" ] || usage
     dir="$2"; name="$3"; shift 4
-    mkdir -p "$dir"
+    mkdir -p "$dir"; rm -f "$dir/$name.light.png" "$dir/$name.dark.png"
     printf 'videotape' > "$dir/$name.cmd"; printf ' %q' "$@" >> "$dir/$name.cmd"; echo >> "$dir/$name.cmd"
     git rev-parse HEAD > "$dir/$name.build"
     .venv/bin/videotape "$@" > "$dir/$name.stdout" 2> "$dir/$name.stderr"
@@ -41,6 +49,22 @@ case "${1:-}" in
       [ -f "$arg/screenplay.py" ] && cp "$arg/screenplay.py" "$dir/$name.screenplay.py"
     done
     echo "$name: exit $code, $(wc -l < "$dir/$name.stdout" | tr -d ' ') stdout lines, $(wc -l < "$dir/$name.stderr" | tr -d ' ') stderr lines -> $dir/$name.*"
+    ;;
+  screenshot)
+    [ $# -eq 4 ] || usage
+    dir="$2"; name="$3"; page="$(cd "$(dirname "$4")" && pwd)/$(basename "$4")"
+    [ -x "$CHROME" ] || { echo "FAIL chrome not found at $CHROME" >&2; exit 1; }
+    mkdir -p "$dir"; rm -f "$dir/$name.light.png" "$dir/$name.dark.png"
+    profile="$(mktemp -d)"
+    # --virtual-time-budget lets the looping videos decode a frame before the capture.
+    for scheme in light dark; do
+      flags=(); [ "$scheme" = dark ] && flags=(--force-dark-mode --blink-settings=preferredColorScheme=0)
+      "$CHROME" --headless=new --disable-gpu --hide-scrollbars --autoplay-policy=no-user-gesture-required \
+        --window-size=1280,2400 --virtual-time-budget=4000 --user-data-dir="$profile/$scheme" ${flags[@]+"${flags[@]}"} \
+        --screenshot="$dir/$name.$scheme.png" "file://$page" >/dev/null 2>&1
+    done
+    rm -rf "$profile"
+    ls "$dir/$name.light.png" "$dir/$name.dark.png" >/dev/null && echo "$name: screenshots -> $dir/$name.light.png $dir/$name.dark.png"
     ;;
   *) usage ;;
 esac

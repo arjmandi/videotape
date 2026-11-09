@@ -1,6 +1,6 @@
 # videotape verification map
 
-This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes `screenplay.py` and runs `videotape shots <dir>`. Read this index before driving, then use the matching feature file as the recipe.
+This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes `screenplay.py`, runs `videotape shots <dir>` to list its shots, and runs `videotape render <dir> --model stand-in` to render them into a tape. Read this index before driving, then use the matching feature file as the recipe.
 
 ## Baseline preconditions
 
@@ -11,7 +11,7 @@ This directory is the maintained source for verifying what a videotape user can 
 
 ## Driving conventions
 
-- Every drive goes through `vt-verify run "$RUN" <name> -- shots <dir>`. Use the journey's name as `<name>` so artifacts map to journeys.
+- Every drive goes through `vt-verify run "$RUN" <name> -- shots <dir>` or `vt-verify run "$RUN" <name> -- render <dir> --model stand-in`. Use the journey's name as `<name>` so artifacts map to journeys.
 - Treat every command and quoted string as literal.
 - Assert on exact lines from `$RUN/<name>.stdout`, `$RUN/<name>.stderr` and `$RUN/<name>.exit`.
 - Fixtures live in `.claude/skills/verify/fixtures/`. Never edit one to make a journey pass.
@@ -39,3 +39,4 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 - [Shot list](./shot-list.md) covers the surf shop's six shots: order, modes, and exact prompts.
 - [Authoring a screenplay](./authoring.md) covers what a developer's own screenplay controls: custom moves, plain-name actions, scenes without text or buttons, and a return to an already-keyed scene.
 - [Screenplay errors](./screenplay-errors.md) covers each mistake the CLI rejects with `error:` and exit 1.
+- [Render](./render.md) covers rendering the surf shop into a tape: the first render, the cached rerun, the cascade after editing one line, the files in `tape/`, and the dailies page.
