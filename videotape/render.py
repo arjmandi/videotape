@@ -1,10 +1,11 @@
 import hashlib
 import json
 import shutil
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from videotape import dailies, frames
+from videotape import dailies, frames, ledger
 from videotape.checks import Checks, Eye, check, rank
 from videotape.frames import FPS, HEIGHT, WIDTH, Box
 from videotape.loader import load
@@ -20,6 +21,8 @@ class Take:
     path: Path
     cached: bool
     checks: Checks
+    seconds: float | None
+    gpu: str | None
 
 
 @dataclass(frozen=True)
@@ -57,7 +60,7 @@ def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
         start = tape / "keys" / f"{shot.start}.png" if shot.start else None
         end = tape / "keys" / f"{shot.land}.png" if shot.mode is Mode.FIRST_AND_LAST_FRAME else None
         scene = screenplay.scenes[shot.land]
-        shot_takes = tuple(_take(model, eye, shot, scene, start, end, seed, tape / "takes") for seed in range(1, takes + 1))
+        shot_takes = tuple(_take(model, eye, shot, scene, start, end, seed, tape) for seed in range(1, takes + 1))
         kept = min(shot_takes, key=lambda take: rank(take.checks, take.seed))
         publish(tape / "moves" / f"{shot.move}.mp4", lambda partial: shutil.copyfile(kept.path, partial))
         key = None
@@ -76,16 +79,24 @@ def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
 
 
 def _take(model: Model, eye: Eye, shot: Shot, scene: Scene, start: Path | None, end: Path | None, seed: int,
-          folder: Path) -> Take:
+          tape: Path) -> Take:
     fields = [shot.mode.value, shot.prompt, _sha256(start), _sha256(end), model.name, seed]
     # A model with settings gets them in its key, so changing steps or frames re-renders. The stand-in has none, so its keys stay as they were.
     if settings := model.settings(shot.mode):
         fields.append(settings)
-    path = folder / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
+    path = tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
+    # The render time lives in a sidecar next to the take, so it survives caching.
+    timing = path.with_suffix(".json")
     cached = path.exists()
     if not cached:
+        started = time.perf_counter()
         publish(path, lambda partial: _film(model, shot, start, end, seed, partial))
-    return Take(seed, path, cached, check(path, scene, start, end, eye))
+        filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": model.device}
+        publish(timing, lambda partial: partial.write_text(json.dumps(filmed) + "\n"))
+        ledger.append(tape, {"kind": "take", "at": ledger.now(), "model": model.name, "shot": shot.move,
+                             "mode": shot.mode.value, "seed": seed, **filmed})
+    filmed = json.loads(timing.read_text()) if timing.exists() else {}
+    return Take(seed, path, cached, check(path, scene, start, end, eye), filmed.get("seconds"), filmed.get("gpu"))
 
 
 def _film(model: Model, shot: Shot, start: Path | None, end: Path | None, seed: int, out: Path) -> None:

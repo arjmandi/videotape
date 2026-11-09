@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from videotape import dailies, frames
+from videotape import dailies, frames, ledger
 from videotape.checks import MAX_DIFFERENCE
 from videotape.cli import main
 from videotape.loader import load
@@ -210,6 +210,46 @@ class Tuned(StandIn):
 
     def settings(self, mode):
         return self.knobs
+
+
+def test_each_filmed_take_records_its_render_time_and_a_ledger_line(first):
+    directory, _, result = first
+    tape = directory / "tape"
+    for filmed in result.shots:
+        for take in filmed.takes:
+            assert take.seconds > 0 and take.gpu == "cpu"
+            assert json.loads(take.path.with_suffix(".json").read_text()) == {"seconds": take.seconds, "gpu": "cpu"}
+    lines = ledger.read(tape)
+    assert [(line["kind"], line["model"], line["shot"], line["mode"], line["seed"], line["gpu"]) for line in lines] == [
+        ("take", "stand-in", filmed.shot.move, filmed.shot.mode.value, take.seed, "cpu")
+        for filmed in result.shots for take in filmed.takes]
+    assert [line["seconds"] for line in lines] == [take.seconds for filmed in result.shots for take in filmed.takes]
+    assert all(line["at"].endswith("+00:00") for line in lines)
+    assert ledger.totals(lines) == {"takes": 18, "gpu_seconds": round(sum(line["seconds"] for line in lines), 1),
+                                    "pods": 0, "pod_hours": 0.0, "usd": 0.0}
+
+
+def test_cached_takes_keep_their_render_time_and_add_no_ledger_lines(first, tmp_path):
+    directory = copy_of(first, tmp_path)
+    before = ledger.read(directory / "tape")
+    result = render(directory, StandIn(), StandInEye())
+    assert [[(take.seconds, take.gpu) for take in filmed.takes] for filmed in result.shots] == \
+        [[(take.seconds, take.gpu) for take in filmed.takes] for filmed in first[2].shots]
+    assert ledger.read(directory / "tape") == before
+
+
+def test_takes_flag_sets_the_takes_per_shot(tmp_path, capsys, monkeypatch):
+    directory = tmp_path / "surf_shop"
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    model = StandIn(flaw=lambda prompt, seed: Flaw.NONE)
+    monkeypatch.setitem(MODELS, "stand-in", lambda: model)
+    assert main(["render", str(directory), "--model", "stand-in", "--takes", "1"]) == 0
+    assert [call.seed for call in model.calls] == [1] * 6
+    assert capsys.readouterr().out.splitlines()[0] == "1. opening -> welcome  rendered 1 take, kept take 1"
+    with pytest.raises(SystemExit) as exit:
+        main(["render", str(directory), "--model", "stand-in", "--takes", "0"])
+    assert exit.value.code == 2
+    assert "--takes: must be at least 1, got 0" in capsys.readouterr().err
 
 
 def test_a_models_settings_are_part_of_the_cache_key(first, tmp_path):
