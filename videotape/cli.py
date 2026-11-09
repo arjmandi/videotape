@@ -65,13 +65,22 @@ def check_tape(args) -> int:
         failures += [f"{name}  {item.name}: {item.result}" for item in found.failures]
         scored.append((name, key, found))
     record = dailies.read(tape)
-    record["keys"] = dailies.keys(eye.name, scored)
+    record["keys"] = dailies.keys(eye.name, scored, record["shots"])
     dailies.write(tape, record)
     print(f"checked {len(scored)} keys with {eye.name}, {f'{len(failures)} failing' if failures else 'all passing'}"
           f" -> {tape / 'dailies.html'}")
     for failure in failures:
         print(f"fail: {failure}", file=sys.stderr)
     return 1 if failures else 0
+
+
+def rewrite_dailies(args) -> int:
+    tape = Path(args.directory) / "tape"
+    if not (tape / "dailies.json").is_file():
+        raise ChecksError(f"no dailies.json in {tape}; render the screenplay first")
+    dailies.write(tape, dailies.read(tape))
+    print(f"wrote {tape / 'dailies.html'} with {json.dumps(dailies.read(tape)['ledger'])}")
+    return 0
 
 
 def main(argv=None) -> int:
@@ -90,6 +99,9 @@ def main(argv=None) -> int:
     checking.add_argument("tape")
     checking.add_argument("--checks", default="stand-in", choices=sorted(CHECKS))
     checking.set_defaults(run=check_tape)
+    rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies page from its record and ledger")
+    rewriting.add_argument("directory")
+    rewriting.set_defaults(run=rewrite_dailies)
     args = parser.parse_args(argv)
     try:
         return args.run(args)

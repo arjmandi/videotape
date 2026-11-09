@@ -187,6 +187,46 @@ def test_dailies_page_is_a_view_of_its_record_with_a_keys_section(first):
     assert "5 keys checked by stand-in, all passing" in page
 
 
+def test_dailies_record_has_each_keys_seams_and_render_time(first):
+    directory, _, result = first
+    record = json.loads((directory / "tape" / "dailies.json").read_text())
+    scenes = {scene["scene"]: scene for scene in record["keys"]["scenes"]}
+    seams = {name: [(seam["move"], seam["edge"], seam["passed"]) for seam in scene["seams"]] for name, scene in scenes.items()}
+    assert seams == {
+        "welcome": [("welcome--enter-shop", "leaves", True)],
+        "entrance": [("entrance--i-have-an-account", "leaves", True), ("entrance--create-an-account", "leaves", True),
+                     ("entrance--browse-as-guest", "leaves", True)],
+        "login": [("signup--sign-up", "enters", True)],
+        "signup": [("signup--sign-up", "leaves", True)],
+        "gallery": [],
+    }
+    kept = {filmed.shot.move: filmed.kept for filmed in result.shots}
+    assert scenes["login"]["seams"][0]["difference"] == kept["signup--sign-up"].checks.end
+    assert scenes["signup"]["seams"][0]["difference"] == kept["signup--sign-up"].checks.start
+    for filmed in result.shots:
+        if filmed.key:
+            assert scenes[filmed.shot.land]["time"] == {
+                "move": filmed.shot.move, "kept": filmed.kept.seconds, "gpu": "cpu",
+                "total": round(sum(take.seconds for take in filmed.takes), 3)}
+    assert record["ledger"] == ledger.totals(ledger.read(directory / "tape"))
+    page = (directory / "tape" / "dailies.html").read_text()
+    assert "seam: enters by signup--sign-up" in page and "seam: leaves by entrance--browse-as-guest" in page
+    assert f". Ledger: {record['ledger']['gpu_seconds']} GPU seconds, 0.0 pod hours, $0.00." in page
+
+
+def test_dailies_command_rewrites_the_page_with_the_ledgers_pod_totals(first, tmp_path, capsys):
+    directory = copy_of(first, tmp_path)
+    tape = directory / "tape"
+    ledger.append(tape, {"kind": "pod", "at": "2026-11-09T12:00:00+00:00", "pod": "abc123", "gpu": "NVIDIA H100 80GB HBM3",
+                         "usd_per_hour": 3.99, "started": "2026-11-09T11:00:00+00:00", "stopped": "2026-11-09T12:00:00+00:00",
+                         "seconds": 1800, "usd": 1.995})
+    assert main(["dailies", str(directory)]) == 0
+    record = json.loads((tape / "dailies.json").read_text())
+    assert record["ledger"]["pods"] == 1 and record["ledger"]["pod_hours"] == 0.5 and record["ledger"]["usd"] == 2.0
+    assert ", 0.5 pod hours, $2.00." in (tape / "dailies.html").read_text()
+    assert capsys.readouterr().out.startswith(f"wrote {tape / 'dailies.html'} with ")
+
+
 def test_second_render_is_cached(first, tmp_path):
     directory = copy_of(first, tmp_path)
     before = tape_files(directory)

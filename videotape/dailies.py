@@ -6,8 +6,10 @@ from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from videotape.checks import Checks
+from videotape import ledger
+from videotape.checks import MAX_DIFFERENCE, Checks
 from videotape.publish import publish
+from videotape.shots import Mode
 
 if TYPE_CHECKING:
     from videotape.render import Filmed, Render
@@ -56,13 +58,13 @@ figcaption { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
 """
 
 
-def record(title: str, render: Render, keys: dict) -> dict:
-    return {"title": title, "shots": [_shot_record(filmed, render.tape) for filmed in render.shots], "keys": keys}
+def record(title: str, render: Render) -> dict:
+    return {"title": title, "shots": [_shot_record(filmed, render.tape) for filmed in render.shots]}
 
 
-def keys(checks: str, scored: list[tuple[str, str, Checks]]) -> dict:
-    return {"checks": checks, "scenes": [{"scene": scene, "key": key, "items": _items(found)}
-                                          for scene, key, found in scored]}
+def keys(checks: str, scored: list[tuple[str, str, Checks]], shots: list[dict]) -> dict:
+    return {"checks": checks, "scenes": [{"scene": scene, "key": key, "items": _items(found), "seams": _seams(scene, shots),
+                                          "time": _time(scene, shots)} for scene, key, found in scored]}
 
 
 def read(tape: Path) -> dict:
@@ -70,6 +72,7 @@ def read(tape: Path) -> dict:
 
 
 def write(tape: Path, record: dict) -> None:
+    record = {**record, "ledger": ledger.totals(ledger.read(tape))}
     publish(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
     publish(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
 
@@ -81,6 +84,8 @@ def page(record: dict) -> str:
     summary = f"{len(shots)} shots, {rendered} rendered this run, {len(shots) - rendered} from cache"
     if failing:
         summary += f", {failing} kept take{'s' if failing > 1 else ''} still failing"
+    totals = record["ledger"]
+    summary += f". Ledger: {totals['gpu_seconds']} GPU seconds, {totals['pod_hours']} pod hours, ${totals['usd']:.2f}."
     cards = "\n".join(_shot(number, shot) for number, shot in enumerate(shots, 1))
     title = escape(record["title"])
     return f"""<!doctype html>
@@ -110,11 +115,14 @@ def _shot_record(filmed: Filmed, tape: Path) -> dict:
     return {
         "title": shot.title,
         "mode": shot.mode.value,
+        "move": shot.move,
         "prompt": shot.prompt,
+        "scene": shot.start,
         "land": shot.land,
         "key": filmed.key.relative_to(tape).as_posix() if filmed.key else None,
         "takes": [{"seed": take.seed, "clip": take.path.relative_to(tape).as_posix(), "cached": take.cached,
-                   "kept": take is filmed.kept, "items": _items(take.checks)} for take in filmed.takes],
+                   "kept": take is filmed.kept, "seconds": take.seconds, "gpu": take.gpu,
+                   "start": take.checks.start, "end": take.checks.end, "items": _items(take.checks)} for take in filmed.takes],
     }
 
 
@@ -128,6 +136,29 @@ def _kept(shot: dict) -> dict:
 
 def _failing(checked: dict) -> bool:
     return not all(item["passed"] for item in checked["items"])
+
+
+def _seams(scene: str, shots: list[dict]) -> list[dict]:
+    """Where the player cuts between a key and a clip: a move's first frame against the key it leaves, and a
+    first-and-last-frame move's last frame against the key it lands on."""
+    seams = []
+    for shot in shots:
+        kept = _kept(shot)
+        if shot["scene"] == scene:
+            seams.append(_seam(shot["move"], "leaves", kept["start"]))
+        if shot["land"] == scene and shot["mode"] == Mode.FIRST_AND_LAST_FRAME.value:
+            seams.append(_seam(shot["move"], "enters", kept["end"]))
+    return seams
+
+
+def _seam(move: str, edge: str, difference: float) -> dict:
+    return {"move": move, "edge": edge, "difference": difference, "passed": difference <= MAX_DIFFERENCE}
+
+
+def _time(scene: str, shots: list[dict]) -> dict:
+    shot = next(shot for shot in shots if shot["land"] == scene and shot["key"])
+    known = [take["seconds"] for take in shot["takes"] if take["seconds"] is not None]
+    return {"move": shot["move"], "kept": _kept(shot)["seconds"], "total": round(sum(known), 3), "gpu": _kept(shot)["gpu"]}
 
 
 def _checks(items: list[dict]) -> str:
@@ -151,10 +182,17 @@ def _keys(keys: dict) -> str:
 
 
 def _key(scene: dict, checks: str) -> str:
-    badge = ' <span class="badge failing">fails checks</span>' if _failing(scene) else ""
+    failing = _failing(scene) or not all(seam["passed"] for seam in scene["seams"])
+    badge = ' <span class="badge failing">fails checks</span>' if failing else ""
+    seams = [{"name": f'seam: {seam["edge"]} by {seam["move"]}', "result": f'difference {seam["difference"]:.3f}',
+              "passed": seam["passed"]} for seam in scene["seams"]]
+    time = scene["time"]
+    kept = f'{time["kept"]:.1f} s' if time["kept"] is not None else "unknown"
+    gpu = f' on {escape(time["gpu"])}' if time["gpu"] else ""
+    rendered = f'Rendered by {escape(time["move"])}: the kept take in {kept}, all its takes in {time["total"]:.1f} s{gpu}.'
     return (f'<figure class="take"><img src="{escape(scene["key"])}" alt="Key for {escape(scene["scene"])}">'
             f'<figcaption><strong>{escape(scene["scene"])}</strong><span class="badge">{checks}</span>{badge}</figcaption>'
-            f'<ul class="checks">{_checks(scene["items"])}</ul></figure>')
+            f'<ul class="checks">{_checks(scene["items"])}{_checks(seams)}</ul><p class="note">{rendered}</p></figure>')
 
 
 def _shot(number: int, shot: dict) -> str:
@@ -181,8 +219,9 @@ def _shot(number: int, shot: dict) -> str:
 
 def _take(take: dict) -> str:
     badge = ' <span class="badge kept">kept</span>' if take["kept"] else ""
+    seconds = f'<span class="badge">{take["seconds"]:.1f} s</span>' if take["seconds"] is not None else ""
     return (f'<figure class="take{" kept" if take["kept"] else ""}">'
             f'<video src="{escape(take["clip"])}" autoplay loop muted playsinline preload="metadata"></video>'
             f'<figcaption><strong>Take {take["seed"]}</strong>{badge}'
-            f'<span class="badge">{"cached" if take["cached"] else "rendered"}</span></figcaption>'
+            f'<span class="badge">{"cached" if take["cached"] else "rendered"}</span>{seconds}</figcaption>'
             f'<ul class="checks">{_checks(take["items"])}</ul></figure>')

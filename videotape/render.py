@@ -74,7 +74,9 @@ def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
     keyed = {filmed.shot.land: filmed for filmed in result.shots if filmed.key}
     scored = [(name, keyed[name].key.relative_to(tape).as_posix(), replace(keyed[name].kept.checks, start=None, end=None))
               for name in screenplay.scenes]
-    dailies.write(tape, dailies.record(screenplay.title, result, dailies.keys(eye.name, scored)))
+    record = dailies.record(screenplay.title, result)
+    record["keys"] = dailies.keys(eye.name, scored, record["shots"])
+    dailies.write(tape, record)
     return result
 
 
