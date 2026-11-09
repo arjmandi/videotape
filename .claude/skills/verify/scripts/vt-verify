@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Drives the videotape CLI and records each run as evidence.
+set -uo pipefail
+ROOT="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+cd "$ROOT" || exit 2
+
+usage() {
+  echo "usage: vt-verify launch | doctor | run <run-dir> <name> -- <videotape args...>" >&2
+  exit 2
+}
+
+case "${1:-}" in
+  launch)
+    uv sync && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv"
+    ;;
+  doctor)
+    status=0
+    command -v uv >/dev/null || { echo "FAIL uv not on PATH"; status=1; }
+    [ -x .venv/bin/videotape ] || { echo "FAIL .venv/bin/videotape missing; run: vt-verify launch"; status=1; }
+    # Call .venv directly: `uv run` would create or sync the venv, and doctor must not change anything.
+    where="no .venv/bin/python"
+    [ -x .venv/bin/python ] && where=$(.venv/bin/python -c 'import sys, videotape; print(sys.version.split()[0], videotape.__file__)' 2>&1)
+    case "$where" in
+      3.12.*" $ROOT/videotape/__init__.py") echo "ok   python $where" ;;
+      *) echo "FAIL expected Python 3.12 importing $ROOT/videotape, got: $where"; status=1 ;;
+    esac
+    [ -x .venv/bin/videotape ] && .venv/bin/videotape --help >/dev/null 2>&1 && echo "ok   videotape --help exits 0" || { echo "FAIL videotape --help"; status=1; }
+    echo "info build $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain -- videotape pyproject.toml)" ] && echo ' + uncommitted changes in videotape/ or pyproject.toml')"
+    exit $status
+    ;;
+  run)
+    [ $# -ge 4 ] && [ "$4" = "--" ] || usage
+    dir="$2"; name="$3"; shift 4
+    mkdir -p "$dir"
+    printf 'videotape' > "$dir/$name.cmd"; printf ' %q' "$@" >> "$dir/$name.cmd"; echo >> "$dir/$name.cmd"
+    git rev-parse HEAD > "$dir/$name.build"
+    .venv/bin/videotape "$@" > "$dir/$name.stdout" 2> "$dir/$name.stderr"
+    code=$?
+    echo "$code" > "$dir/$name.exit"
+    for arg in "$@"; do
+      [ -f "$arg/screenplay.py" ] && cp "$arg/screenplay.py" "$dir/$name.screenplay.py"
+    done
+    echo "$name: exit $code, $(wc -l < "$dir/$name.stdout" | tr -d ' ') stdout lines, $(wc -l < "$dir/$name.stderr" | tr -d ' ') stderr lines -> $dir/$name.*"
+    ;;
+  *) usage ;;
+esac
