@@ -1,11 +1,13 @@
 ---
 name: verify
-description: Drive the videotape CLI (`videotape shots <dir>` and `videotape render <dir> --model stand-in`) the way an app developer does, and capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, or a screenplay under examples/, before claiming the shot list, prompts, screenplay errors, or the rendered tape and dailies behave.
+description: Drive the videotape CLI (`videotape shots <dir>` and `videotape render <dir> --model stand-in`) the way an app developer does, and build and test the TapePlayer macOS app that plays a rendered tape. Capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, a screenplay under examples/, or clients/macos/, before claiming the shot list, prompts, screenplay errors, the rendered tape and dailies, or TapePlayer behave.
 ---
 
 # Verify videotape
 
 videotape turns a screenplay (`<dir>/screenplay.py`) into the ordered shots a video model renders, and renders them into a tape of clips. The user surface is two short-lived CLI commands. `videotape shots <dir>` lists the shots. `videotape render <dir> --model stand-in` renders them with a stand-in model into `<dir>/tape/` and writes `dailies.html` there for review. There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
+
+TapePlayer (`clients/macos/`) is the macOS app a person uses to click through a rendered tape. `vt-verify player-build` builds it without opening anything. `vt-verify player-test` runs its unit tests and a UI test that takes over the real mouse and screen, so ask the user before running it.
 
 All commands below run from the repo root. The helper is `.claude/skills/verify/scripts/vt-verify`; call it by that path.
 
@@ -27,7 +29,7 @@ Read-only. Run it first, and again whenever output looks wrong:
 .claude/skills/verify/scripts/vt-verify doctor
 ```
 
-Every line must start with `ok` or `info`, and the exit code must be 0. It never calls `uv`, which would create or sync `.venv`. It checks that ffmpeg is on PATH (render needs it), that `.venv/bin/videotape` exists, that `.venv/bin/python` imports `videotape` from this checkout's `videotape/__init__.py` on Python 3.12, and that `videotape --help` exits 0. The `info build` line names the commit and flags uncommitted changes to the package; put it in your report so the proof names what it ran against.
+Every line must start with `ok` or `info`, and the exit code must be 0. It never calls `uv`, which would create or sync `.venv`. It checks that ffmpeg is on PATH (render needs it), that `.venv/bin/videotape` exists, that `.venv/bin/python` imports `videotape` from this checkout's `videotape/__init__.py` on Python 3.12, and that `videotape --help` exits 0. The `info Xcode` line says whether the TapePlayer helpers can run. The `info build` line names the commit and flags uncommitted changes to the package or `clients/macos/`; put it in your report so the proof names what it ran against.
 
 ## Drive
 
@@ -48,6 +50,15 @@ RUN=.verify/runs/$(date -u +%Y%m%dT%H%M%SZ)
 - `<name>.screenplay.py` copies the screenplay that was driven, when the directory has one.
 
 It prints a one-line summary. Read the files to assert; the summary is not proof.
+
+TapePlayer drives use the same `$RUN`:
+
+```bash
+.claude/skills/verify/scripts/vt-verify player-build "$RUN"
+.claude/skills/verify/scripts/vt-verify player-test "$RUN"
+```
+
+Each writes `player-build.*` or `player-test.*` under `$RUN` like `run` does. `player-test` also keeps the result bundle as `player-test.xcresult` and exports its screenshot into `player-test.attachments/`. Ask the user before `player-test` and before any journey that opens TapePlayer, because they take over the mouse and screen. [features/player.md](features/player.md) lists the journeys.
 
 Screenplays to drive:
 
@@ -86,3 +97,5 @@ This removes only scratch screenplay dirs, so name yours `"${TMPDIR:-/tmp}"/vide
 - `.claude/skills/verify/scripts/vt-verify doctor` runs the read-only health check.
 - `.claude/skills/verify/scripts/vt-verify run <run-dir> <name> -- <videotape args...>` runs one drive and captures its evidence.
 - `.claude/skills/verify/scripts/vt-verify screenshot <run-dir> <name> <html-file>` captures a page with headless Chrome as `<name>.light.png` and `<name>.dark.png`. It needs Google Chrome in `/Applications`, and doctor reports whether it is there.
+- `.claude/skills/verify/scripts/vt-verify player-build <run-dir>` runs `clients/macos/build.sh` and captures it as `player-build.*`. It needs Xcode, and doctor reports whether it is there.
+- `.claude/skills/verify/scripts/vt-verify player-test <run-dir>` runs `clients/macos/test.sh` and captures it as `player-test.*`, with the result bundle and its exported screenshot. It takes over the mouse and screen.
