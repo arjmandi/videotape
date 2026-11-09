@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+import json
+from dataclasses import asdict
 from html import escape
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from videotape.checks import Checks
+from videotape.publish import publish
+
 if TYPE_CHECKING:
-    from videotape.render import Filmed, Render, Take
+    from videotape.render import Filmed, Render
 
 STYLE = """
 :root { color-scheme: light dark; --bg: #f5f2ec; --card: #fffdf9; --text: #22262a; --muted: #646d75;
@@ -36,61 +42,136 @@ summary { cursor: pointer; }
 video, img { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 704; border-radius: 6px; background: #000; }
 figcaption { display: flex; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .checks { list-style: none; margin: 0; padding: 0; font-size: 13px; }
-.checks li { display: grid; grid-template-columns: 1.2em 1fr auto; gap: 4px; padding: 2px 0;
+.checks li { display: grid; grid-template-columns: 1.2em 1fr; column-gap: 4px; padding: 2px 0;
   border-top: 1px dashed var(--line); }
 .checks .mark { font-weight: 700; }
 .checks .pass .mark { color: var(--pass); }
 .checks .fail .mark, .checks .fail .result { color: var(--fail); }
 .checks .name { overflow-wrap: anywhere; }
-.checks .result { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.checks .result { grid-column: 2; color: var(--muted); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .key { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; color: var(--muted); }
 .key img { width: 220px; }
+.keys .takes { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.keys .note { color: var(--muted); font-size: 13px; }
 """
 
 
-def page(title: str, render: Render) -> str:
-    rendered = sum(bool(filmed.rendered) for filmed in render.shots)
-    failing = sum(bool(filmed.kept.checks.failures) for filmed in render.shots)
-    summary = f"{len(render.shots)} shots, {rendered} rendered this run, {len(render.shots) - rendered} from cache"
+def record(title: str, render: Render, keys: dict) -> dict:
+    return {"title": title, "shots": [_shot_record(filmed, render.tape) for filmed in render.shots], "keys": keys}
+
+
+def keys(checks: str, scored: list[tuple[str, str, Checks]]) -> dict:
+    return {"checks": checks, "scenes": [{"scene": scene, "key": key, "items": _items(found)}
+                                          for scene, key, found in scored]}
+
+
+def read(tape: Path) -> dict:
+    return json.loads((tape / "dailies.json").read_text())
+
+
+def write(tape: Path, record: dict) -> None:
+    publish(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
+    publish(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
+
+
+def page(record: dict) -> str:
+    shots = record["shots"]
+    rendered = sum(any(not take["cached"] for take in shot["takes"]) for shot in shots)
+    failing = sum(_failing(_kept(shot)) for shot in shots)
+    summary = f"{len(shots)} shots, {rendered} rendered this run, {len(shots) - rendered} from cache"
     if failing:
         summary += f", {failing} kept take{'s' if failing > 1 else ''} still failing"
-    shots = "\n".join(_shot(number, filmed, render) for number, filmed in enumerate(render.shots, 1))
+    cards = "\n".join(_shot(number, shot) for number, shot in enumerate(shots, 1))
+    title = escape(record["title"])
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(title)} dailies</title>
+<title>{title} dailies</title>
 <style>{STYLE}</style>
 </head>
 <body>
 <header>
-<h1>{escape(title)} dailies</h1>
+<h1>{title} dailies</h1>
 <p class="summary">{summary}</p>
 </header>
 <main>
-{shots}
+{_keys(record["keys"])}
+{cards}
 </main>
 </body>
 </html>
 """
 
 
-def _shot(number: int, filmed: Filmed, render: Render) -> str:
+def _shot_record(filmed: Filmed, tape: Path) -> dict:
     shot = filmed.shot
-    status = (f'<span class="badge rendered">rendered {filmed.rendered} take{"s" if filmed.rendered > 1 else ""} this run</span>'
-              if filmed.rendered else '<span class="badge">from cache</span>')
-    if filmed.kept.checks.failures:
+    return {
+        "title": shot.title,
+        "mode": shot.mode.value,
+        "prompt": shot.prompt,
+        "land": shot.land,
+        "key": filmed.key.relative_to(tape).as_posix() if filmed.key else None,
+        "takes": [{"seed": take.seed, "clip": take.path.relative_to(tape).as_posix(), "cached": take.cached,
+                   "kept": take is filmed.kept, "items": _items(take.checks)} for take in filmed.takes],
+    }
+
+
+def _items(checks: Checks) -> list[dict]:
+    return [asdict(item) for item in checks.items()]
+
+
+def _kept(shot: dict) -> dict:
+    return next(take for take in shot["takes"] if take["kept"])
+
+
+def _failing(checked: dict) -> bool:
+    return not all(item["passed"] for item in checked["items"])
+
+
+def _checks(items: list[dict]) -> str:
+    return "".join(
+        f'<li class="{"pass" if item["passed"] else "fail"}"><span class="mark">{"✓" if item["passed"] else "✗"}</span>'
+        f'<span class="name">{escape(item["name"])}</span><span class="result">{escape(item["result"])}</span></li>'
+        for item in items)
+
+
+def _keys(keys: dict) -> str:
+    checks = escape(keys["checks"])
+    failing = sum(_failing(scene) for scene in keys["scenes"])
+    note = f"{len(keys['scenes'])} keys checked by {checks}" + (f", {failing} failing" if failing else ", all passing")
+    cards = "\n".join(_key(scene, checks) for scene in keys["scenes"])
+    return f"""<section class="shot keys" id="keys">
+<div class="head"><h2>Keys</h2><span class="note">{note}</span></div>
+<div class="takes">
+{cards}
+</div>
+</section>"""
+
+
+def _key(scene: dict, checks: str) -> str:
+    badge = ' <span class="badge failing">fails checks</span>' if _failing(scene) else ""
+    return (f'<figure class="take"><img src="{escape(scene["key"])}" alt="Key for {escape(scene["scene"])}">'
+            f'<figcaption><strong>{escape(scene["scene"])}</strong><span class="badge">{checks}</span>{badge}</figcaption>'
+            f'<ul class="checks">{_checks(scene["items"])}</ul></figure>')
+
+
+def _shot(number: int, shot: dict) -> str:
+    kept = _kept(shot)
+    count = sum(not take["cached"] for take in shot["takes"])
+    status = (f'<span class="badge rendered">rendered {count} take{"s" if count > 1 else ""} this run</span>'
+              if count else '<span class="badge">from cache</span>')
+    if _failing(kept):
         status += ' <span class="badge failing">kept take fails checks</span>'
-    takes = "\n".join(_take(take, take is filmed.kept, render) for take in filmed.takes)
+    takes = "\n".join(_take(take) for take in shot["takes"])
     key = ""
-    if filmed.key:
-        key = (f'<div class="key"><img src="{escape(filmed.key.relative_to(render.tape).as_posix())}" '
-               f'alt="Key for {escape(shot.land)}" loading="lazy"><span>Gave <strong>{escape(shot.land)}</strong> '
-               f'its key: the last frame of take {filmed.kept.seed}.</span></div>')
+    if shot["key"]:
+        key = (f'<div class="key"><img src="{escape(shot["key"])}" alt="Key for {escape(shot["land"])}" loading="lazy">'
+               f'<span>Gave <strong>{escape(shot["land"])}</strong> its key: the last frame of take {kept["seed"]}.</span></div>')
     return f"""<section class="shot" id="shot-{number}">
-<div class="head"><h2>{number}. {escape(shot.title)} ({shot.mode.value})</h2><div>{status}</div></div>
-<details><summary>Prompt</summary><p>{escape(shot.prompt)}</p></details>
+<div class="head"><h2>{number}. {escape(shot["title"])} ({shot["mode"]})</h2><div>{status}</div></div>
+<details><summary>Prompt</summary><p>{escape(shot["prompt"])}</p></details>
 <div class="takes">
 {takes}
 </div>
@@ -98,15 +179,10 @@ def _shot(number: int, filmed: Filmed, render: Render) -> str:
 </section>"""
 
 
-def _take(take: Take, kept: bool, render: Render) -> str:
-    checks = "".join(
-        f'<li class="{"pass" if item.passed else "fail"}"><span class="mark">{"✓" if item.passed else "✗"}</span>'
-        f'<span class="name">{escape(item.name)}</span><span class="result">{escape(item.result)}</span></li>'
-        for item in take.checks.items())
-    badge = ' <span class="badge kept">kept</span>' if kept else ""
-    source = escape(take.path.relative_to(render.tape).as_posix())
-    return (f'<figure class="take{" kept" if kept else ""}">'
-            f'<video src="{source}" autoplay loop muted playsinline preload="metadata"></video>'
-            f'<figcaption><strong>Take {take.seed}</strong>{badge}'
-            f'<span class="badge">{"cached" if take.cached else "rendered"}</span></figcaption>'
-            f'<ul class="checks">{checks}</ul></figure>')
+def _take(take: dict) -> str:
+    badge = ' <span class="badge kept">kept</span>' if take["kept"] else ""
+    return (f'<figure class="take{" kept" if take["kept"] else ""}">'
+            f'<video src="{escape(take["clip"])}" autoplay loop muted playsinline preload="metadata"></video>'
+            f'<figcaption><strong>Take {take["seed"]}</strong>{badge}'
+            f'<span class="badge">{"cached" if take["cached"] else "rendered"}</span></figcaption>'
+            f'<ul class="checks">{_checks(take["items"])}</ul></figure>')
