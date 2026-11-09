@@ -1,8 +1,7 @@
 import hashlib
 import json
 import shutil
-from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from videotape import dailies, frames
@@ -10,6 +9,7 @@ from videotape.checks import Checks, Eye, check, rank
 from videotape.frames import FPS, HEIGHT, WIDTH, Box
 from videotape.loader import load
 from videotape.model import Model
+from videotape.publish import publish
 from videotape.screenplay import Scene, Screenplay, ScreenplayError
 from videotape.shots import Mode, Shot, plan
 
@@ -59,16 +59,19 @@ def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
         scene = screenplay.scenes[shot.land]
         shot_takes = tuple(_take(model, eye, shot, scene, start, end, seed, tape / "takes") for seed in range(1, takes + 1))
         kept = min(shot_takes, key=lambda take: rank(take.checks, take.seed))
-        _publish(tape / "moves" / f"{shot.move}.mp4", lambda partial: shutil.copyfile(kept.path, partial))
+        publish(tape / "moves" / f"{shot.move}.mp4", lambda partial: shutil.copyfile(kept.path, partial))
         key = None
         # The first shot to land on a scene keys it; every later shot there is first-and-last-frame and ends on that key.
         if shot.mode is not Mode.FIRST_AND_LAST_FRAME:
             key = tape / "keys" / f"{shot.land}.png"
-            _publish(key, lambda partial: frames.write_png(frames.last_frame(kept.path), partial))
+            publish(key, lambda partial: frames.write_png(frames.last_frame(kept.path), partial))
         filmed.append(Filmed(shot, shot_takes, kept, key))
     result = Render(tape, tuple(filmed))
-    _publish(tape / "tape.json", lambda partial: partial.write_text(json.dumps(_tape(screenplay, result), indent=2) + "\n"))
-    _publish(tape / "dailies.html", lambda partial: partial.write_text(dailies.page(screenplay.title, result)))
+    publish(tape / "tape.json", lambda partial: partial.write_text(json.dumps(_tape(screenplay, result), indent=2) + "\n"))
+    keyed = {filmed.shot.land: filmed for filmed in result.shots if filmed.key}
+    scored = [(name, keyed[name].key.relative_to(tape).as_posix(), replace(keyed[name].kept.checks, start=None, end=None))
+              for name in screenplay.scenes]
+    dailies.write(tape, dailies.record(screenplay.title, result, dailies.keys(eye.name, scored)))
     return result
 
 
@@ -78,7 +81,7 @@ def _take(model: Model, eye: Eye, shot: Shot, scene: Scene, start: Path | None, 
     path = folder / f"{hashlib.sha256(json.dumps(fields).encode()).hexdigest()}.mp4"
     cached = path.exists()
     if not cached:
-        _publish(path, lambda partial: _film(model, shot, start, end, seed, partial))
+        publish(path, lambda partial: _film(model, shot, start, end, seed, partial))
     return Take(seed, path, cached, check(path, scene, start, end, eye))
 
 
@@ -94,12 +97,6 @@ def _film(model: Model, shot: Shot, start: Path | None, end: Path | None, seed: 
 
 def _sha256(path: Path | None) -> str | None:
     return hashlib.sha256(path.read_bytes()).hexdigest() if path else None
-
-
-def _publish(path: Path, write: Callable[[Path], object]) -> None:
-    partial = path.with_name(f"{path.stem}.partial{path.suffix}")
-    write(partial)
-    partial.replace(path)
 
 
 def _fraction(box: Box | None) -> dict | None:

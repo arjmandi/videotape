@@ -1,6 +1,6 @@
 # videotape verification map
 
-This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes `screenplay.py`, runs `videotape shots <dir>` to list its shots, and runs `videotape render <dir> --model stand-in` to render them into a tape. TapePlayer's user is the person who then clicks through that tape on a Mac. Read this index before driving, then use the matching feature file as the recipe.
+This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes `screenplay.py`, runs `videotape shots <dir>` to list its shots, runs `videotape render <dir> --model stand-in` to render them into a tape, and runs `videotape check <dir>/tape --checks <name>` to score the tape's keys. TapePlayer's user is the person who then clicks through that tape on a Mac. Read this index before driving, then use the matching feature file as the recipe.
 
 ## Baseline preconditions
 
@@ -11,7 +11,7 @@ This directory is the maintained source for verifying what a videotape user can 
 
 ## Driving conventions
 
-- Every CLI drive goes through `vt-verify run "$RUN" <name> -- shots <dir>` or `vt-verify run "$RUN" <name> -- render <dir> --model stand-in`. Use the journey's name as `<name>` so artifacts map to journeys.
+- Every CLI drive goes through `vt-verify run "$RUN" <name> -- shots <dir>`, `vt-verify run "$RUN" <name> -- render <dir> --model stand-in [--checks <name>]` or `vt-verify run "$RUN" <name> -- check <dir>/tape --checks <name>`. Use the journey's name as `<name>` so artifacts map to journeys.
 - TapePlayer drives go through `vt-verify player-build "$RUN"`, `vt-verify player-test "$RUN"` and `vt-verify player-cuts "$RUN"`, or through a person at the screen, as [player.md](./player.md) says.
 - Treat every command and quoted string as literal.
 - Assert on exact lines from `$RUN/<name>.stdout`, `$RUN/<name>.stderr` and `$RUN/<name>.exit`.
@@ -41,5 +41,6 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 - [Shot list](./shot-list.md) covers the surf shop's six shots: order, modes, and exact prompts.
 - [Authoring a screenplay](./authoring.md) covers what a developer's own screenplay controls: custom moves, plain-name actions, scenes without text or buttons, and a return to an already-keyed scene.
 - [Screenplay errors](./screenplay-errors.md) covers each mistake the CLI rejects with `error:` and exit 1.
-- [Render](./render.md) covers rendering the surf shop into a tape: the first render, the cached rerun, the cascade after editing one line, the files in `tape/`, the dailies page, and an unknown `--model`.
+- [Render](./render.md) covers rendering the surf shop into a tape: the first render, the cached rerun, the cascade after editing one line, the files in `tape/`, the dailies page, rendering with `--checks qwen3-vl-8b`, and an unknown `--model` or `--checks`.
+- [Check](./check.md) covers scoring a rendered tape's keys with `videotape check`: the stand-in and Qwen3-VL-8B checks, the cached rerun, the Keys section of the dailies, a failing key, and its errors.
 - [Player](./player.md) covers the TapePlayer macOS app: building it, clicking through the surf shop tape, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.

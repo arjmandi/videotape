@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -10,7 +10,13 @@ MAX_CER = 0.0
 MAX_DIFFERENCE = 0.05
 
 
+class ChecksError(RuntimeError):
+    pass
+
+
 class Eye(Protocol):
+    name: str
+
     def find(self, frame: Frame, label: str) -> Box | None: ...
 
     def read(self, frame: Frame) -> list[str]: ...
@@ -34,16 +40,24 @@ class Item:
 
 
 @dataclass(frozen=True)
+class Reading:
+    seen: str
+    cer: float
+
+
+@dataclass(frozen=True)
 class Checks:
     buttons: dict[str, Box | None]
-    text: dict[str, float]
+    text: dict[str, Reading]
     start: float | None
     end: float | None
 
     def items(self) -> list[Item]:
-        items = [Item(f'button "{label}"', f"found at {box.x},{box.y} {box.w}x{box.h}" if box else "missing",
+        items = [Item(f'button "{label}"', f"found at {box.x},{box.y} {box.w}x{box.h}" if box else "not found",
                       box is not None) for label, box in self.buttons.items()]
-        items += [Item(f'text "{text}"', f"CER {value:.3f}", value <= MAX_CER) for text, value in self.text.items()]
+        for text, reading in self.text.items():
+            seen = f'"{reading.seen}"' if reading.seen else "nothing"
+            items.append(Item(f'text "{text}"', f"read {seen}, CER {reading.cer:.3f}", reading.cer <= MAX_CER))
         for name, value in (("start", self.start), ("end", self.end)):
             if value is not None:
                 items.append(Item(name, f"difference {value:.3f}", value <= MAX_DIFFERENCE))
@@ -55,15 +69,27 @@ class Checks:
 
 
 def rank(checks: Checks, seed: int) -> tuple[int, float, int]:
-    return len(checks.failures), sum(checks.text.values()), seed
+    return len(checks.failures), sum(reading.cer for reading in checks.text.values()), seed
+
+
+def score(frame: Frame, scene: Scene, eye: Eye) -> Checks:
+    seen = eye.read(frame)
+    return Checks(
+        buttons={label: eye.find(frame, label) for label in scene.actions},
+        text={text: _closest(text, seen) for text in (*scene.shows, *scene.actions)},
+        start=None,
+        end=None,
+    )
 
 
 def check(take: Path, scene: Scene, start_key: Path | None, end_key: Path | None, eye: Eye) -> Checks:
     last = frames.last_frame(take)
-    seen = eye.read(last)
-    return Checks(
-        buttons={label: eye.find(last, label) for label in scene.actions},
-        text={text: min((cer(text, line) for line in seen), default=1.0) for text in (*scene.shows, *scene.actions)},
+    return replace(
+        score(last, scene, eye),
         start=frames.difference(frames.first_frame(take), frames.read_png(start_key)) if start_key else None,
         end=frames.difference(last, frames.read_png(end_key)) if end_key else None,
     )
+
+
+def _closest(text: str, seen: list[str]) -> Reading:
+    return min((Reading(line, cer(text, line)) for line in seen), key=lambda reading: reading.cer, default=Reading("", 1.0))

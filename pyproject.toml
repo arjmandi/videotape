@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = []
 
+[project.optional-dependencies]
+qwen = ["accelerate>=1.0", "pillow>=11", "torch>=2.5", "torchvision>=0.20", "transformers>=4.57"]
+
 [project.scripts]
 videotape = "videotape.cli:main"
 
@@ -18,3 +21,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["videotape"]
+
+[tool.pytest.ini_options]
+markers = ["qwen: runs the real Qwen3-VL-8B model; needs the qwen extra, the weights, and a CUDA or MPS GPU"]
+addopts = "-m 'not qwen'"

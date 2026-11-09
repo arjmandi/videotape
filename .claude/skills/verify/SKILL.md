@@ -1,11 +1,11 @@
 ---
 name: verify
-description: Drive the videotape CLI (`videotape shots <dir>` and `videotape render <dir> --model stand-in`) the way an app developer does, and build and test the TapePlayer macOS app that plays a rendered tape. Capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, a screenplay under examples/, or clients/macos/, before claiming the shot list, prompts, screenplay errors, the rendered tape and dailies, or TapePlayer behave.
+description: Drive the videotape CLI (`videotape shots <dir>`, `videotape render <dir> --model stand-in [--checks qwen3-vl-8b]` and `videotape check <dir>/tape --checks <name>`) the way an app developer does, and build and test the TapePlayer macOS app that plays a rendered tape. Capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, a screenplay under examples/, or clients/macos/, before claiming the shot list, prompts, screenplay errors, the rendered tape and dailies, the checks, or TapePlayer behave.
 ---
 
 # Verify videotape
 
-videotape turns a screenplay (`<dir>/screenplay.py`) into the ordered shots a video model renders, and renders them into a tape of clips. The user surface is two short-lived CLI commands. `videotape shots <dir>` lists the shots. `videotape render <dir> --model stand-in` renders them with a stand-in model into `<dir>/tape/` and writes `dailies.html` there for review. There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
+videotape turns a screenplay (`<dir>/screenplay.py`) into the ordered shots a video model renders, and renders them into a tape of clips. The user surface is three short-lived CLI commands. `videotape shots <dir>` lists the shots. `videotape render <dir> --model stand-in` renders them with a stand-in model into `<dir>/tape/` and writes `dailies.html` there for review. `videotape check <dir>/tape --checks <name>` reads every key and scores it against its scene. The checks are `stand-in`, which decodes the stand-in's own font, or `qwen3-vl-8b`, which runs the vision model Qwen3-VL-8B on the pixels, and `render` takes the same `--checks`. There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
 
 TapePlayer (`clients/macos/`) is the macOS app a person uses to click through a rendered tape. `vt-verify player-build` builds it without opening anything. `vt-verify player-test` runs its unit tests and a UI test that takes over the real mouse and screen, so ask the user before running it.
 
@@ -21,6 +21,8 @@ Run once per checkout, and again after `pyproject.toml` or `uv.lock` changes:
 
 Ready means it prints `ready: videotape CLI installed in <repo>/.venv`. It runs `uv sync`, which creates `.venv` on Python 3.12 (pinned by `.python-version`) and installs the package in editable mode, so later source edits need no relaunch. Teardown is nothing: no process outlives a drive.
 
+For `--checks qwen3-vl-8b`, run `.claude/skills/verify/scripts/vt-verify launch qwen` instead. It runs `uv sync --extra qwen`, which adds torch and transformers, and prints `ready: videotape CLI installed in <repo>/.venv with the qwen extra`. A plain `launch` uninstalls the extra again.
+
 ## Doctor
 
 Read-only. Run it first, and again whenever output looks wrong:
@@ -29,7 +31,7 @@ Read-only. Run it first, and again whenever output looks wrong:
 .claude/skills/verify/scripts/vt-verify doctor
 ```
 
-Every line must start with `ok` or `info`, and the exit code must be 0. It never calls `uv`, which would create or sync `.venv`. It checks that ffmpeg is on PATH (render needs it), that `.venv/bin/videotape` exists, that `.venv/bin/python` imports `videotape` from this checkout's `videotape/__init__.py` on Python 3.12, and that `videotape --help` exits 0. The `info Xcode` line says whether the TapePlayer helpers can run. The `info build` line names the commit and flags uncommitted changes to the package or `clients/macos/`; put it in your report so the proof names what it ran against.
+Every line must start with `ok` or `info`, and the exit code must be 0. It never calls `uv`, which would create or sync `.venv`. It checks that ffmpeg is on PATH (render needs it), that `.venv/bin/videotape` exists, that `.venv/bin/python` imports `videotape` from this checkout's `videotape/__init__.py` on Python 3.12, and that `videotape --help` exits 0. The `info Xcode` line says whether the TapePlayer helpers can run. The `info qwen` line says whether the qwen extra is installed, which device `qwen3-vl-8b` would run on, and whether its weights are cached. The first Qwen run downloads 17.5 GB when they are not. The `info build` line names the commit and flags uncommitted changes to the package or `clients/macos/`; put it in your report so the proof names what it ran against.
 
 ## Drive
 
@@ -39,6 +41,7 @@ Pick a run directory once per verification session and reuse it for every drive:
 RUN=.verify/runs/$(date -u +%Y%m%dT%H%M%SZ)
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> -- shots <screenplay-dir>
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> -- render <screenplay-dir> --model stand-in
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> -- check <screenplay-dir>/tape --checks qwen3-vl-8b
 ```
 
 `run` invokes the installed `.venv/bin/videotape <args>`, the command a developer gets from `uv sync`, and writes, under `$RUN`:
@@ -77,12 +80,12 @@ Read [features/README.md](features/README.md) before driving, then follow the fe
 
 Proof lives in `$RUN` (`.verify/runs/<timestamp>/`, gitignored) and survives cleanup. A proof:
 
-- drives the real command a developer types, `videotape shots <dir>` or `videotape render <dir> --model stand-in`, through `vt-verify run`, never by importing `plan`, `load` or `render` in a Python snippet;
+- drives the real command a developer types, `videotape shots <dir>`, `videotape render <dir> --model stand-in` or `videotape check <dir>/tape --checks <name>`, through `vt-verify run`, never by importing `plan`, `load`, `render` or an eye in a Python snippet;
 - quotes the asserted lines from `<name>.stdout` or `<name>.stderr` together with `<name>.exit`;
 - for a screenplay you wrote, includes its `<name>.screenplay.py` copy so the reader sees the input;
 - names the `info build` line from doctor.
 
-`uv run pytest` is a separate check. A passing suite does not replace a drive.
+`uv run pytest` is a separate check. A passing suite does not replace a drive. `uv run pytest -m qwen` runs the slow tests that load Qwen3-VL-8B. Run them alone, never beside another process that loads the model.
 
 ## Cleanup
 
@@ -94,7 +97,7 @@ This removes only scratch screenplay dirs, so name yours `"${TMPDIR:-/tmp}"/vide
 
 ## Helpers
 
-- `.claude/skills/verify/scripts/vt-verify launch` installs the CLI.
+- `.claude/skills/verify/scripts/vt-verify launch [qwen]` installs the CLI, with the qwen extra when asked.
 - `.claude/skills/verify/scripts/vt-verify doctor` runs the read-only health check.
 - `.claude/skills/verify/scripts/vt-verify run <run-dir> <name> -- <videotape args...>` runs one drive and captures its evidence.
 - `.claude/skills/verify/scripts/vt-verify screenshot <run-dir> <name> <html-file>` captures a page with headless Chrome as `<name>.light.png` and `<name>.dark.png`. It needs Google Chrome in `/Applications`, and doctor reports whether it is there.

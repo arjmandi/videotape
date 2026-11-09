@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from videotape import frames
+from videotape import dailies, frames
 from videotape.checks import MAX_DIFFERENCE
 from videotape.cli import main
 from videotape.loader import load
@@ -154,7 +154,7 @@ def test_best_take_is_kept(first):
     [misspelt] = [text for text in ("Create your account", "Email", "Password", "Sign up") if text not in drawn]
     misspelt_take, dropped_take, clean_take = signup.takes
     assert signup.kept is clean_take
-    assert misspelt_take.checks.text[misspelt] > 0
+    assert misspelt_take.checks.text[misspelt].cer > 0
     assert f'text "{misspelt}"' in [item.name for item in misspelt_take.checks.failures]
     assert dropped_take.checks.buttons == {"Sign up": None}
     assert clean_take.checks.failures == []
@@ -167,6 +167,24 @@ def test_best_take_is_kept(first):
     assert wrong_end.checks.end > MAX_DIFFERENCE
     assert [item.name for item in wrong_end.checks.failures] == ["end"]
     assert clean.checks.failures == []
+
+
+def test_dailies_page_is_a_view_of_its_record_with_a_keys_section(first):
+    tape = first[0] / "tape"
+    record = json.loads((tape / "dailies.json").read_text())
+    assert (tape / "dailies.html").read_text() == dailies.page(record)
+    assert record["keys"]["checks"] == "stand-in"
+    scenes = record["keys"]["scenes"]
+    assert [(scene["scene"], scene["key"]) for scene in scenes] == [
+        (name, f"keys/{name}.png") for name in ("welcome", "entrance", "login", "signup", "gallery")]
+    assert [(item["name"], item["passed"]) for item in scenes[0]["items"]] == [
+        ('button "Enter shop"', True), ('text "Brushstroke Surf Co."', True),
+        ('text "Hand-painted surfboards from California"', True), ('text "Enter shop"', True)]
+    assert scenes[0]["items"][0]["result"].startswith("found at ")
+    assert scenes[0]["items"][1]["result"] == 'read "Brushstroke Surf Co.", CER 0.000'
+    page = (tape / "dailies.html").read_text()
+    assert '<section class="shot keys" id="keys">' in page
+    assert "5 keys checked by stand-in, all passing" in page
 
 
 def test_second_render_is_cached(first, tmp_path):
@@ -194,8 +212,8 @@ def test_editing_a_line_rerenders_only_its_shots_and_their_dependents(first, tmp
 
 def test_cli_render_prints_each_shot(first, tmp_path, capsys, monkeypatch):
     directory = copy_of(first, tmp_path, '"The gallery"', '"The board room"')
-    monkeypatch.setitem(MODELS, "stand-in", lambda: (StandIn(flaw=lambda prompt, seed: Flaw.NONE), StandInEye()))
-    assert main(["render", str(directory), "--model", "stand-in"]) == 0
+    monkeypatch.setitem(MODELS, "stand-in", lambda: StandIn(flaw=lambda prompt, seed: Flaw.NONE))
+    assert main(["render", str(directory), "--model", "stand-in", "--checks", "stand-in"]) == 0
     assert capsys.readouterr().out.splitlines() == [
         "1. opening -> welcome  cached, kept take 1",
         '2. welcome -> entrance "Enter shop"  cached, kept take 1',
@@ -209,16 +227,18 @@ def test_cli_render_prints_each_shot(first, tmp_path, capsys, monkeypatch):
 
 def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take(first, tmp_path, capsys, monkeypatch):
     directory = copy_of(first, tmp_path, '"The gallery"', '"The board room"')
-    monkeypatch.setitem(MODELS, "stand-in", lambda: (StandIn(flaw=lambda prompt, seed: Flaw.MISSPELL), StandInEye()))
+    monkeypatch.setitem(MODELS, "stand-in", lambda: StandIn(flaw=lambda prompt, seed: Flaw.MISSPELL))
     assert main(["render", str(directory), "--model", "stand-in"]) == 1
     err = capsys.readouterr().err
-    assert err.startswith('fail: 5. entrance -> gallery "Browse as guest"  kept take 1 fails text "The board room": CER ')
+    assert err.startswith('fail: 5. entrance -> gallery "Browse as guest"  kept take 1 fails text "The board room": read "')
     assert "kept take fails checks" in (directory / "tape" / "dailies.html").read_text()
     assert "entrance--browse-as-guest" in json.loads((directory / "tape" / "tape.json").read_text())["moves"]
 
 
-def test_cli_render_rejects_an_unknown_model(tmp_path, capsys):
+@pytest.mark.parametrize("flag", ["--model", "--checks"])
+def test_cli_render_rejects_an_unknown_model_or_checks(tmp_path, capsys, flag):
+    arguments = {"--model": "stand-in", "--checks": "stand-in", flag: "sora"}
     with pytest.raises(SystemExit) as exit:
-        main(["render", str(tmp_path), "--model", "sora"])
+        main(["render", str(tmp_path), *(word for pair in arguments.items() for word in pair)])
     assert exit.value.code == 2
     assert "invalid choice: 'sora'" in capsys.readouterr().err

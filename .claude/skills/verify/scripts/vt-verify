@@ -7,7 +7,7 @@ cd "$ROOT" || exit 2
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
-  echo "usage: vt-verify launch | doctor | run <run-dir> <name> -- <videotape args...> | screenshot <run-dir> <name> <html-file> | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
+  echo "usage: vt-verify launch [qwen] | doctor | run <run-dir> <name> -- <videotape args...> | screenshot <run-dir> <name> <html-file> | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
   exit 2
 }
 
@@ -25,7 +25,11 @@ capture() {
 
 case "${1:-}" in
   launch)
-    uv sync && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv"
+    case "${2:-}" in
+      "") uv sync && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv" ;;
+      qwen) uv sync --extra qwen && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv with the qwen extra" ;;
+      *) usage ;;
+    esac
     ;;
   doctor)
     status=0
@@ -50,6 +54,21 @@ case "${1:-}" in
       *) echo "FAIL expected Python 3.12 importing $ROOT/videotape, got: $where"; status=1 ;;
     esac
     [ -x .venv/bin/videotape ] && .venv/bin/videotape --help >/dev/null 2>&1 && echo "ok   videotape --help exits 0" || { echo "FAIL videotape --help"; status=1; }
+    # Reports where qwen3-vl-8b checks would run without loading the model or downloading its weights.
+    qwen=$(.venv/bin/python - 2>/dev/null <<'PY'
+import torch, transformers
+from huggingface_hub import try_to_load_from_cache
+device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "none"
+cached = isinstance(try_to_load_from_cache("Qwen/Qwen3-VL-8B-Instruct", "config.json"), str)
+print(device, "cached" if cached else "not downloaded yet", transformers.__version__, torch.__version__, sep="|")
+PY
+)
+    IFS='|' read -r device weights transformers torch <<< "$qwen"
+    case "$device" in
+      "") echo "info qwen extra not installed; run vt-verify launch qwen to drive --checks qwen3-vl-8b" ;;
+      none) echo "info qwen extra installed (transformers $transformers, torch $torch); qwen3-vl-8b checks cannot run without CUDA or MPS" ;;
+      *) echo "info qwen extra installed (transformers $transformers, torch $torch); qwen3-vl-8b checks run on $device; weights $weights" ;;
+    esac
     echo "info build $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain -- videotape pyproject.toml clients/macos)" ] && echo ' + uncommitted changes in videotape/, pyproject.toml or clients/macos/')"
     exit $status
     ;;
