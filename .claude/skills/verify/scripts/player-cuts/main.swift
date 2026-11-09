@@ -69,11 +69,13 @@ func report(after seconds: Double) -> Never {
         let since = (flash.time - (cuts.last { $0 <= flash.time } ?? 0)) * 1000
         print(String(format: "  flash at %.3f s, %.0f ms after a cut, change %.0f", flash.time, since, flash.change))
     }
+    if !flashes.isEmpty { exit(1) }
+    // A flash seen is proof on its own; only a clean verdict needs every cut sampled densely.
     guard afterCut.min()! >= 5 else {
         print("too few captures after a cut to judge")
         exit(3)
     }
-    exit(flashes.isEmpty ? 0 : 1)
+    exit(0)
 }
 
 Timer.scheduledTimer(withTimeInterval: 1.0 / 240, repeats: true) { _ in
