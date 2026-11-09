@@ -87,6 +87,17 @@ public struct Tape: Equatable, Sendable {
         )
     }
 
+    /// The tape path among an app's launch arguments, after the executable. AppKit reads `-Key value` pairs as user
+    /// defaults, and Xcode adds some, so a flag and the value after it are skipped.
+    public static func path(inArguments arguments: some Sequence<String>) -> String? {
+        var rest = arguments.makeIterator()
+        while let argument = rest.next() {
+            guard argument.hasPrefix("-") else { return argument }
+            _ = rest.next()
+        }
+        return nil
+    }
+
     /// Finds the tape a launch argument names. A relative path tries the working directory first, then each folder
     /// above the app bundle, because `open` launches an app with `/` as its working directory.
     public static func locate(_ path: String, cwd: URL, app: URL) throws(TapeError) -> URL {

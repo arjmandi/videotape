@@ -21,6 +21,16 @@ struct LocateTests: ~Copyable {
         try? FileManager.default.removeItem(at: root)
     }
 
+    @Test(arguments: [
+        (["examples/surf_shop/tape"], "examples/surf_shop/tape"),
+        (["-NSDocumentRevisionsDebugMode", "YES", "examples/surf_shop/tape"], "examples/surf_shop/tape"),
+        (["-NSDocumentRevisionsDebugMode", "YES"], nil),
+        ([], nil),
+    ] as [([String], String?)])
+    func picksTheTapeOutOfLaunchArguments(arguments: [String], path: String?) {
+        #expect(Tape.path(inArguments: arguments) == path)
+    }
+
     @Test func findsARelativePathAboveTheAppWhenLaunchedFromRoot() throws {
         let found = try Tape.locate("examples/surf_shop/tape", cwd: URL(filePath: "/"), app: app)
         #expect(found.standardizedFileURL == tape.standardizedFileURL)
