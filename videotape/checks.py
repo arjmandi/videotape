@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Protocol
 
@@ -8,6 +8,10 @@ from videotape.screenplay import Scene
 
 MAX_CER = 0.0
 MAX_DIFFERENCE = 0.05
+
+
+class ChecksError(RuntimeError):
+    pass
 
 
 class Eye(Protocol):
@@ -68,12 +72,20 @@ def rank(checks: Checks, seed: int) -> tuple[int, float, int]:
     return len(checks.failures), sum(reading.cer for reading in checks.text.values()), seed
 
 
+def score(frame: Frame, scene: Scene, eye: Eye) -> Checks:
+    seen = eye.read(frame)
+    return Checks(
+        buttons={label: eye.find(frame, label) for label in scene.actions},
+        text={text: _closest(text, seen) for text in (*scene.shows, *scene.actions)},
+        start=None,
+        end=None,
+    )
+
+
 def check(take: Path, scene: Scene, start_key: Path | None, end_key: Path | None, eye: Eye) -> Checks:
     last = frames.last_frame(take)
-    seen = eye.read(last)
-    return Checks(
-        buttons={label: eye.find(last, label) for label in scene.actions},
-        text={text: _closest(text, seen) for text in (*scene.shows, *scene.actions)},
+    return replace(
+        score(last, scene, eye),
         start=frames.difference(frames.first_frame(take), frames.read_png(start_key)) if start_key else None,
         end=frames.difference(last, frames.read_png(end_key)) if end_key else None,
     )
