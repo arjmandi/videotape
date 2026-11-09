@@ -50,6 +50,28 @@ final class TapePlayerUITests: XCTestCase {
         walk(app, ["Sign up"], to: "login")
     }
 
+    @MainActor
+    func testABadTapeLeavesOpenAvailable() {
+        let app = XCUIApplication()
+        app.launchArguments = ["/no/such/tape"]
+        app.launch()
+        let ok = app.buttons["OK"].firstMatch
+        XCTAssertTrue(ok.waitForExistence(timeout: 10), "a bad tape shows an alert")
+        ok.click()
+        XCTAssertFalse(app.wait(for: .notRunning, timeout: 3), "dismissing the alert keeps TapePlayer running")
+        XCTAssertTrue(app.menuBars.menuItems["Open…"].isEnabled, "File > Open is still there to pick another tape")
+    }
+
+    @MainActor
+    func testCancellingTheOpenPanelKeepsTheApp() {
+        let app = XCUIApplication()
+        app.launch()
+        XCTAssertTrue(app.buttons["Cancel"].firstMatch.waitForExistence(timeout: 10), "launching without a tape shows the Open panel")
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertFalse(app.wait(for: .notRunning, timeout: 3), "cancelling the panel keeps TapePlayer running")
+        XCTAssertTrue(app.menuBars.menuItems["Open…"].isEnabled, "File > Open is still there to pick a tape")
+    }
+
     /// Launches TapePlayer on the surf shop tape, or fails with the command that renders it.
     @MainActor
     private func launch() throws -> (XCUIApplication, URL) {
