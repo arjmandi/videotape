@@ -33,10 +33,19 @@ Preconditions:
 - **Opening prompt.** Run `sed -n 4p "$RUN/shots-order.stdout"`. It prints, after three spaces of indent: `A small surf shop on the California coast in warm afternoon light: whitewashed wood, sea air, and surfboards hand-painted in bright patterns. The camera slowly pushes in. The shop's front by the beach, its name painted over the open door. The lettering reads "Brushstroke Surf Co." and "Hand-painted surfboards from California". A button is labelled "Enter shop". The camera settles and holds still. Large, crisp, legible lettering.`
 - **Custom move.** Run `sed -n 7p "$RUN/shots-order.stdout"`. It contains `The button labelled "Enter shop" is pressed. The camera walks through the open door. Just inside, by the counter.` and `Buttons are labelled "I have an account", "Create an account" and "Browse as guest".`
 - **Default move into a keyed scene.** Run `tail -1 "$RUN/shots-order.stdout"`. It contains `The button labelled "Sign up" is pressed. The camera glides smoothly to the next view. A card on the counter. The lettering reads "Log in", "Email" and "Password".` and ends with `The camera settles and holds still. Large, crisp, legible lettering.`
-- **Proof.** Cite `$RUN/shots-order.cmd`, `.exit`, `.build`, and the grep output above.
+- **Breadth first.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" shots-walk -- shots .claude/skills/verify/fixtures/walk`. `.exit` is `0`, and `grep -E '^[0-9]+\. ' "$RUN/shots-walk.stdout"` is exactly:
+  ```
+  1. opening -> hall  (text-to-video)
+  2. hall -> left  "Left door"  (image-to-video)
+  3. hall -> right  "Right door"  (image-to-video)
+  4. left -> desk  "Open desk"  (image-to-video)
+  5. right -> fridge  "Open fridge"  (image-to-video)
+  ```
+  A walk that takes the newest queued scene first swaps lines 4 and 5.
+- **Proof.** Cite `$RUN/shots-order.cmd`, `.exit`, `.build`, doctor's `info build` line, and the grep output above. For `shots-walk` cite `.exit` and its grep.
 
 ## Gotchas
 
-- The surf shop gives the same order under a depth-first walk, because `entrance`'s three shots come out before `signup` is visited. To prove breadth-first order after a walk change, also run the `authoring-order` journey in [authoring.md](./authoring.md).
+- The surf shop and the cafe in [authoring.md](./authoring.md) come out in the same order under a walk that takes the newest queued scene first. Only the `walk` fixture tells the two apart, so drive **Breadth first** after any change to the walk.
 - The prompt for `entrance` ends its lettering with `"How would you like to come in?".` The period after the closing quote is current behavior, not a bug in the drive.
-- Line numbers in the `sed` commands assume the title, a blank line, then three lines per shot (header, prompt, blank). If the output format changes, update this file.
+- Line numbers in the `sed` commands assume the title, then three lines per shot: a blank line, the header, the prompt. Shot N's header is line 3N and its prompt line 3N+1, and the last line is the last shot's prompt, with no blank line after it. If the output format changes, update this file.
