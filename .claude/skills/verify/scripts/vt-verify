@@ -7,7 +7,7 @@ cd "$ROOT" || exit 2
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
-  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> -- <videotape args...> | exec <run-dir> <name> -- <command...> | screenshot <run-dir> <name> <html-file> | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
+  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> -- <videotape args...> | exec <run-dir> <name> -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
   exit 2
 }
 
@@ -94,8 +94,8 @@ PY
     echo "$name: exit $code, $(wc -l < "$dir/$name.stdout" | tr -d ' ') stdout lines, $(wc -l < "$dir/$name.stderr" | tr -d ' ') stderr lines -> $dir/$name.*"
     ;;
   screenshot)
-    [ $# -eq 4 ] || usage
-    dir="$2"; name="$3"; page="$(cd "$(dirname "$4")" && pwd)/$(basename "$4")"
+    [ $# -eq 4 ] || [ $# -eq 5 ] || usage
+    dir="$2"; name="$3"; page="$(cd "$(dirname "$4")" && pwd)/$(basename "$4")"; height="${5:-2400}"
     [ -x "$CHROME" ] || { echo "FAIL chrome not found at $CHROME" >&2; exit 1; }
     mkdir -p "$dir"; rm -f "$dir/$name.light.png" "$dir/$name.dark.png"
     profile="$(mktemp -d)"
@@ -103,7 +103,7 @@ PY
     for scheme in light dark; do
       flags=(); [ "$scheme" = dark ] && flags=(--force-dark-mode --blink-settings=preferredColorScheme=0)
       "$CHROME" --headless=new --disable-gpu --hide-scrollbars --autoplay-policy=no-user-gesture-required \
-        --window-size=1280,2400 --virtual-time-budget=4000 --user-data-dir="$profile/$scheme" ${flags[@]+"${flags[@]}"} \
+        --window-size=1280,"$height" --virtual-time-budget=4000 --user-data-dir="$profile/$scheme" ${flags[@]+"${flags[@]}"} \
         --screenshot="$dir/$name.$scheme.png" "file://$page" >/dev/null 2>&1
     done
     rm -rf "$profile"

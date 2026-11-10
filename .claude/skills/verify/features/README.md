@@ -38,10 +38,10 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 
 ## Features
 
-- [Shot list](./shot-list.md) covers the surf shop's six shots: order, modes, and exact prompts.
+- [Shot list](./shot-list.md) covers the surf shop's ten shots: five keys, then five moves, their modes, and exact prompts.
 - [Authoring a screenplay](./authoring.md) covers what a developer's own screenplay controls: custom moves, plain-name actions, scenes without text or buttons, and a return to an already-keyed scene.
 - [Screenplay errors](./screenplay-errors.md) covers each mistake the CLI rejects with `error:` and exit 1.
-- [Render](./render.md) covers rendering the surf shop into a tape: the first render, the cached rerun, the cascade after editing one line, the files in `tape/`, the dailies page, rendering with `--checks qwen3-vl-8b`, and an unknown `--model` or `--checks`.
+- [Render](./render.md) covers rendering the surf shop into a tape: the first render of keys then moves, the cached rerun, the cascade after editing one line, the files in `tape/`, the dailies page, rendering with `--checks qwen3-vl-8b`, and an unknown `--model` or `--checks`.
 - [Check](./check.md) covers scoring a rendered tape's keys with `videotape check`: the stand-in and Qwen3-VL-8B checks, the cached rerun, the Keys section of the dailies, a failing key, and its errors.
-- [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render`: the dry run, the refusals, the local `--model wan2.2-5b` error, the paid smoke and full runs behind the user's cap, the probe options `--command` and `--fetch`, and the ledger.
+- [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render`: the dry run, the refusals, the local `--model wan2.2-5b` error, the paid smoke and full runs behind the user's cap, the options `--command` and `--fetch`, and the ledger.
 - [Player](./player.md) covers the TapePlayer macOS app: building it, clicking through the surf shop tape, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
