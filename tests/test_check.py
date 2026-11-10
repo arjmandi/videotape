@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from videotape import dailies
+from videotape.checks import KeyChecks, MoveChecks, Reading
 from videotape.cli import main
+from videotape.frames import Box
 from videotape.render import render
 from videotape.standin import Flaw, StandIn, StandInEye
 
@@ -17,7 +19,7 @@ SCENES = ["welcome", "entrance", "login", "signup", "gallery"]
 def rendered(tmp_path_factory):
     directory = tmp_path_factory.mktemp("rendered") / "surf_shop"
     shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
-    render(directory, StandIn(flaw=lambda prompt, seed: Flaw.NONE), StandInEye())
+    render(directory, StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE), StandInEye())
     return directory
 
 
@@ -27,9 +29,30 @@ def tape(rendered, tmp_path):
     return tmp_path / "surf_shop" / "tape"
 
 
-def test_check_reports_each_scene_and_replaces_the_keys_section(tape, capsys):
+def test_a_key_take_ranks_by_buttons_found_then_character_error_then_seed():
+    box = Box(0, 0, 10, 10)
+    both_clean = KeyChecks({"A": box, "B": box}, {"line": Reading("line", 0.0)})
+    both_misspelt = KeyChecks({"A": box, "B": box}, {"line": Reading("lime", 0.25)})
+    one_clean = KeyChecks({"A": box, "B": None}, {"line": Reading("line", 0.0)})
+    assert both_clean.rank(3) < both_misspelt.rank(1) < one_clean.rank(1)
+    assert both_clean.rank(1) < both_clean.rank(2)
+    assert [item.name for item in one_clean.failures] == ['button "B"']
+    assert [item.name for item in both_misspelt.failures] == ['text "line"']
+
+
+def test_a_move_take_ranks_by_the_sum_of_its_two_seams_then_seed():
+    assert MoveChecks(0.010, 0.020).rank(2) < MoveChecks(0.020, 0.020).rank(1)
+    assert MoveChecks(0.010, 0.020).rank(1) < MoveChecks(0.010, 0.020).rank(2)
+    assert MoveChecks(0.040, 0.000).rank(1) < MoveChecks(0.000, 0.045).rank(1)
+    assert [item.name for item in MoveChecks(0.051, 0.0).failures] == ["start"]
+    assert [item.name for item in MoveChecks(0.0, 0.051).failures] == ["end"]
+    assert MoveChecks(0.05, 0.05).failures == []
+
+
+def test_check_reports_each_scene_and_rescores_the_keys(tape, capsys):
     stale = json.loads((tape / "dailies.json").read_text())
-    (tape / "dailies.json").write_text(json.dumps({**stale, "keys": {"checks": "stale", "scenes": []}}))
+    (tape / "dailies.json").write_text(json.dumps({**stale, "checks": "stale",
+                                                   "keys": [{**key, "items": []} for key in stale["keys"]]}))
     assert main(["check", str(tape), "--checks", "stand-in"]) == 0
     out = capsys.readouterr().out.splitlines()
     assert [line for line in out if not line.startswith("  ")] == [
@@ -44,12 +67,14 @@ def test_check_reports_each_scene_and_replaces_the_keys_section(tape, capsys):
         '  text "Enter shop"  read "Enter shop", CER 0.000',
     ]
     record = json.loads((tape / "dailies.json").read_text())
-    assert record["shots"] == stale["shots"]
-    assert record["keys"]["checks"] == "stand-in"
-    assert [scene["scene"] for scene in record["keys"]["scenes"]] == SCENES
-    # The keys section keeps the seams and render times, which come from the shots, not from the key images.
-    assert [seam["move"] for seam in record["keys"]["scenes"][2]["seams"]] == ["signup--sign-up"]
-    assert record["keys"]["scenes"][0]["time"]["move"] == "opening"
+    assert record["checks"] == "stand-in"
+    assert [key["scene"] for key in record["keys"]] == SCENES
+    assert [(item["name"], item["passed"]) for item in record["keys"][0]["items"]] == [
+        ('button "Enter shop"', True), ('text "Brushstroke Surf Co."', True),
+        ('text "Hand-painted surfboards from California"', True), ('text "Enter shop"', True)]
+    # The takes and the moves come from the render and stay as they were.
+    assert [key["takes"] for key in record["keys"]] == [key["takes"] for key in stale["keys"]]
+    assert record["moves"] == stale["moves"]
     assert (tape / "dailies.html").read_text() == dailies.page(record)
 
 
@@ -68,6 +93,12 @@ def test_check_needs_a_rendered_tape(tmp_path, capsys):
     assert main(["check", str(tmp_path / "surf_shop" / "tape")]) == 1
     assert capsys.readouterr().err == (f"error: no tape.json in {tmp_path / 'surf_shop' / 'tape'}; "
                                        "render the screenplay first, then pass its tape directory\n")
+
+
+def test_check_refuses_a_record_from_an_older_render(tape, capsys):
+    (tape / "dailies.json").write_text(json.dumps({"title": "T", "shots": [], "keys": {"checks": "stand-in", "scenes": []}}))
+    assert main(["check", str(tape)]) == 1
+    assert capsys.readouterr().err == f"error: {tape / 'dailies.json'} is from an older render; render the screenplay again to write it\n"
 
 
 def test_check_needs_the_screenplay_next_to_the_tape(tape, tmp_path, capsys):

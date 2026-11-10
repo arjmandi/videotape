@@ -2,37 +2,54 @@ import re
 from collections import deque
 from dataclasses import dataclass
 from enum import Enum
+from typing import ClassVar
 
 from videotape.screenplay import Scene, Screenplay, ScreenplayError
 
-OPENING_MOVE = "The camera slowly pushes in."
+STATIC = "Static shot."
+CLOSE = "Sharp, legible lettering."
 DEFAULT_MOVE = "The camera glides smoothly to the next view."
-CLOSE = "The camera settles and holds still. Large, crisp, legible lettering."
+NUMBERS = ("one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
 
 
 class Mode(Enum):
     TEXT_TO_VIDEO = "text-to-video"
-    IMAGE_TO_VIDEO = "image-to-video"
     FIRST_AND_LAST_FRAME = "first-and-last-frame"
 
 
 @dataclass(frozen=True)
-class Shot:
-    mode: Mode
-    start: str | None
-    land: str
-    label: str | None
+class Key:
+    """A scene at rest, drawn from its own prompt. Its kept take's last frame is the scene's key image."""
+
+    scene: str
     prompt: str
+    mode: ClassVar[Mode] = Mode.TEXT_TO_VIDEO
 
     @property
     def title(self) -> str:
-        return f"{self.start or 'opening'} -> {self.land}" + (f' "{self.label}"' if self.label else "")
+        return f"key {self.scene}"
+
+
+@dataclass(frozen=True)
+class Move:
+    """A press on one scene's button, drawn between that scene's key and the key of the scene it lands on."""
+
+    start: str
+    land: str
+    label: str
+    prompt: str
+    mode: ClassVar[Mode] = Mode.FIRST_AND_LAST_FRAME
+
+    @property
+    def title(self) -> str:
+        return f'{self.start} -> {self.land} "{self.label}"'
 
     @property
     def move(self) -> str:
-        if self.label is None:
-            return "opening"
         return f"{self.start}--{re.sub(r'[^a-z0-9]+', '-', self.label.lower()).strip('-')}"
+
+
+Shot = Key | Move
 
 
 def _quoted(items) -> str:
@@ -40,29 +57,32 @@ def _quoted(items) -> str:
     return quoted[0] if len(quoted) == 1 else f"{', '.join(quoted[:-1])} and {quoted[-1]}"
 
 
-def _prompt(look: str, press: str | None, move: str, land: Scene) -> str:
-    parts = [look]
-    if press is not None:
-        parts.append(f'The button labelled "{press}" is pressed.')
-    parts += [move, land.direction]
-    if land.shows:
-        parts.append(f"The lettering reads {_quoted(land.shows)}.")
-    if len(land.actions) == 1:
-        parts.append(f"A button is labelled {_quoted(land.actions)}.")
-    elif land.actions:
-        parts.append(f"Buttons are labelled {_quoted(land.actions)}.")
+def key_prompt(look: str, scene: Scene) -> str:
+    parts = [STATIC, look, scene.direction]
+    if scene.shows:
+        parts.append(f"The text reads {_quoted(scene.shows)}.")
+    if scene.actions:
+        count = len(scene.actions)
+        number = NUMBERS[count - 1] if count <= len(NUMBERS) else str(count)
+        buttons = f"{number} big flat button sits" if count == 1 else f"{number} big flat buttons are stacked"
+        below = "Below it, " + buttons if scene.shows else buttons[0].upper() + buttons[1:]
+        parts.append(f"{below}, with bold black letters reading {_quoted(scene.actions)}.")
     parts.append(CLOSE)
     return " ".join(part for part in parts if part)
 
 
+def move_prompt(label: str, move: str | None) -> str:
+    return f'The button labelled "{label}" is pressed. {move or DEFAULT_MOVE}'
+
+
 def plan(screenplay: Screenplay) -> list[Shot]:
+    """Every scene's key in walk order, then every move in walk order. The walk is breadth first from the first scene."""
     if not screenplay.scenes:
         raise ScreenplayError("the screenplay has no scenes")
     scenes = screenplay.scenes
     first = next(iter(scenes.values()))
-    shots = [Shot(Mode.TEXT_TO_VIDEO, None, first.name, None, _prompt(screenplay.look, None, OPENING_MOVE, first))]
-    # A scene is keyed once a shot has landed on it, so the keyed set doubles as the walk's visited set.
-    keyed = {first.name}
+    keys, moves = [Key(first.name, key_prompt(screenplay.look, first))], []
+    walked = {first.name}
     queue = deque([first])
     while queue:
         source = queue.popleft()
@@ -70,15 +90,12 @@ def plan(screenplay: Screenplay) -> list[Shot]:
             land = scenes.get(action.to)
             if land is None:
                 raise ScreenplayError(f'scene "{source.name}": action "{label}" goes to missing scene "{action.to}"')
-            if land.name in keyed:
-                mode = Mode.FIRST_AND_LAST_FRAME
-            else:
-                mode = Mode.IMAGE_TO_VIDEO
-                keyed.add(land.name)
+            if land.name not in walked:
+                walked.add(land.name)
+                keys.append(Key(land.name, key_prompt(screenplay.look, land)))
                 queue.append(land)
-            prompt = _prompt(screenplay.look, label, action.move or DEFAULT_MOVE, land)
-            shots.append(Shot(mode, source.name, land.name, label, prompt))
-    unreached = [name for name in scenes if name not in keyed]
+            moves.append(Move(source.name, land.name, label, move_prompt(label, action.move)))
+    unreached = [name for name in scenes if name not in walked]
     if unreached:
         raise ScreenplayError(f"no action reaches scene(s): {', '.join(unreached)}")
-    return shots
+    return [*keys, *moves]
