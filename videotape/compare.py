@@ -159,6 +159,10 @@ def _buttons(keys: list[dict]) -> tuple[int, int]:
     return sum(item["passed"] for item in buttons), len(buttons)
 
 
+def _found(found: int, buttons: int) -> str:
+    return f"{found} of {buttons} button{'' if buttons == 1 else 's'} found." if buttons else "No buttons to find."
+
+
 def _exact(keys: list[dict]) -> tuple[int, int]:
     texts = [item for key in keys for item in key["items"] if item["name"].startswith("text ")]
     return sum(item["passed"] for item in texts), len(texts)
@@ -236,7 +240,7 @@ def _key(number: int, pair, tapes: tuple[Tape, Tape], folder: Path) -> str:
             f' playsinline preload="metadata"></video><figcaption>kept take</figcaption></figure>'
             f'<figure><img src="{_href(tape.path / key["key"], folder)}" alt="Key for {escape(key["scene"])} in {side}"'
             f' loading="lazy"><figcaption>key, its last frame</figcaption></figure></div>'
-            f'<p class="note{"" if found == buttons else " fail"}">{found} of {buttons} buttons found.</p>'
+            f'<p class="note{"" if found == buttons else " fail"}">{_found(found, buttons)}</p>'
             f'<ul class="checks">{dailies.checklist(key["items"])}</ul>{_cost(tape, key)}</figure>')
     return f"""<section class="shot" id="shot-{number}">
 {_head(number, pair)}
