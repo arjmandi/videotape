@@ -45,7 +45,7 @@ class Witness(StandIn):
 @pytest.fixture(scope="module")
 def first(tmp_path_factory):
     directory = tmp_path_factory.mktemp("first") / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     model = Witness(flaw=flaws)
     return directory, model, render(directory, model, StandInEye())
 
@@ -136,7 +136,7 @@ class Taller(StandIn):
 
 def test_a_tape_takes_its_size_from_its_clips(first, tmp_path):
     directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     render(directory, Taller(flaw=clean), StandInEye(), takes=1)
     tape = directory / "tape"
     data = json.loads((tape / "tape.json").read_text())
@@ -334,7 +334,7 @@ class Billed(StandIn):
 
 def test_a_paid_take_carries_its_price_into_its_sidecar_the_ledger_and_the_dailies(tmp_path):
     directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     result = render(directory, Billed(flaw=clean), StandInEye(), takes=1)
     tape = directory / "tape"
     lines = ledger.read(tape)
@@ -359,7 +359,7 @@ def test_a_paid_take_carries_its_price_into_its_sidecar_the_ledger_and_the_daili
 
 def test_takes_flag_sets_the_takes_per_shot(tmp_path, capsys, monkeypatch):
     directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     model = StandIn(flaw=clean)
     monkeypatch.setitem(MODELS, "stand-in", lambda: model)
     assert main(["render", str(directory), "--model", "stand-in", "--takes", "1"]) == 0
@@ -435,7 +435,7 @@ def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take(first, t
 
 def test_a_button_the_checks_do_not_find_has_no_hotspot_but_its_move_still_renders(tmp_path, capsys, monkeypatch):
     directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     drop = lambda mode, prompt, seed: Flaw.DROP_BUTTON if "bold black letters" in prompt else Flaw.NONE
     model = StandIn(flaw=drop)
     monkeypatch.setitem(MODELS, "stand-in", lambda: model)

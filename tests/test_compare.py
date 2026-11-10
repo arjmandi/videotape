@@ -36,7 +36,7 @@ def tapes(tmp_path_factory):
     """A is shaped like the 5B's final tape: no dollars on its takes, 360 GPU seconds each, and one pod at $3.99/h.
     B is billed per call like Wan 3.0, and its entrance key lost a button."""
     directory = tmp_path_factory.mktemp("compare") / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     a, b = directory / "tape", directory / "tape-b"
     render(directory, StandIn(flaw=lambda *_: Flaw.NONE), StandInEye(), takes=1)
     render(directory, Billed(flaw=drop_an_entrance_button), StandInEye(), takes=1, tape=b)
@@ -140,7 +140,7 @@ def test_each_shot_shows_its_render_time_and_cost_on_its_tapes_terms(compared):
 def test_a_shot_only_one_tape_has_is_shown_as_missing_from_the_other(tapes, tmp_path, capsys):
     directory, a, _ = tapes
     edited = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, edited, ignore=shutil.ignore_patterns("tape*"))
+    shutil.copytree(SURF_SHOP, edited, ignore=shutil.ignore_patterns("tape*", "compare*"))
     screenplay = edited / "screenplay.py"
     screenplay.write_text(screenplay.read_text().replace('"Browse as guest": "gallery"', '"Look around": "gallery"'))
     other = directory / "tape-edited"

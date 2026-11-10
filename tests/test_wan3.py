@@ -116,7 +116,7 @@ class Hosted:
 @pytest.fixture
 def hosted(tmp_path, monkeypatch):
     directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     (tmp_path / "clips").mkdir()
     fal = Hosted(tmp_path / "clips")
     monkeypatch.setitem(MODELS, "wan3.0", lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)))
@@ -198,7 +198,7 @@ def test_a_change_to_the_request_settings_renders_again(hosted, monkeypatch):
 
 def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, capsys, monkeypatch):
     directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     monkeypatch.delenv("FAL_KEY", raising=False)
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))

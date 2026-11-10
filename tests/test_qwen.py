@@ -84,7 +84,7 @@ def iou(a: Box, b: Box) -> float:
 @pytest.fixture(scope="module")
 def stand_in_tape(tmp_path_factory):
     directory = tmp_path_factory.mktemp("qwen") / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     model = StandIn()
     result = render(directory, model, StandInEye())
     drawn = {}
