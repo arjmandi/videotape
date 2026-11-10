@@ -8,6 +8,7 @@ from pathlib import Path
 
 from videotape import dailies, frames, ledger
 from videotape.checks import Checks, Eye, score, seams
+from videotape.fal import Receipt
 from videotape.frames import Box, FfmpegError, Shape
 from videotape.loader import load
 from videotape.model import Model
@@ -24,6 +25,7 @@ class Take:
     checks: Checks
     seconds: float | None
     gpu: str | None
+    usd: float | None
 
 
 @dataclass(frozen=True)
@@ -89,17 +91,18 @@ def render(directory, model: Model, eye: Eye, takes: int = 3, tape: Path | None 
 
 def _key_take(model: Model, eye: Eye, key: Key, scene, seed: int, tape: Path) -> Take:
     path, cached, timing = _film(model, key, (), seed, tape, lambda out: model.text_to_video(key.prompt, seed, out))
-    return Take(seed, path, cached, score(frames.last_frame(path), scene, eye), timing.get("seconds"), timing.get("gpu"))
+    return Take(seed, path, cached, score(frames.last_frame(path), scene, eye), timing.get("seconds"), timing.get("gpu"),
+                timing.get("usd"))
 
 
 def _move_take(model: Model, move: Move, start: Path, end: Path, seed: int, tape: Path) -> Take:
     path, cached, timing = _film(model, move, (start, end), seed, tape,
                                  lambda out: model.first_last_frame(move.prompt, start, end, seed, out))
-    return Take(seed, path, cached, seams(path, start, end), timing.get("seconds"), timing.get("gpu"))
+    return Take(seed, path, cached, seams(path, start, end), timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
 
 
 def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path,
-          film: Callable[[Path], None]) -> tuple[Path, bool, dict]:
+          film: Callable[[Path], Receipt | None]) -> tuple[Path, bool, dict]:
     """The take for this shot and seed, filmed unless it is already in the cache. Its name hashes everything the pixels
     depend on: the mode, the prompt, the key images a move is pinned to, the model, the seed and the model's settings."""
     fields = [shot.mode.value, shot.prompt, *(hashlib.sha256(image.read_bytes()).hexdigest() for image in images),
@@ -107,14 +110,17 @@ def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: P
     if settings := model.settings(shot.mode):
         fields.append(settings)
     path = tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
-    # The render time lives in a sidecar next to the take, so it survives caching.
+    # The render time and any price live in a sidecar next to the take, so they survive caching.
     timing = path.with_suffix(".json")
     cached = path.exists()
     if not cached:
         started = time.perf_counter()
-        publish(path, film)
+        receipt = publish(path, film)
         filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": model.device}
-        publish(timing, lambda partial: partial.write_text(json.dumps(filmed) + "\n"))
+        if receipt:
+            filmed |= {"request_id": receipt.request_id, "duration": receipt.duration, "usd": receipt.usd}
+        response = {"response": receipt.response} if receipt else {}
+        publish(timing, lambda partial: partial.write_text(json.dumps({**filmed, **response}) + "\n"))
         ledger.append(tape, {"kind": "take", "at": ledger.now(), "model": model.name, "shot": shot.title,
                              "mode": shot.mode.value, "seed": seed, **filmed})
     return path, cached, json.loads(timing.read_text()) if timing.exists() else {}

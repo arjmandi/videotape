@@ -8,6 +8,7 @@ import pytest
 from videotape import dailies, frames, ledger
 from videotape.checks import MAX_DIFFERENCE
 from videotape.cli import main
+from videotape.fal import Receipt
 from videotape.loader import load
 from videotape.model import MODELS
 from videotape.render import render
@@ -309,6 +310,51 @@ def test_cached_takes_keep_their_render_time_and_add_no_ledger_lines(first, tmp_
     assert [[(take.seconds, take.gpu) for take in filmed.takes] for filmed in result.shots] == \
         [[(take.seconds, take.gpu) for take in filmed.takes] for filmed in first[2].shots]
     assert ledger.read(directory / "tape") == before
+
+
+class Billed(StandIn):
+    """Bills each call as a hosted model would, 5.04 seconds of video at ten cents a second."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.requests = iter(range(100))
+
+    def text_to_video(self, prompt, seed, out):
+        super().text_to_video(prompt, seed, out)
+        return self._receipt()
+
+    def first_last_frame(self, prompt, start, end, seed, out):
+        super().first_last_frame(prompt, start, end, seed, out)
+        return self._receipt()
+
+    def _receipt(self):
+        number = next(self.requests)
+        return Receipt(f"request-{number}", 5.04, 0.504, {"result": {"request": number}})
+
+
+def test_a_paid_take_carries_its_price_into_its_sidecar_the_ledger_and_the_dailies(tmp_path):
+    directory = tmp_path / "surf_shop"
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    result = render(directory, Billed(flaw=clean), StandInEye(), takes=1)
+    tape = directory / "tape"
+    lines = ledger.read(tape)
+    assert [(line["shot"], line["request_id"], line["duration"], line["usd"]) for line in lines] == [
+        (filmed.shot.title, f"request-{number}", 5.04, 0.504) for number, filmed in enumerate(result.shots)]
+    welcome = result.keys[0].kept
+    assert json.loads(welcome.path.with_suffix(".json").read_text()) == {
+        "seconds": welcome.seconds, "gpu": "cpu", "request_id": "request-0", "duration": 5.04, "usd": 0.504,
+        "response": {"result": {"request": 0}}}
+    record = dailies.read(tape)
+    assert [take["usd"] for shot in record["keys"] + record["moves"] for take in shot["takes"]] == [0.504] * 10
+    assert record["ledger"]["usd"] == 5.04
+    assert ", 0.0 pod hours, $5.04. Tape: " in (tape / "dailies.html").read_text()
+    again = render(directory, StandIn(), StandInEye(), takes=1)
+    assert ledger.read(tape) == lines
+    assert [filmed.kept.usd for filmed in again.shots] == [0.504] * 10
+    ledger.append(tape, {"kind": "pod", "at": "2026-11-09T12:00:00+00:00", "pod": "abc123", "gpu": "NVIDIA H100 80GB HBM3",
+                         "usd_per_hour": 4.0, "started": "2026-11-09T11:30:00+00:00", "stopped": "2026-11-09T12:00:00+00:00",
+                         "seconds": 1800, "usd": 2.0})
+    assert ledger.totals(ledger.read(tape))["usd"] == 7.04
 
 
 def test_takes_flag_sets_the_takes_per_shot(tmp_path, capsys, monkeypatch):

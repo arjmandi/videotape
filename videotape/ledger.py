@@ -1,4 +1,5 @@
-"""tape/ledger.jsonl records GPU time and money: one line per filmed take and one per pod session, appended and never rewritten."""
+"""tape/ledger.jsonl records render time and money: one line per filmed take, with its price when the call was paid
+for, and one per pod session, appended and never rewritten."""
 
 import json
 from datetime import datetime, timezone
@@ -27,5 +28,5 @@ def totals(lines: list[dict]) -> dict:
         "gpu_seconds": round(sum((line["seconds"] for line in takes), 0.0), 1),
         "pods": len(pods),
         "pod_hours": round(sum((line["seconds"] for line in pods), 0.0) / 3600, 3),
-        "usd": round(sum((line["usd"] for line in pods), 0.0), 2),
+        "usd": round(sum((line.get("usd", 0.0) for line in takes + pods), 0.0), 2),
     }
