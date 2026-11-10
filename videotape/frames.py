@@ -1,7 +1,14 @@
+import json
+import re
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 
+# The size and rate of the clips videotape encodes itself, which are the stand-in's and Wan 2.2 5B's. A clip from any other
+# model keeps its own, which decoding reads from the clip.
 WIDTH, HEIGHT, FPS = 1280, 704, 24
 SMALL = (160, 88)
 
@@ -25,16 +32,37 @@ class Frame:
     rgb: bytes
 
 
-def _ffmpeg(*args: str, feed: bytes | None = None) -> bytes:
-    command = ["ffmpeg", "-hide_banner", "-loglevel", "error", *args]
+@dataclass(frozen=True)
+class Shape:
+    """A clip's frame size and frame rate."""
+
+    width: int
+    height: int
+    fps: int | float
+
+
+def _tool(tool: str, *args: str, feed: bytes | None = None) -> bytes:
+    command = [tool, "-hide_banner", "-loglevel", "error", *args]
     stdin = {"input": feed} if feed is not None else {"stdin": subprocess.DEVNULL}
     try:
         run = subprocess.run(command, capture_output=True, **stdin)
     except FileNotFoundError:
-        raise FfmpegError("ffmpeg is not on PATH") from None
+        raise FfmpegError(f"{tool} is not on PATH") from None
     if run.returncode != 0:
         raise FfmpegError(f"{' '.join(command)}\n{run.stderr.decode(errors='replace').strip()}")
     return run.stdout
+
+
+def _ffmpeg(*args: str, feed: bytes | None = None) -> bytes:
+    return _tool("ffmpeg", *args, feed=feed)
+
+
+def shape(clip: Path) -> Shape:
+    probe = json.loads(_tool("ffprobe", "-select_streams", "v:0", "-show_entries", "stream=width,height,r_frame_rate",
+                             "-of", "json", str(clip)))
+    [stream] = probe["streams"]
+    fps = Fraction(stream["r_frame_rate"])
+    return Shape(stream["width"], stream["height"], int(fps) if fps.denominator == 1 else round(float(fps), 3))
 
 
 def _raw(frame: Frame) -> tuple[str, ...]:
@@ -42,10 +70,13 @@ def _raw(frame: Frame) -> tuple[str, ...]:
 
 
 def _decode(source: Path, *filters: str) -> Frame:
-    rgb = _ffmpeg("-i", str(source), *filters, "-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-")
-    if len(rgb) != WIDTH * HEIGHT * 3:
-        raise FfmpegError(f"{source} is not a {WIDTH}x{HEIGHT} image")
-    return Frame(WIDTH, HEIGHT, rgb)
+    # A PPM names its own size in its header, so one decode reads a frame of whatever size the clip has.
+    ppm = _ffmpeg("-i", str(source), *filters, "-frames:v", "1", "-f", "image2pipe", "-c:v", "ppm", "-")
+    header = re.match(rb"P6\s(\d+)\s(\d+)\s255\s", ppm)
+    width, height = (int(header[1]), int(header[2])) if header else (0, 0)
+    if not header or len(ppm) != header.end() + width * height * 3:
+        raise FfmpegError(f"{source} did not decode to one rgb24 frame")
+    return Frame(width, height, ppm[header.end():])
 
 
 def write_png(frame: Frame, path: Path) -> None:
@@ -65,10 +96,39 @@ def last_frame(clip: Path) -> Frame:
 
 
 def difference(a: Frame, b: Frame) -> float:
+    if (a.width, a.height) != (b.width, b.height):
+        raise FfmpegError(f"cannot compare a {a.width}x{a.height} frame with a {b.width}x{b.height} one")
     w, h = SMALL
     grey = _ffmpeg(*_raw(a), "-vf", f"scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-", feed=a.rgb + b.rgb)
     n = w * h
     return sum(abs(x - y) for x, y in zip(grey[:n], grey[n:])) / (255 * n)
+
+
+def _greys(clip: Path) -> list[bytes]:
+    w, h = SMALL
+    grey = _ffmpeg("-i", str(clip), "-vf", f"scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-")
+    return [grey[at:at + w * h] for at in range(0, len(grey), w * h)]
+
+
+def motion(clip: Path) -> float:
+    """The mean difference between each frame and the next, on the scale of difference()."""
+    greys = _greys(clip)
+    n = SMALL[0] * SMALL[1]
+    steps = [sum(abs(x - y) for x, y in zip(a, b)) / (255 * n) for a, b in zip(greys, greys[1:])]
+    return sum(steps) / len(steps) if steps else 0.0
+
+
+def stills(clip: Path, fractions: tuple[float, ...], width: int, outs: list[Path]) -> None:
+    """Write the frames at these fractions of the clip, from its first frame at 0 to its last at 1, as PNGs this wide."""
+    count = len(_greys(clip))
+    picks = [round(fraction * (count - 1)) for fraction in fractions]
+    unique = sorted(set(picks))
+    select = "+".join(f"eq(n\\,{pick})" for pick in unique)
+    with tempfile.TemporaryDirectory() as scratch:
+        _ffmpeg("-i", str(clip), "-vf", f"select='{select}',scale={width}:-2", "-fps_mode", "passthrough", "-f", "image2",
+                str(Path(scratch) / "%d.png"))
+        for out, pick in zip(outs, picks):
+            shutil.copyfile(Path(scratch) / f"{unique.index(pick) + 1}.png", out)
 
 
 ENCODE = ("-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", str(FPS), "-movflags", "+faststart", "-f", "mp4", "-y")

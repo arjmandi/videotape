@@ -18,7 +18,7 @@ SCENES = ["welcome", "entrance", "login", "signup", "gallery"]
 @pytest.fixture(scope="module")
 def rendered(tmp_path_factory):
     directory = tmp_path_factory.mktemp("rendered") / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     render(directory, StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE), StandInEye())
     return directory
 
@@ -89,7 +89,7 @@ def test_check_fails_on_a_key_that_shows_the_wrong_scene(tape, capsys):
 
 
 def test_check_needs_a_rendered_tape(tmp_path, capsys):
-    shutil.copytree(SURF_SHOP, tmp_path / "surf_shop", ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, tmp_path / "surf_shop", ignore=shutil.ignore_patterns("tape*", "compare*"))
     assert main(["check", str(tmp_path / "surf_shop" / "tape")]) == 1
     assert capsys.readouterr().err == (f"error: no tape.json in {tmp_path / 'surf_shop' / 'tape'}; "
                                        "render the screenplay first, then pass its tape directory\n")

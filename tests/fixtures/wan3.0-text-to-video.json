@@ -1,0 +1,41 @@
+{
+  "submitted": {
+    "status": "IN_QUEUE",
+    "request_id": "01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+    "response_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+    "status_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb/status",
+    "cancel_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb/cancel",
+    "logs": null,
+    "metrics": {},
+    "queue_position": 0,
+    "user_queue_position": 0,
+    "user_queued_count": 1
+  },
+  "status": {
+    "status": "COMPLETED",
+    "request_id": "01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+    "response_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+    "status_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb/status",
+    "cancel_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb/cancel",
+    "logs": null,
+    "metrics": {
+      "inference_time": 96.97199988365173
+    }
+  },
+  "result": {
+    "video": {
+      "url": "https://v3b.fal.media/files/b/0ab1eb6e/GNvrhPb7RelDLEjjuL7xY_UcjPFGG8.mp4",
+      "content_type": "video/mp4",
+      "file_name": "GNvrhPb7RelDLEjjuL7xY_UcjPFGG8.mp4",
+      "file_size": 7708900,
+      "width": 1280,
+      "height": 720,
+      "fps": 30.0,
+      "duration": 5.0,
+      "num_frames": 150
+    },
+    "seed": 1,
+    "duration": 5.0,
+    "actual_prompt": null
+  }
+}

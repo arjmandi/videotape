@@ -8,7 +8,8 @@ from pathlib import Path
 
 from videotape import dailies, frames, ledger
 from videotape.checks import Checks, Eye, score, seams
-from videotape.frames import FPS, HEIGHT, WIDTH, Box
+from videotape.fal import Receipt
+from videotape.frames import Box, FfmpegError, Shape
 from videotape.loader import load
 from videotape.model import Model
 from videotape.publish import publish
@@ -24,6 +25,7 @@ class Take:
     checks: Checks
     seconds: float | None
     gpu: str | None
+    usd: float | None
 
 
 @dataclass(frozen=True)
@@ -48,7 +50,8 @@ class Render:
         return *self.keys, *self.moves
 
 
-def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
+def render(directory, model: Model, eye: Eye, takes: int = 3, tape: Path | None = None) -> Render:
+    """Render the screenplay in directory into tape, which defaults to <directory>/tape."""
     screenplay = load(directory)
     shots = plan(screenplay)
     keys = [shot for shot in shots if isinstance(shot, Key)]
@@ -59,7 +62,7 @@ def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
             raise ScreenplayError(f'scene "{move.start}": actions "{clips[move.move].label}" and "{move.label}" '
                                   f'would share the clip moves/{move.move}.mp4')
         clips[move.move] = move
-    tape = Path(directory) / "tape"
+    tape = tape or Path(directory) / "tape"
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     seeds = range(1, takes + 1)
@@ -88,54 +91,93 @@ def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
 
 def _key_take(model: Model, eye: Eye, key: Key, scene, seed: int, tape: Path) -> Take:
     path, cached, timing = _film(model, key, (), seed, tape, lambda out: model.text_to_video(key.prompt, seed, out))
-    return Take(seed, path, cached, score(frames.last_frame(path), scene, eye), timing.get("seconds"), timing.get("gpu"))
+    return Take(seed, path, cached, score(frames.last_frame(path), scene, eye), timing.get("seconds"), timing.get("gpu"),
+                timing.get("usd"))
 
 
 def _move_take(model: Model, move: Move, start: Path, end: Path, seed: int, tape: Path) -> Take:
     path, cached, timing = _film(model, move, (start, end), seed, tape,
                                  lambda out: model.first_last_frame(move.prompt, start, end, seed, out))
-    return Take(seed, path, cached, seams(path, start, end), timing.get("seconds"), timing.get("gpu"))
+    return Take(seed, path, cached, seams(path, start, end), timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
 
 
-def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path,
-          film: Callable[[Path], None]) -> tuple[Path, bool, dict]:
-    """The take for this shot and seed, filmed unless it is already in the cache. Its name hashes everything the pixels
-    depend on: the mode, the prompt, the key images a move is pinned to, the model, the seed and the model's settings."""
+def uncached(directory, model: Model, takes: int, tape: Path) -> int:
+    """How many takes a render will film. A move counts every take unless both its keys are cached and their images
+    are on the tape, since a key that renders again may change and move every take pinned to it."""
+    shots = plan(load(directory))
+    seeds = range(1, takes + 1)
+    count, changing = 0, set()
+    for key in (shot for shot in shots if isinstance(shot, Key)):
+        missing = sum(not _take_path(model, key, (), seed, tape).exists() for seed in seeds)
+        count += missing
+        if missing:
+            changing.add(key.scene)
+    for move in (shot for shot in shots if isinstance(shot, Move)):
+        images = (tape / "keys" / f"{move.start}.png", tape / "keys" / f"{move.land}.png")
+        if {move.start, move.land} & changing or not all(image.exists() for image in images):
+            count += takes
+        else:
+            count += sum(not _take_path(model, move, images, seed, tape).exists() for seed in seeds)
+    return count
+
+
+def _take_path(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path) -> Path:
+    """A take's name hashes everything its pixels depend on: the mode, the prompt, the key images a move is pinned to,
+    the model, the seed and the model's settings."""
     fields = [shot.mode.value, shot.prompt, *(hashlib.sha256(image.read_bytes()).hexdigest() for image in images),
               model.name, seed]
     if settings := model.settings(shot.mode):
         fields.append(settings)
-    path = tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
-    # The render time lives in a sidecar next to the take, so it survives caching.
+    return tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
+
+
+def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path,
+          film: Callable[[Path], Receipt | None]) -> tuple[Path, bool, dict]:
+    """The take for this shot and seed, filmed unless it is already in the cache."""
+    path = _take_path(model, shot, images, seed, tape)
+    # The render time and any price live in a sidecar next to the take, so they survive caching.
     timing = path.with_suffix(".json")
     cached = path.exists()
     if not cached:
         started = time.perf_counter()
-        publish(path, film)
+        receipt = publish(path, film)
         filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": model.device}
-        publish(timing, lambda partial: partial.write_text(json.dumps(filmed) + "\n"))
+        if receipt:
+            filmed |= {"request_id": receipt.request_id, "duration": receipt.duration, "usd": receipt.usd}
+        response = {"response": receipt.response} if receipt else {}
+        publish(timing, lambda partial: partial.write_text(json.dumps({**filmed, **response}) + "\n"))
         ledger.append(tape, {"kind": "take", "at": ledger.now(), "model": model.name, "shot": shot.title,
                              "mode": shot.mode.value, "seed": seed, **filmed})
     return path, cached, json.loads(timing.read_text()) if timing.exists() else {}
 
 
-def _fraction(box: Box) -> dict:
-    return {"x": round(box.x / WIDTH, 4), "y": round(box.y / HEIGHT, 4),
-            "w": round(box.w / WIDTH, 4), "h": round(box.h / HEIGHT, 4)}
+def _fraction(box: Box, size: Shape) -> dict:
+    return {"x": round(box.x / size.width, 4), "y": round(box.y / size.height, 4),
+            "w": round(box.w / size.width, 4), "h": round(box.h / size.height, 4)}
+
+
+def _shape(result: Render) -> Shape:
+    """The one size and frame rate every kept clip shares, which the player sizes its window to."""
+    shapes = {filmed.kept.path: frames.shape(filmed.kept.path) for filmed in result.shots}
+    if len(set(shapes.values())) > 1:
+        raise FfmpegError("the kept clips differ in size or frame rate, so no one window plays them: " +
+                          ", ".join(f"{path.name} {s.width}x{s.height} at {s.fps} fps" for path, s in shapes.items()))
+    return next(iter(shapes.values()))
 
 
 def _tape(screenplay: Screenplay, result: Render) -> dict:
     buttons = {filmed.shot.scene: filmed.kept.checks.buttons for filmed in result.keys}
     clips = {(filmed.shot.start, filmed.shot.label): filmed.shot.move for filmed in result.moves}
+    size = _shape(result)
     return {
-        "size": {"width": WIDTH, "height": HEIGHT},
-        "fps": FPS,
+        "size": {"width": size.width, "height": size.height},
+        "fps": size.fps,
         "opening": {"clip": "moves/opening.mp4", "lands": result.keys[0].shot.scene},
         "scenes": {
             name: {
                 "key": f"keys/{name}.png",
                 # A hotspot needs a box, and a box is never invented, so a button the checks did not find has no hotspot.
-                "hotspots": [{"label": label, "box": _fraction(box), "move": clips[(name, label)]}
+                "hotspots": [{"label": label, "box": _fraction(box, size), "move": clips[(name, label)]}
                              for label in scene.actions if (box := buttons[name][label])],
             }
             for name, scene in screenplay.scenes.items()

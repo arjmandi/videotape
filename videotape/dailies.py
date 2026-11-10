@@ -41,7 +41,7 @@ summary { cursor: pointer; }
 .takes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; }
 .take { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .take.kept { border: 2px solid var(--kept); padding: 9px; }
-video, img { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 704; border-radius: 6px; background: #000; }
+video, img { display: block; width: 100%; height: auto; aspect-ratio: auto 1280 / 704; border-radius: 6px; background: #000; }
 figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .checks { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .checks li { display: grid; grid-template-columns: 1.2em 1fr; column-gap: 4px; padding: 2px 0;
@@ -131,7 +131,7 @@ def _shot_record(filmed: Filmed, tape: Path) -> dict:
         "mode": shot.mode.value,
         "prompt": shot.prompt,
         "takes": [{"seed": take.seed, "clip": take.path.relative_to(tape).as_posix(), "cached": take.cached,
-                   "kept": take is filmed.kept, "seconds": take.seconds, "gpu": take.gpu,
+                   "kept": take is filmed.kept, "seconds": take.seconds, "gpu": take.gpu, "usd": take.usd,
                    **({"start": take.checks.start, "end": take.checks.end} if isinstance(shot, Move) else {}),
                    "items": _items(take.checks)} for take in filmed.takes],
     }
@@ -149,7 +149,7 @@ def _failing(checked: dict) -> bool:
     return not all(item["passed"] for item in checked["items"])
 
 
-def _checks(items: list[dict]) -> str:
+def checklist(items: list[dict]) -> str:
     return "".join(
         f'<li class="{"pass" if item["passed"] else "fail"}"><span class="mark">{"✓" if item["passed"] else "✗"}</span>'
         f'<span class="name">{escape(item["name"])}</span><span class="result">{escape(item["result"])}</span></li>'
@@ -175,7 +175,7 @@ def _key(key: dict, checks: str) -> str:
     badge = ' <span class="badge failing">fails checks</span>' if _failing(key) else ""
     return (f'<figure class="take"><img src="{escape(key["key"])}" alt="Key for {escape(key["scene"])}">'
             f'<figcaption><strong>{escape(key["scene"])}</strong><span class="badge">{checks}</span>{badge}</figcaption>'
-            f'<ul class="checks">{_checks(key["items"])}</ul>'
+            f'<ul class="checks">{checklist(key["items"])}</ul>'
             f'<p class="note">The last frame of take {kept["seed"]}, {_time(key)}.</p></figure>')
 
 
@@ -221,4 +221,4 @@ def _take(take: dict) -> str:
             f'<video src="{escape(take["clip"])}" autoplay loop muted playsinline preload="metadata"></video>'
             f'<figcaption><strong>Take {take["seed"]}</strong>{badge}'
             f'<span class="badge">{"cached" if take["cached"] else "rendered"}</span>{seconds}</figcaption>'
-            f'<ul class="checks">{_checks(take["items"])}</ul></figure>')
+            f'<ul class="checks">{checklist(take["items"])}</ul></figure>')

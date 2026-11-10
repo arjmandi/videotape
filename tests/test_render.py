@@ -8,6 +8,7 @@ import pytest
 from videotape import dailies, frames, ledger
 from videotape.checks import MAX_DIFFERENCE
 from videotape.cli import main
+from videotape.fal import Receipt
 from videotape.loader import load
 from videotape.model import MODELS
 from videotape.render import render
@@ -44,7 +45,7 @@ class Witness(StandIn):
 @pytest.fixture(scope="module")
 def first(tmp_path_factory):
     directory = tmp_path_factory.mktemp("first") / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     model = Witness(flaw=flaws)
     return directory, model, render(directory, model, StandInEye())
 
@@ -119,6 +120,32 @@ def test_tape_files_are_keys_and_browser_playable_clips(first):
                                capture_output=True, text=True, check=True)
         assert probe.stdout.strip() == "h264,1280,704,yuv420p,24/1"
     assert (tape / "dailies.html").is_file()
+
+
+class Taller(StandIn):
+    """Pads every key take to 1280x720 in the stand-in's background, eight pixels above and below, as a model with another
+    frame size would."""
+
+    def text_to_video(self, prompt, seed, out):
+        drawn = out.with_name(f"drawn-{out.name}")
+        super().text_to_video(prompt, seed, drawn)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(drawn), "-vf", "pad=1280:720:0:8:color=0x2f6f7e", "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p", "-r", "24", "-f", "mp4", "-y", str(out)], check=True)
+        drawn.unlink()
+
+
+def test_a_tape_takes_its_size_from_its_clips(first, tmp_path):
+    directory = tmp_path / "surf_shop"
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
+    render(directory, Taller(flaw=clean), StandInEye(), takes=1)
+    tape = directory / "tape"
+    data = json.loads((tape / "tape.json").read_text())
+    assert (data["size"], data["fps"]) == ({"width": 1280, "height": 720}, 24)
+    assert {(frames.read_png(key).width, frames.read_png(key).height) for key in (tape / "keys").iterdir()} == {(1280, 720)}
+    [enter] = data["scenes"]["welcome"]["hotspots"]
+    [short] = json.loads((first[0] / "tape" / "tape.json").read_text())["scenes"]["welcome"]["hotspots"]
+    assert abs(enter["box"]["y"] * 720 - (short["box"]["y"] * 704 + 8)) <= 1
+    assert abs(enter["box"]["h"] * 720 - short["box"]["h"] * 704) <= 1
 
 
 def test_hotspots_sit_where_the_kept_take_drew_its_buttons(first):
@@ -285,9 +312,54 @@ def test_cached_takes_keep_their_render_time_and_add_no_ledger_lines(first, tmp_
     assert ledger.read(directory / "tape") == before
 
 
+class Billed(StandIn):
+    """Bills each call as a hosted model would, 5.04 seconds of video at ten cents a second."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.requests = iter(range(100))
+
+    def text_to_video(self, prompt, seed, out):
+        super().text_to_video(prompt, seed, out)
+        return self._receipt()
+
+    def first_last_frame(self, prompt, start, end, seed, out):
+        super().first_last_frame(prompt, start, end, seed, out)
+        return self._receipt()
+
+    def _receipt(self):
+        number = next(self.requests)
+        return Receipt(f"request-{number}", 5.04, 0.504, {"result": {"request": number}})
+
+
+def test_a_paid_take_carries_its_price_into_its_sidecar_the_ledger_and_the_dailies(tmp_path):
+    directory = tmp_path / "surf_shop"
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
+    result = render(directory, Billed(flaw=clean), StandInEye(), takes=1)
+    tape = directory / "tape"
+    lines = ledger.read(tape)
+    assert [(line["shot"], line["request_id"], line["duration"], line["usd"]) for line in lines] == [
+        (filmed.shot.title, f"request-{number}", 5.04, 0.504) for number, filmed in enumerate(result.shots)]
+    welcome = result.keys[0].kept
+    assert json.loads(welcome.path.with_suffix(".json").read_text()) == {
+        "seconds": welcome.seconds, "gpu": "cpu", "request_id": "request-0", "duration": 5.04, "usd": 0.504,
+        "response": {"result": {"request": 0}}}
+    record = dailies.read(tape)
+    assert [take["usd"] for shot in record["keys"] + record["moves"] for take in shot["takes"]] == [0.504] * 10
+    assert record["ledger"]["usd"] == 5.04
+    assert ", 0.0 pod hours, $5.04. Tape: " in (tape / "dailies.html").read_text()
+    again = render(directory, StandIn(), StandInEye(), takes=1)
+    assert ledger.read(tape) == lines
+    assert [filmed.kept.usd for filmed in again.shots] == [0.504] * 10
+    ledger.append(tape, {"kind": "pod", "at": "2026-11-09T12:00:00+00:00", "pod": "abc123", "gpu": "NVIDIA H100 80GB HBM3",
+                         "usd_per_hour": 4.0, "started": "2026-11-09T11:30:00+00:00", "stopped": "2026-11-09T12:00:00+00:00",
+                         "seconds": 1800, "usd": 2.0})
+    assert ledger.totals(ledger.read(tape))["usd"] == 7.04
+
+
 def test_takes_flag_sets_the_takes_per_shot(tmp_path, capsys, monkeypatch):
     directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     model = StandIn(flaw=clean)
     monkeypatch.setitem(MODELS, "stand-in", lambda: model)
     assert main(["render", str(directory), "--model", "stand-in", "--takes", "1"]) == 0
@@ -363,7 +435,7 @@ def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take(first, t
 
 def test_a_button_the_checks_do_not_find_has_no_hotspot_but_its_move_still_renders(tmp_path, capsys, monkeypatch):
     directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
     drop = lambda mode, prompt, seed: Flaw.DROP_BUTTON if "bold black letters" in prompt else Flaw.NONE
     model = StandIn(flaw=drop)
     monkeypatch.setitem(MODELS, "stand-in", lambda: model)
@@ -385,6 +457,22 @@ def test_a_button_the_checks_do_not_find_has_no_hotspot_but_its_move_still_rende
     assert sorted(data["moves"]) == ["entrance--browse-as-guest", "entrance--create-an-account", "entrance--i-have-an-account",
                                      "signup--sign-up", "welcome--enter-shop"]
     assert [call.mode for call in model.calls].count(Mode.FIRST_AND_LAST_FRAME) == 15
+
+
+def test_out_writes_the_tape_beside_the_screenplays_own(first, tmp_path, capsys, monkeypatch):
+    directory = copy_of(first, tmp_path)
+    before = tape_files(directory)
+    out = directory / "tape-b"
+    model = StandIn(flaw=clean)
+    monkeypatch.setitem(MODELS, "stand-in", lambda: model)
+    assert main(["render", str(directory), "--model", "stand-in", "--takes", "1", "--out", str(out)]) == 0
+    assert len(model.calls) == 10
+    assert capsys.readouterr().out.splitlines()[-1] == f"rendered 10 of 10 shots -> {out}"
+    assert json.loads((out / "tape.json").read_text())["opening"] == {"clip": "moves/opening.mp4", "lands": "welcome"}
+    assert sorted(path.name for path in (out / "keys").iterdir()) == sorted(name for name in before if name.endswith(".png"))
+    assert [line["seed"] for line in ledger.read(out)] == [1] * 10
+    assert dailies.read(out)["title"] == "Brushstroke Surf Co."
+    assert tape_files(directory) == before
 
 
 @pytest.mark.parametrize("flag", ["--model", "--checks"])
