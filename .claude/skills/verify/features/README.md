@@ -1,6 +1,6 @@
 # videotape verification map
 
-This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes `screenplay.py`, runs `videotape shots <dir>` to list its shots, runs `videotape render <dir> --model stand-in` to render them into a tape, and runs `videotape check <dir>/tape --checks <name>` to score the tape's keys. TapePlayer's user is the person who then clicks through that tape on a Mac. Read this index before driving, then use the matching feature file as the recipe.
+This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes `screenplay.py`, runs `videotape shots <dir>` to list its shots, runs `videotape render <dir> --model stand-in` to render them into a tape, runs `videotape check <dir>/tape --checks <name>` to score the tape's keys, and runs `videotape compare <tapeA> <tapeB>` to set two tapes side by side. TapePlayer's user is the person who then clicks through that tape on a Mac. Read this index before driving, then use the matching feature file as the recipe.
 
 ## Baseline preconditions
 
@@ -44,4 +44,6 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 - [Render](./render.md) covers rendering the surf shop into a tape: the first render of keys then moves, the cached rerun, the cascade after editing one line, the files in `tape/`, the dailies page, rendering with `--checks qwen3-vl-8b`, and an unknown `--model` or `--checks`.
 - [Check](./check.md) covers scoring a rendered tape's keys with `videotape check`: the stand-in and Qwen3-VL-8B checks, the cached rerun, the Keys section of the dailies, a failing key, and its errors.
 - [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render`: the dry run, the refusals, the local `--model wan2.2-5b` error, the paid smoke and full runs behind the user's cap, the options `--command` and `--fetch`, and the ledger.
+- [Wan 3.0 render](./wan3-render.md) covers rendering the surf shop with Wan 3.0 on fal into `examples/surf_shop/tape-wan3`: the missing-key error, the requests and answers the tests prove, the paid run behind the user's cap, the price line, the cached rerun, the ledger, TapePlayer on that tape, and the fixtures a paid run replaces.
+- [Compare](./compare.md) covers `videotape compare`: two stand-in tapes, the 5B tape against a stand-in, the page with each key's buttons and readings and each move's seams and stills, render time and cost per shot, the Wan 3.0 comparison, and its error.
 - [Player](./player.md) covers the TapePlayer macOS app: building it, clicking through the surf shop tape, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
