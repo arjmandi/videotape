@@ -8,7 +8,7 @@ from pathlib import Path
 
 from videotape import dailies, frames, ledger
 from videotape.checks import Checks, Eye, score, seams
-from videotape.frames import FPS, HEIGHT, WIDTH, Box
+from videotape.frames import Box, FfmpegError, Shape
 from videotape.loader import load
 from videotape.model import Model
 from videotape.publish import publish
@@ -119,23 +119,33 @@ def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: P
     return path, cached, json.loads(timing.read_text()) if timing.exists() else {}
 
 
-def _fraction(box: Box) -> dict:
-    return {"x": round(box.x / WIDTH, 4), "y": round(box.y / HEIGHT, 4),
-            "w": round(box.w / WIDTH, 4), "h": round(box.h / HEIGHT, 4)}
+def _fraction(box: Box, size: Shape) -> dict:
+    return {"x": round(box.x / size.width, 4), "y": round(box.y / size.height, 4),
+            "w": round(box.w / size.width, 4), "h": round(box.h / size.height, 4)}
+
+
+def _shape(result: Render) -> Shape:
+    """The one size and frame rate every kept clip shares, which the player sizes its window to."""
+    shapes = {filmed.kept.path: frames.shape(filmed.kept.path) for filmed in result.shots}
+    if len(set(shapes.values())) > 1:
+        raise FfmpegError("the kept clips differ in size or frame rate, so no one window plays them: " +
+                          ", ".join(f"{path.name} {s.width}x{s.height} at {s.fps} fps" for path, s in shapes.items()))
+    return next(iter(shapes.values()))
 
 
 def _tape(screenplay: Screenplay, result: Render) -> dict:
     buttons = {filmed.shot.scene: filmed.kept.checks.buttons for filmed in result.keys}
     clips = {(filmed.shot.start, filmed.shot.label): filmed.shot.move for filmed in result.moves}
+    size = _shape(result)
     return {
-        "size": {"width": WIDTH, "height": HEIGHT},
-        "fps": FPS,
+        "size": {"width": size.width, "height": size.height},
+        "fps": size.fps,
         "opening": {"clip": "moves/opening.mp4", "lands": result.keys[0].shot.scene},
         "scenes": {
             name: {
                 "key": f"keys/{name}.png",
                 # A hotspot needs a box, and a box is never invented, so a button the checks did not find has no hotspot.
-                "hotspots": [{"label": label, "box": _fraction(box), "move": clips[(name, label)]}
+                "hotspots": [{"label": label, "box": _fraction(box, size), "move": clips[(name, label)]}
                              for label in scene.actions if (box := buttons[name][label])],
             }
             for name, scene in screenplay.scenes.items()

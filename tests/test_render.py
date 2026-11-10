@@ -121,6 +121,32 @@ def test_tape_files_are_keys_and_browser_playable_clips(first):
     assert (tape / "dailies.html").is_file()
 
 
+class Taller(StandIn):
+    """Pads every key take to 1280x720 in the stand-in's background, eight pixels above and below, as a model with another
+    frame size would."""
+
+    def text_to_video(self, prompt, seed, out):
+        drawn = out.with_name(f"drawn-{out.name}")
+        super().text_to_video(prompt, seed, drawn)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(drawn), "-vf", "pad=1280:720:0:8:color=0x2f6f7e", "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p", "-r", "24", "-f", "mp4", "-y", str(out)], check=True)
+        drawn.unlink()
+
+
+def test_a_tape_takes_its_size_from_its_clips(first, tmp_path):
+    directory = tmp_path / "surf_shop"
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    render(directory, Taller(flaw=clean), StandInEye(), takes=1)
+    tape = directory / "tape"
+    data = json.loads((tape / "tape.json").read_text())
+    assert (data["size"], data["fps"]) == ({"width": 1280, "height": 720}, 24)
+    assert {(frames.read_png(key).width, frames.read_png(key).height) for key in (tape / "keys").iterdir()} == {(1280, 720)}
+    [enter] = data["scenes"]["welcome"]["hotspots"]
+    [short] = json.loads((first[0] / "tape" / "tape.json").read_text())["scenes"]["welcome"]["hotspots"]
+    assert abs(enter["box"]["y"] * 720 - (short["box"]["y"] * 704 + 8)) <= 1
+    assert abs(enter["box"]["h"] * 720 - short["box"]["h"] * 704) <= 1
+
+
 def test_hotspots_sit_where_the_kept_take_drew_its_buttons(first):
     directory, model, result = first
     scenes = json.loads((directory / "tape" / "tape.json").read_text())["scenes"]

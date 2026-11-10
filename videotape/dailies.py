@@ -41,7 +41,7 @@ summary { cursor: pointer; }
 .takes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; }
 .take { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .take.kept { border: 2px solid var(--kept); padding: 9px; }
-video, img { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 704; border-radius: 6px; background: #000; }
+video, img { display: block; width: 100%; height: auto; aspect-ratio: auto 1280 / 704; border-radius: 6px; background: #000; }
 figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .checks { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .checks li { display: grid; grid-template-columns: 1.2em 1fr; column-gap: 4px; padding: 2px 0;
