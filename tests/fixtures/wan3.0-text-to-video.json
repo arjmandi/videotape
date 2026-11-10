@@ -1,37 +1,41 @@
 {
   "submitted": {
     "status": "IN_QUEUE",
-    "request_id": "2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10",
-    "response_url": "https://queue.fal.run/alibaba/wan-3.0/requests/2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10",
-    "status_url": "https://queue.fal.run/alibaba/wan-3.0/requests/2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10/status",
-    "cancel_url": "https://queue.fal.run/alibaba/wan-3.0/requests/2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10/cancel",
-    "queue_position": 0
+    "request_id": "01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+    "response_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+    "status_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb/status",
+    "cancel_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb/cancel",
+    "logs": null,
+    "metrics": {},
+    "queue_position": 0,
+    "user_queue_position": 0,
+    "user_queued_count": 1
   },
   "status": {
     "status": "COMPLETED",
-    "request_id": "2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10",
-    "response_url": "https://queue.fal.run/alibaba/wan-3.0/requests/2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10",
-    "status_url": "https://queue.fal.run/alibaba/wan-3.0/requests/2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10/status",
-    "cancel_url": "https://queue.fal.run/alibaba/wan-3.0/requests/2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10/cancel",
+    "request_id": "01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+    "response_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+    "status_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb/status",
+    "cancel_url": "https://queue.fal.run/alibaba/wan-3.0/requests/01a1c5fb-027e-7b70-857e-d4305eafbbdb/cancel",
     "logs": null,
     "metrics": {
-      "inference_time": 61.8
+      "inference_time": 96.97199988365173
     }
   },
   "result": {
     "video": {
-      "url": "https://v3b.fal.media/files/b/0aa4eab2/q7Hk2LmN9pRs.mp4",
+      "url": "https://v3b.fal.media/files/b/0ab1eb6e/GNvrhPb7RelDLEjjuL7xY_UcjPFGG8.mp4",
       "content_type": "video/mp4",
-      "file_name": "q7Hk2LmN9pRs.mp4",
-      "file_size": 3815204,
+      "file_name": "GNvrhPb7RelDLEjjuL7xY_UcjPFGG8.mp4",
+      "file_size": 7708900,
       "width": 1280,
       "height": 720,
-      "fps": 24.0,
-      "duration": 5.04,
-      "num_frames": 121
+      "fps": 30.0,
+      "duration": 5.0,
+      "num_frames": 150
     },
     "seed": 1,
-    "duration": 5.04,
-    "actual_prompt": "Static shot. A small surf shop on the California coast in warm afternoon light: whitewashed wood, sea air, and surfboards hand-painted in bright patterns. Just inside, by the counter. The text reads \"How would you like to come in?\". Below it, three big flat buttons are stacked, with bold black letters reading \"I have an account\", \"Create an account\" and \"Browse as guest\". Sharp, legible lettering."
+    "duration": 5.0,
+    "actual_prompt": null
   }
 }

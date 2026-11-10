@@ -71,17 +71,20 @@ def test_settings_cover_every_argument_a_shot_does_not_supply(tmp_path):
 
 
 def test_a_recorded_response_reads_into_a_video_and_a_receipt_without_the_network():
-    for mode, request_id, file_name in (("text-to-video", "2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10", "q7Hk2LmN9pRs.mp4"),
-                                        ("image-to-video", "9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b", "Xv3Bn8Qw1ZtY.mp4")):
+    for mode, request_id, video in (
+            ("text-to-video", "01a1c5fb-027e-7b70-857e-d4305eafbbdb",
+             "https://v3b.fal.media/files/b/0ab1eb6e/GNvrhPb7RelDLEjjuL7xY_UcjPFGG8.mp4"),
+            ("image-to-video", "01a1c61c-45f6-76e1-9089-e4151dcebb51",
+             "https://v3b.fal.media/files/b/0ab1ec52/ovFng3HiN7lAS57AK3Vmg_5d55sEuG.mp4")):
         response = recorded(mode)
         url, receipt = wan3.bill(response)
-        assert url == f"https://v3b.fal.media/files/b/0aa4eab2/{file_name}"
-        assert receipt == Receipt(request_id, 5.04, 0.504, response)
+        assert url == video
+        assert receipt == Receipt(request_id, 5.0, 0.5, response)
 
 
 def test_a_response_without_a_video_is_an_error():
     response = recorded("text-to-video")
-    with pytest.raises(FalError, match="request 2c1f7a3e-5d0b-4e9a-9c61-8f3b2d7e4a10 answered without a video"):
+    with pytest.raises(FalError, match="request 01a1c5fb-027e-7b70-857e-d4305eafbbdb answered without a video"):
         wan3.bill({**response, "result": {"detail": "the safety checker flagged the output"}})
 
 
@@ -143,16 +146,16 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     assert (data["size"], data["fps"]) == ({"width": 1280, "height": 720}, 24)
     lines = ledger.read(out)
     assert [(line["model"], line["shot"], line["mode"], line["seed"], line["request_id"], line["duration"], line["usd"])
-            for line in lines] == [("wan3.0", shot.title, shot.mode.value, 1, f"request-{number}", 5.04, 0.504)
+            for line in lines] == [("wan3.0", shot.title, shot.mode.value, 1, f"request-{number}", 5.0, 0.5)
                                    for number, shot in enumerate(shots)]
     assert all(line["seconds"] > 0 and line["gpu"] == "fal" for line in lines)
-    assert ledger.totals(lines)["usd"] == 5.04
+    assert ledger.totals(lines)["usd"] == 5.0
     assert not (directory / "tape").exists()
     written = "".join(path.read_text(errors="replace") for path in out.rglob("*") if path.suffix in (".json", ".jsonl", ".html"))
     assert KEY not in written + stdout + stderr
     record = json.loads((out / "dailies.json").read_text())
     sidecar = json.loads((out / record["keys"][0]["takes"][0]["clip"]).with_suffix(".json").read_text())
-    assert (sidecar["request_id"], sidecar["duration"], sidecar["usd"]) == ("request-0", 5.04, 0.504)
+    assert (sidecar["request_id"], sidecar["duration"], sidecar["usd"]) == ("request-0", 5.0, 0.5)
     assert sidecar["response"]["submitted"]["request_id"] == "request-0"
     assert sidecar["response"]["result"]["video"]["url"] == "https://v3b.fal.media/files/test/request-0.mp4"
 
