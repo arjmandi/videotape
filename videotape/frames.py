@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
-# The size and rate of the clips videotape encodes itself: the stand-in's and Wan 2.2 5B's. A clip from any other model
-# keeps its own, which decoding reads from the clip.
+# The size and rate of the clips videotape encodes itself, which are the stand-in's and Wan 2.2 5B's. A clip from any other
+# model keeps its own, which decoding reads from the clip.
 WIDTH, HEIGHT, FPS = 1280, 704, 24
 SMALL = (160, 88)
 

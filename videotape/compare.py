@@ -3,6 +3,7 @@ each key, and how each move gets from one key to the other."""
 
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -91,19 +92,23 @@ def compare(tapes: tuple[Tape, Tape]) -> Path:
         (stills / side).mkdir(parents=True, exist_ok=True)
         for move in tape.record["moves"]:
             frames.stills(tape.path / _kept(move)["clip"], STILLS, STILL_WIDTH, _stills(stills / side, move))
-    motions = [{move["title"]: frames.motion(tape.path / _kept(move)["clip"]) for move in tape.record["moves"]}
-               for tape in tapes]
+    motions = {letter: {move["title"]: frames.motion(tape.path / _kept(move)["clip"]) for move in tape.record["moves"]}
+               for letter, tape in zip("AB", tapes)}
     out = folder / "compare.html"
     publish(out, lambda partial: partial.write_text(page(tapes, motions, folder)))
     return out
 
 
-def page(tapes: tuple[Tape, Tape], motions: list[dict[str, float]], folder: Path) -> str:
+def page(tapes: tuple[Tape, Tape], motions: dict[str, dict[str, float]], folder: Path) -> str:
+    """motions holds each move's frame-to-frame difference by title, for tape A and tape B."""
     title = escape(tapes[0].record["title"])
     keys = _matched([tape.record["keys"] for tape in tapes])
     moves = _matched([tape.record["moves"] for tape in tapes])
-    cards = [_key(number, pair, tapes, folder) for number, pair in enumerate(keys, 1)]
-    cards += [_move(number, pair, tapes, motions, folder) for number, pair in enumerate(moves, len(keys) + 1)]
+    cards = [_card(number, pair, tapes, lambda letter, tape, key: _key(letter, tape, key, folder))
+             for number, pair in enumerate(keys, 1)]
+    cards += [_card(number, pair, tapes,
+                    lambda letter, tape, move: _move(letter, tape, move, motions[letter][move["title"]], folder))
+              for number, pair in enumerate(moves, len(keys) + 1)]
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -132,7 +137,7 @@ frames from its start to its end.</p>
 
 def summary(side: str, tape: Tape) -> str:
     """The line the CLI prints for one tape."""
-    found, buttons = _buttons(tape.record["keys"])
+    found, buttons = _passed(tape.record["keys"], "button")
     size = tape.manifest["size"]
     return (f"{side} {tape.path}  {tape.model}  {size['width']}x{size['height']} at {tape.manifest['fps']} fps  "
             f"{ledger.totals(tape.lines)['takes']} takes  ${ledger.totals(tape.lines)['usd']:.2f}  "
@@ -154,18 +159,14 @@ def _matched(sides: list[list[dict]]) -> list[tuple[dict | None, dict | None]]:
     return [(by_title[0].get(title), by_title[1].get(title)) for title in titles]
 
 
-def _buttons(keys: list[dict]) -> tuple[int, int]:
-    buttons = [item for key in keys for item in key["items"] if item["name"].startswith("button ")]
-    return sum(item["passed"] for item in buttons), len(buttons)
+def _passed(keys: list[dict], kind: str) -> tuple[int, int]:
+    """How many of the keys' button or text checks passed, out of how many, from items named like 'button "Sign up"'."""
+    items = [item for key in keys for item in key["items"] if item["name"].startswith(f"{kind} ")]
+    return sum(item["passed"] for item in items), len(items)
 
 
-def _found(found: int, buttons: int) -> str:
-    return f"{found} of {buttons} button{'' if buttons == 1 else 's'} found." if buttons else "No buttons to find."
-
-
-def _exact(keys: list[dict]) -> tuple[int, int]:
-    texts = [item for key in keys for item in key["items"] if item["name"].startswith("text ")]
-    return sum(item["passed"] for item in texts), len(texts)
+def _plural(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
 
 
 def _stills(folder: Path, move: dict) -> list[Path]:
@@ -179,10 +180,10 @@ def _href(path: Path, folder: Path) -> str:
 def _totals(side: str, tape: Tape, folder: Path) -> str:
     totals = ledger.totals(tape.lines)
     size = tape.manifest["size"]
-    found, buttons = _buttons(tape.record["keys"])
-    exact, texts = _exact(tape.record["keys"])
+    found, buttons = _passed(tape.record["keys"], "button")
+    exact, texts = _passed(tape.record["keys"], "text")
     takes = sum(tape.usd(take) for shot in _shots(tape.record) for take in shot["takes"])
-    pods = f", {totals['pods']} pod for {totals['pod_hours']} h with setup" if totals["pods"] else ""
+    pods = f", {_plural(totals['pods'], 'pod')} for {totals['pod_hours']} h with setup" if totals["pods"] else ""
     return f"""<section class="take">
 <h2>{side}. <a href="{_href(tape.path / "dailies.html", folder)}">{escape(tape.path.name)}</a></h2>
 <ul class="facts">
@@ -204,12 +205,10 @@ def _head(number: int, pair: tuple[dict | None, dict | None]) -> str:
             f"<details><summary>Prompt</summary>{shown}</details>")
 
 
-def _caption(side: str, tape: Tape, shot: dict) -> str:
-    kept = _kept(shot)
-    failing = ' <span class="badge failing">fails checks</span>' if not all(item["passed"] for item in shot.get(
-        "items", kept["items"])) else ""
-    return (f'<figcaption><strong>{side}. {escape(tape.path.name)}</strong><span class="badge">{escape(tape.model)}</span>'
-            f'<span class="badge kept">kept take {kept["seed"]}</span>{failing}</figcaption>')
+def _caption(letter: str, tape: Tape, shot: dict, items: list[dict]) -> str:
+    failing = "" if all(item["passed"] for item in items) else ' <span class="badge failing">fails checks</span>'
+    return (f'<figcaption><strong>{letter}. {escape(tape.path.name)}</strong><span class="badge">{escape(tape.model)}</span>'
+            f'<span class="badge kept">kept take {_kept(shot)["seed"]}</span>{failing}</figcaption>')
 
 
 def _cost(tape: Tape, shot: dict) -> str:
@@ -217,31 +216,17 @@ def _cost(tape: Tape, shot: dict) -> str:
     known = [take["seconds"] for take in shot["takes"] if take["seconds"] is not None]
     time = f'Kept take rendered in {kept["seconds"]:.1f} s' if kept["seconds"] is not None else "Render time unknown"
     usd = sum(tape.usd(take) for take in shot["takes"])
-    count = len(shot["takes"])
-    return (f'<p class="note">{time}. {count} take{"" if count == 1 else "s"} in {sum(known):.1f} s for ${usd:.2f}, '
+    return (f'<p class="note">{time}. {_plural(len(shot["takes"]), "take")} in {sum(known):.1f} s for ${usd:.2f}, '
             f'{escape(tape.basis)}.</p>')
 
 
-def _missing(side: str, tape: Tape) -> str:
-    return (f'<figure class="side"><figcaption><strong>{side}. {escape(tape.path.name)}</strong></figcaption>'
-            f'<p class="note missing">This shot is not in this tape.</p></figure>')
-
-
-def _key(number: int, pair, tapes: tuple[Tape, Tape], folder: Path) -> str:
-    sides = []
-    for side, tape, key in zip("AB", tapes, pair):
-        if key is None:
-            sides.append(_missing(side, tape))
-            continue
-        found, buttons = _buttons([key])
-        sides.append(
-            f'<figure class="side">{_caption(side, tape, key)}'
-            f'<div class="pair"><figure><video src="{_href(tape.path / _kept(key)["clip"], folder)}" autoplay loop muted'
-            f' playsinline preload="metadata"></video><figcaption>kept take</figcaption></figure>'
-            f'<figure><img src="{_href(tape.path / key["key"], folder)}" alt="Key for {escape(key["scene"])} in {side}"'
-            f' loading="lazy"><figcaption>key, its last frame</figcaption></figure></div>'
-            f'<p class="note{"" if found == buttons else " fail"}">{_found(found, buttons)}</p>'
-            f'<ul class="checks">{dailies.checklist(key["items"])}</ul>{_cost(tape, key)}</figure>')
+def _card(number: int, pair: tuple[dict | None, dict | None], tapes: tuple[Tape, Tape],
+          side: Callable[[str, Tape, dict], str]) -> str:
+    """One shot's card, with side(letter, tape, shot) drawn for each tape that has the shot."""
+    sides = [side(letter, tape, shot) if shot else
+             f'<figure class="side"><figcaption><strong>{letter}. {escape(tape.path.name)}</strong></figcaption>'
+             f'<p class="note missing">This shot is not in this tape.</p></figure>'
+             for letter, tape, shot in zip("AB", tapes, pair)]
     return f"""<section class="shot" id="shot-{number}">
 {_head(number, pair)}
 <div class="sides">
@@ -250,28 +235,29 @@ def _key(number: int, pair, tapes: tuple[Tape, Tape], folder: Path) -> str:
 </section>"""
 
 
-def _move(number: int, pair, tapes: tuple[Tape, Tape], motions: list[dict[str, float]], folder: Path) -> str:
-    sides = []
-    for side, tape, motion, move in zip("AB", tapes, motions, pair):
-        if move is None:
-            sides.append(_missing(side, tape))
-            continue
-        kept = _kept(move)
-        seams = all(item["passed"] for item in kept["items"])
-        strip = "".join(f'<figure><img src="{_href(still, folder)}" alt="{round(fraction * 100)}% of the move in {side}"'
-                        f' loading="lazy"><figcaption>{round(fraction * 100)}%</figcaption></figure>'
-                        for fraction, still in zip(STILLS, _stills(folder / "compare-frames" / side.lower(), move)))
-        sides.append(
-            f'<figure class="side">{_caption(side, tape, move)}'
+def _key(letter: str, tape: Tape, key: dict, folder: Path) -> str:
+    found, buttons = _passed([key], "button")
+    tally = f"{found} of {_plural(buttons, 'button')} found." if buttons else "No buttons to find."
+    return (f'<figure class="side">{_caption(letter, tape, key, key["items"])}'
+            f'<div class="pair"><figure><video src="{_href(tape.path / _kept(key)["clip"], folder)}" autoplay loop muted'
+            f' playsinline preload="metadata"></video><figcaption>kept take</figcaption></figure>'
+            f'<figure><img src="{_href(tape.path / key["key"], folder)}" alt="Key for {escape(key["scene"])} in {letter}"'
+            f' loading="lazy"><figcaption>key, its last frame</figcaption></figure></div>'
+            f'<p class="note{"" if found == buttons else " fail"}">{tally}</p>'
+            f'<ul class="checks">{dailies.checklist(key["items"])}</ul>{_cost(tape, key)}</figure>')
+
+
+def _move(letter: str, tape: Tape, move: dict, motion: float, folder: Path) -> str:
+    kept = _kept(move)
+    seams = all(item["passed"] for item in kept["items"])
+    stills = _stills(folder / "compare-frames" / letter.lower(), move)
+    strip = "".join(f'<figure><img src="{_href(still, folder)}" alt="{round(fraction * 100)}% of the move in {letter}"'
+                    f' loading="lazy"><figcaption>{round(fraction * 100)}%</figcaption></figure>'
+                    for fraction, still in zip(STILLS, stills))
+    return (f'<figure class="side">{_caption(letter, tape, move, kept["items"])}'
             f'<video src="{_href(tape.path / kept["clip"], folder)}" autoplay loop muted playsinline preload="metadata">'
             f'</video><div class="strip">{strip}</div>'
             f'<p class="note{"" if seams else " fail"}">Seams: leaves {escape(move["start"])} by {kept["start"]:.3f}, '
             f'enters {escape(move["land"])} by {kept["end"]:.3f}.</p>'
-            f'<p class="note">Each frame differs from the next by {motion[move["title"]]:.4f} on average.</p>'
+            f'<p class="note">Each frame differs from the next by {motion:.4f} on average.</p>'
             f'{_cost(tape, move)}</figure>')
-    return f"""<section class="shot" id="shot-{number}">
-{_head(number, pair)}
-<div class="sides">
-{chr(10).join(sides)}
-</div>
-</section>"""
