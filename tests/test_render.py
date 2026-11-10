@@ -413,6 +413,22 @@ def test_a_button_the_checks_do_not_find_has_no_hotspot_but_its_move_still_rende
     assert [call.mode for call in model.calls].count(Mode.FIRST_AND_LAST_FRAME) == 15
 
 
+def test_out_writes_the_tape_beside_the_screenplays_own(first, tmp_path, capsys, monkeypatch):
+    directory = copy_of(first, tmp_path)
+    before = tape_files(directory)
+    out = directory / "tape-b"
+    model = StandIn(flaw=clean)
+    monkeypatch.setitem(MODELS, "stand-in", lambda: model)
+    assert main(["render", str(directory), "--model", "stand-in", "--takes", "1", "--out", str(out)]) == 0
+    assert len(model.calls) == 10
+    assert capsys.readouterr().out.splitlines()[-1] == f"rendered 10 of 10 shots -> {out}"
+    assert json.loads((out / "tape.json").read_text())["opening"] == {"clip": "moves/opening.mp4", "lands": "welcome"}
+    assert sorted(path.name for path in (out / "keys").iterdir()) == sorted(name for name in before if name.endswith(".png"))
+    assert [line["seed"] for line in ledger.read(out)] == [1] * 10
+    assert dailies.read(out)["title"] == "Brushstroke Surf Co."
+    assert tape_files(directory) == before
+
+
 @pytest.mark.parametrize("flag", ["--model", "--checks"])
 def test_cli_render_rejects_an_unknown_model_or_checks(tmp_path, capsys, flag):
     arguments = {"--model": "stand-in", "--checks": "stand-in", flag: "sora"}

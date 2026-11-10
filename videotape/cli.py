@@ -32,7 +32,8 @@ def positive(text: str) -> int:
 
 
 def render_tape(args) -> int:
-    result = render(args.directory, MODELS[args.model](), CHECKS[args.checks](Path(args.directory) / "tape"), takes=args.takes)
+    tape = Path(args.out) if args.out else Path(args.directory) / "tape"
+    result = render(args.directory, MODELS[args.model](), CHECKS[args.checks](tape), takes=args.takes, tape=tape)
     for number, filmed in enumerate(result.shots, 1):
         status = f"rendered {filmed.rendered} take{'s' if filmed.rendered > 1 else ''}" if filmed.rendered else "cached"
         print(f"{number}. {filmed.shot.title}  {status}, kept take {filmed.kept.seed}")
@@ -95,6 +96,7 @@ def main(argv=None) -> int:
     rendering.add_argument("--model", required=True, choices=sorted(MODELS))
     rendering.add_argument("--checks", default="stand-in", choices=sorted(CHECKS))
     rendering.add_argument("--takes", type=positive, default=3, help="takes per shot; the best by its checks is kept (default 3)")
+    rendering.add_argument("--out", help="the tape directory to write (default <directory>/tape)")
     rendering.set_defaults(run=render_tape)
     checking = commands.add_parser("check", help="read every key of a rendered tape and score it against its scene")
     checking.add_argument("tape")

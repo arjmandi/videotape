@@ -48,7 +48,8 @@ class Render:
         return *self.keys, *self.moves
 
 
-def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
+def render(directory, model: Model, eye: Eye, takes: int = 3, tape: Path | None = None) -> Render:
+    """Render the screenplay in directory into tape, which defaults to <directory>/tape."""
     screenplay = load(directory)
     shots = plan(screenplay)
     keys = [shot for shot in shots if isinstance(shot, Key)]
@@ -59,7 +60,7 @@ def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
             raise ScreenplayError(f'scene "{move.start}": actions "{clips[move.move].label}" and "{move.label}" '
                                   f'would share the clip moves/{move.move}.mp4')
         clips[move.move] = move
-    tape = Path(directory) / "tape"
+    tape = tape or Path(directory) / "tape"
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     seeds = range(1, takes + 1)
