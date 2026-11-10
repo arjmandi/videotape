@@ -101,15 +101,40 @@ def _move_take(model: Model, move: Move, start: Path, end: Path, seed: int, tape
     return Take(seed, path, cached, seams(path, start, end), timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
 
 
-def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path,
-          film: Callable[[Path], Receipt | None]) -> tuple[Path, bool, dict]:
-    """The take for this shot and seed, filmed unless it is already in the cache. Its name hashes everything the pixels
-    depend on: the mode, the prompt, the key images a move is pinned to, the model, the seed and the model's settings."""
+def uncached(directory, model: Model, takes: int, tape: Path) -> int:
+    """How many takes a render will film. A move counts every take unless both its keys are cached and their images
+    are on the tape, since a key that renders again may change and move every take pinned to it."""
+    shots = plan(load(directory))
+    seeds = range(1, takes + 1)
+    count, changing = 0, set()
+    for key in (shot for shot in shots if isinstance(shot, Key)):
+        missing = sum(not _take_path(model, key, (), seed, tape).exists() for seed in seeds)
+        count += missing
+        if missing:
+            changing.add(key.scene)
+    for move in (shot for shot in shots if isinstance(shot, Move)):
+        images = (tape / "keys" / f"{move.start}.png", tape / "keys" / f"{move.land}.png")
+        if {move.start, move.land} & changing or not all(image.exists() for image in images):
+            count += takes
+        else:
+            count += sum(not _take_path(model, move, images, seed, tape).exists() for seed in seeds)
+    return count
+
+
+def _take_path(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path) -> Path:
+    """A take's name hashes everything its pixels depend on: the mode, the prompt, the key images a move is pinned to,
+    the model, the seed and the model's settings."""
     fields = [shot.mode.value, shot.prompt, *(hashlib.sha256(image.read_bytes()).hexdigest() for image in images),
               model.name, seed]
     if settings := model.settings(shot.mode):
         fields.append(settings)
-    path = tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
+    return tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
+
+
+def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path,
+          film: Callable[[Path], Receipt | None]) -> tuple[Path, bool, dict]:
+    """The take for this shot and seed, filmed unless it is already in the cache."""
+    path = _take_path(model, shot, images, seed, tape)
     # The render time and any price live in a sidecar next to the take, so they survive caching.
     timing = path.with_suffix(".json")
     cached = path.exists()

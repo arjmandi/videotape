@@ -74,6 +74,7 @@ class Drawn:
 class StandIn:
     name = "stand-in"
     device = "cpu"
+    price = None
 
     def __init__(self, flaw: Callable[[Mode, str, int], Flaw] | None = None):
         self.flaw = flaw

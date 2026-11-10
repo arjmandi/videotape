@@ -6,10 +6,11 @@ from pathlib import Path
 from videotape import dailies, frames
 from videotape.checks import ChecksError, score
 from videotape.eyes import CHECKS
+from videotape.fal import FalError
 from videotape.frames import FfmpegError
 from videotape.loader import load
 from videotape.model import MODELS
-from videotape.render import render
+from videotape.render import render, uncached
 from videotape.screenplay import ScreenplayError
 from videotape.shots import plan
 from videotape.wan import WanError
@@ -33,7 +34,10 @@ def positive(text: str) -> int:
 
 def render_tape(args) -> int:
     tape = Path(args.out) if args.out else Path(args.directory) / "tape"
-    result = render(args.directory, MODELS[args.model](), CHECKS[args.checks](tape), takes=args.takes, tape=tape)
+    model, eye = MODELS[args.model](), CHECKS[args.checks](tape)
+    if model.price and (calls := uncached(args.directory, model, args.takes, tape)):
+        print(model.price.estimate(model.name, calls), flush=True)
+    result = render(args.directory, model, eye, takes=args.takes, tape=tape)
     for number, filmed in enumerate(result.shots, 1):
         status = f"rendered {filmed.rendered} take{'s' if filmed.rendered > 1 else ''}" if filmed.rendered else "cached"
         print(f"{number}. {filmed.shot.title}  {status}, kept take {filmed.kept.seed}")
@@ -108,6 +112,6 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.run(args)
-    except (ScreenplayError, FfmpegError, ChecksError, WanError) as error:
+    except (ScreenplayError, FfmpegError, ChecksError, WanError, FalError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1

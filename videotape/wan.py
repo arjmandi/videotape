@@ -108,6 +108,7 @@ class Wan:
     """One checkpoint lives in VRAM at a time. A render draws every key, then every move, so it swaps once."""
 
     name = "wan2.2-5b"
+    price = None
 
     def __init__(self):
         if find_spec("torch") is None or find_spec("diffusers") is None:

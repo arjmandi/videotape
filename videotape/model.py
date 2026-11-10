@@ -2,7 +2,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol
 
-from videotape.fal import Receipt
+from videotape import wan3
+from videotape.fal import Price, Receipt
 from videotape.shots import Mode
 from videotape.standin import StandIn
 from videotape.wan import Wan
@@ -11,6 +12,8 @@ from videotape.wan import Wan
 class Model(Protocol):
     name: str
     device: str
+    # Set for a model that bills per call, so a render can say what it will spend before it spends it.
+    price: Price | None
 
     def settings(self, mode: Mode) -> dict:
         """The generation settings a take depends on beyond its mode, prompt, images and seed. They go into the take's cache key."""
@@ -25,4 +28,5 @@ class Model(Protocol):
 MODELS: dict[str, Callable[[], Model]] = {
     "stand-in": StandIn,
     "wan2.2-5b": Wan,
+    "wan3.0": wan3.from_environment,
 }
