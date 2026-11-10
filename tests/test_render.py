@@ -15,15 +15,19 @@ from videotape.shots import Mode, plan
 from videotape.standin import Flaw, StandIn, StandInEye
 
 SURF_SHOP = Path(__file__).parent.parent / "examples" / "surf_shop"
-CREATE_ACCOUNT = 'The button labelled "Create an account" is pressed.'
-SIGN_UP = 'The button labelled "Sign up" is pressed.'
+SIGNUP_KEY = 'The text reads "Create your account"'
+SIGN_UP_MOVE = 'The button labelled "Sign up" is pressed.'
 
 
-def flaws(prompt: str, seed: int) -> Flaw:
-    if CREATE_ACCOUNT in prompt:
+def flaws(mode: Mode, prompt: str, seed: int) -> Flaw:
+    if SIGNUP_KEY in prompt:
         return {1: Flaw.MISSPELL, 2: Flaw.DROP_BUTTON}.get(seed, Flaw.NONE)
-    if SIGN_UP in prompt:
+    if SIGN_UP_MOVE in prompt:
         return {1: Flaw.WRONG_START, 2: Flaw.WRONG_END}.get(seed, Flaw.NONE)
+    return Flaw.NONE
+
+
+def clean(mode: Mode, prompt: str, seed: int) -> Flaw:
     return Flaw.NONE
 
 
@@ -31,10 +35,6 @@ class Witness(StandIn):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.existed: list[bool] = []
-
-    def image_to_video(self, prompt, start, seed, out):
-        self.existed.append(start.is_file())
-        super().image_to_video(prompt, start, seed, out)
 
     def first_last_frame(self, prompt, start, end, seed, out):
         self.existed += [start.is_file(), end.is_file()]
@@ -65,16 +65,19 @@ def tape_files(directory: Path) -> dict[str, bytes]:
     return {path.name: path.read_bytes() for path in [tape / "tape.json", *sorted((tape / "keys").iterdir())]}
 
 
-def test_model_is_called_three_times_per_shot_in_plan_order(first):
+def test_every_key_is_filmed_before_any_move_with_three_takes_each(first):
     directory, model, _ = first
     keys = directory / "tape" / "keys"
     expected = [(shot, seed) for shot in plan(load(directory)) for seed in (1, 2, 3)]
     assert [(call.mode, call.prompt, call.seed) for call in model.calls] == [
         (shot.mode, shot.prompt, seed) for shot, seed in expected]
+    assert [call.mode for call in model.calls] == [Mode.TEXT_TO_VIDEO] * 15 + [Mode.FIRST_AND_LAST_FRAME] * 15
     for call, (shot, _) in zip(model.calls, expected):
-        assert call.start == (keys / f"{shot.start}.png" if shot.start else None)
-        assert call.end == (keys / f"{shot.land}.png" if shot.mode is Mode.FIRST_AND_LAST_FRAME else None)
-    assert model.existed == [True] * 18
+        if shot.mode is Mode.FIRST_AND_LAST_FRAME:
+            assert (call.start, call.end) == (keys / f"{shot.start}.png", keys / f"{shot.land}.png")
+        else:
+            assert (call.start, call.end) == (None, None)
+    assert model.existed == [True] * 30
 
 
 def test_tape_lists_scenes_hotspots_and_moves(first):
@@ -107,7 +110,9 @@ def test_tape_files_are_keys_and_browser_playable_clips(first):
     assert [key.name for key in keys] == ["entrance.png", "gallery.png", "login.png", "signup.png", "welcome.png"]
     assert all((frames.read_png(key).width, frames.read_png(key).height) == (1280, 704) for key in keys)
     moves = sorted((tape / "moves").iterdir())
-    assert len(moves) == 6
+    assert [move.name for move in moves] == ["entrance--browse-as-guest.mp4", "entrance--create-an-account.mp4",
+                                             "entrance--i-have-an-account.mp4", "opening.mp4", "signup--sign-up.mp4",
+                                             "welcome--enter-shop.mp4"]
     for move in moves:
         probe = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v", "-show_entries",
                                 "stream=codec_name,pix_fmt,width,height,r_frame_rate", "-of", "csv=p=0", str(move)],
@@ -120,12 +125,10 @@ def test_hotspots_sit_where_the_kept_take_drew_its_buttons(first):
     directory, model, result = first
     scenes = json.loads((directory / "tape" / "tape.json").read_text())["scenes"]
     checked = 0
-    for filmed in result.shots:
-        if filmed.key is None:
-            continue
+    for filmed in result.keys:
         call = next(c for c in model.calls if c.prompt == filmed.shot.prompt and c.seed == filmed.kept.seed)
         drawn = {d.text: d.box for d in model.drawn[call.out] if d.button}
-        hotspots = scenes[filmed.shot.land]["hotspots"]
+        hotspots = scenes[filmed.shot.scene]["hotspots"]
         assert [hotspot["label"] for hotspot in hotspots] == list(drawn)
         for hotspot in hotspots:
             box, truth = hotspot["box"], drawn[hotspot["label"]]
@@ -135,83 +138,86 @@ def test_hotspots_sit_where_the_kept_take_drew_its_buttons(first):
     assert checked == 5
 
 
-def test_each_key_is_its_kept_takes_last_frame(first):
+def test_each_key_is_its_kept_takes_last_frame_and_welcomes_clip_is_the_opening(first):
     directory, _, result = first
     tape = directory / "tape"
-    keyed = [filmed for filmed in result.shots if filmed.key]
-    assert [filmed.key for filmed in keyed] == [tape / "keys" / f"{filmed.shot.land}.png" for filmed in keyed]
-    for filmed in keyed:
-        assert frames.difference(frames.read_png(filmed.key), frames.last_frame(filmed.kept.path)) < 0.001
-    for filmed in result.shots:
+    for filmed in result.keys:
+        key = tape / "keys" / f"{filmed.shot.scene}.png"
+        assert frames.difference(frames.read_png(key), frames.last_frame(filmed.kept.path)) < 0.001
+    assert (tape / "moves" / "opening.mp4").read_bytes() == result.keys[0].kept.path.read_bytes()
+    for filmed in result.moves:
         assert (tape / "moves" / f"{filmed.shot.move}.mp4").read_bytes() == filmed.kept.path.read_bytes()
 
 
-def test_best_take_is_kept(first):
+def test_a_key_keeps_the_take_with_the_most_buttons_then_the_least_character_error(first):
     _, model, result = first
-    signup = next(filmed for filmed in result.shots if CREATE_ACCOUNT in filmed.shot.prompt)
+    signup = next(filmed for filmed in result.keys if filmed.shot.scene == "signup")
     misspelt_call = next(c for c in model.calls if c.prompt == signup.shot.prompt and c.seed == 1)
     drawn = {d.text for d in model.drawn[misspelt_call.out]}
     [misspelt] = [text for text in ("Create your account", "Email", "Password", "Sign up") if text not in drawn]
     misspelt_take, dropped_take, clean_take = signup.takes
     assert signup.kept is clean_take
     assert misspelt_take.checks.text[misspelt].cer > 0
-    assert f'text "{misspelt}"' in [item.name for item in misspelt_take.checks.failures]
+    assert [item.name for item in misspelt_take.checks.failures] == [f'text "{misspelt}"']
     assert dropped_take.checks.buttons == {"Sign up": None}
+    assert [item.name for item in dropped_take.checks.failures] == ['button "Sign up"', 'text "Sign up"']
     assert clean_take.checks.failures == []
+    # A missing button costs more than a misspelt line, whatever the seeds.
+    assert clean_take.checks.rank(3) < misspelt_take.checks.rank(1) < dropped_take.checks.rank(2)
 
-    login = next(filmed for filmed in result.shots if SIGN_UP in filmed.shot.prompt)
-    wrong_start, wrong_end, clean = login.takes
-    assert login.kept is clean
-    assert wrong_start.checks.start > MAX_DIFFERENCE
+
+def test_a_move_keeps_the_take_whose_frames_sit_closest_to_its_keys(first):
+    _, _, result = first
+    sign_up = next(filmed for filmed in result.moves if filmed.shot.move == "signup--sign-up")
+    wrong_start, wrong_end, clean = sign_up.takes
+    assert sign_up.kept is clean
+    assert wrong_start.checks.start > MAX_DIFFERENCE and wrong_start.checks.end <= MAX_DIFFERENCE
     assert [item.name for item in wrong_start.checks.failures] == ["start"]
-    assert wrong_end.checks.end > MAX_DIFFERENCE
+    assert wrong_end.checks.end > MAX_DIFFERENCE and wrong_end.checks.start <= MAX_DIFFERENCE
     assert [item.name for item in wrong_end.checks.failures] == ["end"]
     assert clean.checks.failures == []
+    assert clean.checks.rank(3) < wrong_start.checks.rank(1) and clean.checks.rank(3) < wrong_end.checks.rank(2)
 
 
-def test_dailies_page_is_a_view_of_its_record_with_a_keys_section(first):
-    tape = first[0] / "tape"
+def test_dailies_page_is_a_view_of_its_record(first):
+    directory, _, result = first
+    tape = directory / "tape"
     record = json.loads((tape / "dailies.json").read_text())
-    assert (tape / "dailies.html").read_text() == dailies.page(record)
-    assert record["keys"]["checks"] == "stand-in"
-    scenes = record["keys"]["scenes"]
-    assert [(scene["scene"], scene["key"]) for scene in scenes] == [
-        (name, f"keys/{name}.png") for name in ("welcome", "entrance", "login", "signup", "gallery")]
-    assert [(item["name"], item["passed"]) for item in scenes[0]["items"]] == [
+    page = (tape / "dailies.html").read_text()
+    assert page == dailies.page(record)
+    assert record["checks"] == "stand-in"
+    assert [(key["scene"], key["key"], key["title"]) for key in record["keys"]] == [
+        (name, f"keys/{name}.png", f"key {name}") for name in ("welcome", "entrance", "login", "signup", "gallery")]
+    assert [(item["name"], item["passed"]) for item in record["keys"][0]["items"]] == [
         ('button "Enter shop"', True), ('text "Brushstroke Surf Co."', True),
         ('text "Hand-painted surfboards from California"', True), ('text "Enter shop"', True)]
-    assert scenes[0]["items"][0]["result"].startswith("found at ")
-    assert scenes[0]["items"][1]["result"] == 'read "Brushstroke Surf Co.", CER 0.000'
-    page = (tape / "dailies.html").read_text()
+    assert record["keys"][0]["items"][0]["result"].startswith("found at ")
+    assert [move["move"] for move in record["moves"]] == [filmed.shot.move for filmed in result.moves]
     assert '<section class="shot keys" id="keys">' in page
     assert "5 keys checked by stand-in, all passing" in page
+    assert page.count('<section class="shot" id="shot-') == 10
+    assert "<h2>1. key welcome (text-to-video)</h2>" in page
+    assert "<h2>10. signup -&gt; login &quot;Sign up&quot; (first-and-last-frame)</h2>" in page
+    # The signup key's dropped take says so, in the open.
+    assert 'button &quot;Sign up&quot;</span><span class="result">not found' in page
 
 
-def test_dailies_record_has_each_keys_seams_and_render_time(first):
+def test_dailies_record_has_each_moves_seams_and_the_tapes_size(first):
     directory, _, result = first
-    record = json.loads((directory / "tape" / "dailies.json").read_text())
-    scenes = {scene["scene"]: scene for scene in record["keys"]["scenes"]}
-    seams = {name: [(seam["move"], seam["edge"], seam["passed"]) for seam in scene["seams"]] for name, scene in scenes.items()}
-    assert seams == {
-        "welcome": [("welcome--enter-shop", "leaves", True)],
-        "entrance": [("entrance--i-have-an-account", "leaves", True), ("entrance--create-an-account", "leaves", True),
-                     ("entrance--browse-as-guest", "leaves", True)],
-        "login": [("signup--sign-up", "enters", True)],
-        "signup": [("signup--sign-up", "leaves", True)],
-        "gallery": [],
-    }
-    kept = {filmed.shot.move: filmed.kept for filmed in result.shots}
-    assert scenes["login"]["seams"][0]["difference"] == kept["signup--sign-up"].checks.end
-    assert scenes["signup"]["seams"][0]["difference"] == kept["signup--sign-up"].checks.start
-    for filmed in result.shots:
-        if filmed.key:
-            assert scenes[filmed.shot.land]["time"] == {
-                "move": filmed.shot.move, "kept": filmed.kept.seconds, "gpu": "cpu",
-                "total": round(sum(take.seconds for take in filmed.takes), 3)}
-    assert record["ledger"] == ledger.totals(ledger.read(directory / "tape"))
-    page = (directory / "tape" / "dailies.html").read_text()
-    assert "seam: enters by signup--sign-up" in page and "seam: leaves by entrance--browse-as-guest" in page
-    assert f". Ledger: {record['ledger']['gpu_seconds']} GPU seconds, 0.0 pod hours, $0.00." in page
+    tape = directory / "tape"
+    record = json.loads((tape / "dailies.json").read_text())
+    page = (tape / "dailies.html").read_text()
+    for move, filmed in zip(record["moves"], result.moves):
+        for take, filmed_take in zip(move["takes"], filmed.takes):
+            assert (take["start"], take["end"]) == (filmed_take.checks.start, filmed_take.checks.end)
+        kept = filmed.kept.checks
+        assert f"Seams: leaves {filmed.shot.start} by {kept.start:.3f}, enters {filmed.shot.land} by {kept.end:.3f}." in page
+    played = [tape / "tape.json", *(tape / "keys").iterdir(), *(tape / "moves").iterdir()]
+    assert record["tape"] == {"bytes": sum(path.stat().st_size for path in played)}
+    assert record["tape"]["bytes"] > 100_000
+    assert record["ledger"] == ledger.totals(ledger.read(tape))
+    assert f". Ledger: {record['ledger']['gpu_seconds']} GPU seconds, 0.0 pod hours, $0.00. Tape: " in page
+    assert f"Tape: {record['tape']['bytes'] / 1e6:.1f} MB." in page
 
 
 def test_dailies_command_rewrites_the_page_with_the_ledgers_pod_totals(first, tmp_path, capsys):
@@ -233,14 +239,15 @@ def test_second_render_is_cached(first, tmp_path):
     model = StandIn()
     result = render(directory, model, StandInEye())
     assert model.calls == []
-    assert [filmed.rendered for filmed in result.shots] == [0] * 6
+    assert [filmed.rendered for filmed in result.shots] == [0] * 10
     assert tape_files(directory) == before
 
 
-def test_stand_in_cache_keys_are_unchanged_so_old_tapes_stay_cached(first):
-    # sha256 of the JSON list [mode, prompt, start hash, end hash, model name, seed] for the opening's first take.
-    opening = first[2].shots[0]
-    assert opening.takes[0].path.name == "77832968eafaf4794a47c40856b716a61bedb0784f376d98672fc2f84f7f2321.mp4"
+def test_take_cache_keys_are_stable_so_paid_takes_survive_a_code_change(first):
+    # sha256 of the JSON list [mode, prompt, model name, seed] for the welcome key's first take. A move's list carries
+    # the sha256 of each key image it is pinned to between the prompt and the model name.
+    welcome = first[2].keys[0]
+    assert welcome.takes[0].path.name == "cca4cc7de81bf1ca22ecc0491a35f28ef1ef74433db37a7bf02c52896f7a906d.mp4"
 
 
 class Tuned(StandIn):
@@ -261,11 +268,11 @@ def test_each_filmed_take_records_its_render_time_and_a_ledger_line(first):
             assert json.loads(take.path.with_suffix(".json").read_text()) == {"seconds": take.seconds, "gpu": "cpu"}
     lines = ledger.read(tape)
     assert [(line["kind"], line["model"], line["shot"], line["mode"], line["seed"], line["gpu"]) for line in lines] == [
-        ("take", "stand-in", filmed.shot.move, filmed.shot.mode.value, take.seed, "cpu")
+        ("take", "stand-in", filmed.shot.title, filmed.shot.mode.value, take.seed, "cpu")
         for filmed in result.shots for take in filmed.takes]
     assert [line["seconds"] for line in lines] == [take.seconds for filmed in result.shots for take in filmed.takes]
     assert all(line["at"].endswith("+00:00") for line in lines)
-    assert ledger.totals(lines) == {"takes": 18, "gpu_seconds": round(sum(line["seconds"] for line in lines), 1),
+    assert ledger.totals(lines) == {"takes": 30, "gpu_seconds": round(sum(line["seconds"] for line in lines), 1),
                                     "pods": 0, "pod_hours": 0.0, "usd": 0.0}
 
 
@@ -281,11 +288,11 @@ def test_cached_takes_keep_their_render_time_and_add_no_ledger_lines(first, tmp_
 def test_takes_flag_sets_the_takes_per_shot(tmp_path, capsys, monkeypatch):
     directory = tmp_path / "surf_shop"
     shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
-    model = StandIn(flaw=lambda prompt, seed: Flaw.NONE)
+    model = StandIn(flaw=clean)
     monkeypatch.setitem(MODELS, "stand-in", lambda: model)
     assert main(["render", str(directory), "--model", "stand-in", "--takes", "1"]) == 0
-    assert [call.seed for call in model.calls] == [1] * 6
-    assert capsys.readouterr().out.splitlines()[0] == "1. opening -> welcome  rendered 1 take, kept take 1"
+    assert [call.seed for call in model.calls] == [1] * 10
+    assert capsys.readouterr().out.splitlines()[0] == "1. key welcome  rendered 1 take, kept take 1"
     with pytest.raises(SystemExit) as exit:
         main(["render", str(directory), "--model", "stand-in", "--takes", "0"])
     assert exit.value.code == 2
@@ -296,52 +303,88 @@ def test_a_models_settings_are_part_of_the_cache_key(first, tmp_path):
     directory = copy_of(first, tmp_path)
     model = Tuned({"steps": 50, "frames": 81})
     render(directory, model, StandInEye())
-    assert len(model.calls) == 18
+    assert len(model.calls) == 30
     same = Tuned({"frames": 81, "steps": 50})
     render(directory, same, StandInEye())
     assert same.calls == []
     for knobs in ({"steps": 40, "frames": 81}, {"steps": 50, "frames": 121}, {"steps": 50, "frames": 81, "shift": 5.0}):
         changed = Tuned(knobs)
         render(directory, changed, StandInEye())
-        assert len(changed.calls) == 18, knobs
+        assert len(changed.calls) == 30, knobs
 
 
-@pytest.mark.parametrize("old, new, rerendered", [
-    ('"Create your account"', '"Open your account"', ["Create an account", "Sign up"]),
-    ('"Log in"', '"Sign in"', ["I have an account", "Sign up"]),
-])
-def test_editing_a_line_rerenders_only_its_shots_and_their_dependents(first, tmp_path, old, new, rerendered):
-    directory = copy_of(first, tmp_path, old, new)
+def test_editing_signups_line_rerenders_its_key_and_only_the_moves_that_touch_it(first, tmp_path):
+    directory = copy_of(first, tmp_path, '"Create your account"', '"Open your account"')
     model = StandIn()
     result = render(directory, model, StandInEye())
-    assert len(model.calls) == 6
-    assert [filmed.shot.label for filmed in result.shots if filmed.rendered] == rerendered
+    assert len(model.calls) == 9
+    assert [filmed.shot.title for filmed in result.shots if filmed.rendered] == [
+        "key signup", 'entrance -> signup "Create an account"', 'signup -> login "Sign up"']
     assert all(filmed.rendered in (0, 3) for filmed in result.shots)
+
+
+def test_editing_a_move_rerenders_only_that_move(first, tmp_path):
+    directory = copy_of(first, tmp_path, "The camera walks through the open door.", "The camera strolls in.")
+    model = StandIn()
+    result = render(directory, model, StandInEye())
+    assert len(model.calls) == 3
+    assert [filmed.shot.title for filmed in result.shots if filmed.rendered] == ['welcome -> entrance "Enter shop"']
 
 
 def test_cli_render_prints_each_shot(first, tmp_path, capsys, monkeypatch):
     directory = copy_of(first, tmp_path, '"The gallery"', '"The board room"')
-    monkeypatch.setitem(MODELS, "stand-in", lambda: StandIn(flaw=lambda prompt, seed: Flaw.NONE))
+    monkeypatch.setitem(MODELS, "stand-in", lambda: StandIn(flaw=clean))
     assert main(["render", str(directory), "--model", "stand-in", "--checks", "stand-in"]) == 0
     assert capsys.readouterr().out.splitlines() == [
-        "1. opening -> welcome  cached, kept take 1",
-        '2. welcome -> entrance "Enter shop"  cached, kept take 1',
-        '3. entrance -> login "I have an account"  cached, kept take 1',
-        '4. entrance -> signup "Create an account"  cached, kept take 3',
-        '5. entrance -> gallery "Browse as guest"  rendered 3 takes, kept take 1',
-        '6. signup -> login "Sign up"  cached, kept take 3',
-        f"rendered 1 of 6 shots -> {directory / 'tape'}",
+        "1. key welcome  cached, kept take 1",
+        "2. key entrance  cached, kept take 1",
+        "3. key login  cached, kept take 1",
+        "4. key signup  cached, kept take 3",
+        "5. key gallery  rendered 3 takes, kept take 1",
+        '6. welcome -> entrance "Enter shop"  cached, kept take 1',
+        '7. entrance -> login "I have an account"  cached, kept take 1',
+        '8. entrance -> signup "Create an account"  cached, kept take 1',
+        '9. entrance -> gallery "Browse as guest"  rendered 3 takes, kept take 1',
+        '10. signup -> login "Sign up"  cached, kept take 3',
+        f"rendered 2 of 10 shots -> {directory / 'tape'}",
     ]
 
 
 def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take(first, tmp_path, capsys, monkeypatch):
     directory = copy_of(first, tmp_path, '"The gallery"', '"The board room"')
-    monkeypatch.setitem(MODELS, "stand-in", lambda: StandIn(flaw=lambda prompt, seed: Flaw.MISSPELL))
+    misspelt_keys = lambda mode, prompt, seed: Flaw.MISSPELL if mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
+    monkeypatch.setitem(MODELS, "stand-in", lambda: StandIn(flaw=misspelt_keys))
     assert main(["render", str(directory), "--model", "stand-in"]) == 1
     err = capsys.readouterr().err
-    assert err.startswith('fail: 5. entrance -> gallery "Browse as guest"  kept take 1 fails text "The board room": read "')
+    assert err.startswith('fail: 5. key gallery  kept take 1 fails text "The board room": read "')
     assert "kept take fails checks" in (directory / "tape" / "dailies.html").read_text()
     assert "entrance--browse-as-guest" in json.loads((directory / "tape" / "tape.json").read_text())["moves"]
+
+
+def test_a_button_the_checks_do_not_find_has_no_hotspot_but_its_move_still_renders(tmp_path, capsys, monkeypatch):
+    directory = tmp_path / "surf_shop"
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape"))
+    drop = lambda mode, prompt, seed: Flaw.DROP_BUTTON if "bold black letters" in prompt else Flaw.NONE
+    model = StandIn(flaw=drop)
+    monkeypatch.setitem(MODELS, "stand-in", lambda: model)
+    assert main(["render", str(directory), "--model", "stand-in"]) == 1
+    data = json.loads((directory / "tape" / "tape.json").read_text())
+    record = json.loads((directory / "tape" / "dailies.json").read_text())
+    err = capsys.readouterr().err.splitlines()
+    unfound = 0
+    for key in record["keys"]:
+        kept = next(take for take in key["takes"] if take["kept"])
+        found = [item["name"][8:-1] for item in kept["items"] if item["name"].startswith("button") and item["passed"]]
+        missing = [item["name"][8:-1] for item in kept["items"] if item["name"].startswith("button") and not item["passed"]]
+        assert [hotspot["label"] for hotspot in data["scenes"][key["scene"]]["hotspots"]] == found
+        for label in missing:
+            assert f'fail: {record["keys"].index(key) + 1}. key {key["scene"]}  kept take {kept["seed"]} fails button "{label}": not found' in err
+            assert f'button &quot;{label}&quot;</span><span class="result">not found' in (directory / "tape" / "dailies.html").read_text()
+        unfound += len(missing)
+    assert unfound == 3
+    assert sorted(data["moves"]) == ["entrance--browse-as-guest", "entrance--create-an-account", "entrance--i-have-an-account",
+                                     "signup--sign-up", "welcome--enter-shop"]
+    assert [call.mode for call in model.calls].count(Mode.FIRST_AND_LAST_FRAME) == 15
 
 
 @pytest.mark.parametrize("flag", ["--model", "--checks"])

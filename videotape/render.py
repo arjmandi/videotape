@@ -2,17 +2,18 @@ import hashlib
 import json
 import shutil
 import time
-from dataclasses import dataclass, replace
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from videotape import dailies, frames, ledger
-from videotape.checks import Checks, Eye, check, rank
+from videotape.checks import Checks, Eye, score, seams
 from videotape.frames import FPS, HEIGHT, WIDTH, Box
 from videotape.loader import load
 from videotape.model import Model
 from videotape.publish import publish
-from videotape.screenplay import Scene, Screenplay, ScreenplayError
-from videotape.shots import Mode, Shot, plan
+from videotape.screenplay import Screenplay, ScreenplayError
+from videotape.shots import Key, Move, Shot, plan
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,6 @@ class Filmed:
     shot: Shot
     takes: tuple[Take, ...]
     kept: Take
-    key: Path | None
 
     @property
     def rendered(self) -> int:
@@ -40,50 +40,69 @@ class Filmed:
 @dataclass(frozen=True)
 class Render:
     tape: Path
-    shots: tuple[Filmed, ...]
+    keys: tuple[Filmed, ...]
+    moves: tuple[Filmed, ...]
+
+    @property
+    def shots(self) -> tuple[Filmed, ...]:
+        return *self.keys, *self.moves
 
 
 def render(directory, model: Model, eye: Eye, takes: int = 3) -> Render:
     screenplay = load(directory)
     shots = plan(screenplay)
-    moves = {}
-    for shot in shots:
-        if shot.move in moves:
-            raise ScreenplayError(f'scene "{shot.start}": actions "{moves[shot.move].label}" and "{shot.label}" '
-                                  f'would share the clip moves/{shot.move}.mp4')
-        moves[shot.move] = shot
+    keys = [shot for shot in shots if isinstance(shot, Key)]
+    moves = [shot for shot in shots if isinstance(shot, Move)]
+    clips: dict[str, Move] = {}
+    for move in moves:
+        if move.move in clips:
+            raise ScreenplayError(f'scene "{move.start}": actions "{clips[move.move].label}" and "{move.label}" '
+                                  f'would share the clip moves/{move.move}.mp4')
+        clips[move.move] = move
     tape = Path(directory) / "tape"
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
-    filmed = []
-    for shot in shots:
-        start = tape / "keys" / f"{shot.start}.png" if shot.start else None
-        end = tape / "keys" / f"{shot.land}.png" if shot.mode is Mode.FIRST_AND_LAST_FRAME else None
-        scene = screenplay.scenes[shot.land]
-        shot_takes = tuple(_take(model, eye, shot, scene, start, end, seed, tape) for seed in range(1, takes + 1))
-        kept = min(shot_takes, key=lambda take: rank(take.checks, take.seed))
-        publish(tape / "moves" / f"{shot.move}.mp4", lambda partial: shutil.copyfile(kept.path, partial))
-        key = None
-        # The first shot to land on a scene keys it; every later shot there is first-and-last-frame and ends on that key.
-        if shot.mode is not Mode.FIRST_AND_LAST_FRAME:
-            key = tape / "keys" / f"{shot.land}.png"
-            publish(key, lambda partial: frames.write_png(frames.last_frame(kept.path), partial))
-        filmed.append(Filmed(shot, shot_takes, kept, key))
-    result = Render(tape, tuple(filmed))
+    seeds = range(1, takes + 1)
+    # Every key first, so each move is pinned to two kept keys, and Wan swaps its checkpoint once per render.
+    filmed_keys = []
+    for key in keys:
+        scene = screenplay.scenes[key.scene]
+        key_takes = tuple(_key_take(model, eye, key, scene, seed, tape) for seed in seeds)
+        kept = min(key_takes, key=lambda take: take.checks.rank(take.seed))
+        publish(tape / "keys" / f"{key.scene}.png", lambda partial: frames.write_png(frames.last_frame(kept.path), partial))
+        filmed_keys.append(Filmed(key, key_takes, kept))
+    opening = filmed_keys[0].kept
+    publish(tape / "moves" / "opening.mp4", lambda partial: shutil.copyfile(opening.path, partial))
+    filmed_moves = []
+    for move in moves:
+        start, end = tape / "keys" / f"{move.start}.png", tape / "keys" / f"{move.land}.png"
+        move_takes = tuple(_move_take(model, move, start, end, seed, tape) for seed in seeds)
+        kept = min(move_takes, key=lambda take: take.checks.rank(take.seed))
+        publish(tape / "moves" / f"{move.move}.mp4", lambda partial: shutil.copyfile(kept.path, partial))
+        filmed_moves.append(Filmed(move, move_takes, kept))
+    result = Render(tape, tuple(filmed_keys), tuple(filmed_moves))
     publish(tape / "tape.json", lambda partial: partial.write_text(json.dumps(_tape(screenplay, result), indent=2) + "\n"))
-    keyed = {filmed.shot.land: filmed for filmed in result.shots if filmed.key}
-    scored = [(name, keyed[name].key.relative_to(tape).as_posix(), replace(keyed[name].kept.checks, start=None, end=None))
-              for name in screenplay.scenes]
-    record = dailies.record(screenplay.title, result)
-    record["keys"] = dailies.keys(eye.name, scored, record["shots"])
-    dailies.write(tape, record)
+    dailies.write(tape, dailies.record(screenplay.title, eye.name, result))
     return result
 
 
-def _take(model: Model, eye: Eye, shot: Shot, scene: Scene, start: Path | None, end: Path | None, seed: int,
-          tape: Path) -> Take:
-    fields = [shot.mode.value, shot.prompt, _sha256(start), _sha256(end), model.name, seed]
-    # A model with settings gets them in its key, so changing steps or frames re-renders. The stand-in has none, so its keys stay as they were.
+def _key_take(model: Model, eye: Eye, key: Key, scene, seed: int, tape: Path) -> Take:
+    path, cached, timing = _film(model, key, (), seed, tape, lambda out: model.text_to_video(key.prompt, seed, out))
+    return Take(seed, path, cached, score(frames.last_frame(path), scene, eye), timing.get("seconds"), timing.get("gpu"))
+
+
+def _move_take(model: Model, move: Move, start: Path, end: Path, seed: int, tape: Path) -> Take:
+    path, cached, timing = _film(model, move, (start, end), seed, tape,
+                                 lambda out: model.first_last_frame(move.prompt, start, end, seed, out))
+    return Take(seed, path, cached, seams(path, start, end), timing.get("seconds"), timing.get("gpu"))
+
+
+def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path,
+          film: Callable[[Path], None]) -> tuple[Path, bool, dict]:
+    """The take for this shot and seed, filmed unless it is already in the cache. Its name hashes everything the pixels
+    depend on: the mode, the prompt, the key images a move is pinned to, the model, the seed and the model's settings."""
+    fields = [shot.mode.value, shot.prompt, *(hashlib.sha256(image.read_bytes()).hexdigest() for image in images),
+              model.name, seed]
     if settings := model.settings(shot.mode):
         fields.append(settings)
     path = tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
@@ -92,52 +111,35 @@ def _take(model: Model, eye: Eye, shot: Shot, scene: Scene, start: Path | None, 
     cached = path.exists()
     if not cached:
         started = time.perf_counter()
-        publish(path, lambda partial: _film(model, shot, start, end, seed, partial))
+        publish(path, film)
         filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": model.device}
         publish(timing, lambda partial: partial.write_text(json.dumps(filmed) + "\n"))
-        ledger.append(tape, {"kind": "take", "at": ledger.now(), "model": model.name, "shot": shot.move,
+        ledger.append(tape, {"kind": "take", "at": ledger.now(), "model": model.name, "shot": shot.title,
                              "mode": shot.mode.value, "seed": seed, **filmed})
-    filmed = json.loads(timing.read_text()) if timing.exists() else {}
-    return Take(seed, path, cached, check(path, scene, start, end, eye), filmed.get("seconds"), filmed.get("gpu"))
+    return path, cached, json.loads(timing.read_text()) if timing.exists() else {}
 
 
-def _film(model: Model, shot: Shot, start: Path | None, end: Path | None, seed: int, out: Path) -> None:
-    match shot.mode:
-        case Mode.TEXT_TO_VIDEO:
-            model.text_to_video(shot.prompt, seed, out)
-        case Mode.IMAGE_TO_VIDEO:
-            model.image_to_video(shot.prompt, start, seed, out)
-        case Mode.FIRST_AND_LAST_FRAME:
-            model.first_last_frame(shot.prompt, start, end, seed, out)
-
-
-def _sha256(path: Path | None) -> str | None:
-    return hashlib.sha256(path.read_bytes()).hexdigest() if path else None
-
-
-def _fraction(box: Box | None) -> dict | None:
-    if box is None:
-        return None
+def _fraction(box: Box) -> dict:
     return {"x": round(box.x / WIDTH, 4), "y": round(box.y / HEIGHT, 4),
             "w": round(box.w / WIDTH, 4), "h": round(box.h / HEIGHT, 4)}
 
 
 def _tape(screenplay: Screenplay, result: Render) -> dict:
-    keyed = {filmed.shot.land: filmed for filmed in result.shots if filmed.key}
-    moves = {(filmed.shot.start, filmed.shot.label): filmed.shot.move for filmed in result.shots}
-    opening, *actions = result.shots
+    buttons = {filmed.shot.scene: filmed.kept.checks.buttons for filmed in result.keys}
+    clips = {(filmed.shot.start, filmed.shot.label): filmed.shot.move for filmed in result.moves}
     return {
         "size": {"width": WIDTH, "height": HEIGHT},
         "fps": FPS,
-        "opening": {"clip": f"moves/{opening.shot.move}.mp4", "lands": opening.shot.land},
+        "opening": {"clip": "moves/opening.mp4", "lands": result.keys[0].shot.scene},
         "scenes": {
             name: {
                 "key": f"keys/{name}.png",
-                "hotspots": [{"label": label, "box": _fraction(keyed[name].kept.checks.buttons[label]),
-                              "move": moves[(name, label)]} for label in scene.actions],
+                # A hotspot needs a box, and a box is never invented, so a button the checks did not find has no hotspot.
+                "hotspots": [{"label": label, "box": _fraction(box), "move": clips[(name, label)]}
+                             for label in scene.actions if (box := buttons[name][label])],
             }
             for name, scene in screenplay.scenes.items()
         },
         "moves": {filmed.shot.move: {"clip": f"moves/{filmed.shot.move}.mp4", "lands": filmed.shot.land}
-                  for filmed in actions},
+                  for filmed in result.moves},
     }

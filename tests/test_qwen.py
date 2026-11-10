@@ -88,10 +88,9 @@ def stand_in_tape(tmp_path_factory):
     model = StandIn()
     result = render(directory, model, StandInEye())
     drawn = {}
-    for filmed in result.shots:
-        if filmed.key:
-            call = next(c for c in model.calls if c.prompt == filmed.shot.prompt and c.seed == filmed.kept.seed)
-            drawn[filmed.shot.land] = {d.text: d.box for d in model.drawn[call.out] if d.button}
+    for filmed in result.keys:
+        call = next(c for c in model.calls if c.prompt == filmed.shot.prompt and c.seed == filmed.kept.seed)
+        drawn[filmed.shot.scene] = {d.text: d.box for d in model.drawn[call.out] if d.button}
     return directory / "tape", load(directory), drawn
 
 

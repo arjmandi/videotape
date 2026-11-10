@@ -20,8 +20,7 @@ def shots(args) -> int:
     planned = plan(screenplay)
     print(screenplay.title)
     for number, shot in enumerate(planned, 1):
-        label = f'  "{shot.label}"' if shot.label else ""
-        print(f"\n{number}. {shot.start or 'opening'} -> {shot.land}{label}  ({shot.mode.value})")
+        print(f"\n{number}. {shot.title}  ({shot.mode.value})")
         print(f"   {shot.prompt}")
     return 0
 
@@ -52,9 +51,12 @@ def check_tape(args) -> int:
     if not (tape / "dailies.json").is_file():
         raise ChecksError(f"no dailies.json in {tape}; render the screenplay again to write it")
     eye = CHECKS[args.checks](tape)
+    record = dailies.read(tape)
+    if not isinstance(record.get("keys"), list):
+        raise ChecksError(f"{tape / 'dailies.json'} is from an older render; render the screenplay again to write it")
     screenplay = load(tape.parent)
     scenes = json.loads((tape / "tape.json").read_text())["scenes"]
-    scored, failures = [], []
+    scored, failures = {}, []
     for name, scene in screenplay.scenes.items():
         if name not in scenes:
             raise ChecksError(f'scene "{name}" is not in {tape / "tape.json"}; render the screenplay again')
@@ -64,10 +66,8 @@ def check_tape(args) -> int:
         for item in found.items():
             print(f"  {item.name}  {item.result}")
         failures += [f"{name}  {item.name}: {item.result}" for item in found.failures]
-        scored.append((name, key, found))
-    record = dailies.read(tape)
-    record["keys"] = dailies.keys(eye.name, scored, record["shots"])
-    dailies.write(tape, record)
+        scored[name] = found
+    dailies.write(tape, dailies.rescored(record, eye.name, scored))
     print(f"checked {len(scored)} keys with {eye.name}, {f'{len(failures)} failing' if failures else 'all passing'}"
           f" -> {tape / 'dailies.html'}")
     for failure in failures:

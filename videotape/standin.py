@@ -47,9 +47,9 @@ class Flaw(Enum):
     WRONG_END = "wrong end"
 
 
+# Seeds 1 and 2 may carry a flaw of their kind, so both rankers have something to reject. Seed 3 is always clean.
 FLAWS = {
     Mode.TEXT_TO_VIDEO: (Flaw.MISSPELL, Flaw.DROP_BUTTON),
-    Mode.IMAGE_TO_VIDEO: (Flaw.MISSPELL, Flaw.DROP_BUTTON, Flaw.WRONG_START),
     Mode.FIRST_AND_LAST_FRAME: (Flaw.WRONG_START, Flaw.WRONG_END),
 }
 
@@ -75,7 +75,7 @@ class StandIn:
     name = "stand-in"
     device = "cpu"
 
-    def __init__(self, flaw: Callable[[str, int], Flaw] | None = None):
+    def __init__(self, flaw: Callable[[Mode, str, int], Flaw] | None = None):
         self.flaw = flaw
         self.calls: list[Call] = []
         self.drawn: dict[Path, tuple[Drawn, ...]] = {}
@@ -86,19 +86,16 @@ class StandIn:
     def text_to_video(self, prompt: str, seed: int, out: Path) -> None:
         self._film(Mode.TEXT_TO_VIDEO, prompt, seed, None, None, out)
 
-    def image_to_video(self, prompt: str, start: Path, seed: int, out: Path) -> None:
-        self._film(Mode.IMAGE_TO_VIDEO, prompt, seed, start, None, out)
-
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> None:
         self._film(Mode.FIRST_AND_LAST_FRAME, prompt, seed, start, end, out)
 
     def _film(self, mode: Mode, prompt: str, seed: int, start: Path | None, end: Path | None, out: Path) -> None:
         self.calls.append(Call(mode, prompt, seed, start, end, out))
-        lines, buttons = _quoted_after("The lettering reads", prompt), _quoted_after("(?:A button is|Buttons are) labelled", prompt)
+        lines, buttons = _quoted_after("The text reads", prompt), _quoted_after("bold black letters reading", prompt)
         digest = hashlib.sha256(f"{seed}\n{prompt}".encode()).digest()
         kinds = [kind for kind in FLAWS[mode]
                  if (kind is not Flaw.MISSPELL or lines or buttons) and (kind is not Flaw.DROP_BUTTON or buttons)]
-        flaw = self.flaw(prompt, seed) if self.flaw else _default_flaw(digest, seed, kinds)
+        flaw = self.flaw(mode, prompt, seed) if self.flaw else _default_flaw(digest, seed, kinds)
         if flaw is not Flaw.NONE and flaw not in kinds:
             raise ValueError(f"{flaw.name} does not apply to this {mode.value} take")
         if flaw is Flaw.MISSPELL:
@@ -113,7 +110,7 @@ class StandIn:
             else:
                 frame, drawn = _draw(lines, buttons)
                 last = _png(frame, scratch / "drawn.png")
-                first = start or _png(Frame(WIDTH, HEIGHT, BACKGROUND * (WIDTH * HEIGHT)), scratch / "background.png")
+                first = _png(Frame(WIDTH, HEIGHT, BACKGROUND * (WIDTH * HEIGHT)), scratch / "background.png")
             if flaw is Flaw.WRONG_START:
                 first = _png(_negative(frames.read_png(first)), scratch / "wrong-start.png")
             if flaw is Flaw.WRONG_END:

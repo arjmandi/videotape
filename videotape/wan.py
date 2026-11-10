@@ -1,4 +1,4 @@
-"""Wan 2.2 draws every pixel: TI2V-5B for the opening and the moves that key a scene, Fun-5B-InP between two keys."""
+"""Wan 2.2 draws every pixel: TI2V-5B draws each scene's key from text, and Fun-5B-InP draws each move between two keys."""
 
 import gc
 import io
@@ -105,7 +105,7 @@ def prefetch() -> None:
 
 
 class Wan:
-    """One checkpoint's pipelines live in VRAM at a time; a mode switch frees them before loading the other."""
+    """One checkpoint lives in VRAM at a time. A render draws every key, then every move, so it swaps once."""
 
     name = "wan2.2-5b"
 
@@ -129,9 +129,6 @@ class Wan:
 
     def text_to_video(self, prompt: str, seed: int, out: Path) -> None:
         self._run(request(Mode.TEXT_TO_VIDEO, prompt, None, None, seed), out)
-
-    def image_to_video(self, prompt: str, start: Path, seed: int, out: Path) -> None:
-        self._run(request(Mode.IMAGE_TO_VIDEO, prompt, start, None, seed), out)
 
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> None:
         self._run(request(Mode.FIRST_AND_LAST_FRAME, prompt, start, end, seed), out)
@@ -159,7 +156,7 @@ class Wan:
 
     def _load_ti2v(self) -> dict:
         import torch
-        from diffusers import AutoencoderKLWan, UniPCMultistepScheduler, WanImageToVideoPipeline, WanPipeline
+        from diffusers import AutoencoderKLWan, UniPCMultistepScheduler, WanPipeline
 
         # As the model card's diffusers example: the VAE in float32, everything else in bfloat16.
         vae = AutoencoderKLWan.from_pretrained(TI2V.repo, subfolder="vae", revision=TI2V.revision, torch_dtype=torch.float32)
@@ -169,20 +166,12 @@ class Wan:
             t2v.enable_model_cpu_offload()
         else:
             t2v.to("cuda")
-        # The same weights do image-to-video. expand_timesteps is how diffusers runs the 5B model from a first frame.
-        i2v = WanImageToVideoPipeline(tokenizer=t2v.tokenizer, text_encoder=t2v.text_encoder, vae=t2v.vae,
-                                      scheduler=t2v.scheduler, transformer=t2v.transformer, expand_timesteps=True)
-        return {"t2v": t2v, "i2v": i2v}
+        return {"t2v": t2v}
 
     def _ti2v(self, req: Request, generator):
-        from PIL import Image
-
-        common = dict(prompt=req.prompt, negative_prompt=req.negative_prompt, height=req.height, width=req.width,
-                      num_frames=req.frames, guidance_scale=req.guidance, num_inference_steps=req.steps,
-                      generator=generator, output_type="np")
-        if req.mode is Mode.TEXT_TO_VIDEO:
-            return self.pipelines["t2v"](**common).frames[0]
-        return self.pipelines["i2v"](image=Image.open(req.start).convert("RGB"), **common).frames[0]
+        return self.pipelines["t2v"](prompt=req.prompt, negative_prompt=req.negative_prompt, height=req.height,
+                                     width=req.width, num_frames=req.frames, guidance_scale=req.guidance,
+                                     num_inference_steps=req.steps, generator=generator, output_type="np").frames[0]
 
     def _load_fun(self) -> dict:
         import torch
