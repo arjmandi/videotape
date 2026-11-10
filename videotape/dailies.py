@@ -149,7 +149,7 @@ def _failing(checked: dict) -> bool:
     return not all(item["passed"] for item in checked["items"])
 
 
-def _checks(items: list[dict]) -> str:
+def checklist(items: list[dict]) -> str:
     return "".join(
         f'<li class="{"pass" if item["passed"] else "fail"}"><span class="mark">{"✓" if item["passed"] else "✗"}</span>'
         f'<span class="name">{escape(item["name"])}</span><span class="result">{escape(item["result"])}</span></li>'
@@ -175,7 +175,7 @@ def _key(key: dict, checks: str) -> str:
     badge = ' <span class="badge failing">fails checks</span>' if _failing(key) else ""
     return (f'<figure class="take"><img src="{escape(key["key"])}" alt="Key for {escape(key["scene"])}">'
             f'<figcaption><strong>{escape(key["scene"])}</strong><span class="badge">{checks}</span>{badge}</figcaption>'
-            f'<ul class="checks">{_checks(key["items"])}</ul>'
+            f'<ul class="checks">{checklist(key["items"])}</ul>'
             f'<p class="note">The last frame of take {kept["seed"]}, {_time(key)}.</p></figure>')
 
 
@@ -221,4 +221,4 @@ def _take(take: dict) -> str:
             f'<video src="{escape(take["clip"])}" autoplay loop muted playsinline preload="metadata"></video>'
             f'<figcaption><strong>Take {take["seed"]}</strong>{badge}'
             f'<span class="badge">{"cached" if take["cached"] else "rendered"}</span>{seconds}</figcaption>'
-            f'<ul class="checks">{_checks(take["items"])}</ul></figure>')
+            f'<ul class="checks">{checklist(take["items"])}</ul></figure>')

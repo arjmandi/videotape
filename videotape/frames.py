@@ -1,6 +1,8 @@
 import json
 import re
+import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -100,6 +102,33 @@ def difference(a: Frame, b: Frame) -> float:
     grey = _ffmpeg(*_raw(a), "-vf", f"scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-", feed=a.rgb + b.rgb)
     n = w * h
     return sum(abs(x - y) for x, y in zip(grey[:n], grey[n:])) / (255 * n)
+
+
+def _greys(clip: Path) -> list[bytes]:
+    w, h = SMALL
+    grey = _ffmpeg("-i", str(clip), "-vf", f"scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-")
+    return [grey[at:at + w * h] for at in range(0, len(grey), w * h)]
+
+
+def motion(clip: Path) -> float:
+    """The mean difference between each frame and the next, on the scale of difference()."""
+    greys = _greys(clip)
+    n = SMALL[0] * SMALL[1]
+    steps = [sum(abs(x - y) for x, y in zip(a, b)) / (255 * n) for a, b in zip(greys, greys[1:])]
+    return sum(steps) / len(steps) if steps else 0.0
+
+
+def stills(clip: Path, fractions: tuple[float, ...], width: int, outs: list[Path]) -> None:
+    """Write the frames at these fractions of the clip, from its first frame at 0 to its last at 1, as PNGs this wide."""
+    count = len(_greys(clip))
+    picks = [round(fraction * (count - 1)) for fraction in fractions]
+    unique = sorted(set(picks))
+    select = "+".join(f"eq(n\\,{pick})" for pick in unique)
+    with tempfile.TemporaryDirectory() as scratch:
+        _ffmpeg("-i", str(clip), "-vf", f"select='{select}',scale={width}:-2", "-fps_mode", "passthrough", "-f", "image2",
+                str(Path(scratch) / "%d.png"))
+        for out, pick in zip(outs, picks):
+            shutil.copyfile(Path(scratch) / f"{unique.index(pick) + 1}.png", out)
 
 
 ENCODE = ("-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", str(FPS), "-movflags", "+faststart", "-f", "mp4", "-y")

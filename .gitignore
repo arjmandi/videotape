@@ -11,3 +11,6 @@ xcuserdata/
 .runpod/
 probe/
 probe-keyed/
+examples/**/tape-*/
+examples/**/compare.html
+examples/**/compare-frames/

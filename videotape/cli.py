@@ -1,10 +1,12 @@
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 from videotape import dailies, frames
 from videotape.checks import ChecksError, score
+from videotape.compare import STILLS, CompareError, compare, read, summary
 from videotape.eyes import CHECKS
 from videotape.fal import FalError
 from videotape.frames import FfmpegError
@@ -89,6 +91,20 @@ def rewrite_dailies(args) -> int:
     return 0
 
 
+def compare_tapes(args) -> int:
+    tapes = read(Path(args.a)), read(Path(args.b))
+    out = compare(tapes)
+    for side, tape in zip("AB", tapes):
+        print(summary(side, tape))
+    stills = len(STILLS) * sum(len(tape.record["moves"]) for tape in tapes)
+    print(f"wrote {_shown(out)} with {stills} stills in {_shown(out.with_name('compare-frames'))}")
+    return 0
+
+
+def _shown(path: Path) -> str:
+    return os.path.relpath(path) if path.is_relative_to(Path.cwd()) else str(path)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="videotape")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -106,12 +122,16 @@ def main(argv=None) -> int:
     checking.add_argument("tape")
     checking.add_argument("--checks", default="stand-in", choices=sorted(CHECKS))
     checking.set_defaults(run=check_tape)
+    comparing = commands.add_parser("compare", help="write compare.html: two tapes of one screenplay, shot by shot")
+    comparing.add_argument("a", help="a tape directory, such as examples/surf_shop/tape")
+    comparing.add_argument("b", help="another tape of the same screenplay, such as examples/surf_shop/tape-wan3")
+    comparing.set_defaults(run=compare_tapes)
     rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies page from its record and ledger")
     rewriting.add_argument("directory")
     rewriting.set_defaults(run=rewrite_dailies)
     args = parser.parse_args(argv)
     try:
         return args.run(args)
-    except (ScreenplayError, FfmpegError, ChecksError, WanError, FalError) as error:
+    except (ScreenplayError, FfmpegError, ChecksError, WanError, FalError, CompareError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 1
