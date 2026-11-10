@@ -208,6 +208,15 @@ def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, capsys, monkey
     assert sorted(path.name for path in directory.iterdir()) == ["screenplay.py"]
 
 
+def test_a_key_a_header_cannot_carry_is_refused_without_printing_it(tmp_path, capsys, monkeypatch):
+    directory = tmp_path / "surf_shop"
+    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
+    monkeypatch.setenv("FAL_KEY", f"{KEY[:8]}\n{KEY[8:]}")
+    assert main(["render", str(directory), "--model", "wan3.0", "--out", str(directory / "tape-wan3")]) == 1
+    out, err = capsys.readouterr()
+    assert (out, err) == ("", "error: FAL_KEY holds a character an HTTP header cannot carry, such as a line break\n")
+
+
 class Answer:
     def __init__(self, body: bytes):
         self.body = body
@@ -222,8 +231,9 @@ class Answer:
         return self.body
 
 
-def test_the_key_from_the_environment_goes_only_into_the_submits_authorization_header(monkeypatch):
-    monkeypatch.setenv("FAL_KEY", KEY)
+@pytest.mark.parametrize("exported", [KEY, f"  {KEY}\n"])
+def test_the_key_from_the_environment_goes_only_into_the_submits_authorization_header(monkeypatch, exported):
+    monkeypatch.setenv("FAL_KEY", exported)
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda request, timeout: sent.append(request) or Answer(b'{"detail": "no request today"}'))
