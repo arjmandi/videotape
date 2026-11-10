@@ -405,7 +405,8 @@ def main(argv=None) -> int:
     parser.add_argument("--cap-usd", type=float, required=True, help="the most this run may cost; sets the self-destruct deadline")
     parser.add_argument("--gpu", default=DEFAULT_GPU, help=f"Runpod GPU type id (default {DEFAULT_GPU})")
     parser.add_argument("--image", default=IMAGE)
-    parser.add_argument("--command", help="run this on the pod in place of the render, such as uv run scripts/wan-probe probe")
+    parser.add_argument("--command", help="run this on the pod in place of the render, such as "
+                        "uv run videotape check examples/surf_shop/tape --checks qwen3-vl-8b")
     parser.add_argument("--fetch", help="repo-relative folder to copy back in place of <directory>/tape")
     parser.add_argument("--usd-per-hour", type=float, default=ASSUMED_USD_PER_HOUR,
                         help="price a keyless --dry-run assumes; with a key the catalog price is used")
