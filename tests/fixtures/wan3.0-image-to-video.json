@@ -1,0 +1,37 @@
+{
+  "submitted": {
+    "status": "IN_QUEUE",
+    "request_id": "9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b",
+    "response_url": "https://queue.fal.run/alibaba/wan-3.0/requests/9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b",
+    "status_url": "https://queue.fal.run/alibaba/wan-3.0/requests/9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b/status",
+    "cancel_url": "https://queue.fal.run/alibaba/wan-3.0/requests/9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b/cancel",
+    "queue_position": 0
+  },
+  "status": {
+    "status": "COMPLETED",
+    "request_id": "9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b",
+    "response_url": "https://queue.fal.run/alibaba/wan-3.0/requests/9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b",
+    "status_url": "https://queue.fal.run/alibaba/wan-3.0/requests/9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b/status",
+    "cancel_url": "https://queue.fal.run/alibaba/wan-3.0/requests/9e4b6d21-0f3a-4c7e-b5d8-1a2c3e4f5a6b/cancel",
+    "logs": null,
+    "metrics": {
+      "inference_time": 73.4
+    }
+  },
+  "result": {
+    "video": {
+      "url": "https://v3b.fal.media/files/b/0aa4eab2/Xv3Bn8Qw1ZtY.mp4",
+      "content_type": "video/mp4",
+      "file_name": "Xv3Bn8Qw1ZtY.mp4",
+      "file_size": 4102937,
+      "width": 1280,
+      "height": 720,
+      "fps": 24.0,
+      "duration": 5.04,
+      "num_frames": 121
+    },
+    "seed": 2,
+    "duration": 5.04,
+    "actual_prompt": "The button labelled \"Enter shop\" is pressed. The camera walks through the open door."
+  }
+}

@@ -1,0 +1,7 @@
+what: fal's three answers to one Wan 3.0 call, as Fal.run returns them and a take's sidecar keeps them under "response"
+text-to-video: wan3.0-text-to-video.json, the key entrance with seed 1
+image-to-video: wan3.0-image-to-video.json, the move welcome -> entrance "Enter shop" with seed 2
+source: written by hand on 2026-11-10 from fal's queue OpenAPI for both endpoints (QueueStatus, Wan30Output, VideoFile) and its queue REST docs, before any paid call
+from the schema: every field name, the status values, and status and result urls that name only the owner and app, alibaba/wan-3.0
+guessed: the request ids, the video urls and file names, file_size, width 1280, height 720, fps 24, duration 5.04, num_frames 121, metrics.inference_time, logs null, and actual_prompt equal to the prompt when prompt expansion is off
+replace: after the paid run, copy the "response" object of one text-to-video and one image-to-video take's sidecar from examples/surf_shop/tape-wan3/takes/ over these files, and update the test values that read them
