@@ -13,7 +13,7 @@ This directory is the maintained source for verifying what a videotape user can 
 
 - Every CLI drive goes through `vt-verify run "$RUN" <name> <project-dir> -- <videotape args>`, which runs the command inside the project. Use the journey's name as `<name>` so artifacts map to journeys.
 - The README's commands in `examples/contrail`, and the scripts under `scripts/`, go through `vt-verify exec "$RUN" <name> [-C <dir>] -- <command>`.
-- TapePlayer drives go through `vt-verify player-build "$RUN"`, `vt-verify player-test "$RUN"` and `vt-verify player-cuts "$RUN"`, or through a person at the screen, as [player.md](./player.md) says.
+- TapePlayer drives go through `vt-verify player-build "$RUN"`, `vt-verify player-press "$RUN" <tape-dir> <label>...`, `vt-verify player-test "$RUN"` and `vt-verify player-cuts "$RUN"`, or through a person at the screen, as [player.md](./player.md) says.
 - Treat every command and quoted string as literal.
 - Assert on exact lines from `$RUN/<name>.stdout`, `$RUN/<name>.stderr` and `$RUN/<name>.exit`.
 - Fixtures live in `tests/fixtures/`, where the test suite uses them too. Never edit one to make a journey pass.
@@ -21,7 +21,7 @@ This directory is the maintained source for verifying what a videotape user can 
 ## Proof and skip reporting
 
 - CLI proof is the command, the asserted stdout or stderr lines, and the exit code, all read from `$RUN`.
-- TapePlayer proof is the same files for `player-build`, `player-test` and `player-cuts`, plus the screenshot `player-test` exports, or what the user reported for a journey a person drives.
+- TapePlayer proof is the same files for `player-build`, `player-press`, `player-test` and `player-cuts`, plus the screenshot `player-test` exports, or what the user reported for a journey a person drives.
 - Name the feature ID with every artifact you cite.
 - Report a journey you could not run with the attempted command and the unmet precondition.
 - Do not report a journey as verified through a different project than the one its file names.
@@ -42,7 +42,7 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 - [Plan](./plan.md) covers `videotape plan` on Contrail: its 11 scenes, 58 states and 102 moves, the same output through `uv run` and from a subfolder, the strict type check of the example, the cafe fixture, and a warning.
 - [Errors](./errors.md) covers each logical error the plan rejects, `VT201` to `VT210`, with its code, place and fix, the `VT211` warning, `videotape explain`, and a folder that is not a project.
 - [Render](./render.md) covers rendering Contrail with the stand-in: the first render of 58 keys then 102 moves, the cached rerun, the files in `tape/`, the ledger in the project, and the dailies page. The cafe fixture covers the cascade after an edit, one take per shot, another tape with `--out`, and an unknown model.
-- [Player](./player.md) covers the TapePlayer macOS app: building it, booking a flight through the Contrail tape, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
+- [Player](./player.md) covers the TapePlayer macOS app: building it, booking a flight through the Contrail tape with and without a window, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
 - [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render`, run inside the project: the dry run, the refusals, the local `--model wan2.2-5b` errors, the paid runs behind the user's cap, `--out`, and the ledger.
 - [Wan 3.0 render](./wan3-render.md) covers rendering with Wan 3.0 on fal into another tape of the project: the missing-key error, the requests and answers the tests prove, the paid run behind the user's cap, the price line, the cached rerun, and the ledger.
 - [Reader test](./reader-test.md) covers `scripts/reader-test`: the missing-key error, the requests and answers the tests prove, and the paid run behind the user's cap.

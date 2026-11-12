@@ -14,7 +14,7 @@ videotape lets a developer write an app as a screenplay: typed records, scenes t
 
 The stand-in model needs no GPU, and its own reader checks its keys. `--model wan2.2-5b` renders with Wan 2.2 and needs a CUDA GPU, which `scripts/runpod-render` rents on Runpod; see [features/gpu-render.md](features/gpu-render.md). `--model wan3.0` renders with Wan 3.0 on fal, which bills per call and needs `FAL_KEY`; see [features/wan3-render.md](features/wan3-render.md). Qwen3-VL-8B checks the keys of both. `scripts/reader-test` asks Claude what Contrail does from its screenplay alone; see [features/reader-test.md](features/reader-test.md). There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
 
-TapePlayer (`clients/macos/`) is the macOS app a person uses to click through a rendered tape. `vt-verify player-build` builds it without opening anything. `vt-verify player-test` runs its unit tests and three UI tests that take over the real mouse and screen, so ask the user before running it.
+TapePlayer (`clients/macos/`) is the macOS app a person uses to click through a rendered tape. `vt-verify player-build` builds it without opening anything. `vt-verify player-press` loads a tape with the player's own loader and presses hotspots by label, also without a window. `vt-verify player-test` runs its unit tests and three UI tests that take over the real mouse and screen, so ask the user before running it.
 
 Run the helper from the repo root. It is `.claude/skills/verify/scripts/vt-verify`; call it by that path.
 
@@ -71,11 +71,12 @@ TapePlayer drives use the same `$RUN`:
 
 ```bash
 .claude/skills/verify/scripts/vt-verify player-build "$RUN"
+.claude/skills/verify/scripts/vt-verify player-press "$RUN" examples/contrail/tape "Where to?" "Seattle (SEA)"
 .claude/skills/verify/scripts/vt-verify player-test "$RUN"
 .claude/skills/verify/scripts/vt-verify player-cuts "$RUN"
 ```
 
-Each writes `player-build.*`, `player-test.*` or `player-cuts.*` under `$RUN` like `run` does. `player-test` also keeps the result bundle as `player-test.xcresult` and exports its screenshot into `player-test.attachments/`. Ask the user before `player-test`, `player-cuts` and any journey that opens TapePlayer, because they take over the screen. [features/player.md](features/player.md) lists the journeys.
+Each writes `player-build.*`, `player-press.*`, `player-test.*` or `player-cuts.*` under `$RUN` like `run` does. `player-test` also keeps the result bundle as `player-test.xcresult` and exports its screenshot into `player-test.attachments/`. Ask the user before `player-test`, `player-cuts` and any journey that opens TapePlayer, because they take over the screen. [features/player.md](features/player.md) lists the journeys.
 
 Projects to drive:
 
@@ -117,5 +118,6 @@ This removes only scratch projects, so name yours `"${TMPDIR:-/tmp}"/videotape-v
 - `.claude/skills/verify/scripts/vt-verify exec <run-dir> <name> [-C <dir>] -- <command...>` captures any other command the same way, such as `uv run pyright contrail` or `scripts/runpod-render`.
 - `.claude/skills/verify/scripts/vt-verify screenshot <run-dir> <name> <html-file> [height]` captures a page with headless Chrome as `<name>.light.png` and `<name>.dark.png`, 1280 pixels wide and `height` pixels tall, 2400 by default. The cafe's dailies page needs about 7400. It needs Google Chrome in `/Applications`, and doctor reports whether it is there.
 - `.claude/skills/verify/scripts/vt-verify player-build <run-dir>` runs `clients/macos/build.sh` and captures it as `player-build.*`. It needs Xcode, and doctor reports whether it is there.
+- `.claude/skills/verify/scripts/vt-verify player-press <run-dir> <tape-dir> [<label>...]` loads the tape with TapeKit, presses each label's hotspot in turn through TapeKit's player, and captures the states it rests on as `player-press.*`. A label that ends in `*` matches the first hotspot whose label begins with the rest. It opens no window.
 - `.claude/skills/verify/scripts/vt-verify player-test <run-dir>` runs `clients/macos/test.sh` and captures it as `player-test.*`, with the result bundle and its exported screenshot. It takes over the mouse and screen.
 - `.claude/skills/verify/scripts/vt-verify player-cuts <run-dir> [cuts]` measures every cut between clips for a flash, against a control that must flash, and captures it as `player-cuts.*`. It plays a window on screen for about a minute on a stand-in tape, and proportionally longer for longer clips, such as Wan's 81-frame clips.

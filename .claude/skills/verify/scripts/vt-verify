@@ -7,7 +7,7 @@ cd "$ROOT" || exit 2
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
-  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> <project-dir> -- <videotape args...> | exec <run-dir> <name> [-C <dir>] -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
+  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> <project-dir> -- <videotape args...> | exec <run-dir> <name> [-C <dir>] -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-press <run-dir> <tape-dir> [<label>...] | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
   exit 2
 }
 
@@ -121,6 +121,13 @@ PY
     [ $# -eq 2 ] || usage
     mkdir -p "$2"
     capture "$2" player-build . clients/macos/build.sh
+    ;;
+  player-press)
+    [ $# -ge 3 ] || usage
+    mkdir -p "$2"; dir="$2"; tape="$(cd "$3" && pwd)" || exit 2; shift 3
+    press=.claude/skills/verify/scripts/player-press
+    swift build --quiet --package-path "$press" --scratch-path clients/macos/build/player-press || exit 2
+    capture "$dir" player-press . "$(swift build --package-path "$press" --scratch-path clients/macos/build/player-press --show-bin-path)/player-press" "$tape" "$@"
     ;;
   player-test)
     [ $# -eq 2 ] || usage
