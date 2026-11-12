@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""Ask Claude what Contrail does from its screenplay alone, then check the answer against the README's features.
+
+    scripts/reader-test [--record responses.json]
+
+The first call sends only examples/contrail/contrail/screenplay.py and asks what the app does. The second call checks
+that answer against each feature in examples/contrail/README.md, one yes or no each. Both answers are saved in
+examples/contrail/reader-test.md, and the exit code is 0 only when every feature is a yes.
+
+Needs ANTHROPIC_API_KEY in the environment. Both calls are paid. Standard library only.
+
+The Messages API over plain HTTP (platform.claude.com/docs/en/api/messages): POST https://api.anthropic.com/v1/messages
+with the headers x-api-key and anthropic-version. This model always thinks, and its thinking is billed as output tokens.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+SCREENPLAY = ROOT / "examples" / "contrail" / "contrail" / "screenplay.py"
+README = ROOT / "examples" / "contrail" / "README.md"
+REPORT = ROOT / "examples" / "contrail" / "reader-test.md"
+
+API = "https://api.anthropic.com/v1/messages"
+VERSION = "2026-10-21"
+MODEL = "claude-opus-5-5"
+MAX_TOKENS = 16000
+# This model's default, set so that a change of default does not change the test.
+EFFORT = "medium"
+# Dollars for a million tokens of claude-opus-5-5 on the Claude API, from Anthropic's model table as of 2026-10-06.
+# Neither request asks for caching, so input and output tokens are the whole bill.
+USD_PER_MILLION = {"input_tokens": 4.00, "output_tokens": 20.00}
+
+READ = """This is the whole of one Python file. It is all you are given of an app: nothing of the framework it imports, \
+of its other modules, or of its data.
+
+Say what the app does for the person using it. Go through it scene by scene: what each one shows, what the person \
+can press there, and where each press leads. Say only what this file supports.
+
+<file name="contrail/screenplay.py">
+{source}
+</file>"""
+
+CHECK = """Below are an answer that describes an app, and a numbered list of features.
+
+For each feature, decide whether the answer states it. Say yes only if the answer says everything the feature says, \
+in any words. Judge by the answer alone, and not by what such an app would usually do.
+
+<answer>
+{answer}
+</answer>
+
+<features>
+{features}
+</features>"""
+
+Send = Callable[[urllib.request.Request], bytes]
+
+
+class ReaderTestError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Reply:
+    """What one call answered: its text, the model that wrote it, the tokens it billed, and the raw response."""
+
+    text: str
+    model: str
+    tokens: dict[str, int]
+    raw: dict
+
+    @property
+    def usd(self) -> float:
+        return sum(self.tokens[kind] * price for kind, price in USD_PER_MILLION.items()) / 1_000_000
+
+    def spent(self, name: str) -> str:
+        return (f"{name:<6} {self.model}: {self.tokens['input_tokens']:,} input tokens, "
+                f"{self.tokens['output_tokens']:,} output tokens, ${self.usd:.4f}")
+
+
+@dataclass(frozen=True)
+class Verdict:
+    feature: str
+    yes: bool
+    why: str
+
+
+def _urlopen(request: urllib.request.Request) -> bytes:
+    with urllib.request.urlopen(request, timeout=600) as response:
+        return response.read()
+
+
+def features(readme: str) -> list[str]:
+    """The numbered features under the README's Features heading."""
+    section = re.search(r"^## Features\n(.*?)(?=^## |\Z)", readme, re.M | re.S)
+    found = re.findall(r"^\d+\. (.+)$", section.group(1), re.M) if section else []
+    if not found:
+        raise ReaderTestError(f"{README} has no numbered features under a Features heading")
+    return found
+
+
+def read_request(source: str) -> dict:
+    return {"model": MODEL, "max_tokens": MAX_TOKENS, "output_config": {"effort": EFFORT},
+            "messages": [{"role": "user", "content": READ.format(source=source)}]}
+
+
+def check_request(answer: str, listed: list[str]) -> dict:
+    """One verdict for each feature. The schema names every feature, so the check cannot leave one out."""
+    verdict = {"type": "object", "properties": {"why": {"type": "string"}, "yes": {"type": "boolean"}},
+               "required": ["why", "yes"], "additionalProperties": False}
+    names = [f"feature_{number}" for number in range(1, len(listed) + 1)]
+    schema = {"type": "object", "properties": {name: verdict for name in names}, "required": names,
+              "additionalProperties": False}
+    numbered = "\n".join(f"{number}. {feature}" for number, feature in enumerate(listed, 1))
+    return {"model": MODEL, "max_tokens": MAX_TOKENS,
+            "output_config": {"effort": EFFORT, "format": {"type": "json_schema", "schema": schema}},
+            "messages": [{"role": "user", "content": CHECK.format(answer=answer, features=numbered)}]}
+
+
+def call(body: dict, key: str, send: Send, what: str) -> Reply:
+    """One paid request, sent once. The key goes only into the x-api-key header, and is scrubbed from any error."""
+    request = urllib.request.Request(API, data=json.dumps(body).encode(), method="POST", headers={
+        "Content-Type": "application/json", "x-api-key": key, "anthropic-version": VERSION})
+    try:
+        answered = send(request)
+    except urllib.error.HTTPError as error:
+        failure = f"{what} failed with HTTP {error.code}: {error.read().decode(errors='replace')[:500]}"
+        raise ReaderTestError(failure.replace(key, "<ANTHROPIC_API_KEY>")) from None
+    except OSError as error:
+        raise ReaderTestError(f"{what} failed: {error}".replace(key, "<ANTHROPIC_API_KEY>")) from None
+    try:
+        raw = json.loads(answered)
+        stop, model = raw["stop_reason"], raw["model"]
+        text = "".join(block["text"] for block in raw["content"] if block["type"] == "text").strip()
+        tokens = {kind: int(raw["usage"][kind]) for kind in USD_PER_MILLION}
+    except (ValueError, KeyError, TypeError):
+        raise ReaderTestError(f"{what} answered with something other than a message: {answered[:300]!r}") from None
+    if stop != "end_turn" or not text:
+        raise ReaderTestError(f"{what} stopped with {stop!r} after {len(text)} characters of text, not a whole answer")
+    return Reply(text, model, tokens, raw)
+
+
+def verdicts(check: Reply, listed: list[str]) -> list[Verdict]:
+    try:
+        judged = json.loads(check.text)
+        found = [Verdict(feature, judged[f"feature_{number}"]["yes"], judged[f"feature_{number}"]["why"])
+                 for number, feature in enumerate(listed, 1)]
+    except (ValueError, KeyError, TypeError):
+        found = []
+    if not found or not all(isinstance(verdict.yes, bool) and isinstance(verdict.why, str) for verdict in found):
+        raise ReaderTestError(f"the check did not say yes or no to each of the {len(listed)} features: {check.text[:300]!r}")
+    return found
+
+
+def report(read: Reply, found: list[Verdict], bill: list[str]) -> str:
+    rows = "\n".join(f"{number}. **{'Yes' if verdict.yes else 'No'}.** {verdict.feature}\n\n   {verdict.why}\n"
+                     for number, verdict in enumerate(found, 1))
+    spent = "\n".join(f"- {line}" for line in bill)
+    return (f"# Reader test\n\n`scripts/reader-test` sent only `contrail/screenplay.py` to {MODEL} and asked what the "
+            f"app does. A second call checked that answer against the features in `README.md`. The answer states "
+            f"{sum(verdict.yes for verdict in found)} of {len(found)}.\n\n"
+            f"## What the app does, read from the screenplay alone\n\n{read.text}\n\n"
+            f"## The answer against each feature\n\n{rows}\n## Tokens and cost\n\n{spent}\n")
+
+
+def main(argv: list[str] | None = None, send: Send = _urlopen) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--record", help="also write both raw responses to this JSON file, in the shape of "
+                        "tests/fixtures/reader-test.json")
+    args = parser.parse_args(argv)
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        print("error: ANTHROPIC_API_KEY is not set", file=sys.stderr)
+        return 2
+    # http.client rejects a header with a control character by quoting the whole header, key and all, in its error.
+    if not key.isprintable():
+        print("error: ANTHROPIC_API_KEY holds a character an HTTP header cannot carry, such as a line break", file=sys.stderr)
+        return 2
+    try:
+        listed = features(README.read_text())
+        read = call(read_request(SCREENPLAY.read_text()), key, send, "the read")
+        check = call(check_request(read.text, listed), key, send, "the check")
+        found = verdicts(check, listed)
+    except ReaderTestError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 2
+    bill = [read.spent("read"), check.spent("check"), f"total  ${read.usd + check.usd:.4f}"]
+    if args.record:
+        Path(args.record).write_text(json.dumps({"read": read.raw, "check": check.raw}, indent=2) + "\n")
+    REPORT.write_text(report(read, found, bill))
+    print("\n".join(bill))
+    for number, verdict in enumerate(found, 1):
+        print(f"{number}. {'yes' if verdict.yes else 'no':<3}  {verdict.feature}")
+    stated = sum(verdict.yes for verdict in found)
+    shown = os.path.relpath(REPORT) if REPORT.is_relative_to(Path.cwd()) else REPORT
+    print(f"{stated} of {len(found)} features stated -> {shown}")
+    return 0 if stated == len(found) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
