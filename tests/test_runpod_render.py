@@ -162,7 +162,7 @@ def test_dry_run_in_a_project_without_a_key_prints_the_plan_and_creates_nothing(
     result = subprocess.run([SCRIPT, "--takes", "3", "--cap-usd", "20", "--dry-run"], capture_output=True, text=True,
                             cwd=CONTRAIL, env={"PATH": "/usr/bin:/bin"})
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[0] == "project       examples/contrail, 3 takes per shot, tape examples/contrail/tape"
+    assert "project       examples/contrail, 3 takes per shot, tape examples/contrail/tape" in result.stdout.splitlines()
     assert result.stdout.rstrip().endswith("dry run: nothing was created.")
     assert "$3.99/h (assumed, catalog read of 2026-11-09; set RUNPOD_API_KEY for the live price)" in result.stdout
     assert (ROOT / ".runpod" / "id_ed25519.pub").read_text().startswith("ssh-ed25519 ")

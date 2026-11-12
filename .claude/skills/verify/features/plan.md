@@ -67,7 +67,7 @@ Preconditions:
 
 ## Gotchas
 
-- The README in `examples/contrail` writes the type check as `uv run pyright --strict contrail`. pyright 1.1.414 has no `--strict` option: that command prints `Unexpected option --strict.` and exits 4. Drive `uv run pyright contrail`, which is strict because of the project's `[tool.pyright]` table.
+- pyright 1.1.414 has no `--strict` option, so `uv run pyright --strict contrail` prints `Unexpected option --strict.` and exits 4. Drive `uv run pyright contrail`, which is strict because of the project's `[tool.pyright]` table.
 - Contrail's numbers come from `examples/contrail/data/*.json`. A change to the data changes them. `uv run pytest tests/test_contrail.py` counts the same numbers from the JSON files without the plan.
 - `vt-verify run` uses the repo's `.venv`. The README's commands use `uv run`, which uses `examples/contrail/.venv`. Both install the same source in editable mode, so they print the same.
 - When the plan finds an error it prints nothing to stdout and exits 1. [errors.md](./errors.md) covers each one.

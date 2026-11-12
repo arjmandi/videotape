@@ -20,7 +20,7 @@ From this folder:
 
 ```sh
 uv run videotape plan
-uv run pyright --strict contrail
+uv run pyright contrail
 uv run videotape render
 open ../../clients/macos/build/TapePlayer.app --args examples/contrail/tape
 ```
