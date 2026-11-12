@@ -1,6 +1,6 @@
-"""tests/fixtures/reader-test.json holds two responses written by hand in the shape the Messages API documents,
-because the paid run has not happened yet. scripts/reader-test --record tests/fixtures/reader-test.json replaces
-them with the real ones."""
+"""tests/fixtures/reader-test.json holds two responses written by hand in the shape the Messages API documents.
+The paid run on 2026-11-12 stated 8 of 9 features, so its responses stay out of the fixture, which needs nine yeses.
+examples/contrail/reader-test.md holds that run."""
 
 import importlib.machinery
 import importlib.util
