@@ -9,7 +9,7 @@ from typing import ClassVar
 
 from videotape import errors
 from videotape.errors import ScreenplayError
-from videotape.screenplay import Action, Element, Line, Screenplay, Shown, State
+from videotape.screenplay import Action, Element, Screenplay, Shown, State
 
 MAX_STATES = 500
 MAX_WORDS = 12
@@ -85,7 +85,6 @@ class Plan:
 def plan(screenplay: Screenplay, max_states: int = MAX_STATES) -> Plan:
     entry = _entry(screenplay)
     title = screenplay.title
-    walked: dict[State, tuple[Line, ...]] = {}
     keys, ids, warned = list[Key](), set[str](), dict[str, ScreenplayError]()
     reached, queue = {entry}, deque([entry])
     while queue:
@@ -108,8 +107,7 @@ def plan(screenplay: Screenplay, max_states: int = MAX_STATES) -> Plan:
         prompt = f"The {title} app at rest, flat and head-on. {' '.join(element.sentence for element in shown)} " \
                  "Sharp, legible lettering."
         keys.append(Key(_unique(_slug(state.name), ids), state, prompt, tuple(line.words for line in lines), actions))
-        walked[state] = lines
-    unreached = [scene for scene in screenplay.scenes if scene not in {state.scene for state in walked}]
+    unreached = [scene for scene in screenplay.scenes if scene not in {state.scene for state in reached}]
     if unreached:
         names = [scene.name for scene in unreached]
         raise ScreenplayError("VT204", f"{errors.shown(unreached[0].defined[0])}:{unreached[0].defined[1]}",

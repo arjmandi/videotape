@@ -15,27 +15,27 @@ final class TapePlayerUITests: XCTestCase {
     @MainActor
     func testBookingTheMorningFlightToSeattleLandsBackOnHome() throws {
         let (app, tape) = try launch()
-        let screen = app.images["tape"]
-        XCTAssertTrue(screen.wait(for: \.label, toEqual: "home", timeout: 30), "the opening rests on home")
+        let image = app.images["tape"]
+        XCTAssertTrue(image.wait(for: \.label, toEqual: "home", timeout: 30), "the opening rests on home")
         press(app.buttons["Where to?"], "home offers its search bar")
         press(app.buttons["Seattle (SEA)"], "the search bar plays into search, which offers Seattle (SEA)")
         press(app.buttons["Saturday, December 12, $89"], "Seattle plays into its dates, which offer December 12")
         XCTAssertTrue(
-            screen.wait(for: \.label, toEqual: "results(SEA, 2026-12-12)", timeout: 30),
+            image.wait(for: \.label, toEqual: "results(SEA, 2026-12-12)", timeout: 30),
             "December 12 plays into that day's flights"
         )
         let morning = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "8:15 AM")).firstMatch
         press(morning, "the day's flights offer the 8:15 AM flight")
         press(app.buttons["Book for $89"], "the 8:15 AM flight plays into the flight, which offers Book for $89")
         XCTAssertTrue(
-            screen.wait(for: \.label, toEqual: "booked(CT 300, 2026-12-12)", timeout: 30),
+            image.wait(for: \.label, toEqual: "booked(CT 300, 2026-12-12)", timeout: 30),
             "Book for $89 plays into the booking"
         )
         press(app.buttons["Done"], "the booking offers Done")
-        XCTAssertTrue(screen.wait(for: \.label, toEqual: "home", timeout: 30), "Done plays back into home")
+        XCTAssertTrue(image.wait(for: \.label, toEqual: "home", timeout: 30), "Done plays back into home")
         XCTAssertTrue(app.buttons["Where to?"].waitForExistence(timeout: 5), "home offers its search bar again")
 
-        let shot = screen.screenshot()
+        let shot = image.screenshot()
         let seen = try grid(shot.pngRepresentation)
         let home = difference(seen, try grid(Data(contentsOf: tape.appending(path: "keys/home.png"))))
         let booked = difference(
@@ -100,7 +100,7 @@ private let columns = 20, rows = 11, cell = 8
 
 /// The image as the mean sRGB colour of each cell in a `columns` by `rows` grid, less the image's mean colour. Scaling,
 /// video encoding and the colour shift from the display's profile and the clips' untagged colour matrix wash out,
-/// while a different screen does not.
+/// while a different key does not.
 private func grid(_ png: Data) throws -> [Double] {
     guard let source = CGImageSourceCreateWithData(png as CFData, nil),
           let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
