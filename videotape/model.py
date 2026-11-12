@@ -36,7 +36,6 @@ class Listing:
     eye: Callable[[Path], Eye]
 
 
-# The stand-in is checked by its own reader, and every other model by Qwen3-VL-8B.
 MODELS: dict[str, Listing] = {
     "stand-in": Listing(StandIn, lambda tape: StandInEye()),
     "wan2.2-5b": Listing(Wan, QwenEye),

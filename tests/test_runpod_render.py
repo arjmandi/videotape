@@ -95,6 +95,7 @@ def test_the_remote_scripts_parse_and_run_the_render_in_the_project_with_the_tak
         "cd tests/fixtures/cafe",
         "uv run --project /workspace/videotape videotape render --model wan2.2-5b --takes 1 --out tape-wan2"]
     assert script.fetched(cafe) == "tests/fixtures/cafe/tape-wan2"
+    assert script.dailies_command(cafe) == ["uv", "run", "--project", str(ROOT), "videotape", "dailies", "--out", "tape-wan2"]
 
 
 STARTED = datetime.datetime(2026, 11, 9, 11, 0, tzinfo=datetime.timezone.utc)
@@ -152,7 +153,7 @@ def test_describe_names_every_part_of_the_plan(script, built):
                  "PUBLIC_KEY, HF_HUB_ENABLE_HF_TRANSFER, PYTORCH_CUDA_ALLOC_CONF", "uv sync --extra wan --extra qwen",
                  "cd examples/contrail && uv run --project /workspace/videotape videotape render --model wan2.2-5b --takes 3",
                  "append the pod line to examples/contrail/ledger.jsonl",
-                 "run uv run videotape dailies in examples/contrail"):
+                 "run videotape dailies in examples/contrail"):
         assert part in text, part
     assert "AAAAIFakeFakeFake" not in text.split("create body")[1].split("\n")[0]
 

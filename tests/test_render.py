@@ -214,7 +214,7 @@ def test_a_move_keeps_the_take_whose_frames_sit_closest_to_its_keys(first):
 
 
 def test_dailies_page_is_a_view_of_its_record(first):
-    directory, _, result = first
+    directory = first[0]
     tape = directory / "tape"
     record = json.loads((tape / "dailies.json").read_text())
     page = (tape / "dailies.html").read_text()

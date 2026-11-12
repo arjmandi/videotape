@@ -208,8 +208,8 @@ def describe(built: Plan) -> str:
         "setup         " + setup_script().strip().replace("\n", "\n              "),
         f"render        cd {built.project} && {render_command(built)}",
         f"then          rsync {fetched(built)} back, append the pod's take lines to {ledger_path(built)}, DELETE the pod, "
-        f"confirm it is gone, append the pod line to {ledger_path(built)}, and run {' '.join(dailies_command(built))} "
-        f"in {built.project} if the tape has a dailies record",
+        f"confirm it is gone, append the pod line to {ledger_path(built)}, and run "
+        f"{' '.join(dailies_command(built)[4:])} in {built.project} if the tape has a dailies record",
     ])
 
 
@@ -338,7 +338,9 @@ def ledger_path(built: Plan) -> str:
 
 
 def dailies_command(built: Plan) -> list[str]:
-    return ["uv", "run", "videotape", "dailies"] + ([] if built.tape == "tape" else ["--out", built.tape])
+    """Run in the project here. The repository's environment runs videotape, as on the pod, so the project needs none."""
+    out = [] if built.tape == "tape" else ["--out", built.tape]
+    return ["uv", "run", "--project", str(ROOT), "videotape", "dailies", *out]
 
 
 def download(ssh: Ssh, built: Plan) -> None:
