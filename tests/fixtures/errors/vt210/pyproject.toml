@@ -1,0 +1,7 @@
+[project]
+name = "vt210"
+version = "0.1.0"
+
+[tool.videotape]
+screenplay = "app:app"
+max_states = 5

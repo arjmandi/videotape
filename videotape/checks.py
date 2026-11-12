@@ -1,10 +1,9 @@
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Protocol
 
 from videotape import frames
 from videotape.frames import Box, Frame
-from videotape.screenplay import Scene
+from videotape.plan import Key
 
 MAX_CER = 0.0
 MAX_DIFFERENCE = 0.05
@@ -17,7 +16,7 @@ class ChecksError(RuntimeError):
 class Eye(Protocol):
     name: str
 
-    def find(self, frame: Frame, label: str) -> Box | None: ...
+    def find(self, frame: Frame, words: str) -> Box | None: ...
 
     def read(self, frame: Frame) -> list[str]: ...
 
@@ -41,23 +40,26 @@ class Item:
 
 @dataclass(frozen=True)
 class Reading:
+    """One line of a key, what the eye saw for it, and how far apart the two are."""
+
+    line: str
     seen: str
     cer: float
 
 
 @dataclass(frozen=True)
 class KeyChecks:
-    """What an eye finds on a key frame: a box per button, or none, and a reading per line and label."""
+    """What an eye finds on a key frame: a box per action, by its hotspot's label, or none, and a reading per line."""
 
-    buttons: dict[str, Box | None]
-    text: dict[str, Reading]
+    hotspots: dict[str, Box | None]
+    text: tuple[Reading, ...]
 
     def items(self) -> list[Item]:
-        items = [Item(f'button "{label}"', f"found at {box.x},{box.y} {box.w}x{box.h}" if box else "not found",
-                      box is not None) for label, box in self.buttons.items()]
-        for text, reading in self.text.items():
+        items = [Item(f'hotspot "{label}"', f"found at {box.x},{box.y} {box.w}x{box.h}" if box else "not found",
+                      box is not None) for label, box in self.hotspots.items()]
+        for reading in self.text:
             seen = f'"{reading.seen}"' if reading.seen else "nothing"
-            items.append(Item(f'text "{text}"', f"read {seen}, CER {reading.cer:.3f}", reading.cer <= MAX_CER))
+            items.append(Item(f'text "{reading.line}"', f"read {seen}, CER {reading.cer:.3f}", reading.cer <= MAX_CER))
         return items
 
     @property
@@ -65,9 +67,9 @@ class KeyChecks:
         return [item for item in self.items() if not item.passed]
 
     def rank(self, seed: int) -> tuple[int, float, int]:
-        """The most buttons found, then the least character error, then the lowest seed."""
-        found = sum(box is not None for box in self.buttons.values())
-        return -found, sum(reading.cer for reading in self.text.values()), seed
+        """The most hotspots found, then the least character error, then the lowest seed."""
+        found = sum(box is not None for box in self.hotspots.values())
+        return -found, sum(reading.cer for reading in self.text), seed
 
 
 @dataclass(frozen=True)
@@ -93,20 +95,33 @@ class MoveChecks:
 Checks = KeyChecks | MoveChecks
 
 
-def score(frame: Frame, scene: Scene, eye: Eye) -> KeyChecks:
-    seen = eye.read(frame)
+def score(frame: Frame, key: Key, eye: Eye) -> KeyChecks:
+    """Find each of the key's actions by its words, and read each of its lines."""
     return KeyChecks(
-        buttons={label: eye.find(frame, label) for label in scene.actions},
-        text={text: _closest(text, seen) for text in (*scene.shows, *scene.actions)},
+        hotspots={action.label: eye.find(frame, action.words) for action in key.actions},
+        text=readings(key.lines, eye.read(frame)),
     )
 
 
-def seams(take: Path, start_key: Path, end_key: Path) -> MoveChecks:
-    return MoveChecks(
-        start=frames.difference(frames.first_frame(take), frames.read_png(start_key)),
-        end=frames.difference(frames.last_frame(take), frames.read_png(end_key)),
-    )
+def seams(first: Frame, last: Frame, start_key: Frame, end_key: Frame) -> MoveChecks:
+    return MoveChecks(start=frames.difference(first, start_key), end=frames.difference(last, end_key))
 
 
-def _closest(text: str, seen: list[str]) -> Reading:
-    return min((Reading(line, cer(text, line)) for line in seen), key=lambda reading: reading.cer, default=Reading("", 1.0))
+def readings(lines: tuple[str, ...], seen: list[str]) -> tuple[Reading, ...]:
+    """A reading for each line, each from a different line the eye saw, so a line the key shows twice is read twice.
+    Lines seen exactly are paired first, and each line left takes the closest one still unpaired."""
+    left = list(seen)
+    paired: dict[int, Reading] = {}
+    for index, line in enumerate(lines):
+        if line in left:
+            left.remove(line)
+            paired[index] = Reading(line, line, 0.0)
+    for index, line in enumerate(lines):
+        if index not in paired:
+            closest = min(left, key=lambda other: cer(line, other), default=None)
+            if closest is None:
+                paired[index] = Reading(line, "", 1.0)
+            else:
+                left.remove(closest)
+                paired[index] = Reading(line, closest, cer(line, closest))
+    return tuple(paired[index] for index in range(len(lines)))

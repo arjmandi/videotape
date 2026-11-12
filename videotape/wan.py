@@ -1,4 +1,4 @@
-"""Wan 2.2 draws every pixel: TI2V-5B draws each scene's key from text, and Fun-5B-InP draws each move between two keys."""
+"""Wan 2.2 draws every pixel: TI2V-5B draws each state's key from text, and Fun-5B-InP draws each move between two keys."""
 
 import gc
 import io
@@ -12,7 +12,7 @@ from pathlib import Path
 
 from videotape import frames
 from videotape.frames import FPS, HEIGHT, WIDTH
-from videotape.shots import Mode
+from videotape.plan import Mode
 
 
 class WanError(RuntimeError):
@@ -112,7 +112,7 @@ class Wan:
 
     def __init__(self):
         if find_spec("torch") is None or find_spec("diffusers") is None:
-            raise WanError("wan2.2-5b needs the wan extra; install it with uv sync --extra wan")
+            raise WanError("wan2.2-5b needs videotape's wan extra, which is not installed here; install videotape[wan]")
         import torch
 
         if not torch.cuda.is_available():

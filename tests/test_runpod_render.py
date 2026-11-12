@@ -10,9 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from videotape import ledger
+from conftest import CONTRAIL
+from videotape.ledger import Ledger
 
 ROOT = Path(__file__).parent.parent
+SCRIPT = str(ROOT / "scripts" / "runpod-render")
 PUBLIC_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFakeFake videotape-runpod\n"
 
 
@@ -28,7 +30,8 @@ def script():
 
 @pytest.fixture
 def built(script):
-    return script.plan("examples/surf_shop", 3, "NVIDIA H100 80GB HBM3", 20.0, 3.99, "catalog", PUBLIC_KEY, name="videotape-test")
+    return script.plan("examples/contrail", "tape", 3, "NVIDIA H100 80GB HBM3", 20.0, 3.99, "catalog", PUBLIC_KEY,
+                       name="videotape-test")
 
 
 def bash_parses(text: str) -> None:
@@ -42,10 +45,11 @@ def test_the_deadline_is_the_cap_in_hours_minus_the_teardown_margin(script):
 
 def test_a_cap_too_small_to_render_anything_is_refused(script):
     with pytest.raises(script.PlanError, match=r"a cap of \$1.00 buys 5 minutes .* the least that makes sense is \$2.00"):
-        script.plan("examples/surf_shop", 1, "NVIDIA H100 80GB HBM3", 1.0, 3.99, "catalog", PUBLIC_KEY)
+        script.plan("examples/contrail", "tape", 1, "NVIDIA H100 80GB HBM3", 1.0, 3.99, "catalog", PUBLIC_KEY)
     with pytest.raises(script.PlanError, match="has no secure price"):
-        script.plan("examples/surf_shop", 1, "NVIDIA H100 80GB HBM3", 20.0, 0.0, "catalog", PUBLIC_KEY)
-    assert script.plan("examples/surf_shop", 1, "NVIDIA H100 80GB HBM3", 2.0, 3.99, "catalog", PUBLIC_KEY).deadline_seconds == 1204
+        script.plan("examples/contrail", "tape", 1, "NVIDIA H100 80GB HBM3", 20.0, 0.0, "catalog", PUBLIC_KEY)
+    assert script.plan("examples/contrail", "tape", 1, "NVIDIA H100 80GB HBM3", 2.0, 3.99, "catalog",
+                       PUBLIC_KEY).deadline_seconds == 1204
 
 
 def test_the_create_body_asks_for_one_gpu_with_the_cuda_floor_ssh_and_the_self_destruct(script, built):
@@ -74,7 +78,7 @@ def test_the_create_body_asks_for_one_gpu_with_the_cuda_floor_ssh_and_the_self_d
     bash_parses(timer)
 
 
-def test_the_remote_scripts_parse_and_run_the_render_with_the_takes(script, built):
+def test_the_remote_scripts_parse_and_run_the_render_in_the_project_with_the_takes(script, built):
     setup = script.setup_script()
     bash_parses(setup)
     assert setup.startswith("set -euo pipefail\n")
@@ -83,45 +87,100 @@ def test_the_remote_scripts_parse_and_run_the_render_with_the_takes(script, buil
     assert "wan.prefetch()" in setup and "snapshot_download(qwen.MODEL_ID)" in setup
     render = script.render_script(built)
     bash_parses(render)
-    assert render.rstrip().endswith("uv run videotape render examples/surf_shop --model wan2.2-5b --checks qwen3-vl-8b --takes 3")
-    cafe = script.plan(".claude/skills/verify/fixtures/cafe", 1, "NVIDIA H100 80GB HBM3", 5.0, 3.99, "catalog", PUBLIC_KEY)
-    assert script.render_command(cafe) == ("uv run videotape render .claude/skills/verify/fixtures/cafe --model wan2.2-5b "
-                                           "--checks qwen3-vl-8b --takes 1")
+    assert render.splitlines()[-3:] == [
+        "cd /workspace/videotape", "cd examples/contrail",
+        "uv run --project /workspace/videotape videotape render --model wan2.2-5b --takes 3"]
+    cafe = script.plan("tests/fixtures/cafe", "tape-wan2", 1, "NVIDIA H100 80GB HBM3", 5.0, 3.99, "catalog", PUBLIC_KEY)
+    assert script.render_script(cafe).splitlines()[-2:] == [
+        "cd tests/fixtures/cafe",
+        "uv run --project /workspace/videotape videotape render --model wan2.2-5b --takes 1 --out tape-wan2"]
+    assert script.fetched(cafe) == "tests/fixtures/cafe/tape-wan2"
 
 
-def test_the_pod_ledger_line_prices_the_wall_clock_at_the_list_price(script, built):
-    started = datetime.datetime(2026, 11, 9, 11, 0, tzinfo=datetime.timezone.utc)
-    stopped = datetime.datetime(2026, 11, 9, 11, 30, tzinfo=datetime.timezone.utc)
-    line = script.ledger_line("abc123", built, started, stopped)
-    assert line == {"kind": "pod", "at": "2026-11-09T11:30:00+00:00", "pod": "abc123", "gpu": "NVIDIA H100 80GB HBM3",
-                    "usd_per_hour": 3.99, "started": "2026-11-09T11:00:00+00:00", "stopped": "2026-11-09T11:30:00+00:00",
-                    "seconds": 1800, "usd": 1.995}
-    assert ledger.totals([line]) == {"takes": 0, "gpu_seconds": 0.0, "pods": 1, "pod_hours": 0.5, "usd": 2.0}
+STARTED = datetime.datetime(2026, 11, 9, 11, 0, tzinfo=datetime.timezone.utc)
+STOPPED = datetime.datetime(2026, 11, 9, 11, 30, tzinfo=datetime.timezone.utc)
+
+
+def test_the_pod_ledger_line_names_its_tape_and_prices_the_wall_clock_at_the_list_price(script, built):
+    assert script.ledger_line("abc123", built, STARTED, STOPPED) == {
+        "kind": "pod", "tape": "tape", "at": "2026-11-09T11:30:00+00:00", "pod": "abc123", "gpu": "NVIDIA H100 80GB HBM3",
+        "usd_per_hour": 3.99, "started": "2026-11-09T11:00:00+00:00", "stopped": "2026-11-09T11:30:00+00:00",
+        "seconds": 1800, "usd": 1.995}
+
+
+class Pod:
+    """A pod's SSH for the copy back: rsync is recorded, and cat answers with the take lines its render wrote."""
+
+    host = "203.0.113.7"
+
+    def __init__(self, takes: bytes):
+        self.takes = takes
+        self.copied: list[tuple[str, str]] = []
+        self.ran: list[str] = []
+
+    def rsync(self, source: str, target: str) -> None:
+        self.copied.append((source, target))
+
+    def run(self, command: str, check: bool = True) -> subprocess.CompletedProcess:
+        self.ran.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout=self.takes)
+
+
+def test_the_pods_take_lines_and_its_pod_line_land_in_the_projects_ledger_for_their_tape(script, tmp_path, monkeypatch):
+    monkeypatch.setattr(script, "ROOT", tmp_path)
+    (tmp_path / "examples" / "contrail").mkdir(parents=True)
+    book = tmp_path / "examples" / "contrail" / "ledger.jsonl"
+    book.write_text(json.dumps({"kind": "take", "tape": "tape", "seconds": 0.5}) + "\n")
+    wan2 = script.plan("examples/contrail", "tape-wan2", 3, "NVIDIA H100 80GB HBM3", 20.0, 3.99, "catalog", PUBLIC_KEY)
+    takes = "".join(json.dumps({"kind": "take", "tape": "tape-wan2", "seconds": seconds, "model": "wan2.2-5b"}) + "\n"
+                    for seconds in (90.0, 100.5))
+    pod = Pod(takes.encode())
+    script.download(pod, wan2)
+    script.append_ledger(wan2, script.ledger_line("abc123", wan2, STARTED, STOPPED))
+    assert pod.copied == [("root@203.0.113.7:/workspace/videotape/examples/contrail/tape-wan2/",
+                           f"{tmp_path}/examples/contrail/tape-wan2/")]
+    assert pod.ran == ["cat /workspace/videotape/examples/contrail/ledger.jsonl"]
+    assert [json.loads(line)["kind"] for line in book.read_text().splitlines()] == ["take", "take", "take", "pod"]
+    assert Ledger(book, "tape-wan2").totals() == {"takes": 2, "gpu_seconds": 190.5, "pods": 1, "pod_hours": 0.5, "usd": 2.0}
+    assert Ledger(book, "tape").totals() == {"takes": 1, "gpu_seconds": 0.5, "pods": 0, "pod_hours": 0.0, "usd": 0.0}
 
 
 def test_describe_names_every_part_of_the_plan(script, built):
     text = script.describe(built)
-    for part in ("examples/surf_shop, 3 takes per shot", "$3.99/h (catalog)", "$20.00 buys 5.01 h", "17445 s",
-                 "host CUDA >= 13.0", "160 GB container disk", "PUBLIC_KEY, HF_HUB_ENABLE_HF_TRANSFER, PYTORCH_CUDA_ALLOC_CONF",
-                 "uv sync --extra wan --extra qwen", "--takes 3", "uv run videotape dailies examples/surf_shop"):
+    for part in ("examples/contrail, 3 takes per shot, tape examples/contrail/tape", "$3.99/h (catalog)",
+                 "$20.00 buys 5.01 h", "17445 s", "host CUDA >= 13.0", "160 GB container disk",
+                 "PUBLIC_KEY, HF_HUB_ENABLE_HF_TRANSFER, PYTORCH_CUDA_ALLOC_CONF", "uv sync --extra wan --extra qwen",
+                 "cd examples/contrail && uv run --project /workspace/videotape videotape render --model wan2.2-5b --takes 3",
+                 "append the pod line to examples/contrail/ledger.jsonl",
+                 "run uv run videotape dailies in examples/contrail"):
         assert part in text, part
     assert "AAAAIFakeFakeFake" not in text.split("create body")[1].split("\n")[0]
 
 
-def test_dry_run_without_a_key_prints_the_plan_and_creates_nothing():
-    result = subprocess.run([str(ROOT / "scripts" / "runpod-render"), "examples/surf_shop", "--takes", "3", "--cap-usd", "20",
-                             "--dry-run"], capture_output=True, text=True, cwd=ROOT, env={"PATH": "/usr/bin:/bin"})
+def test_dry_run_in_a_project_without_a_key_prints_the_plan_and_creates_nothing():
+    result = subprocess.run([SCRIPT, "--takes", "3", "--cap-usd", "20", "--dry-run"], capture_output=True, text=True,
+                            cwd=CONTRAIL, env={"PATH": "/usr/bin:/bin"})
     assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[0] == "project       examples/contrail, 3 takes per shot, tape examples/contrail/tape"
     assert result.stdout.rstrip().endswith("dry run: nothing was created.")
     assert "$3.99/h (assumed, catalog read of 2026-11-09; set RUNPOD_API_KEY for the live price)" in result.stdout
     assert (ROOT / ".runpod" / "id_ed25519.pub").read_text().startswith("ssh-ed25519 ")
 
 
-def test_a_real_run_without_a_key_stops_before_anything_else(capsys):
-    result = subprocess.run([str(ROOT / "scripts" / "runpod-render"), "examples/surf_shop", "--cap-usd", "20"],
-                            capture_output=True, text=True, cwd=ROOT, env={"PATH": "/usr/bin:/bin"})
+def test_a_real_run_without_a_key_stops_before_anything_else():
+    result = subprocess.run([SCRIPT, "--cap-usd", "20"], capture_output=True, text=True, cwd=CONTRAIL,
+                            env={"PATH": "/usr/bin:/bin"})
     assert result.returncode == 2
     assert result.stderr.strip() == "error: RUNPOD_API_KEY is not set; export it, or pass --dry-run to see the plan"
-    missing = subprocess.run([str(ROOT / "scripts" / "runpod-render"), "examples/nowhere", "--cap-usd", "20", "--dry-run"],
-                             capture_output=True, text=True, cwd=ROOT, env={"PATH": "/usr/bin:/bin"})
-    assert missing.returncode == 2 and missing.stderr.startswith("error: no screenplay.py in examples/nowhere")
+
+
+def test_it_runs_only_in_a_project_inside_the_repository(tmp_path):
+    outside = subprocess.run([SCRIPT, "--cap-usd", "20", "--dry-run"], capture_output=True, text=True, cwd=ROOT,
+                             env={"PATH": "/usr/bin:/bin"})
+    assert (outside.returncode, outside.stdout) == (2, "")
+    assert outside.stderr.startswith("error: no pyproject.toml with a [tool.videotape] table here; run this in an app's project")
+    (tmp_path / "pyproject.toml").write_text('[tool.videotape]\nscreenplay = "app:app"\n')
+    elsewhere = subprocess.run([SCRIPT, "--cap-usd", "20", "--dry-run"], capture_output=True, text=True, cwd=tmp_path,
+                               env={"PATH": "/usr/bin:/bin"})
+    assert (elsewhere.returncode, elsewhere.stdout) == (2, "")
+    assert "and only this repository's tracked files are copied to the pod" in elsewhere.stderr

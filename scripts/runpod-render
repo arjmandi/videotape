@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Rent one Runpod GPU, render a screenplay on it with Wan 2.2, bring the tape back, and delete the pod.
+"""Rent one Runpod GPU, render an app on it with Wan 2.2, bring the tape back, and delete the pod.
 
-    scripts/runpod-render examples/surf_shop --takes 3 --cap-usd 20 [--gpu "NVIDIA H100 80GB HBM3"] [--dry-run]
+Run it in the app's project, the folder whose pyproject.toml has [tool.videotape], inside this repository:
+
+    cd examples/contrail
+    ../../scripts/runpod-render --takes 3 --cap-usd 20 [--out tape-wan2] [--gpu "NVIDIA H100 80GB HBM3"] [--dry-run]
 
 Needs RUNPOD_API_KEY in the environment, except under --dry-run, which prints the plan and creates nothing.
 Only this script creates pods. Standard library only, on any Python from 3.9, so the system python3 can run it.
@@ -62,7 +65,10 @@ class ApiError(Exception):
 
 @dataclass(frozen=True)
 class Plan:
-    directory: str
+    project: str
+    """The app's project folder, from the repository's root."""
+    tape: str
+    """The tape folder, from the project. It is the tape's name in the project's ledger."""
     takes: int
     gpu: str
     cloud: str
@@ -75,17 +81,14 @@ class Plan:
     min_cuda: str
     public_key: str
     name: str
-    command: str | None = None
-    fetch: str | None = None
 
 
 def deadline_seconds(cap_usd: float, usd_per_hour: float) -> int:
     return int(cap_usd / usd_per_hour * 3600) - TEARDOWN_MARGIN
 
 
-def plan(directory: str, takes: int, gpu: str, cap_usd: float, usd_per_hour: float, price_source: str, public_key: str,
-         image: str = IMAGE, cloud: str = CLOUD, name: str | None = None, command: str | None = None,
-         fetch: str | None = None) -> Plan:
+def plan(project: str, tape: str, takes: int, gpu: str, cap_usd: float, usd_per_hour: float, price_source: str,
+         public_key: str, image: str = IMAGE, cloud: str = CLOUD, name: str | None = None) -> Plan:
     if usd_per_hour <= 0:
         raise PlanError(f"{gpu} has no {cloud.lower()} price")
     deadline = deadline_seconds(cap_usd, usd_per_hour)
@@ -94,8 +97,8 @@ def plan(directory: str, takes: int, gpu: str, cap_usd: float, usd_per_hour: flo
         raise PlanError(f"a cap of ${cap_usd:.2f} buys {deadline / 60:.0f} minutes of render time at ${usd_per_hour:.2f}/h "
                         f"after the {TEARDOWN_MARGIN // 60} minute teardown margin; the least that makes sense is ${least:.2f}")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return Plan(directory, takes, gpu, cloud, usd_per_hour, price_source, cap_usd, deadline, image, DISK_GB, MIN_CUDA,
-                public_key.strip(), name or f"videotape-{Path(directory).name}-{stamp}", command, fetch)
+    return Plan(project, tape, takes, gpu, cloud, usd_per_hour, price_source, cap_usd, deadline, image, DISK_GB, MIN_CUDA,
+                public_key.strip(), name or f"videotape-{Path(project).name}-{stamp}")
 
 
 def self_destruct(deadline: int) -> str:
@@ -172,20 +175,19 @@ def setup_script() -> str:
 
 
 def render_command(built: Plan) -> str:
-    if built.command:
-        return built.command
-    return (f"uv run videotape render {shlex.quote(built.directory)} --model wan2.2-5b --checks qwen3-vl-8b "
-            f"--takes {built.takes}")
+    """Run in the project on the pod. The repository's environment has the wan and qwen extras, so it runs videotape."""
+    out = "" if built.tape == "tape" else f" --out {shlex.quote(built.tape)}"
+    return f"uv run --project {REMOTE} videotape render --model wan2.2-5b --takes {built.takes}{out}"
 
 
 def render_script(built: Plan) -> str:
-    return "\n".join([PREAMBLE, render_command(built), ""])
+    return "\n".join([PREAMBLE, f"cd {shlex.quote(built.project)}", render_command(built), ""])
 
 
 def ledger_line(pod_id: str, built: Plan, started: datetime.datetime, stopped: datetime.datetime) -> dict:
     seconds = int((stopped - started).total_seconds())
-    return {"kind": "pod", "at": iso(stopped), "pod": pod_id, "gpu": built.gpu, "usd_per_hour": built.usd_per_hour,
-            "started": iso(started), "stopped": iso(stopped), "seconds": seconds,
+    return {"kind": "pod", "tape": built.tape, "at": iso(stopped), "pod": pod_id, "gpu": built.gpu,
+            "usd_per_hour": built.usd_per_hour, "started": iso(started), "stopped": iso(stopped), "seconds": seconds,
             "usd": round(seconds / 3600 * built.usd_per_hour, 4)}
 
 
@@ -193,7 +195,7 @@ def describe(built: Plan) -> str:
     hours = built.cap_usd / built.usd_per_hour
     price = f"${built.usd_per_hour:.2f}/h ({built.price_source})"
     return "\n".join([
-        f"screenplay    {built.directory}, {built.takes} take{'s' if built.takes > 1 else ''} per shot",
+        f"project       {built.project}, {built.takes} take{'s' if built.takes > 1 else ''} per shot, tape {fetched(built)}",
         f"gpu           {built.gpu}, {built.cloud.lower()} cloud, {price}",
         f"cap           ${built.cap_usd:.2f} buys {hours:.2f} h; the pod self-destructs after {built.deadline_seconds} s "
         f"({built.deadline_seconds / 3600:.2f} h), leaving {TEARDOWN_MARGIN // 60} min to copy the tape back and delete",
@@ -204,9 +206,10 @@ def describe(built: Plan) -> str:
         f"start         {start_command(built)}",
         "self-destruct " + self_destruct(built.deadline_seconds).strip().replace("\n", "\n              "),
         "setup         " + setup_script().strip().replace("\n", "\n              "),
-        f"render        {render_command(built)}",
-        f"then          rsync {fetched(built)} back, DELETE the pod, confirm it is gone, append the pod line to "
-        f"{fetched(built)}/ledger.jsonl, and run uv run videotape dailies {built.directory} if it has a dailies record",
+        f"render        cd {built.project} && {render_command(built)}",
+        f"then          rsync {fetched(built)} back, append the pod's take lines to {ledger_path(built)}, DELETE the pod, "
+        f"confirm it is gone, append the pod line to {ledger_path(built)}, and run {' '.join(dailies_command(built))} "
+        f"in {built.project} if the tape has a dailies record",
     ])
 
 
@@ -319,20 +322,34 @@ def upload(ssh: Ssh, built: Plan) -> None:
     listing.write_bytes(tracked)
     ssh.run(f"mkdir -p {REMOTE}")
     ssh.rsync(f"{ROOT}/", f"root@{ssh.host}:{REMOTE}/", ["--files-from", str(listing), "--from0"])
-    tape = ROOT / built.directory / "tape"
+    tape = ROOT / fetched(built)
     if tape.is_dir():
-        ssh.run(f"mkdir -p {REMOTE}/{built.directory}/tape")
-        ssh.rsync(f"{tape}/", f"root@{ssh.host}:{REMOTE}/{built.directory}/tape/")
+        ssh.run(f"mkdir -p {REMOTE}/{fetched(built)}")
+        ssh.rsync(f"{tape}/", f"root@{ssh.host}:{REMOTE}/{fetched(built)}/")
 
 
 def fetched(built: Plan) -> str:
-    return built.fetch or f"{built.directory}/tape"
+    """The tape folder, from the repository's root."""
+    return f"{built.project}/{built.tape}"
+
+
+def ledger_path(built: Plan) -> str:
+    return f"{built.project}/ledger.jsonl"
+
+
+def dailies_command(built: Plan) -> list[str]:
+    return ["uv", "run", "videotape", "dailies"] + ([] if built.tape == "tape" else ["--out", built.tape])
 
 
 def download(ssh: Ssh, built: Plan) -> None:
+    """Copy the tape back, and append the take lines the pod's render wrote to the project's ledger here. The ledger
+    is not tracked, so the pod's holds this session's lines only."""
     local = ROOT / fetched(built)
     local.mkdir(parents=True, exist_ok=True)
     ssh.rsync(f"root@{ssh.host}:{REMOTE}/{fetched(built)}/", f"{local}/")
+    takes = ssh.run(f"cat {REMOTE}/{ledger_path(built)}", check=False).stdout
+    with (ROOT / ledger_path(built)).open("ab") as ledger:
+        ledger.write(takes)
 
 
 def delete_pod(api: Api, pod_id: str) -> bool:
@@ -357,12 +374,10 @@ def delete_pod(api: Api, pod_id: str) -> bool:
 
 
 def append_ledger(built: Plan, line: dict) -> None:
-    tape = ROOT / fetched(built)
-    tape.mkdir(parents=True, exist_ok=True)
-    with (tape / "ledger.jsonl").open("a") as ledger:
+    with (ROOT / ledger_path(built)).open("a") as ledger:
         ledger.write(json.dumps(line, sort_keys=True) + "\n")
-    if shutil.which("uv") and (tape / "dailies.json").is_file():
-        subprocess.run(["uv", "run", "videotape", "dailies", built.directory], cwd=ROOT, check=False)
+    if shutil.which("uv") and (ROOT / fetched(built) / "dailies.json").is_file():
+        subprocess.run(dailies_command(built), cwd=ROOT / built.project, check=False)
 
 
 def run(built: Plan, api: Api) -> int:
@@ -398,23 +413,34 @@ def run(built: Plan, api: Api) -> int:
     return code
 
 
+def find_project(start: Path) -> str:
+    """The project this was run in, from the repository's root: the nearest folder, from start upward, with a
+    pyproject.toml, which must have a [tool.videotape] table and be inside this repository."""
+    folder = next((folder for folder in (start, *start.parents) if (folder / "pyproject.toml").is_file()), None)
+    if folder is None or "[tool.videotape]" not in (folder / "pyproject.toml").read_text():
+        raise PlanError("no pyproject.toml with a [tool.videotape] table here; run this in an app's project, "
+                        "such as examples/contrail")
+    if ROOT not in folder.resolve().parents:
+        raise PlanError(f"the project {folder} is outside {ROOT}, and only this repository's tracked files are copied "
+                        "to the pod")
+    return folder.resolve().relative_to(ROOT).as_posix()
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("directory", help="screenplay directory, relative to the repo root, such as examples/surf_shop")
     parser.add_argument("--takes", type=int, default=3)
     parser.add_argument("--cap-usd", type=float, required=True, help="the most this run may cost; sets the self-destruct deadline")
     parser.add_argument("--gpu", default=DEFAULT_GPU, help=f"Runpod GPU type id (default {DEFAULT_GPU})")
     parser.add_argument("--image", default=IMAGE)
-    parser.add_argument("--command", help="run this on the pod in place of the render, such as "
-                        "uv run videotape check examples/surf_shop/tape --checks qwen3-vl-8b")
-    parser.add_argument("--fetch", help="repo-relative folder to copy back in place of <directory>/tape")
+    parser.add_argument("--out", default="tape", help="the tape folder to render into, in the project (default tape)")
     parser.add_argument("--usd-per-hour", type=float, default=ASSUMED_USD_PER_HOUR,
                         help="price a keyless --dry-run assumes; with a key the catalog price is used")
     parser.add_argument("--dry-run", action="store_true", help="print the plan and create nothing")
     args = parser.parse_args(argv)
-    directory = Path(args.directory)
-    if not (ROOT / directory / "screenplay.py").is_file():
-        print(f"error: no screenplay.py in {directory} (paths are relative to {ROOT})", file=sys.stderr)
+    try:
+        project = find_project(Path.cwd())
+    except PlanError as error:
+        print(f"error: {error}", file=sys.stderr)
         return 2
     key = os.environ.get("RUNPOD_API_KEY")
     if not key and not args.dry_run:
@@ -429,8 +455,7 @@ def main(argv=None) -> int:
                 raise PlanError(f"no {args.gpu} with CUDA >= {MIN_CUDA} in the {CLOUD.lower()} cloud right now ({source})")
         else:
             price, source = args.usd_per_hour, "assumed, catalog read of 2026-11-09; set RUNPOD_API_KEY for the live price"
-        built = plan(directory.as_posix(), args.takes, args.gpu, args.cap_usd, price, source, ensure_key(), image=args.image,
-                     command=args.command, fetch=args.fetch)
+        built = plan(project, args.out, args.takes, args.gpu, args.cap_usd, price, source, ensure_key(), image=args.image)
     except (PlanError, ApiError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

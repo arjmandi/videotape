@@ -1,0 +1,6 @@
+[project]
+name = "vt209"
+version = "0.1.0"
+
+[tool.videotape]
+screenplay = "app:app"

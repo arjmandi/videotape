@@ -1,0 +1,7 @@
+[project]
+name = "cafe"
+version = "0.3.0"
+
+[tool.videotape]
+screenplay = "cafe:app"
+model = "stand-in"

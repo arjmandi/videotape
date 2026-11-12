@@ -1,0 +1,171 @@
+"""Every logical error a screenplay or its data can have: its code, what it means, an example, and the fix."""
+
+import os
+import sys
+import sysconfig
+from dataclasses import dataclass
+from pathlib import Path
+from types import FrameType, TracebackType
+
+PACKAGE = Path(__file__).parent
+
+
+@dataclass(frozen=True)
+class Code:
+    title: str
+    long: str
+    example: str
+    fix: str
+
+
+CODES: dict[str, Code] = {
+    "VT201": Code(
+        "the screenplay has no scenes",
+        "The app opens on the state of the screenplay's first scene, called with no arguments. A screenplay with no "
+        "scenes has nothing to open on, and neither does one whose first scene needs arguments.",
+        'app = vt.Screenplay("Shop")',
+        '@app.scene\ndef home():\n    return [vt.Heading("Shop")]',
+    ),
+    "VT202": Code(
+        "a to= holds something other than a state",
+        "An action leads to a state, and calling a scene names one. A to=, a no_match=, or a tab that holds anything "
+        "else, such as the scene itself or its name, leads nowhere.",
+        'vt.Button("Open", to=detail)',
+        'vt.Button("Open", to=detail(item))',
+    ),
+    "VT203": Code(
+        "a scene raised",
+        "The plan builds every state by calling its scene with the state's arguments. This scene raised an exception "
+        "for these arguments, or returned something other than a list of elements, so its state cannot be drawn. The "
+        "error names the state and the line.",
+        '@app.scene\ndef receipt(order: Order):\n    return [vt.Text(f"${order.total // order.guests} each")]',
+        "Handle every value the data holds, here an order with no guests, or keep that state out of every to=.",
+    ),
+    "VT204": Code(
+        "no action reaches a scene",
+        "Every state is reached by actions, starting from the first scene. No action in any reached state leads to "
+        "this scene, so nobody using the app could get to it and it would never be drawn.",
+        '@app.scene\ndef home():\n    return [vt.Heading("Shop")]\n\n\n@app.scene\ndef help():\n'
+        '    return [vt.Text("Call us.")]',
+        'Lead to it from a scene that is reached, as in vt.Button("Help", to=help()), or delete it.',
+    ),
+    "VT205": Code(
+        "a data file is missing",
+        "vt.table and vt.one load their file when the module is imported. A path is relative to the project, the "
+        "folder that holds pyproject.toml, and no file is at this one.",
+        'flights = vt.table(Flight, "data/flight.json")',
+        'flights = vt.table(Flight, "data/flights.json")',
+    ),
+    "VT206": Code(
+        "a record is not what its class says",
+        "A table's file holds a JSON array of objects, and vt.one's file holds one object. Each object has exactly "
+        'the fields of its record class, and each value has its field\'s type: a string, a whole number, a date '
+        'written like "2026-12-11", or a time written like "07:05". The fields that key= names identify a record, so '
+        "no two records in a table share them. The error names the file, the record's position, and the field.",
+        '{"number": "CT 100", "day": "12/11/2026", "fare": "219"}',
+        '{"number": "CT 100", "day": "2026-12-11", "fare": 219}',
+    ),
+    "VT207": Code(
+        "a query names a field its records don't have",
+        "where, order_by, get, distinct, min, and sum take the names of a record's fields, and so does key=. This "
+        "name is not one of them. The error lists the fields the records do have.",
+        'flights.where(dest="SEA")',
+        'flights.where(destination="SEA")',
+    ),
+    "VT208": Code(
+        "first() or get() matched no row, or get() matched several",
+        "first() returns a table's first row, and get() returns the one row that matches. An empty table has no "
+        "first row, and get() needs exactly one match.",
+        'airports.get(code="XXX")',
+        "Ask for a row the data holds, or count the matches with where(...).count() and show something else when "
+        "there are none.",
+    ),
+    "VT209": Code(
+        "two actions in one state have one label",
+        "An action is found on its key by its words and pressed by its hotspot's label, so each action in a state "
+        "needs its own. Two here share one, and only the first could ever be pressed.",
+        'vt.Button("Open", to=inbox()), vt.Button("Open", to=archive())',
+        'vt.Button("Open inbox", to=inbox()), vt.Button("Open archive", to=archive())',
+    ),
+    "VT210": Code(
+        "the plan reached more states than max_states",
+        "The plan walks every state the app can reach, and a render draws each one. It stopped when it passed "
+        "max_states, which is 500 unless [tool.videotape] sets it. Usually a scene's argument grows without end, "
+        "such as a counter that every state passes on plus one.",
+        '@app.scene\ndef count(n: int):\n    return [vt.Button("More", to=count(n + 1))]',
+        "Take a scene's arguments from the data, which ends. If the app really has more states, raise the limit:\n"
+        "[tool.videotape]\nmax_states = 2000",
+    ),
+    "VT211": Code(
+        "a line is hard to letter",
+        "A warning. A video model letters short, plain lines best. This line has more than 12 words, or a character "
+        "other than plain ASCII letters, digits, spaces, and . , ' ? ! $ % ( ) : -. The plan goes on, and the line "
+        "may come out misspelt in a take.",
+        'vt.Text("Café Lumière opens at 7 & closes at 9")',
+        'vt.Text("Cafe Lumiere opens at 7 and closes at 9")',
+    ),
+}
+
+
+class ScreenplayError(Exception):
+    """One logical error: its code, the place it is at, what is wrong there, and the fix."""
+
+    def __init__(self, code: str, place: str, message: str, fix: str) -> None:
+        if code not in CODES:
+            raise KeyError(f"{code} has no entry in CODES, so videotape explain could not explain it")
+        super().__init__(f"{code} {place}: {message}")
+        self.code, self.place, self.message, self.fix = code, place, message, fix
+
+    def report(self, level: str = "error") -> str:
+        return f"{level} {self.code} {self.place}: {self.message}\nfix: {self.fix}"
+
+    def in_state(self, state: str) -> "ScreenplayError":
+        return ScreenplayError(self.code, self.place, f"{self.message}, in state {state}", self.fix)
+
+
+def explain(code: str) -> str:
+    entry = CODES[code]
+    return (f"{code}: {entry.title}\n\n{entry.long}\n\nExample:\n{_indented(entry.example)}\n\n"
+            f"Fix:\n{_indented(entry.fix)}")
+
+
+def _indented(text: str) -> str:
+    return "\n".join(f"    {line}" if line else "" for line in text.splitlines())
+
+
+def shown(path: str | Path) -> str:
+    """A path as an error names it: relative to the working directory when it is inside it."""
+    path = Path(path)
+    return os.path.relpath(path) if path.is_relative_to(Path.cwd()) else str(path)
+
+
+LIBRARIES = tuple({sysconfig.get_path(name) for name in ("stdlib", "platstdlib", "purelib", "platlib")})
+
+
+def _own(filename: str) -> bool:
+    # A dataclass's generated __init__ reports the file "<string>".
+    return filename.startswith("<") or Path(filename).parent == PACKAGE
+
+
+def origin() -> tuple[Path, int]:
+    """The file and line of the nearest caller outside videotape, which is where the developer's code asked."""
+    frame: FrameType = sys._getframe(1)  # pyright: ignore[reportPrivateUsage]
+    while frame.f_back is not None and _own(frame.f_code.co_filename):
+        frame = frame.f_back
+    return Path(frame.f_code.co_filename), frame.f_lineno
+
+
+def here() -> str:
+    path, line = origin()
+    return f"{shown(path)}:{line}"
+
+
+def raised(traceback: TracebackType | None, fallback: tuple[str, int]) -> str:
+    """The deepest line of the developer's own code that an exception passed through, or the fallback."""
+    place = fallback
+    while traceback is not None:
+        filename = traceback.tb_frame.f_code.co_filename
+        if not _own(filename) and not filename.startswith(LIBRARIES):
+            place = (filename, traceback.tb_lineno)
+        traceback = traceback.tb_next
+    return f"{shown(place[0])}:{place[1]}"

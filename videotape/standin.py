@@ -1,3 +1,6 @@
+"""The stand-in is a model that needs no GPU: it draws each of a prompt's quoted lines as a labelled box, and its eye
+reads them back from the pixels. A render with it proves everything around the model."""
+
 import hashlib
 import re
 import tempfile
@@ -7,12 +10,11 @@ from dataclasses import dataclass
 from enum import Enum
 from itertools import groupby
 from pathlib import Path
-from statistics import median
 
 from videotape import frames
 from videotape.checks import cer
 from videotape.frames import HEIGHT, WIDTH, Box, Frame
-from videotape.shots import Mode
+from videotape.plan import Mode
 
 # Printable ASCII from " " to "~", five column bytes per glyph, bit 0 at the top row.
 GLYPHS = bytes.fromhex(
@@ -30,26 +32,31 @@ GLYPHS = bytes.fromhex(
     "4428102844" "0c5050503c" "4464544c44" "0008364100" "00007f0000" "0041360800" "0804081008"
 )
 CHARACTERS = {GLYPHS[i:i + 5]: chr(32 + i // 5) for i in range(0, len(GLYPHS), 5)}
-SCALE = 4
-PAD = 3
+SCALE = 3
+PAD = 2
 GAP = 3
-LINES_TOP, BUTTONS_TOP, BOTTOM = 72, 392, HEIGHT - 40
-BACKGROUND, LINE, BUTTON, INK = bytes.fromhex("2f6f7e"), bytes.fromhex("f7f1e3"), bytes.fromhex("f2a541"), bytes.fromhex("1a1a1a")
+MARGIN = 24
+BOX_HEIGHT = (7 + 2 * PAD) * SCALE
+BACKGROUND, BOX, INK = bytes.fromhex("2f6f7e"), bytes.fromhex("f7f1e3"), bytes.fromhex("1a1a1a")
 CONTRAST = 30
 FIND_MAX_CER = 0.2
+
+
+class StandInError(RuntimeError):
+    pass
 
 
 class Flaw(Enum):
     NONE = "none"
     MISSPELL = "misspell"
-    DROP_BUTTON = "drop button"
+    DROP_LINE = "drop line"
     WRONG_START = "wrong start"
     WRONG_END = "wrong end"
 
 
 # Seeds 1 and 2 may carry a flaw of their kind, so both rankers have something to reject. Seed 3 is always clean.
 FLAWS = {
-    Mode.TEXT_TO_VIDEO: (Flaw.MISSPELL, Flaw.DROP_BUTTON),
+    Mode.TEXT_TO_VIDEO: (Flaw.MISSPELL, Flaw.DROP_LINE),
     Mode.FIRST_AND_LAST_FRAME: (Flaw.WRONG_START, Flaw.WRONG_END),
 }
 
@@ -67,7 +74,6 @@ class Call:
 @dataclass(frozen=True)
 class Drawn:
     text: str
-    button: bool
     box: Box
 
 
@@ -92,24 +98,21 @@ class StandIn:
 
     def _film(self, mode: Mode, prompt: str, seed: int, start: Path | None, end: Path | None, out: Path) -> None:
         self.calls.append(Call(mode, prompt, seed, start, end, out))
-        lines, buttons = _quoted_after("The text reads", prompt), _quoted_after("bold black letters reading", prompt)
+        rows = quoted(prompt)
         digest = hashlib.sha256(f"{seed}\n{prompt}".encode()).digest()
-        kinds = [kind for kind in FLAWS[mode]
-                 if (kind is not Flaw.MISSPELL or lines or buttons) and (kind is not Flaw.DROP_BUTTON or buttons)]
+        kinds = [kind for kind in FLAWS[mode] if mode is Mode.FIRST_AND_LAST_FRAME or rows]
         flaw = self.flaw(mode, prompt, seed) if self.flaw else _default_flaw(digest, seed, kinds)
         if flaw is not Flaw.NONE and flaw not in kinds:
             raise ValueError(f"{flaw.name} does not apply to this {mode.value} take")
-        if flaw is Flaw.MISSPELL:
-            lines, buttons = _misspell(lines, buttons, digest)
-        if flaw is Flaw.DROP_BUTTON:
-            buttons = [b for i, b in enumerate(buttons) if i != digest[2] % len(buttons)]
+        if flaw in (Flaw.MISSPELL, Flaw.DROP_LINE):
+            rows = _spoil(rows, flaw, digest)
         with tempfile.TemporaryDirectory() as scratch:
             scratch = Path(scratch)
             drawn: tuple[Drawn, ...] = ()
             if mode is Mode.FIRST_AND_LAST_FRAME:
                 first, last = start, end
             else:
-                frame, drawn = _draw(lines, buttons)
+                frame, drawn = draw(rows)
                 last = _png(frame, scratch / "drawn.png")
                 first = _png(Frame(WIDTH, HEIGHT, BACKGROUND * (WIDTH * HEIGHT)), scratch / "background.png")
             if flaw is Flaw.WRONG_START:
@@ -126,15 +129,22 @@ class StandInEye:
     def read(self, frame: Frame) -> list[str]:
         return [text for _, text in _segment(frame)]
 
-    def find(self, frame: Frame, label: str) -> Box | None:
-        scored = [(cer(label, text), box) for box, text in _segment(frame)]
+    def find(self, frame: Frame, words: str) -> Box | None:
+        scored = [(cer(words, text), box) for box, text in _segment(frame)]
         error, box = min(scored, key=lambda pair: pair[0], default=(1.0, None))
         return box if error <= FIND_MAX_CER else None
 
 
-def _quoted_after(lead: str, prompt: str) -> list[str]:
-    sentence = re.search(rf'{lead} ((?:"[^"]*"(?:, | and )?)+)\.', prompt)
-    return re.findall(r'"([^"]*)"', sentence.group(1)) if sentence else []
+def quoted(prompt: str) -> list[list[str]]:
+    """The lines a prompt quotes, in rows: a sentence, or a part of one that ends at a colon or semicolon, is a row."""
+    rows, row = list[list[str]](), list[str]()
+    for index, part in enumerate(re.split(r'"([^"]*)"', prompt)):
+        if index % 2 and part:
+            row.append(part)
+        elif row and re.search("[.:;]", part):
+            rows.append(row)
+            row = []
+    return rows + [row] if row else rows
 
 
 def _default_flaw(digest: bytes, seed: int, kinds: list[Flaw]) -> Flaw:
@@ -143,13 +153,14 @@ def _default_flaw(digest: bytes, seed: int, kinds: list[Flaw]) -> Flaw:
     return kinds[digest[1] % len(kinds)]
 
 
-def _misspell(lines: list[str], buttons: list[str], digest: bytes) -> tuple[list[str], list[str]]:
-    texts = [*lines, *buttons]
-    which = digest[2] % len(texts)
-    text = texts[which]
+def _spoil(rows: list[list[str]], flaw: Flaw, digest: bytes) -> list[list[str]]:
+    """The rows with one line misspelt by a letter, or with one line missing."""
+    places = [(r, i) for r, row in enumerate(rows) for i in range(len(row))]
+    r, i = places[digest[2] % len(places)]
+    text = rows[r][i]
     at = digest[3] % len(text)
-    texts[which] = text[:at] + ("x" if text[at] != "x" else "z") + text[at + 1:]
-    return texts[:len(lines)], texts[len(lines):]
+    spoilt = [text[:at] + ("x" if text[at] != "x" else "z") + text[at + 1:]] if flaw is Flaw.MISSPELL else []
+    return [row[:i] + spoilt + row[i + 1:] if number == r else row for number, row in enumerate(rows)]
 
 
 def _png(frame: Frame, path: Path) -> Path:
@@ -161,31 +172,33 @@ def _negative(frame: Frame) -> Frame:
     return Frame(frame.width, frame.height, frame.rgb.translate(bytes(range(255, -1, -1))))
 
 
-def _draw(lines: list[str], buttons: list[str]) -> tuple[Frame, tuple[Drawn, ...]]:
+def draw(rows: list[list[str]]) -> tuple[Frame, tuple[Drawn, ...]]:
+    """Each line as a labelled box. A row's boxes run left to right and wrap at the right edge."""
     canvas = bytearray(BACKGROUND * (WIDTH * HEIGHT))
-    drawn = (*_stack(canvas, lines, False, LINES_TOP, BUTTONS_TOP), *_stack(canvas, buttons, True, BUTTONS_TOP, BOTTOM))
-    return Frame(WIDTH, HEIGHT, bytes(canvas)), drawn
-
-
-def _stack(canvas: bytearray, texts: list[str], button: bool, top: int, bottom: int) -> list[Drawn]:
-    drawn = []
-    for text in texts:
-        w, h = (6 * len(text) - 1 + 2 * PAD) * SCALE, (7 + 2 * PAD) * SCALE
-        box = Box((WIDTH - w) // 2, top, w, h)
-        if w > WIDTH or top + h > bottom:
-            raise ValueError(f'the stand-in has no room to draw "{text}"')
-        _fill(canvas, box, BUTTON if button else LINE)
-        for i, char in enumerate(text):
-            _letter(canvas, box.x + (PAD + 6 * i) * SCALE, box.y + PAD * SCALE, char)
-        drawn.append(Drawn(text, button, box))
-        top += h + GAP * SCALE
-    return drawn
+    drawn = list[Drawn]()
+    y = MARGIN
+    for row in rows:
+        x = MARGIN
+        for text in row:
+            w = (6 * len(text) - 1 + 2 * PAD) * SCALE
+            if x > MARGIN and x + w > WIDTH - MARGIN:
+                x, y = MARGIN, y + BOX_HEIGHT + GAP * SCALE
+            if x + w > WIDTH - MARGIN or y + BOX_HEIGHT > HEIGHT - MARGIN:
+                raise StandInError(f'the stand-in has no room to draw "{text}"')
+            box = Box(x, y, w, BOX_HEIGHT)
+            _fill(canvas, box, BOX)
+            for i, char in enumerate(text):
+                _letter(canvas, box.x + (PAD + 6 * i) * SCALE, box.y + PAD * SCALE, char)
+            drawn.append(Drawn(text, box))
+            x += w + GAP * SCALE
+        y += BOX_HEIGHT + GAP * SCALE
+    return Frame(WIDTH, HEIGHT, bytes(canvas)), tuple(drawn)
 
 
 def _letter(canvas: bytearray, x: int, y: int, char: str) -> None:
     index = ord(char) - 32
     if not 0 <= index < len(CHARACTERS):
-        raise ValueError(f"the stand-in cannot draw {char!r}")
+        raise StandInError(f"the stand-in cannot draw {char!r}")
     for c, column in enumerate(GLYPHS[5 * index:5 * index + 5]):
         for r in range(7):
             if column >> r & 1:
@@ -200,6 +213,7 @@ def _fill(canvas: bytearray, box: Box, colour: bytes) -> None:
 
 
 def _segment(frame: Frame) -> list[tuple[Box, str]]:
+    """Every box in reading order with the text in it."""
     # The palette differs most in green, so one channel separates the boxes without a per-pixel loop.
     green = frame.rgb[1::3]
     width = frame.width
@@ -211,10 +225,16 @@ def _segment(frame: Frame) -> list[tuple[Box, str]]:
         rows = list(rows)
         if not on or len(rows) < 7 * SCALE:
             continue
-        left = int(median(mask.find(1, y * width, (y + 1) * width) - y * width for y in rows))
-        right = int(median(mask.rfind(1, y * width, (y + 1) * width) - y * width for y in rows))
-        box = Box(left, rows[0], right - left + 1, len(rows))
-        found.append((box, _letters(green, width, box)))
+        # A row of pixels inside the boxes' padding is lit across each whole box and dark between boxes.
+        padding = mask[(rows[0] + SCALE) * width:(rows[0] + SCALE + 1) * width]
+        left = padding.find(1)
+        while left != -1:
+            right = padding.find(0, left)
+            right = width if right == -1 else right
+            if right - left >= (4 + 2 * PAD) * SCALE:
+                box = Box(left, rows[0], right - left, len(rows))
+                found.append((box, _letters(green, width, box)))
+            left = padding.find(1, right)
     return found
 
 
