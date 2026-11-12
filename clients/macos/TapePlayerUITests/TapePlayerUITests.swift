@@ -2,52 +2,54 @@ import CoreGraphics
 import ImageIO
 import XCTest
 
-/// Clicks through the surf shop tape the way a person does, then checks what the window shows.
+/// Clicks through the Contrail tape the way a person does, then checks what the window shows.
 final class TapePlayerUITests: XCTestCase {
-    /// `examples/surf_shop/tape` in the checkout this file lives in.
+    /// `examples/contrail/tape` in the checkout this file lives in.
     private static let tape = URL(filePath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
-        .appending(path: "examples/surf_shop/tape")
+        .appending(path: "examples/contrail/tape")
 
     @MainActor
-    func testBrowsingAsGuestRestsOnTheGallery() throws {
+    func testBookingTheMorningFlightToSeattleLandsBackOnHome() throws {
         let (app, tape) = try launch()
-        let screen = app.images["tape"]
-        let enter = app.buttons["Enter shop"]
-        XCTAssertTrue(enter.waitForExistence(timeout: 30), "the opening rests on welcome, which offers Enter shop")
-        enter.click()
-        let guest = app.buttons["Browse as guest"]
-        XCTAssertTrue(guest.waitForExistence(timeout: 30), "Enter shop plays into the entrance, which offers Browse as guest")
-        guest.click()
-        XCTAssertTrue(screen.wait(for: \.label, toEqual: "gallery", timeout: 30), "Browse as guest plays into the gallery")
-        XCTAssertTrue(screen.buttons.firstMatch.waitForNonExistence(timeout: 5), "the gallery offers nothing to press")
+        let image = app.images["tape"]
+        XCTAssertTrue(image.wait(for: \.label, toEqual: "home", timeout: 30), "the opening rests on home")
+        press(app.buttons["Where to?"], "home offers its search bar")
+        press(app.buttons["Seattle (SEA)"], "the search bar plays into search, which offers Seattle (SEA)")
+        press(app.buttons["Saturday, December 12, $89"], "Seattle plays into its dates, which offer December 12")
+        XCTAssertTrue(
+            image.wait(for: \.label, toEqual: "results(SEA, 2026-12-12)", timeout: 30),
+            "December 12 plays into that day's flights"
+        )
+        let morning = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "8:15 AM")).firstMatch
+        press(morning, "the day's flights offer the 8:15 AM flight")
+        press(app.buttons["Book for $89"], "the 8:15 AM flight plays into the flight, which offers Book for $89")
+        XCTAssertTrue(
+            image.wait(for: \.label, toEqual: "booked(CT 300, 2026-12-12)", timeout: 30),
+            "Book for $89 plays into the booking"
+        )
+        press(app.buttons["Done"], "the booking offers Done")
+        XCTAssertTrue(image.wait(for: \.label, toEqual: "home", timeout: 30), "Done plays back into home")
+        XCTAssertTrue(app.buttons["Where to?"].waitForExistence(timeout: 5), "home offers its search bar again")
 
-        let shot = screen.screenshot()
+        let shot = image.screenshot()
         let seen = try grid(shot.pngRepresentation)
-        let gallery = difference(seen, try grid(Data(contentsOf: tape.appending(path: "keys/gallery.png"))))
-        let entrance = difference(seen, try grid(Data(contentsOf: tape.appending(path: "keys/entrance.png"))))
-        let summary = String(format: "tape vs keys/gallery.png %.2f, vs keys/entrance.png %.2f", gallery, entrance)
+        let home = difference(seen, try grid(Data(contentsOf: tape.appending(path: "keys/home.png"))))
+        let booked = difference(
+            seen, try grid(Data(contentsOf: tape.appending(path: "keys/booked-ct-300-2026-12-12.png")))
+        )
+        let summary = String(format: "tape vs keys/home.png %.2f, vs keys/booked-ct-300-2026-12-12.png %.2f", home, booked)
         print(summary)
         let attachment = XCTAttachment(screenshot: shot)
         attachment.name = summary
         attachment.lifetime = .keepAlways
         add(attachment)
-        XCTAssertLessThan(gallery, 2, "the window shows the gallery key: \(summary)")
-        XCTAssertGreaterThan(entrance, gallery + 8, "the window is clearly not the entrance key: \(summary)")
-    }
-
-    @MainActor
-    func testLoginAndSignupBothRestOnLogin() throws {
-        let (app, _) = try launch()
-        let screen = app.images["tape"]
-        walk(app, ["Enter shop", "I have an account"], to: "login")
-        XCTAssertTrue(screen.buttons.firstMatch.waitForNonExistence(timeout: 5), "login offers nothing to press")
-        app.typeKey("r", modifierFlags: .command)
-        walk(app, ["Enter shop", "Create an account"], to: "signup")
-        walk(app, ["Sign up"], to: "login")
+        // The two key images themselves sit 10.45 apart on this grid.
+        XCTAssertLessThan(home, 3, "the window shows the home key: \(summary)")
+        XCTAssertGreaterThan(booked, home + 5, "the window is clearly not the booking's key: \(summary)")
     }
 
     @MainActor
@@ -72,13 +74,13 @@ final class TapePlayerUITests: XCTestCase {
         XCTAssertTrue(app.menuBars.menuItems["Open…"].isEnabled, "File > Open is still there to pick a tape")
     }
 
-    /// Launches TapePlayer on the surf shop tape, or fails with the command that renders it.
+    /// Launches TapePlayer on the Contrail tape, or fails with the command that renders it.
     @MainActor
     private func launch() throws -> (XCUIApplication, URL) {
         let exists = FileManager.default.fileExists(atPath: Self.tape.appending(path: "tape.json").path(percentEncoded: false))
         let tape = try XCTUnwrap(
             exists ? Self.tape : nil,
-            "No tape.json in \(Self.tape.path(percentEncoded: false)). From the repo root, run: videotape render examples/surf_shop --model stand-in"
+            "No tape.json in \(Self.tape.path(percentEncoded: false)). In examples/contrail, run: uv run videotape render"
         )
         let app = XCUIApplication()
         app.launchArguments = [tape.path(percentEncoded: false)]
@@ -86,15 +88,11 @@ final class TapePlayerUITests: XCTestCase {
         return (app, tape)
     }
 
-    /// Clicks each button as soon as its scene offers it, then waits for the tape to rest on `scene`.
+    /// Clicks a hotspot as soon as its state rests and offers it.
     @MainActor
-    private func walk(_ app: XCUIApplication, _ labels: [String], to scene: String) {
-        for label in labels {
-            let button = app.buttons[label]
-            XCTAssertTrue(button.waitForExistence(timeout: 30), "a resting scene offers \(label)")
-            button.click()
-        }
-        XCTAssertTrue(app.images["tape"].wait(for: \.label, toEqual: scene, timeout: 30), "\(labels.last!) plays into \(scene)")
+    private func press(_ button: XCUIElement, _ offered: String) {
+        XCTAssertTrue(button.waitForExistence(timeout: 30), offered)
+        button.click()
     }
 }
 
@@ -102,7 +100,7 @@ private let columns = 20, rows = 11, cell = 8
 
 /// The image as the mean sRGB colour of each cell in a `columns` by `rows` grid, less the image's mean colour. Scaling,
 /// video encoding and the colour shift from the display's profile and the clips' untagged colour matrix wash out,
-/// while a different screen does not.
+/// while a different key does not.
 private func grid(_ png: Data) throws -> [Double] {
     guard let source = CGImageSourceCreateWithData(png as CFData, nil),
           let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {

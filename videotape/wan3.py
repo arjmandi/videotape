@@ -1,4 +1,4 @@
-"""Wan 3.0 on fal draws every pixel: text-to-video draws each scene's key, and image-to-video draws each move from the
+"""Wan 3.0 on fal draws every pixel: text-to-video draws each state's key, and image-to-video draws each move from the
 kept key it starts on to the kept key it lands on. Its takes are only compared with the 5B's, never trained on."""
 
 import base64
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotape.fal import Fal, FalError, Price, Receipt
-from videotape.shots import Mode
+from videotape.plan import Mode
 
 # fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-10: Wan30TextToVideoInput and
 # Wan30ImageToVideoInput, whose start_image_url is the "First frame of the generated video" and end_image_url the

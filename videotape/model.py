@@ -1,11 +1,14 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 from videotape import wan3
+from videotape.checks import Eye
 from videotape.fal import Price, Receipt
-from videotape.shots import Mode
-from videotape.standin import StandIn
+from videotape.plan import Mode
+from videotape.qwen import QwenEye
+from videotape.standin import StandIn, StandInEye
 from videotape.wan import Wan
 
 
@@ -25,8 +28,16 @@ class Model(Protocol):
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> Receipt | None: ...
 
 
-MODELS: dict[str, Callable[[], Model]] = {
-    "stand-in": StandIn,
-    "wan2.2-5b": Wan,
-    "wan3.0": wan3.from_environment,
+@dataclass(frozen=True)
+class Listing:
+    """A model a render can name, and the eye that checks its keys. The eye is given the tape it may cache in."""
+
+    model: Callable[[], Model]
+    eye: Callable[[Path], Eye]
+
+
+MODELS: dict[str, Listing] = {
+    "stand-in": Listing(StandIn, lambda tape: StandInEye()),
+    "wan2.2-5b": Listing(Wan, QwenEye),
+    "wan3.0": Listing(wan3.from_environment, QwenEye),
 }

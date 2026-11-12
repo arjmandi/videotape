@@ -1,29 +1,30 @@
 # videotape verification map
 
-This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes `screenplay.py`, runs `videotape shots <dir>` to list its shots, runs `videotape render <dir> --model stand-in` to render them into a tape, runs `videotape check <dir>/tape --checks <name>` to score the tape's keys, and runs `videotape compare <tapeA> <tapeB>` to set two tapes side by side. TapePlayer's user is the person who then clicks through that tape on a Mac. Read this index before driving, then use the matching feature file as the recipe.
+This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes a screenplay and its data in a project, runs `videotape plan` there to walk the app's states, and runs `videotape render` to draw them into a tape. TapePlayer's user is the person who then clicks through that tape on a Mac. Read this index before driving, then use the matching feature file as the recipe.
 
 ## Baseline preconditions
 
 - `.claude/skills/verify/scripts/vt-verify launch` has printed `ready:` in this checkout.
 - `.claude/skills/verify/scripts/vt-verify doctor` exits 0 with only `ok` and `info` lines.
 - `RUN=.verify/runs/<UTC timestamp>` is set once for the session.
-- `examples/surf_shop/screenplay.py` is unchanged from git, unless the change under test edits it.
+- `git diff --quiet -- examples/contrail tests/fixtures` exits 0, unless the change under test edits them.
 
 ## Driving conventions
 
-- Every CLI drive goes through `vt-verify run "$RUN" <name> -- shots <dir>`, `vt-verify run "$RUN" <name> -- render <dir> --model stand-in [--checks <name>]` or `vt-verify run "$RUN" <name> -- check <dir>/tape --checks <name>`. Use the journey's name as `<name>` so artifacts map to journeys.
-- TapePlayer drives go through `vt-verify player-build "$RUN"`, `vt-verify player-test "$RUN"` and `vt-verify player-cuts "$RUN"`, or through a person at the screen, as [player.md](./player.md) says.
+- Every CLI drive goes through `vt-verify run "$RUN" <name> <project-dir> -- <videotape args>`, which runs the command inside the project. Use the journey's name as `<name>` so artifacts map to journeys.
+- The README's commands in `examples/contrail`, and the scripts under `scripts/`, go through `vt-verify exec "$RUN" <name> [-C <dir>] -- <command>`.
+- TapePlayer drives go through `vt-verify player-build "$RUN"`, `vt-verify player-press "$RUN" <tape-dir> <label>...`, `vt-verify player-test "$RUN"` and `vt-verify player-cuts "$RUN"`, or through a person at the screen, as [player.md](./player.md) says.
 - Treat every command and quoted string as literal.
 - Assert on exact lines from `$RUN/<name>.stdout`, `$RUN/<name>.stderr` and `$RUN/<name>.exit`.
-- Fixtures live in `.claude/skills/verify/fixtures/`. Never edit one to make a journey pass.
+- Fixtures live in `tests/fixtures/`, where the test suite uses them too. Never edit one to make a journey pass.
 
 ## Proof and skip reporting
 
 - CLI proof is the command, the asserted stdout or stderr lines, and the exit code, all read from `$RUN`.
-- TapePlayer proof is the same files for `player-build`, `player-test` and `player-cuts`, plus the screenshot `player-test` exports, or what the user reported for a journey a person drives.
+- TapePlayer proof is the same files for `player-build`, `player-press`, `player-test` and `player-cuts`, plus the screenshot `player-test` exports, or what the user reported for a journey a person drives.
 - Name the feature ID with every artifact you cite.
 - Report a journey you could not run with the attempted command and the unmet precondition.
-- Do not report a journey as verified through a different screenplay than the one its file names.
+- Do not report a journey as verified through a different project than the one its file names.
 
 ## Feature entry contract
 
@@ -38,12 +39,10 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 
 ## Features
 
-- [Shot list](./shot-list.md) covers the surf shop's ten shots: five keys, then five moves, their modes, and exact prompts.
-- [Authoring a screenplay](./authoring.md) covers what a developer's own screenplay controls: custom moves, plain-name actions, scenes without text or buttons, and a return to an already-keyed scene.
-- [Screenplay errors](./screenplay-errors.md) covers each mistake the CLI rejects with `error:` and exit 1.
-- [Render](./render.md) covers rendering the surf shop into a tape: the first render of keys then moves, the cached rerun, the cascade after editing one line, the files in `tape/`, the dailies page, rendering with `--checks qwen3-vl-8b`, and an unknown `--model` or `--checks`.
-- [Check](./check.md) covers scoring a rendered tape's keys with `videotape check`: the stand-in and Qwen3-VL-8B checks, the cached rerun, the Keys section of the dailies, a failing key, and its errors.
-- [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render`: the dry run, the refusals, the local `--model wan2.2-5b` error, the paid smoke and full runs behind the user's cap, the options `--command` and `--fetch`, and the ledger.
-- [Wan 3.0 render](./wan3-render.md) covers rendering the surf shop with Wan 3.0 on fal into `examples/surf_shop/tape-wan3`: the missing-key error, the requests and answers the tests prove, the paid run behind the user's cap, the price line, the cached rerun, the ledger, TapePlayer on that tape, and the fixtures a paid run replaces.
-- [Compare](./compare.md) covers `videotape compare`: two stand-in tapes, the 5B tape against a stand-in, the page with each key's buttons and readings and each move's seams and stills, render time and cost per shot, the Wan 3.0 comparison, and its error.
-- [Player](./player.md) covers the TapePlayer macOS app: building it, clicking through the surf shop tape, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
+- [Plan](./plan.md) covers `videotape plan` on Contrail: its 11 scenes, 58 states and 102 moves, the same output through `uv run` and from a subfolder, the strict type check of the example, the cafe fixture, and a warning.
+- [Errors](./errors.md) covers each logical error the plan rejects, `VT201` to `VT210`, with its code, place and fix, the `VT211` warning, `videotape explain`, and a folder that is not a project.
+- [Render](./render.md) covers rendering Contrail with the stand-in: the first render of 58 keys then 102 moves, the cached rerun, the files in `tape/`, the ledger in the project, and the dailies page. The cafe fixture covers the cascade after an edit, one take per shot, another tape with `--out`, and an unknown model.
+- [Player](./player.md) covers the TapePlayer macOS app: building it, booking a flight through the Contrail tape with and without a window, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
+- [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render`, run inside the project: the dry run, the refusals, the local `--model wan2.2-5b` errors, the paid runs behind the user's cap, `--out`, and the ledger.
+- [Wan 3.0 render](./wan3-render.md) covers rendering with Wan 3.0 on fal into another tape of the project: the missing-key error, the requests and answers the tests prove, the paid run behind the user's cap, the price line, the cached rerun, and the ledger.
+- [Reader test](./reader-test.md) covers `scripts/reader-test`: the missing-key error, the requests and answers the tests prove, and the paid run behind the user's cap.

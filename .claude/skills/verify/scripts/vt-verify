@@ -7,16 +7,16 @@ cd "$ROOT" || exit 2
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
-  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> -- <videotape args...> | exec <run-dir> <name> -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
+  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> <project-dir> -- <videotape args...> | exec <run-dir> <name> [-C <dir>] -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-press <run-dir> <tape-dir> [<label>...] | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
   exit 2
 }
 
-# capture <run-dir> <name> <command...> runs the command and records it like `run` does.
+# capture <run-dir> <name> <working-dir> <command...> runs the command in the working directory and records it.
 capture() {
-  local dir="$1" name="$2" code; shift 2
-  { printf '%q' "$1"; [ $# -gt 1 ] && printf ' %q' "${@:2}"; echo; } > "$dir/$name.cmd"
+  local dir="$1" name="$2" where="$3" code; shift 3
+  { [ "$where" != . ] && printf 'cd %q && ' "$where"; printf '%q' "$1"; [ $# -gt 1 ] && printf ' %q' "${@:2}"; echo; } > "$dir/$name.cmd"
   git rev-parse HEAD > "$dir/$name.build"
-  "$@" > "$dir/$name.stdout" 2> "$dir/$name.stderr"
+  (cd "$where" && "$@") > "$dir/$name.stdout" 2> "$dir/$name.stderr"
   code=$?
   echo "$code" > "$dir/$name.exit"
   echo "$name: exit $code, $(wc -l < "$dir/$name.stdout" | tr -d ' ') stdout lines, $(wc -l < "$dir/$name.stderr" | tr -d ' ') stderr lines -> $dir/$name.*"
@@ -26,17 +26,20 @@ capture() {
 case "${1:-}" in
   launch)
     case "${2:-}" in
-      "") uv sync && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv" ;;
+      "") uv sync && uv sync --project examples/contrail && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv and $ROOT/examples/contrail/.venv" ;;
       qwen) uv sync --extra qwen && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv with the qwen extra" ;;
       wan) uv sync --extra wan --extra qwen && uv run videotape --help >/dev/null && echo "ready: videotape CLI installed in $ROOT/.venv with the wan and qwen extras" ;;
       *) usage ;;
     esac
     ;;
   exec)
-    [ $# -ge 4 ] && [ "$4" = "--" ] || usage
-    dir="$2"; name="$3"; shift 4
-    mkdir -p "$dir"
-    capture "$dir" "$name" "$@"
+    [ $# -ge 4 ] || usage
+    dir="$2"; name="$3"; where=.; shift 3
+    [ "$1" = "-C" ] && { where="$2"; shift 2; }
+    [ "${1:-}" = "--" ] && [ $# -ge 2 ] || usage
+    shift
+    mkdir -p "$dir"; dir="$(cd "$dir" && pwd)"
+    capture "$dir" "$name" "$where" "$@"
     ;;
   doctor)
     status=0
@@ -61,6 +64,7 @@ case "${1:-}" in
       *) echo "FAIL expected Python 3.12 importing $ROOT/videotape, got: $where"; status=1 ;;
     esac
     [ -x .venv/bin/videotape ] && .venv/bin/videotape --help >/dev/null 2>&1 && echo "ok   videotape --help exits 0" || { echo "FAIL videotape --help"; status=1; }
+    [ -x examples/contrail/.venv/bin/videotape ] && echo "ok   examples/contrail/.venv/bin/videotape, so uv run works in the example" || echo "info examples/contrail has no .venv yet; run: vt-verify launch"
     # Reports where qwen3-vl-8b checks would run without loading the model or downloading its weights.
     qwen=$(.venv/bin/python - 2>/dev/null <<'PY'
 import torch, transformers
@@ -72,25 +76,29 @@ PY
 )
     IFS='|' read -r device weights transformers torch <<< "$qwen"
     case "$device" in
-      "") echo "info qwen extra not installed; run vt-verify launch qwen to drive --checks qwen3-vl-8b" ;;
+      "") echo "info qwen extra not installed; run vt-verify launch qwen before rendering with a model other than the stand-in" ;;
       none) echo "info qwen extra installed (transformers $transformers, torch $torch); qwen3-vl-8b checks cannot run without CUDA or MPS" ;;
       *) echo "info qwen extra installed (transformers $transformers, torch $torch); qwen3-vl-8b checks run on $device; weights $weights" ;;
     esac
-    echo "info build $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain -- videotape pyproject.toml clients/macos)" ] && echo ' + uncommitted changes in videotape/, pyproject.toml or clients/macos/')"
+    echo "info build $(git rev-parse --short HEAD)$( [ -n "$(git status --porcelain -- videotape pyproject.toml examples scripts clients/macos)" ] && echo ' + uncommitted changes in videotape/, pyproject.toml, examples/, scripts/ or clients/macos/')"
     exit $status
     ;;
   run)
-    [ $# -ge 4 ] && [ "$4" = "--" ] || usage
-    dir="$2"; name="$3"; shift 4
-    mkdir -p "$dir"; rm -f "$dir/$name.light.png" "$dir/$name.dark.png"
-    printf 'videotape' > "$dir/$name.cmd"; printf ' %q' "$@" >> "$dir/$name.cmd"; echo >> "$dir/$name.cmd"
+    [ $# -ge 5 ] && [ "$5" = "--" ] || usage
+    dir="$2"; name="$3"; project="$4"; shift 5
+    [ -d "$project" ] || { echo "FAIL no project directory $project" >&2; exit 2; }
+    mkdir -p "$dir"; dir="$(cd "$dir" && pwd)"; rm -f "$dir/$name.light.png" "$dir/$name.dark.png"
+    { printf 'cd %q && videotape' "$project"; printf ' %q' "$@"; echo; } > "$dir/$name.cmd"
     git rev-parse HEAD > "$dir/$name.build"
-    .venv/bin/videotape "$@" > "$dir/$name.stdout" 2> "$dir/$name.stderr"
+    (cd "$project" && PYTHONDONTWRITEBYTECODE=1 "$ROOT/.venv/bin/videotape" "$@") > "$dir/$name.stdout" 2> "$dir/$name.stderr"
     code=$?
     echo "$code" > "$dir/$name.exit"
-    for arg in "$@"; do
-      [ -f "$arg/screenplay.py" ] && cp "$arg/screenplay.py" "$dir/$name.screenplay.py"
-    done
+    # A project outside the checkout is a scratch one, so its files are kept with the evidence.
+    case "$(cd "$project" && pwd -P)/" in
+      "$(pwd -P)"/*) ;;
+      *) rm -rf "$dir/$name.project"; mkdir "$dir/$name.project"
+         find "$project" -maxdepth 2 -type f \( -name '*.py' -o -name '*.json' -o -name '*.toml' \) -not -path '*/tape*/*' -not -path '*/.venv/*' -exec cp {} "$dir/$name.project/" \; ;;
+    esac
     echo "$name: exit $code, $(wc -l < "$dir/$name.stdout" | tr -d ' ') stdout lines, $(wc -l < "$dir/$name.stderr" | tr -d ' ') stderr lines -> $dir/$name.*"
     ;;
   screenshot)
@@ -112,13 +120,20 @@ PY
   player-build)
     [ $# -eq 2 ] || usage
     mkdir -p "$2"
-    capture "$2" player-build clients/macos/build.sh
+    capture "$2" player-build . clients/macos/build.sh
+    ;;
+  player-press)
+    [ $# -ge 3 ] || usage
+    mkdir -p "$2"; dir="$2"; tape="$(cd "$3" && pwd)" || exit 2; shift 3
+    press=.claude/skills/verify/scripts/player-press
+    swift build --quiet --package-path "$press" --scratch-path clients/macos/build/player-press || exit 2
+    capture "$dir" player-press . "$(swift build --package-path "$press" --scratch-path clients/macos/build/player-press --show-bin-path)/player-press" "$tape" "$@"
     ;;
   player-test)
     [ $# -eq 2 ] || usage
     mkdir -p "$2"; dir="$(cd "$2" && pwd)"
     rm -rf "$dir/player-test.xcresult" "$dir/player-test.attachments"
-    capture "$dir" player-test clients/macos/test.sh -resultBundlePath "$dir/player-test.xcresult"
+    capture "$dir" player-test . clients/macos/test.sh -resultBundlePath "$dir/player-test.xcresult"
     code=$?
     [ -d "$dir/player-test.xcresult" ] && xcrun xcresulttool export attachments --path "$dir/player-test.xcresult" \
       --output-path "$dir/player-test.attachments" >/dev/null && echo "player-test: attachments -> $dir/player-test.attachments"
@@ -127,7 +142,7 @@ PY
   player-cuts)
     [ $# -ge 2 ] && [ $# -le 3 ] || usage
     mkdir -p "$2"
-    capture "$2" player-cuts .claude/skills/verify/scripts/player-cuts/run ${3:+"$3"}
+    capture "$2" player-cuts . .claude/skills/verify/scripts/player-cuts/run ${3:+"$3"}
     ;;
   *) usage ;;
 esac

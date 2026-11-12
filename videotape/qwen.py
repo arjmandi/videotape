@@ -65,16 +65,17 @@ class QwenEye:
 
     def __init__(self, tape: Path):
         if find_spec("torch") is None or find_spec("transformers") is None:
-            raise ChecksError("qwen3-vl-8b needs the qwen extra; install it with uv sync --extra qwen")
+            raise ChecksError("qwen3-vl-8b checks this model's keys and needs videotape's qwen extra, which is not "
+                              "installed here; install videotape[qwen]")
         self.looks = tape / "looks"
         self.qwen: _Qwen | None = None
 
     def read(self, frame: Frame) -> list[str]:
         return [spot.text for spot in self.look(frame)]
 
-    def find(self, frame: Frame, label: str) -> Box | None:
-        best = min(self.look(frame), key=lambda spot: (cer(label, spot.text), not spot.button), default=None)
-        return best.box if best and cer(label, best.text) <= FIND_MAX_CER else None
+    def find(self, frame: Frame, words: str) -> Box | None:
+        best = min(self.look(frame), key=lambda spot: (cer(words, spot.text), not spot.button), default=None)
+        return best.box if best and cer(words, best.text) <= FIND_MAX_CER else None
 
     def look(self, frame: Frame) -> tuple[Spot, ...]:
         fields = [MODEL_ID, PROMPT, MAX_NEW_TOKENS, frame.width, frame.height, hashlib.sha256(frame.rgb).hexdigest()]

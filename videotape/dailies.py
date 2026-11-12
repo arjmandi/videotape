@@ -6,10 +6,9 @@ from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from videotape import ledger
-from videotape.checks import Checks, KeyChecks
+from videotape.checks import Checks
+from videotape.plan import Move
 from videotape.publish import publish
-from videotape.shots import Move
 
 if TYPE_CHECKING:
     from videotape.render import Filmed, Render
@@ -59,33 +58,40 @@ figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; marg
 .keys .note { margin: 0; }
 """
 
+# A browser refuses to hold more than a few dozen videos at once, and an app has hundreds of takes, so a take loads
+# and plays only while it is near the window.
+SCRIPT = """
+const near = new IntersectionObserver(entries => {
+  for (const {target, isIntersecting} of entries) {
+    if (isIntersecting) { target.src = target.dataset.src; target.play().catch(() => {}); }
+    else if (target.hasAttribute("src")) { target.removeAttribute("src"); target.load(); }
+  }
+}, {rootMargin: "400px"});
+document.querySelectorAll("video").forEach(video => near.observe(video));
+"""
+
 
 def record(title: str, checks: str, render: Render) -> dict:
     """What a render knows about its keys and moves. The ledger totals and the tape's size are read at write time."""
     return {
         "title": title,
         "checks": checks,
-        "keys": [{**_shot_record(filmed, render.tape), "scene": filmed.shot.scene,
-                  "key": f"keys/{filmed.shot.scene}.png", "items": _items(filmed.kept.checks)} for filmed in render.keys],
-        "moves": [{**_shot_record(filmed, render.tape), "move": filmed.shot.move, "start": filmed.shot.start,
-                   "land": filmed.shot.land, "label": filmed.shot.label} for filmed in render.moves],
+        "keys": [{**_shot_record(filmed, render.tape), "state": filmed.shot.state.name, "key": filmed.shot.image,
+                  "items": _items(filmed.kept.checks)} for filmed in render.keys],
+        "moves": [{**_shot_record(filmed, render.tape), "move": filmed.shot.clip, "start": filmed.shot.start.name,
+                   "land": filmed.shot.land.name, "label": filmed.shot.label} for filmed in render.moves],
     }
-
-
-def rescored(record: dict, checks: str, scored: dict[str, KeyChecks]) -> dict:
-    """The same record with every key's items replaced by what another eye read on its key image."""
-    return {**record, "checks": checks,
-            "keys": [{**key, "items": _items(scored[key["scene"]])} for key in record["keys"]]}
 
 
 def read(tape: Path) -> dict:
     return json.loads((tape / "dailies.json").read_text())
 
 
-def write(tape: Path, record: dict) -> None:
-    played = [tape / "tape.json", *(tape / "keys").iterdir(), *(tape / "moves").iterdir()]
-    record = {**record, "ledger": ledger.totals(ledger.read(tape)),
-              "tape": {"bytes": sum(path.stat().st_size for path in played if path.is_file())}}
+def write(tape: Path, record: dict, totals: dict) -> None:
+    """Write the record and its page into the tape, with the ledger's totals for this tape and the size of what plays."""
+    played = ["tape.json", "moves/opening.mp4", *(key["key"] for key in record["keys"]),
+              *(move["move"] for move in record["moves"])]
+    record = {**record, "ledger": totals, "tape": {"bytes": sum((tape / path).stat().st_size for path in played)}}
     publish(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
     publish(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
 
@@ -119,6 +125,7 @@ def page(record: dict) -> str:
 {_keys(record)}
 {cards}
 </main>
+<script>{SCRIPT}</script>
 </body>
 </html>
 """
@@ -173,8 +180,8 @@ def _keys(record: dict) -> str:
 def _key(key: dict, checks: str) -> str:
     kept = _kept(key)
     badge = ' <span class="badge failing">fails checks</span>' if _failing(key) else ""
-    return (f'<figure class="take"><img src="{escape(key["key"])}" alt="Key for {escape(key["scene"])}">'
-            f'<figcaption><strong>{escape(key["scene"])}</strong><span class="badge">{checks}</span>{badge}</figcaption>'
+    return (f'<figure class="take"><img src="{escape(key["key"])}" alt="Key for {escape(key["state"])}" loading="lazy">'
+            f'<figcaption><strong>{escape(key["state"])}</strong><span class="badge">{checks}</span>{badge}</figcaption>'
             f'<ul class="checks">{checklist(key["items"])}</ul>'
             f'<p class="note">The last frame of take {kept["seed"]}, {_time(key)}.</p></figure>')
 
@@ -202,8 +209,8 @@ def _shot(number: int, shot: dict) -> str:
         notes.append(f'<p class="note{"" if passed else " fail"}">{seams}</p>')
     notes.append(f'<p class="note">The kept take {_time(shot)}.</p>')
     if "key" in shot:
-        notes.append(f'<div class="key"><img src="{escape(shot["key"])}" alt="Key for {escape(shot["scene"])}" loading="lazy">'
-                     f'<span>Gave <strong>{escape(shot["scene"])}</strong> its key: the last frame of take {kept["seed"]}.</span></div>')
+        notes.append(f'<div class="key"><img src="{escape(shot["key"])}" alt="Key for {escape(shot["state"])}" loading="lazy">'
+                     f'<span>Gave <strong>{escape(shot["state"])}</strong> its key: the last frame of take {kept["seed"]}.</span></div>')
     return f"""<section class="shot" id="shot-{number}">
 <div class="head"><h2>{number}. {escape(shot["title"])} ({shot["mode"]})</h2><div>{status}</div></div>
 <details><summary>Prompt</summary><p>{escape(shot["prompt"])}</p></details>
@@ -218,7 +225,7 @@ def _take(take: dict) -> str:
     badge = ' <span class="badge kept">kept</span>' if take["kept"] else ""
     seconds = f'<span class="badge">{take["seconds"]:.1f} s</span>' if take["seconds"] is not None else ""
     return (f'<figure class="take{" kept" if take["kept"] else ""}">'
-            f'<video src="{escape(take["clip"])}" autoplay loop muted playsinline preload="metadata"></video>'
+            f'<video data-src="{escape(take["clip"])}" loop muted playsinline preload="none"></video>'
             f'<figcaption><strong>Take {take["seed"]}</strong>{badge}'
             f'<span class="badge">{"cached" if take["cached"] else "rendered"}</span>{seconds}</figcaption>'
             f'<ul class="checks">{checklist(take["items"])}</ul></figure>')

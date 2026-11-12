@@ -1,0 +1,19 @@
+[project]
+name = "contrail"
+version = "0.1.0"
+description = "A flight booking demo written as a Videotape screenplay."
+requires-python = ">=3.12"
+dependencies = ["videotape"]
+
+[dependency-groups]
+dev = ["pyright"]
+
+[tool.uv.sources]
+videotape = { path = "../..", editable = true }
+
+[tool.videotape]
+screenplay = "contrail.screenplay:app"
+model = "stand-in"
+
+[tool.pyright]
+typeCheckingMode = "strict"

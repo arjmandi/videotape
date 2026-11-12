@@ -1,23 +1,20 @@
 import base64
 import json
-import shutil
 import subprocess
 import urllib.request
 from pathlib import Path
 
 import pytest
 
+from conftest import FIXTURES, copy_of, planned
 from videotape import ledger, wan3
-from videotape.cli import main
 from videotape.fal import Fal, FalError, Receipt
-from videotape.loader import load
-from videotape.model import MODELS
-from videotape.shots import Mode, plan
+from videotape.model import MODELS, Listing
+from videotape.plan import Mode
+from videotape.standin import StandInEye
 
-SURF_SHOP = Path(__file__).parent.parent / "examples" / "surf_shop"
-FIXTURES = Path(__file__).parent / "fixtures"
 KEY = "fal-test-key-0123456789abcdef"
-SHOTS = {shot.title: shot for shot in plan(load(SURF_SHOP))}
+SHOTS = {shot.title: shot for shot in planned(FIXTURES / "cafe").shots}
 SETTINGS = {"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "audio": False, "enable_prompt_expansion": False}
 
 
@@ -44,21 +41,21 @@ def unpacked(uri: str) -> bytes:
 
 
 def test_a_key_is_text_to_video_from_its_own_prompt_at_720p_without_sound_or_prompt_expansion():
-    entrance = SHOTS["key entrance"]
-    built = wan3.request(entrance.mode, entrance.prompt, 1)
-    assert built == wan3.Wan3Request("alibaba/wan-3.0/text-to-video", {"prompt": entrance.prompt, **SETTINGS, "seed": 1})
+    order = SHOTS["key order(Latte)"]
+    built = wan3.request(order.mode, order.prompt, 1)
+    assert built == wan3.Wan3Request("alibaba/wan-3.0/text-to-video", {"prompt": order.prompt, **SETTINGS, "seed": 1})
 
 
 def test_a_move_is_image_to_video_from_the_key_it_starts_on_to_the_key_it_lands_on(tmp_path):
-    enter = SHOTS['welcome -> entrance "Enter shop"']
-    welcome, entrance = png(tmp_path / "welcome.png", "red"), png(tmp_path / "entrance.png", "blue")
-    built = wan3.request(enter.mode, enter.prompt, 2, welcome, entrance)
+    pick = SHOTS['menu -> order(Latte) "Latte, $5"']
+    menu, order = png(tmp_path / "menu.png", "red"), png(tmp_path / "order.png", "blue")
+    built = wan3.request(pick.mode, pick.prompt, 2, menu, order)
     assert built.endpoint == "alibaba/wan-3.0/image-to-video"
     images = {name: built.arguments[name] for name in ("start_image_url", "end_image_url")}
     assert {name: value for name, value in built.arguments.items() if name not in images} == {
-        "prompt": enter.prompt, **SETTINGS, "seed": 2}
-    assert unpacked(images["start_image_url"]) == welcome.read_bytes()
-    assert unpacked(images["end_image_url"]) == entrance.read_bytes()
+        "prompt": pick.prompt, **SETTINGS, "seed": 2}
+    assert unpacked(images["start_image_url"]) == menu.read_bytes()
+    assert unpacked(images["end_image_url"]) == order.read_bytes()
 
 
 def test_settings_cover_every_argument_a_shot_does_not_supply(tmp_path):
@@ -118,40 +115,46 @@ class Hosted:
 
 @pytest.fixture
 def hosted(tmp_path, monkeypatch):
-    directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
+    """The cafe, with wan3.0 answered by a queue that is not the network. Its solid clips show the stand-in's eye nothing."""
+    directory = copy_of("cafe", tmp_path)
     (tmp_path / "clips").mkdir()
     fal = Hosted(tmp_path / "clips")
-    monkeypatch.setitem(MODELS, "wan3.0", lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)))
+    monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)),
+                                                  lambda tape: StandInEye()))
     return directory, fal
 
 
-def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys(hosted, capsys):
+RENDER = ("render", "--model", "wan3.0", "--takes", "1", "--out", "tape-wan3")
+
+
+def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys(hosted, cli, capsys):
     directory, fal = hosted
     out = directory / "tape-wan3"
-    assert main(["render", str(directory), "--model", "wan3.0", "--takes", "1", "--out", str(out)]) == 1
+    assert cli(directory, *RENDER) == 1
     stdout, stderr = capsys.readouterr()
-    assert stdout.splitlines()[0] == "wan3.0: 10 calls, $5.00 at $0.10/s"
-    assert 'fail: 1. key welcome  kept take 1 fails button "Enter shop": not found' in stderr.splitlines()
-    assert stdout.splitlines()[-1] == f"rendered 10 of 10 shots -> {out}"
-    assert [mode for mode, _ in fal.posts] == ["text-to-video"] * 5 + ["image-to-video"] * 5
-    shots = plan(load(directory))
-    assert [arguments["prompt"] for _, arguments in fal.posts] == [shot.prompt for shot in shots]
-    for shot, (_, arguments) in zip(shots[5:], fal.posts[5:]):
-        assert unpacked(arguments["start_image_url"]) == (out / "keys" / f"{shot.start}.png").read_bytes()
-        assert unpacked(arguments["end_image_url"]) == (out / "keys" / f"{shot.land}.png").read_bytes()
-    assert len({(out / "keys" / f"{scene}.png").read_bytes() for scene in load(directory).scenes}) == 5
+    assert stdout.splitlines()[0] == "wan3.0: 11 calls, $5.50 at $0.10/s"
+    assert 'fail: 1. key menu  kept take 1 fails hotspot "Espresso, $3": not found' in stderr.splitlines()
+    assert stdout.splitlines()[-1] == "rendered 11 of 11 shots -> tape-wan3"
+    assert [mode for mode, _ in fal.posts] == ["text-to-video"] * 5 + ["image-to-video"] * 6
+    plan = planned(directory)
+    assert [arguments["prompt"] for _, arguments in fal.posts] == [shot.prompt for shot in plan.shots]
+    images = {key.state: out / key.image for key in plan.keys}
+    for move, (_, arguments) in zip(plan.moves, fal.posts[5:]):
+        assert unpacked(arguments["start_image_url"]) == images[move.start].read_bytes()
+        assert unpacked(arguments["end_image_url"]) == images[move.land].read_bytes()
+    assert len({image.read_bytes() for image in images.values()}) == 5
     assert {take.read_bytes() for take in (out / "takes").glob("*.mp4")} <= fal.served
     data = json.loads((out / "tape.json").read_text())
     assert (data["size"], data["fps"]) == ({"width": 1280, "height": 720}, 24)
-    lines = ledger.read(out)
-    assert [(line["model"], line["shot"], line["mode"], line["seed"], line["request_id"], line["duration"], line["usd"])
-            for line in lines] == [("wan3.0", shot.title, shot.mode.value, 1, f"request-{number}", 5.0, 0.5)
-                                   for number, shot in enumerate(shots)]
+    lines = ledger.of(directory, out).lines()
+    assert [(line["tape"], line["model"], line["shot"], line["mode"], line["seed"], line["request_id"], line["duration"],
+             line["usd"]) for line in lines] == [("tape-wan3", "wan3.0", shot.title, shot.mode.value, 1, f"request-{number}",
+                                                  5.0, 0.5) for number, shot in enumerate(plan.shots)]
     assert all(line["seconds"] > 0 and line["gpu"] == "fal" for line in lines)
-    assert ledger.totals(lines)["usd"] == 5.0
+    assert ledger.of(directory, out).totals()["usd"] == 5.5
     assert not (directory / "tape").exists()
-    written = "".join(path.read_text(errors="replace") for path in out.rglob("*") if path.suffix in (".json", ".jsonl", ".html"))
+    written = "".join(path.read_text(errors="replace") for path in directory.rglob("*")
+                      if path.suffix in (".json", ".jsonl", ".html"))
     assert KEY not in written + stdout + stderr
     record = json.loads((out / "dailies.json").read_text())
     sidecar = json.loads((out / record["keys"][0]["takes"][0]["clip"]).with_suffix(".json").read_text())
@@ -160,62 +163,59 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     assert sidecar["response"]["result"]["video"]["url"] == "https://v3b.fal.media/files/test/request-0.mp4"
 
 
-def test_a_cached_wan3_render_calls_fal_for_nothing_and_says_no_price(hosted, capsys):
+def test_a_cached_wan3_render_calls_fal_for_nothing_and_says_no_price(hosted, cli, capsys):
     directory, fal = hosted
-    out = directory / "tape-wan3"
-    main(["render", str(directory), "--model", "wan3.0", "--takes", "1", "--out", str(out)])
-    lines, posts = ledger.read(out), len(fal.seen)
+    cli(directory, *RENDER)
+    book = ledger.of(directory, directory / "tape-wan3")
+    lines, posts = book.lines(), len(fal.seen)
     capsys.readouterr()
-    main(["render", str(directory), "--model", "wan3.0", "--takes", "1", "--out", str(out)])
+    cli(directory, *RENDER)
     assert len(fal.seen) == posts
-    assert ledger.read(out) == lines
+    assert book.lines() == lines
     assert not capsys.readouterr().out.startswith("wan3.0:")
 
 
 @pytest.mark.parametrize("old, new, calls, line", [
-    ("The camera walks through the open door.", "The camera strolls in.", 1, "wan3.0: 1 call, $0.50 at $0.10/s"),
-    ('"Create your account"', '"Open your account"', 3, "wan3.0: 3 calls, $1.50 at $0.10/s"),
+    ('vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")', 5, "wan3.0: 5 calls, $2.50 at $0.10/s"),
+    ("coming up.", "on its way.", 6, "wan3.0: 6 calls, $3.00 at $0.10/s"),
 ])
-def test_the_price_line_counts_only_the_calls_an_edit_needs(hosted, capsys, old, new, calls, line):
+def test_the_price_line_counts_only_the_calls_an_edit_needs(hosted, cli, capsys, old, new, calls, line):
     directory, fal = hosted
-    out = directory / "tape-wan3"
-    main(["render", str(directory), "--model", "wan3.0", "--takes", "1", "--out", str(out)])
-    screenplay = directory / "screenplay.py"
+    cli(directory, *RENDER)
+    screenplay = directory / "cafe.py"
+    assert screenplay.read_text().count(old) == 1
     screenplay.write_text(screenplay.read_text().replace(old, new))
     posts = len(fal.posts)
     capsys.readouterr()
-    main(["render", str(directory), "--model", "wan3.0", "--takes", "1", "--out", str(out)])
+    cli(directory, *RENDER)
     assert capsys.readouterr().out.splitlines()[0] == line
     assert len(fal.posts) - posts == calls
 
 
-def test_a_change_to_the_request_settings_renders_again(hosted, monkeypatch):
+def test_a_change_to_the_request_settings_renders_again(hosted, cli, monkeypatch):
     directory, fal = hosted
-    out = directory / "tape-wan3"
-    main(["render", str(directory), "--model", "wan3.0", "--takes", "1", "--out", str(out)])
+    cli(directory, *RENDER)
     monkeypatch.setitem(wan3.SETTINGS, "resolution", "1080p")
-    main(["render", str(directory), "--model", "wan3.0", "--takes", "1", "--out", str(out)])
-    assert len(fal.posts) == 20
-    assert {arguments["resolution"] for _, arguments in fal.posts[10:]} == {"1080p"}
+    cli(directory, *RENDER)
+    assert len(fal.posts) == 22
+    assert {arguments["resolution"] for _, arguments in fal.posts[11:]} == {"1080p"}
 
 
-def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, capsys, monkeypatch):
-    directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
+def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
     monkeypatch.delenv("FAL_KEY", raising=False)
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))
-    assert main(["render", str(directory), "--model", "wan3.0", "--out", str(directory / "tape-wan3")]) == 1
+    assert cli(directory, "render", "--model", "wan3.0", "--out", "tape-wan3") == 1
     assert capsys.readouterr() == ("", "error: wan3.0 needs FAL_KEY in the environment\n")
     assert sent == []
-    assert sorted(path.name for path in directory.iterdir()) == ["screenplay.py"]
+    assert sorted(path.name for path in directory.iterdir()) == ["cafe.py", "drinks.json", "pyproject.toml"]
 
 
-def test_a_key_a_header_cannot_carry_is_refused_without_printing_it(tmp_path, capsys, monkeypatch):
-    directory = tmp_path / "surf_shop"
-    shutil.copytree(SURF_SHOP, directory, ignore=shutil.ignore_patterns("tape*", "compare*"))
+def test_a_key_a_header_cannot_carry_is_refused_without_printing_it(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
     monkeypatch.setenv("FAL_KEY", f"{KEY[:8]}\n{KEY[8:]}")
-    assert main(["render", str(directory), "--model", "wan3.0", "--out", str(directory / "tape-wan3")]) == 1
+    assert cli(directory, "render", "--model", "wan3.0", "--out", "tape-wan3") == 1
     out, err = capsys.readouterr()
     assert (out, err) == ("", "error: FAL_KEY holds a character an HTTP header cannot carry, such as a line break\n")
 

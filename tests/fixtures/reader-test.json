@@ -1,0 +1,52 @@
+{
+  "read": {
+    "id": "msg_01ReaderTestRead0000000000",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-opus-5-5",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "EqoBCkgIBxABGAIiQL0aZ2VuZXJpYy1zaWduYXR1cmU="
+      },
+      {
+        "type": "text",
+        "text": "Contrail is a flight booking app for one traveler flying one way from San Francisco.\n\n**Home.** It greets the traveler by first name, shows a search bar that asks \"Where to?\", lists their next trip, and shows their Contrail Miles. Pressing the search bar opens search. Pressing the next trip opens that trip. Tabs lead to Home, Trips and Profile.\n\n**Search.** A search bar lists every airport except San Francisco as an option, by city and code. Picking a city with flights opens its dates. Picking a city without flights says there are no flights to it and names the cities Contrail does fly to. Typing something that matches no airport says no airport matches. Both of those offer \"Search again\".\n\n**Dates.** A month calendar offers only the days that have flights to the chosen city, each with its lowest one-way fare. Picking a day opens that day's flights.\n\n**Results.** A strip of the days shows each day's lowest fare, and picking another day switches to it. Below it the day's flights are listed in order of departure, each with its departure and arrival times, its duration, its stops, and its fare. Picking a flight opens it.\n\n**Flight.** It shows the flight number and city, the day, the times, duration and stops, the aircraft, and the miles it earns. One button books it for its fare.\n\n**Booked.** It confirms the booking with the flight, day, departure time and a confirmation code. \"Done\" returns home.\n\n**Trips.** It lists the upcoming trips, each of which opens to its flight, day, confirmation code and miles, and the three most recent past trips.\n\n**Profile.** It shows the traveler's name, status and miles, a bar chart of flights per month in 2026, and a line chart of the miles flown in 2026 as a running total."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 2412,
+      "output_tokens": 1105,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    }
+  },
+  "check": {
+    "id": "msg_01ReaderTestCheck000000000",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-opus-5-5",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "EqoBCkgIBxABGAIiQL0aZ2VuZXJpYy1zaWduYXR1cmU="
+      },
+      {
+        "type": "text",
+        "text": "{\"feature_1\": {\"why\": \"The answer says home greets the traveler, shows the next trip and the miles, and has a search bar asking \\\"Where to?\\\".\", \"yes\": true}, \"feature_2\": {\"why\": \"The answer says search lists each airport by city and code as an option, and typing is how a search matches or fails.\", \"yes\": true}, \"feature_3\": {\"why\": \"The answer says a month calendar offers only days with flights, each with its lowest fare.\", \"yes\": true}, \"feature_4\": {\"why\": \"The answer says flights are listed by departure with times, duration, stops and fare, and a strip of days shows lowest fares and switches the day.\", \"yes\": true}, \"feature_5\": {\"why\": \"The answer says a flight shows its day, times, aircraft and the miles it earns.\", \"yes\": true}, \"feature_6\": {\"why\": \"The answer says one button books the flight and a confirmation code is shown.\", \"yes\": true}, \"feature_7\": {\"why\": \"The answer says Trips lists upcoming trips that open to their details, and the three most recent.\", \"yes\": true}, \"feature_8\": {\"why\": \"The answer says Profile shows status and miles, a bar chart of flights per month, and a line chart of miles flown this year.\", \"yes\": true}, \"feature_9\": {\"why\": \"The answer says no match says so, and a city without flights names the cities that have them.\", \"yes\": true}}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 1890,
+      "output_tokens": 520,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    }
+  }
+}
