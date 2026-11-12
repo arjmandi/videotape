@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the cut harness against TapePlayer's TapeView and Projector, and against the control projector, then plays
-# examples/surf_shop/tape through each. Passes when TapePlayer shows no flash and the control does, which proves the
+# examples/contrail/tape through each. Passes when TapePlayer shows no flash and the control does, which proves the
 # captures can see one.
 # usage: run [cuts]
 set -uo pipefail
@@ -23,10 +23,10 @@ for projector in tapeplayer control; do
 done
 
 echo "== TapePlayer's projector"
-"$out/tapeplayer" "$root/examples/surf_shop/tape" "$cuts"
+"$out/tapeplayer" "$root/examples/contrail/tape" "$cuts"
 tapeplayer=$?
 echo "== control: one player layer and replaceCurrentItem"
-"$out/control" "$root/examples/surf_shop/tape" "$cuts"
+"$out/control" "$root/examples/contrail/tape" "$cuts"
 control=$?
 
 if [ $tapeplayer -eq 0 ] && [ $control -eq 1 ]; then
