@@ -1,0 +1,90 @@
+[
+  {
+    "flight": "CT 300",
+    "origin": "SFO",
+    "destination": "SEA",
+    "day": "2026-01-14",
+    "miles": 679,
+    "confirmation": "B2KJXN"
+  },
+  {
+    "flight": "CT 301",
+    "origin": "SEA",
+    "destination": "SFO",
+    "day": "2026-02-20",
+    "miles": 679,
+    "confirmation": "M4PLVR"
+  },
+  {
+    "flight": "CT 100",
+    "origin": "SFO",
+    "destination": "JFK",
+    "day": "2026-03-06",
+    "miles": 2586,
+    "confirmation": "T7QWEH"
+  },
+  {
+    "flight": "CT 101",
+    "origin": "JFK",
+    "destination": "SFO",
+    "day": "2026-03-13",
+    "miles": 2586,
+    "confirmation": "T7QWEH"
+  },
+  {
+    "flight": "CT 500",
+    "origin": "SFO",
+    "destination": "HNL",
+    "day": "2026-05-22",
+    "miles": 2398,
+    "confirmation": "K9DMRU"
+  },
+  {
+    "flight": "CT 501",
+    "origin": "HNL",
+    "destination": "SFO",
+    "day": "2026-05-29",
+    "miles": 2398,
+    "confirmation": "K9DMRU"
+  },
+  {
+    "flight": "CT 210",
+    "origin": "SFO",
+    "destination": "ORD",
+    "day": "2026-08-07",
+    "miles": 1846,
+    "confirmation": "P3HXYC"
+  },
+  {
+    "flight": "CT 211",
+    "origin": "ORD",
+    "destination": "SFO",
+    "day": "2026-08-09",
+    "miles": 1846,
+    "confirmation": "P3HXYC"
+  },
+  {
+    "flight": "CT 120",
+    "origin": "SFO",
+    "destination": "LAX",
+    "day": "2026-10-16",
+    "miles": 337,
+    "confirmation": "Z6NBTF"
+  },
+  {
+    "flight": "CT 100",
+    "origin": "SFO",
+    "destination": "JFK",
+    "day": "2026-12-18",
+    "miles": 2586,
+    "confirmation": "QXR7LM"
+  },
+  {
+    "flight": "CT 500",
+    "origin": "SFO",
+    "destination": "HNL",
+    "day": "2027-01-08",
+    "miles": 2398,
+    "confirmation": "W8TZQA"
+  }
+]

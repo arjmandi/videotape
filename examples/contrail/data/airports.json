@@ -1,0 +1,37 @@
+[
+  {
+    "code": "SFO",
+    "city": "San Francisco",
+    "name": "San Francisco International"
+  },
+  {
+    "code": "BOS",
+    "city": "Boston",
+    "name": "Boston Logan International"
+  },
+  {
+    "code": "ORD",
+    "city": "Chicago",
+    "name": "Chicago O'Hare International"
+  },
+  {
+    "code": "HNL",
+    "city": "Honolulu",
+    "name": "Daniel K. Inouye International"
+  },
+  {
+    "code": "LAX",
+    "city": "Los Angeles",
+    "name": "Los Angeles International"
+  },
+  {
+    "code": "JFK",
+    "city": "New York",
+    "name": "John F. Kennedy International"
+  },
+  {
+    "code": "SEA",
+    "city": "Seattle",
+    "name": "Seattle-Tacoma International"
+  }
+]
