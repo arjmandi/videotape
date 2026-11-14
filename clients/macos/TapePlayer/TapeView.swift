@@ -2,13 +2,17 @@ import AppKit
 import TapeKit
 
 /// The whole window: the tape's frames and nothing else. While a scene rests, its hotspots take clicks, show a
-/// pointing hand, and appear to accessibility as buttons. A search bar takes typed text through the platform's sheet.
+/// pointing hand, and appear to accessibility as buttons, followed by each of the scene's words as static text. A
+/// search bar takes typed text through the platform's sheet.
 @MainActor
 final class TapeView: NSView, NSMenuItemValidation {
     private var player: Player
     private let projector = Projector()
     private var buttons: [HotspotButton] = []
+    private var words: [WordText] = []
     private var firstFrame: (() -> Void)?
+
+    var tape: Tape { player.tape }
 
     init(tape: Tape, firstFrame: @escaping () -> Void) {
         player = Player(tape: tape)
@@ -112,6 +116,7 @@ final class TapeView: NSView, NSMenuItemValidation {
         case .resting: break
         }
         buttons = hotspots.map { HotspotButton(hotspot: $0, view: self) }
+        words = (player.scene?.words ?? []).map { WordText(word: $0, view: self) }
         window?.invalidateCursorRects(for: self)
         updateCursor()
         NSAccessibility.post(element: self, notification: .layoutChanged)
@@ -158,7 +163,7 @@ final class TapeView: NSView, NSMenuItemValidation {
 
     override func accessibilityLabel() -> String? { player.scene?.name ?? "" }
 
-    override func accessibilityChildren() -> [Any]? { buttons }
+    override func accessibilityChildren() -> [Any]? { buttons + words }
 
     override func accessibilityHitTest(_ point: NSPoint) -> Any? {
         // The closure runs synchronously on this thread, so carrying its non-Sendable result out is safe.
@@ -196,6 +201,26 @@ private final class HotspotButton: NSAccessibilityElement {
         guard let view else { return false }
         let label = hotspot.label
         return MainActor.assumeIsolated { view.press(label) }
+    }
+}
+
+/// One of the resting scene's words as a screen reader reads it: static text that spans the tape.
+private final class WordText: NSAccessibilityElement {
+    private weak var view: TapeView?
+
+    init(word: String, view: TapeView) {
+        self.view = view
+        super.init()
+        setAccessibilityRole(.staticText)
+        setAccessibilityValue(word)
+        setAccessibilityParent(view)
+    }
+
+    override func isAccessibilityElement() -> Bool { true }
+
+    override func accessibilityFrame() -> NSRect {
+        guard let view else { return .zero }
+        return MainActor.assumeIsolated { NSAccessibility.screenRect(fromView: view, rect: view.bounds) }
     }
 }
 

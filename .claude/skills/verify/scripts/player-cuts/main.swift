@@ -90,7 +90,12 @@ Timer.scheduledTimer(withTimeInterval: 1.0 / 240, repeats: true) { _ in
         }
         guard let scene = view.accessibilityLabel(), !scene.isEmpty else { return }
         guard cuts.count < wanted else { report(after: now) }
-        let buttons = view.accessibilityChildren() as? [NSAccessibilityElement] ?? []
+        // The children are the hotspots' buttons, then the scene's words. The search bar's button opens a sheet rather
+        // than a clip, so it is skipped.
+        let bar = tape.scenes[scene]?.search?.bar
+        let buttons = (view.accessibilityChildren() as? [NSAccessibilityElement] ?? []).filter {
+            $0.accessibilityRole() == .button && $0.accessibilityLabel() != bar
+        }
         if buttons.isEmpty {
             view.startOver(nil)
         } else {

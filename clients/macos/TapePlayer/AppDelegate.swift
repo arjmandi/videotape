@@ -76,6 +76,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return window.frameRect(forContentRect: AVMakeRect(aspectRatio: window.contentAspectRatio, insideRect: room))
     }
 
+    /// The standard About panel, with the open tape's label and id under the app's name.
+    @objc func about(_ sender: Any?) {
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+        if let made = (window?.contentView as? TapeView)?.tape.made {
+            options[.credits] = NSAttributedString(string: "\(made.label)\n\(made.id)")
+        }
+        NSApp.orderFrontStandardAboutPanel(options: options)
+    }
+
     private func show(_ error: TapeError) {
         let alert = NSAlert()
         alert.messageText = "This tape cannot play."
@@ -85,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func mainMenu() -> NSMenu {
         let app = NSMenu()
-        app.addItem(withTitle: "About TapePlayer", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "About TapePlayer", action: #selector(about(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Hide TapePlayer", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(withTitle: "Quit TapePlayer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
