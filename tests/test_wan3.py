@@ -163,15 +163,19 @@ def test_a_take_is_submitted_once_even_when_the_render_dies_between_submitting_a
     assert record.exists()
 
 
-@pytest.fixture
-def hosted(tmp_path, monkeypatch):
+def hosted_by(queue: type[Hosted], tmp_path: Path, monkeypatch) -> tuple[Path, Hosted]:
     """The cafe, with wan3.0 answered by a queue that is not the network. Its solid clips show the stand-in's eye nothing."""
     directory = copy_of("cafe", tmp_path)
     (tmp_path / "clips").mkdir()
-    fal = Hosted(tmp_path / "clips")
+    fal = queue(tmp_path / "clips")
     monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)),
                                                   lambda tape: StandInEye(), price=wan3.PRICE, limit=2))
     return directory, fal
+
+
+@pytest.fixture
+def hosted(tmp_path, monkeypatch):
+    return hosted_by(Hosted, tmp_path, monkeypatch)
 
 
 def render_args(takes: int = 1, cap: str = "20") -> tuple[str, ...]:
@@ -375,6 +379,38 @@ def test_a_call_that_fails_after_its_submit_keeps_its_reservation(tmp_path):
     assert error.value.code in ("VT401", "VT402")
     assert 0.5 * len(fal.posts) <= 1.5 and len(fal.posts) == 3
     assert sorted(line["request_id"] for line in ledger.of(directory, tape).lines()) == ["request-1", "request-2"]
+
+
+class Refusing(Hosted):
+    """fal refuses request 0's result for good, as it does when its safety checker flags the output."""
+
+    def _answer(self, request: urllib.request.Request) -> bytes:
+        if request.full_url == "https://queue.fal.run/alibaba/wan-3.0/requests/request-0":
+            raise http(422, '{"detail": "content policy"}')
+        return super()._answer(request)
+
+
+def test_a_recorded_request_that_fails_for_good_names_its_record_and_deleting_it_submits_a_new_paid_take(
+        tmp_path, monkeypatch, cli, capsys):
+    directory, fal = hosted_by(Refusing, tmp_path, monkeypatch)
+    menu = SHOTS["key menu()"]
+    for attempt in range(2):
+        assert cli(directory, *RENDER) == 1
+        err = capsys.readouterr().err.splitlines()
+        assert err[0].startswith("error VT401 key menu() take 1: ")
+        assert err[0].endswith('request request-0 failed with HTTP 422: {"detail": "content policy"}')
+        assert err[1:3] == ["next: run the render again, which resumes; this request is polled, not submitted again:",
+                            "videotape render --story chalk --model wan3.0 --takes 1 --out tape-wan3 --cap-usd 20.00"]
+        named = re.fullmatch(r"or delete (tape-wan3/takes/[0-9a-f]{64}\.request\.json) first, and the render submits a "
+                             r"new, paid take", err[3])
+        assert named and json.loads((directory / named[1]).read_text())["request_id"] == "request-0"
+        assert [arguments["prompt"] for _, arguments in fal.posts].count(menu) == 1
+    (directory / named[1]).unlink()
+    assert cli(directory, *RENDER) == 1
+    err = capsys.readouterr().err
+    assert "VT401" not in err and (directory / "tape-wan3" / "tape.json").exists()
+    assert [arguments["prompt"] for _, arguments in fal.posts].count(menu) == 2
+    assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) + 1
 
 
 @pytest.mark.parametrize("old, new, calls", [
