@@ -8,23 +8,24 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES, copy_of, planned
+from conftest import FIXTURES, copy_of, planned, told, words
 from videotape import wan
+from videotape.model import MODELS
 from videotape.plan import Mode
 
 
 def test_a_key_runs_ti2v_from_text_and_a_move_runs_fun_inp_between_two_keys():
-    plan = planned(FIXTURES / "cafe")
+    plan, chalk = planned(FIXTURES / "cafe"), told(FIXTURES / "cafe")
     menu, pick = plan.keys[0], plan.moves[0]
-    assert (menu.title, pick.title) == ("key menu", 'menu -> order(Espresso) "Espresso, $3"')
+    assert (menu.title, pick.title) == ("key menu()", 'menu() -> order(Espresso) "Espresso, $3"')
     start, end = Path("tape") / menu.image, Path("tape") / plan.keys[1].image
     common = dict(negative_prompt=wan.NEGATIVE_PROMPT, width=1280, height=704, frames=81, fps=24, steps=50, shift=5.0)
-    assert wan.request(menu.mode, menu.prompt, None, None, 1) == wan.Request(
+    assert wan.request(menu.mode, words(menu, chalk), None, None, 1) == wan.Request(
         checkpoint="Wan-AI/Wan2.2-TI2V-5B-Diffusers", revision="b8fff7315c768468a5333511427288870b2e9635",
-        mode=Mode.TEXT_TO_VIDEO, prompt=menu.prompt, seed=1, guidance=5.0, start=None, end=None, **common)
-    assert wan.request(pick.mode, pick.prompt, start, end, 2) == wan.Request(
+        mode=Mode.TEXT_TO_VIDEO, prompt=words(menu, chalk), seed=1, guidance=5.0, start=None, end=None, **common)
+    assert wan.request(pick.mode, words(pick, chalk), start, end, 2) == wan.Request(
         checkpoint="alibaba-pai/Wan2.2-Fun-5B-InP", revision="d3e911d57ec9e44f1f06dc565387afbe8d28f25f",
-        mode=Mode.FIRST_AND_LAST_FRAME, prompt=pick.prompt, seed=2, guidance=6.0, start=start, end=end, **common)
+        mode=Mode.FIRST_AND_LAST_FRAME, prompt=words(pick, chalk), seed=2, guidance=6.0, start=start, end=end, **common)
 
 
 def test_every_shot_fits_the_models_and_the_five_second_limit():
@@ -49,13 +50,29 @@ def test_the_model_puts_its_request_settings_in_the_cache_key():
         assert wan.Wan.settings(mode) == wan.request(mode, "any prompt", None, None, 99).settings()
 
 
+# What umT5's own tokenizer made of each prompt on 2026-11-14, with its end token: google/umt5-xxl's tokenizer.json.
+UMT5_TOKENS = {
+    'The day "12" is pressed. The camera slides along the wall to the next poster and settles straight on.': 27,
+    'Reading "Jan" "679", "Feb" "1,358", "Mar" "6,530", "Apr" "6,530", and "May" "11,326".': 52,
+    'Static shot. A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters.': 31,
+}
+
+
+def test_a_plan_counts_a_prompts_tokens_without_the_tokenizer_and_never_lower_than_it():
+    assert wan.tokens("Static shot.") == len(["Stat", "ic", "shot", ".", "the end"])
+    assert [wan.tokens(prompt) for prompt in UMT5_TOKENS] == [32, 58, 36]
+    assert all(wan.tokens(prompt) >= real for prompt, real in UMT5_TOKENS.items())
+    assert (MODELS["wan2.2-5b"].prompt_limit.most, MODELS["wan2.2-5b"].prompt_limit.count) == (512, wan.tokens)
+    assert MODELS["stand-in"].prompt_limit is None
+
+
 def test_wan_without_its_extra_says_what_to_install_and_renders_nothing(tmp_path, cli, capsys, monkeypatch):
     monkeypatch.setitem(sys.modules, "diffusers", None)
     directory = copy_of("cafe", tmp_path)
-    assert cli(directory, "render", "--model", "wan2.2-5b") == 1
+    assert cli(directory, "render", "--story", "chalk", "--model", "wan2.2-5b") == 1
     assert capsys.readouterr().err == ("error: wan2.2-5b needs videotape's wan extra, which is not installed here; "
                                        "install videotape[wan]\n")
-    assert not (directory / "tape").exists()
+    assert not (directory / "tapes").exists()
 
 
 @pytest.mark.skipif(find_spec("diffusers") is None, reason="needs the wan extra")
@@ -65,11 +82,11 @@ def test_wan_on_a_machine_without_cuda_says_so_before_rendering(tmp_path, cli, c
     if torch.cuda.is_available():
         pytest.skip("this machine has CUDA")
     directory = copy_of("cafe", tmp_path)
-    assert cli(directory, "render", "--model", "wan2.2-5b") == 1
+    assert cli(directory, "render", "--story", "chalk", "--model", "wan2.2-5b") == 1
     err = capsys.readouterr().err
     assert err.startswith("error: wan2.2-5b needs a CUDA GPU with about 80 GB, and this machine has ")
     assert err.endswith(" only; rent one with scripts/runpod-render\n")
-    assert not (directory / "tape").exists()
+    assert not (directory / "tapes").exists()
 
 
 def test_videox_fun_source_is_fetched_once_from_the_pinned_archive(tmp_path, monkeypatch):

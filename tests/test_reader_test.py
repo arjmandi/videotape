@@ -107,6 +107,15 @@ def test_the_check_sends_the_answer_and_every_feature_and_must_answer_yes_or_no_
                for verdict in schema["properties"].values())
 
 
+def test_the_check_asks_for_each_features_behavior_in_any_words_and_never_for_a_look(run):
+    _, claude, _ = run(recorded()["read"], recorded()["check"])
+    asked = claude.bodies()[1]["messages"][0]["content"].split("<answer>")[0]
+    assert "decide whether the answer describes that feature's behavior" in asked
+    assert "Say yes only if the answer describes all of it, in any words." in asked
+    assert "can't say how an element looks, such as that a date picker is a month calendar" in asked
+    assert "the answer states it" not in asked
+
+
 def test_nine_yeses_exit_zero_and_both_answers_are_saved_with_the_tokens_and_cost(run, capsys):
     code, _, report = run(recorded()["read"], recorded()["check"])
     out, err = capsys.readouterr()

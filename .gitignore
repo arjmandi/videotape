@@ -3,6 +3,7 @@ __pycache__/
 *.egg-info/
 .verify/
 tape/
+tapes/
 ledger.jsonl
 clients/macos/build/
 clients/macos/TapeKit/.build/

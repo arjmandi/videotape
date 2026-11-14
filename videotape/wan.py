@@ -3,6 +3,7 @@
 import gc
 import io
 import os
+import re
 import sys
 import tarfile
 import urllib.request
@@ -45,6 +46,10 @@ NEGATIVE_PROMPT = ("色调艳丽，过曝，静态，细节模糊不清，字幕
                    "丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，"
                    "杂乱的背景，三条腿，背景人很多，倒着走")
 
+# Wan2.2's wan/configs/shared_config.py sets text_len = 512 for its umT5 text encoder. Both pipelines here cut a prompt
+# there: diffusers' WanPipeline defaults max_sequence_length to 512, and VideoX-Fun's config sets text_length: 512.
+TEXT_TOKENS = 512
+
 # What a shot itself supplies. The take cache already hashes these, so settings() leaves them out.
 SHOT_FIELDS = frozenset({"mode", "prompt", "seed", "start", "end"})
 
@@ -77,6 +82,14 @@ def request(mode: Mode, prompt: str, start: Path | None, end: Path | None, seed:
     checkpoint = FUN if mode is Mode.FIRST_AND_LAST_FRAME else TI2V
     return Request(checkpoint.repo, checkpoint.revision, mode, prompt, NEGATIVE_PROMPT, seed, WIDTH, HEIGHT, FRAMES, FPS,
                    STEPS, checkpoint.guidance, SHIFT, start, end)
+
+
+def tokens(prompt: str) -> int:
+    """About how many tokens umT5's tokenizer makes of a prompt, counted high, so that a plan warns early and not
+    late."""
+    # The real tokenizer is a download, and a plan has to count offline: one token for every four letters of a word,
+    # one for every other character that is not a space, and one for the end of the text.
+    return len(re.findall(r"[A-Za-z]{1,4}|[^A-Za-z\s]", prompt)) + 1
 
 
 def videox_fun_dir() -> Path:

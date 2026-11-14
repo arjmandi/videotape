@@ -4,10 +4,9 @@ shows, and calling it names a state for an action to lead to."""
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, time
-from itertools import chain
 from typing import NamedTuple
 
 from videotape import errors
@@ -24,7 +23,7 @@ class State:
 
     @property
     def name(self) -> str:
-        return f"{self.scene.name}({', '.join(map(_named, self.args))})" if self.args else self.scene.name
+        return f"{self.scene.name}({', '.join(map(_named, self.args))})"
 
 
 def _named(value: object) -> str:
@@ -98,15 +97,30 @@ class Line:
     action: Action | None = None
     chosen: bool = False
 
-    def __str__(self) -> str:
-        return f'"{self.words}"' + (" (chosen)" if self.chosen else "")
+
+Cell = tuple[Line, ...]
+"""One line, or a label beside its value."""
 
 
 class Shown(NamedTuple):
-    """An element on one state: the sentence a key's prompt describes it with, and its lines in reading order."""
+    """An element on one state: its type, which a story gives an appearance and a move, and its lines. The lines are
+    in rows of cells, in reading order."""
 
-    sentence: str
-    lines: tuple[Line, ...]
+    type: str
+    rows: tuple[tuple[Cell, ...], ...]
+
+    @property
+    def lines(self) -> tuple[Line, ...]:
+        return tuple(line for row in self.rows for cell in row for line in cell)
+
+
+def _shown(element: object, *rows: Sequence[Cell]) -> Shown:
+    return Shown(type(element).__name__, tuple(tuple(row) for row in rows if row))
+
+
+def _each(*lines: Line) -> list[Cell]:
+    """A row in which each line is a cell of its own."""
+    return [(line,) for line in lines]
 
 
 def _press(on: State, kind: str, words: str, to: State | None, label: str | None = None, choice: bool = False) -> Line:
@@ -129,18 +143,12 @@ def _leads(slot: str, to: object) -> None:
                           "call a scene to name a state, as in to=home()")
 
 
-def _and(items: Iterable[object]) -> str:
-    words = [str(item) for item in items]
-    return f"{', '.join(words[:-1])} and {words[-1]}" if len(words) > 1 else "".join(words) or "none"
-
-
 @dataclass(frozen=True)
 class Heading:
     text: str
 
     def show(self, on: State) -> Shown:
-        line = Line(self.text)
-        return Shown(f"A heading reads {line}.", (line,))
+        return _shown(self, _each(Line(self.text)))
 
 
 @dataclass(frozen=True)
@@ -148,8 +156,7 @@ class Text:
     text: str
 
     def show(self, on: State) -> Shown:
-        line = Line(self.text)
-        return Shown(f"A line of text reads {line}.", (line,))
+        return _shown(self, _each(Line(self.text)))
 
 
 @dataclass(frozen=True)
@@ -161,8 +168,7 @@ class Button:
         _leads(f'the to= of Button "{self.label}"', self.to)
 
     def show(self, on: State) -> Shown:
-        line = _press(on, "button", self.label, self.to)
-        return Shown(f"A button reads {line}.", (line,))
+        return _shown(self, _each(_press(on, "button", self.label, self.to)))
 
 
 @dataclass(frozen=True)
@@ -191,15 +197,14 @@ class SearchBar:
     def show(self, on: State) -> Shown:
         bar = _press(on, "search bar", self.placeholder, self.no_match if self.options else self.to)
         options = [_press(on, "option", option.label, option.to, choice=True) for option in self.options]
-        offers = f", above the options {_and(options)}" if options else ""
-        return Shown(f"A search bar reads {bar}{offers}.", (bar, *options))
+        return _shown(self, _each(bar), *(_each(option) for option in options))
 
 
 def _one_month(element: str, days: Mapping[date, Option]) -> None:
     months = sorted({f"{day:%B %Y}" for day in days})
     if len(months) != 1:
         raise ValueError(f"a {element}'s days are all in one month, and these are in "
-                         f"{_and(months) if months else 'none'}")
+                         f"{' and '.join(months) or 'none'}")
 
 
 def _spoken(day: date, option: Option) -> str:
@@ -216,12 +221,9 @@ class DatePicker:
         _one_month("DatePicker", self.days)
 
     def show(self, on: State) -> Shown:
-        month = Line(f"{min(self.days):%B %Y}")
         days = [(_press(on, "day", str(day.day), option.to, _spoken(day, option), choice=True), Line(option.label))
                 for day, option in sorted(self.days.items())]
-        marked = _and(f"{number} with {label}" for number, label in days)
-        return Shown(f"A month calendar titled {month} marks only the days {marked}.",
-                     (month, *chain.from_iterable(days)))
+        return _shown(self, _each(Line(f"{min(self.days):%B %Y}")), days)
 
 
 @dataclass(frozen=True)
@@ -236,8 +238,7 @@ class DateStrip:
     def show(self, on: State) -> Shown:
         days = [(_press(on, "day", f"{day:%a} {day.day}", option.to, _spoken(day, option), choice=True),
                  Line(option.label)) for day, option in sorted(self.days.items())]
-        return Shown(f"A strip of days reads {_and(f'{name} with {label}' for name, label in days)}.",
-                     tuple(chain.from_iterable(days)))
+        return _shown(self, days)
 
 
 @dataclass(frozen=True)
@@ -265,18 +266,12 @@ class List:
 
     def show(self, on: State) -> Shown:
         title = [Line(self.title)] if self.title is not None else []
-        rows = [row.lines(on) for row in self.rows]
-        named = "".join(f" titled {line}" for line in title)
-        count = f"{len(rows)} row{'' if len(rows) == 1 else 's'}: " if rows else "no rows"
-        return Shown(f"A list{named} has {count}{'; '.join(', '.join(map(str, row)) for row in rows)}.",
-                     (*title, *chain.from_iterable(rows)))
+        return _shown(self, _each(*title), *(_each(*row.lines(on)) for row in self.rows))
 
 
-def _chart(kind: str, marks: str, title: str, values: Mapping[str, float]) -> Shown:
-    head = Line(title)
-    points = [(Line(label), Line(f"{value:,}")) for label, value in values.items()]
-    return Shown(f"A {kind} chart titled {head} has the {marks} "
-                 f"{_and(f'{label} at {value}' for label, value in points)}.", (head, *chain.from_iterable(points)))
+def _chart(chart: BarChart | LineChart) -> Shown:
+    points = [(Line(label), Line(f"{value:,}")) for label, value in chart.values.items()]
+    return _shown(chart, _each(Line(chart.title)), points)
 
 
 @dataclass(frozen=True)
@@ -285,7 +280,7 @@ class BarChart:
     values: Mapping[str, float]
 
     def show(self, on: State) -> Shown:
-        return _chart("bar", "bars", self.title, self.values)
+        return _chart(self)
 
 
 @dataclass(frozen=True)
@@ -294,7 +289,7 @@ class LineChart:
     values: Mapping[str, float]
 
     def show(self, on: State) -> Shown:
-        return _chart("line", "points", self.title, self.values)
+        return _chart(self)
 
 
 @dataclass(frozen=True)
@@ -306,8 +301,7 @@ class Tabs:
             _leads(f'the tab "{label}"', to)
 
     def show(self, on: State) -> Shown:
-        tabs = tuple(_press(on, "tab", label, to, choice=True) for label, to in self.tabs.items())
-        return Shown(f"A row of tabs reads {_and(tabs)}.", tabs)
+        return _shown(self, _each(*(_press(on, "tab", label, to, choice=True) for label, to in self.tabs.items())))
 
 
 Element = Heading | Text | Button | SearchBar | DatePicker | DateStrip | List | BarChart | LineChart | Tabs

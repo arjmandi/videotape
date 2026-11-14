@@ -77,13 +77,13 @@ def test_the_two_trips_are_the_only_states_without_actions():
 
 def test_booking_the_morning_flight_to_seattle_lands_back_on_home():
     moves = {(move.start.name, move.label): move.land.name for move in planned(CONTRAIL).moves}
-    state = "home"
+    state = "home()"
     for label in ("Where to?", "Seattle (SEA)", "Saturday, December 12, $89",
                   "8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89", "Book for $89", "Done"):
         state = moves[(state, label)]
-    assert state == "home"
-    assert moves[("search", "Where to?")] == "not_found"
-    assert moves[("search", "Boston (BOS)")] == "no_flights(BOS)"
+    assert state == "home()"
+    assert moves[("search()", "Where to?")] == "not_found()"
+    assert moves[("search()", "Boston (BOS)")] == "no_flights(BOS)"
 
 
 def test_contrails_screenplay_stays_under_200_lines():

@@ -18,6 +18,8 @@ class ProjectError(RuntimeError):
 @dataclass(frozen=True)
 class Project:
     root: Path
+    name: str
+    """The app's name, which is [project] name, or the folder's name when pyproject.toml gives none."""
     version: str | None
     screenplay: str
     model: str | None
@@ -61,5 +63,6 @@ def find(start: Path) -> Project:
         raise ProjectError(f"{file}: [tool.videotape] model is {model!r}, not a model's name")
     if isinstance(max_states, bool) or not isinstance(max_states, int) or max_states < 1:
         raise ProjectError(f"{file}: [tool.videotape] max_states is {max_states!r}, not a whole number of states")
-    version = settings.get("project", {}).get("version")
-    return Project(root, version if isinstance(version, str) else None, screenplay, model, max_states)
+    name, version = (settings.get("project", {}).get(key) for key in ("name", "version"))
+    return Project(root, name if isinstance(name, str) else root.name, version if isinstance(version, str) else None,
+                   screenplay, model, max_states)

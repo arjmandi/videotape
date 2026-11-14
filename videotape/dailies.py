@@ -136,7 +136,7 @@ def _shot_record(filmed: Filmed, tape: Path) -> dict:
     return {
         "title": shot.title,
         "mode": shot.mode.value,
-        "prompt": shot.prompt,
+        "prompt": filmed.prompt,
         "takes": [{"seed": take.seed, "clip": take.path.relative_to(tape).as_posix(), "cached": take.cached,
                    "kept": take is filmed.kept, "seconds": take.seconds, "gpu": take.gpu, "usd": take.usd,
                    **({"start": take.checks.start, "end": take.checks.end} if isinstance(shot, Move) else {}),

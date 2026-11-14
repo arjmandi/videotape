@@ -39,6 +39,9 @@ MARGIN = 24
 BOX_HEIGHT = (7 + 2 * PAD) * SCALE
 BACKGROUND, BOX, INK = bytes.fromhex("2f6f7e"), bytes.fromhex("f7f1e3"), bytes.fromhex("1a1a1a")
 CONTRAST = 30
+# The mark is a row of cells along the bottom edge, below every box. A cell is this much lighter or darker than the
+# background, which is too little for the eye to take it for a box.
+MARK_CELLS, MARK_HEIGHT, MARK_SHADE = 64, 16, 8
 FIND_MAX_CER = 0.2
 
 
@@ -112,9 +115,9 @@ class StandIn:
             if mode is Mode.FIRST_AND_LAST_FRAME:
                 first, last = start, end
             else:
-                frame, drawn = draw(rows)
+                frame, drawn = draw(rows, prompt)
                 last = _png(frame, scratch / "drawn.png")
-                first = _png(Frame(WIDTH, HEIGHT, BACKGROUND * (WIDTH * HEIGHT)), scratch / "background.png")
+                first = _png(draw([], prompt)[0], scratch / "background.png")
             if flaw is Flaw.WRONG_START:
                 first = _png(_negative(frames.read_png(first)), scratch / "wrong-start.png")
             if flaw is Flaw.WRONG_END:
@@ -136,11 +139,14 @@ class StandInEye:
 
 
 def quoted(prompt: str) -> list[list[str]]:
-    """The lines a prompt quotes, in rows: a sentence, or a part of one that ends at a colon or semicolon, is a row."""
+    """The lines a prompt quotes, in rows: a sentence, or a part of one that ends at a colon or semicolon, is a row.
+    A line the prompt quotes again to say it is the chosen one, as in with "Home" chosen, is drawn once."""
     rows, row = list[list[str]](), list[str]()
-    for index, part in enumerate(re.split(r'"([^"]*)"', prompt)):
-        if index % 2 and part:
-            row.append(part)
+    parts = re.split(r'"([^"]*)"', prompt)
+    for index, part in enumerate(parts):
+        if index % 2:
+            if part and not parts[index + 1].startswith(" chosen"):
+                row.append(part)
         elif row and re.search("[.:;]", part):
             rows.append(row)
             row = []
@@ -172,9 +178,11 @@ def _negative(frame: Frame) -> Frame:
     return Frame(frame.width, frame.height, frame.rgb.translate(bytes(range(255, -1, -1))))
 
 
-def draw(rows: list[list[str]]) -> tuple[Frame, tuple[Drawn, ...]]:
-    """Each line as a labelled box. A row's boxes run left to right and wrap at the right edge."""
+def draw(rows: list[list[str]], prompt: str = "") -> tuple[Frame, tuple[Drawn, ...]]:
+    """Each line as a labelled box. A row's boxes run left to right and wrap at the right edge. The prompt leaves its
+    mark along the bottom edge."""
     canvas = bytearray(BACKGROUND * (WIDTH * HEIGHT))
+    _mark(canvas, prompt)
     drawn = list[Drawn]()
     y = MARGIN
     for row in rows:
@@ -193,6 +201,16 @@ def draw(rows: list[list[str]]) -> tuple[Frame, tuple[Drawn, ...]]:
             x += w + GAP * SCALE
         y += BOX_HEIGHT + GAP * SCALE
     return Frame(WIDTH, HEIGHT, bytes(canvas)), tuple(drawn)
+
+
+def _mark(canvas: bytearray, prompt: str) -> None:
+    """A real model draws a look, a direction and an appearance, and the stand-in draws only quoted lines. So that two
+    prompts never give one picture, each cell is lighter or darker by one bit of the whole prompt's hash."""
+    bits = int.from_bytes(hashlib.sha256(prompt.encode()).digest()[:MARK_CELLS // 8])
+    width = WIDTH // MARK_CELLS
+    for cell in range(MARK_CELLS):
+        shade = MARK_SHADE if bits >> cell & 1 else -MARK_SHADE
+        _fill(canvas, Box(cell * width, HEIGHT - MARK_HEIGHT, width, MARK_HEIGHT), bytes(c + shade for c in BACKGROUND))
 
 
 def _letter(canvas: bytearray, x: int, y: int, char: str) -> None:

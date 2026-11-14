@@ -4,19 +4,19 @@ import XCTest
 
 /// Clicks through the Contrail tape the way a person does, then checks what the window shows.
 final class TapePlayerUITests: XCTestCase {
-    /// `examples/contrail/tape` in the checkout this file lives in.
+    /// `examples/contrail/tapes/terminal` in the checkout this file lives in.
     private static let tape = URL(filePath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
-        .appending(path: "examples/contrail/tape")
+        .appending(path: "examples/contrail/tapes/terminal")
 
     @MainActor
     func testBookingTheMorningFlightToSeattleLandsBackOnHome() throws {
         let (app, tape) = try launch()
         let image = app.images["tape"]
-        XCTAssertTrue(image.wait(for: \.label, toEqual: "home", timeout: 30), "the opening rests on home")
+        XCTAssertTrue(image.wait(for: \.label, toEqual: "home()", timeout: 30), "the opening rests on home()")
         press(app.buttons["Where to?"], "home offers its search bar")
         press(app.buttons["Seattle (SEA)"], "the search bar plays into search, which offers Seattle (SEA)")
         press(app.buttons["Saturday, December 12, $89"], "Seattle plays into its dates, which offer December 12")
@@ -32,7 +32,7 @@ final class TapePlayerUITests: XCTestCase {
             "Book for $89 plays into the booking"
         )
         press(app.buttons["Done"], "the booking offers Done")
-        XCTAssertTrue(image.wait(for: \.label, toEqual: "home", timeout: 30), "Done plays back into home")
+        XCTAssertTrue(image.wait(for: \.label, toEqual: "home()", timeout: 30), "Done plays back into home")
         XCTAssertTrue(app.buttons["Where to?"].waitForExistence(timeout: 5), "home offers its search bar again")
 
         let shot = image.screenshot()
@@ -47,7 +47,7 @@ final class TapePlayerUITests: XCTestCase {
         attachment.name = summary
         attachment.lifetime = .keepAlways
         add(attachment)
-        // The two key images themselves sit 10.45 apart on this grid.
+        // The two key images themselves sit about 10.5 apart on this grid.
         XCTAssertLessThan(home, 3, "the window shows the home key: \(summary)")
         XCTAssertGreaterThan(booked, home + 5, "the window is clearly not the booking's key: \(summary)")
     }
@@ -80,7 +80,7 @@ final class TapePlayerUITests: XCTestCase {
         let exists = FileManager.default.fileExists(atPath: Self.tape.appending(path: "tape.json").path(percentEncoded: false))
         let tape = try XCTUnwrap(
             exists ? Self.tape : nil,
-            "No tape.json in \(Self.tape.path(percentEncoded: false)). In examples/contrail, run: uv run videotape render"
+            "No tape.json in \(Self.tape.path(percentEncoded: false)). In examples/contrail, run: uv run videotape render --story terminal"
         )
         let app = XCUIApplication()
         app.launchArguments = [tape.path(percentEncoded: false)]

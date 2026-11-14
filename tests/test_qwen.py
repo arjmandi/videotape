@@ -62,7 +62,7 @@ def test_a_model_other_than_the_stand_in_is_checked_by_qwen_which_needs_its_extr
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))
     directory = copy_of("cafe", tmp_path)
-    assert cli(directory, "render", "--model", "wan3.0", "--out", "tape-wan3") == 1
+    assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
     assert capsys.readouterr() == ("", "error: qwen3-vl-8b checks this model's keys and needs videotape's qwen extra, "
                                        "which is not installed here; install videotape[qwen]\n")
     assert sent == [] and not (directory / "tape-wan3").exists()
@@ -71,8 +71,8 @@ def test_a_model_other_than_the_stand_in_is_checked_by_qwen_which_needs_its_extr
 def test_the_stand_in_is_checked_by_its_own_reader_and_needs_no_extra(tmp_path, cli, monkeypatch):
     monkeypatch.setitem(sys.modules, "torch", None)
     directory = copy_of("cafe", tmp_path)
-    cli(directory, "render", "--takes", "1")
-    assert '"checks": "stand-in"' in (directory / "tape" / "dailies.json").read_text()
+    cli(directory, "render", "--story", "chalk", "--takes", "1")
+    assert '"checks": "stand-in"' in (directory / "tapes" / "chalk" / "dailies.json").read_text()
 
 
 def iou(a: Box, b: Box) -> float:

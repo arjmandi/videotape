@@ -146,7 +146,7 @@ def trip(t: Trip):
 
 @app.scene
 def profile():
-    by_month = trips.where(lambda t: t.day < TODAY).group_by(lambda t: t.day.month)
+    by_month = trips.where(lambda t: t.day < TODAY and t.day.year == TODAY.year).group_by(lambda t: t.day.month)
     flown, miles = by_month.count(), by_month.sum("miles")
     running = accumulate(miles.get(month, 0) for month in range(1, 12))
     return [

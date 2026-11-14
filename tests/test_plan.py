@@ -76,7 +76,7 @@ def test_a_state_is_named_by_its_scene_and_its_arguments():
     def seat(row: int, letter: str = "A"):
         return []
 
-    assert home().name == "home"
+    assert home().name == "home()"
     assert results(SEA, date(2026, 12, 12)).name == "results(SEA, 2026-12-12)"
     assert flight(CT300).name == "flight(CT 300, 2026-12-12)"
     assert seat(14).name == "seat(14, A)"
@@ -99,11 +99,11 @@ def test_the_walk_is_breadth_first_from_the_first_scene():
 
     planned = plan(app)
     assert planned.scenes == ("hall", "room", "inside")
-    assert [key.state.name for key in planned.keys] == ["hall", "room(left)", "room(right)", "inside(left)", "inside(right)"]
+    assert [key.state.name for key in planned.keys] == ["hall()", "room(left)", "room(right)", "inside(left)", "inside(right)"]
     assert [(move.start.name, move.label, move.land.name) for move in planned.moves] == [
-        ("hall", "Left door", "room(left)"), ("hall", "Right door", "room(right)"),
-        ("room(left)", "Open", "inside(left)"), ("room(left)", "Back", "hall"),
-        ("room(right)", "Open", "inside(right)"), ("room(right)", "Back", "hall")]
+        ("hall()", "Left door", "room(left)"), ("hall()", "Right door", "room(right)"),
+        ("room(left)", "Open", "inside(left)"), ("room(left)", "Back", "hall()"),
+        ("room(right)", "Open", "inside(right)"), ("room(right)", "Back", "hall()")]
     assert [key.mode for key in planned.keys] == [Mode.TEXT_TO_VIDEO] * 5
     assert [move.mode for move in planned.moves] == [Mode.FIRST_AND_LAST_FRAME] * 6
     assert planned.shots == (*planned.keys, *planned.moves)
@@ -135,15 +135,15 @@ def test_an_action_is_found_by_its_words_and_pressed_by_its_hotspots_label():
     def actions(*elements: vt.Element) -> list[tuple[str, str, str]]:
         return [(action.label, action.words, action.to.name) for action in home_key(*elements).actions]
 
-    assert actions(vt.Button("Book for $89", there)) == [("Book for $89", "Book for $89", "there")]
-    assert actions(vt.SearchBar("Where to?", to=there)) == [("Where to?", "Where to?", "there")]
+    assert actions(vt.Button("Book for $89", there)) == [("Book for $89", "Book for $89", "there()")]
+    assert actions(vt.SearchBar("Where to?", to=there)) == [("Where to?", "Where to?", "there()")]
     assert actions(vt.SearchBar("Where to?", options=[vt.Option("Boston (BOS)", there)], no_match=a_state("lost"))) == [
-        ("Where to?", "Where to?", "lost"), ("Boston (BOS)", "Boston (BOS)", "there")]
-    assert actions(vt.DatePicker(days)) == [("Saturday, December 12, $89", "12", "there")]
-    assert actions(vt.DateStrip(days)) == [("Saturday, December 12, $89", "Sat 12", "there")]
+        ("Where to?", "Where to?", "lost()"), ("Boston (BOS)", "Boston (BOS)", "there()")]
+    assert actions(vt.DatePicker(days)) == [("Saturday, December 12, $89", "12", "there()")]
+    assert actions(vt.DateStrip(days)) == [("Saturday, December 12, $89", "Sat 12", "there()")]
     assert actions(vt.List([vt.Row("8:15 AM to 10:25 AM", "2h 10m, Nonstop", "$89", to=there)])) == [
-        ("8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89", "8:15 AM to 10:25 AM", "there")]
-    assert actions(vt.Tabs({"Trips": there})) == [("Trips", "Trips", "there")]
+        ("8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89", "8:15 AM to 10:25 AM", "there()")]
+    assert actions(vt.Tabs({"Trips": there})) == [("Trips", "Trips", "there()")]
 
 
 def test_what_leads_nowhere_is_no_action():
@@ -169,46 +169,46 @@ def test_an_action_that_leads_to_the_state_it_is_on_is_none_and_its_option_or_ta
     on_home, on_trips = plan(app).keys
     assert [action.label for action in on_home.actions] == ["Trips", "Saturday, December 12, $89"]
     assert on_home.lines == ("Home", "Trips", "Refresh", "Fri 11", "$99", "Sat 12", "$89")
-    assert 'A row of tabs reads "Home" (chosen) and "Trips".' in on_home.prompt
-    assert '"Fri 11" (chosen) with "$99"' in on_home.prompt
-    assert 'A button reads "Refresh".' in on_home.prompt
+    assert chosen(on_home) == ["Home", "Fri 11"]
     assert [action.label for action in on_trips.actions] == ["Home"]
-    assert 'A row of tabs reads "Home" and "Trips" (chosen).' in on_trips.prompt
+    assert chosen(on_trips) == ["Trips"]
 
 
-def test_a_keys_prompt_describes_its_elements_in_reading_order():
+def chosen(key) -> list[str]:
+    return [line.words for element in key.shown for line in element.lines if line.chosen]
+
+
+def test_a_key_holds_each_element_by_its_type_with_its_lines_in_rows_and_nothing_of_how_it_looks():
     there = a_state()
     key = home_key(vt.Heading("San Francisco to Seattle"),
-                   vt.DatePicker({date(2026, 12, 11): vt.Option("$99", there), date(2026, 12, 12): vt.Option("$89", there)}),
+                   vt.DateStrip({date(2026, 12, 11): vt.Option("$99", there), date(2026, 12, 12): vt.Option("$89", there)}),
                    vt.List([vt.Row("8:15 AM", "Nonstop", "$89"), vt.Row("5:40 PM")], title="Flights"),
-                   vt.SearchBar("Where to?", options=[vt.Option("Boston (BOS)", there), vt.Option("Seattle (SEA)", there)]),
-                   vt.LineChart("Miles flown", {"Jan": 679, "Feb": 1358}))
-    assert key.prompt == (
-        'The Demo app at rest, flat and head-on. A heading reads "San Francisco to Seattle". '
-        'A month calendar titled "December 2026" marks only the days "11" with "$99" and "12" with "$89". '
-        'A list titled "Flights" has 2 rows: "8:15 AM", "Nonstop", "$89"; "5:40 PM". '
-        'A search bar reads "Where to?", above the options "Boston (BOS)" and "Seattle (SEA)". '
-        'A line chart titled "Miles flown" has the points "Jan" at "679" and "Feb" at "1,358". '
-        'Sharp, legible lettering.')
+                   vt.List([]))
+    assert [(element.type, [[[line.words for line in cell] for cell in row] for row in element.rows])
+            for element in key.shown] == [
+        ("Heading", [[["San Francisco to Seattle"]]]),
+        ("DateStrip", [[["Fri 11", "$99"], ["Sat 12", "$89"]]]),
+        ("List", [[["Flights"]], [["8:15 AM"], ["Nonstop"], ["$89"]], [["5:40 PM"]]]),
+        ("List", []),
+    ]
+    assert not hasattr(key, "prompt")
 
 
-def test_every_contrail_key_quotes_each_of_its_lines_exactly_and_in_order():
-    for key in planned(CONTRAIL).keys:
-        assert re.findall(r'"([^"]*)"', key.prompt) == list(key.lines), key.state.name
-
-
-def test_a_moves_prompt_names_what_is_pressed_by_the_words_it_is_found_by():
+def test_a_move_holds_its_action_and_the_type_of_the_element_that_holds_it():
     there = a_state()
     moves = plan(one_scene(vt.Button("Book for $89", there), vt.Tabs({"Trips": a_state("trips")}),
                            vt.DatePicker({date(2026, 12, 12): vt.Option("$89", a_state("day"))}),
+                           vt.DateStrip({date(2026, 12, 13): vt.Option("$109", a_state("other"))}),
                            vt.List([vt.Row("8:15 AM", value="$89", to=a_state("flight"))]),
-                           vt.SearchBar("Where to?", to=a_state("search")))).moves
-    changes = "The app changes smoothly to what it shows next."
-    assert [move.prompt for move in moves] == [
-        f'The button "Book for $89" is pressed. {changes}', f'The tab "Trips" is pressed. {changes}',
-        f'The day "12" is pressed. {changes}', f'The row "8:15 AM" is pressed. {changes}',
-        f'The search bar "Where to?" is pressed. {changes}']
-    assert [move.title for move in moves][:2] == ['home -> there "Book for $89"', 'home -> trips "Trips"']
+                           vt.SearchBar("Where to?", options=[vt.Option("Seattle (SEA)", a_state("dates"))],
+                                        no_match=a_state("lost")))).moves
+    assert [(move.action.kind, move.action.words, move.element, move.land.name) for move in moves] == [
+        ("button", "Book for $89", "Button", "there()"), ("tab", "Trips", "Tabs", "trips()"),
+        ("day", "12", "DatePicker", "day()"), ("day", "Sun 13", "DateStrip", "other()"),
+        ("row", "8:15 AM", "List", "flight()"), ("search bar", "Where to?", "SearchBar", "lost()"),
+        ("option", "Seattle (SEA)", "SearchBar", "dates()")]
+    assert [move.title for move in moves][:2] == ['home() -> there() "Book for $89"', 'home() -> trips() "Trips"']
+    assert [move.label for move in moves][2:4] == ["Saturday, December 12, $89", "Sunday, December 13, $109"]
 
 
 def test_every_key_and_move_of_contrail_has_its_own_file_safe_name():
@@ -248,5 +248,5 @@ def test_a_line_that_is_hard_to_letter_is_a_vt211_warning_and_the_plan_goes_on(l
     planned = plan(one_scene(vt.Heading(line), vt.Text(line), vt.Text("Twelve words: it's $5 (50% off)! So? Yes, yes - indeed, 100%.")))
     assert len(planned.keys) == 1
     [warning] = planned.warnings
-    assert (warning.code, warning.place, warning.fix) == ("VT211", "home", fix)
+    assert (warning.code, warning.place, warning.fix) == ("VT211", "home()", fix)
     assert warning.message == f'the line "{line}" {wrong}'

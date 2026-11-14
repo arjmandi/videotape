@@ -27,6 +27,14 @@ struct LoadTests {
         #expect(try Fixture.tape("surf_shop/tape/tape.json") == Fixture.tape("surf_shop/tape"))
     }
 
+    /// The `hits` fixture carries the `made` block a render writes, which says what drew the tape and plays nothing.
+    @Test func readsATapeThatSaysWhatMadeIt() throws {
+        let tape = try Fixture.tape("hits")
+        #expect(tape.scenes.keys.sorted() == ["menu"])
+        #expect(tape.scenes["menu"]!.hotspots.map(\.label) == ["Back", "Front"])
+        #expect(tape.opening.lands == "menu")
+    }
+
     static let errors: [(String, String)] = [
         ("no-manifest", "No tape.json at \(path("errors/no-manifest/tape.json"))."),
         ("not-json", "\(path("errors/not-json/tape.json")) is not a tape: not valid JSON."),
