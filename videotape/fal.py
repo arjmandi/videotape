@@ -71,12 +71,20 @@ class Fal:
 
     def run(self, endpoint: str, arguments: dict) -> dict:
         """Submit one request, wait for it, and return fal's three answers: submitted, the last status, and the result."""
+        return self.wait(endpoint, self.submit(endpoint, arguments))
+
+    def submit(self, endpoint: str, arguments: dict) -> dict:
+        """Submit one request, once, and return fal's answer: the request id and where to poll and fetch it."""
         submitted = self._json(self._queue(f"{QUEUE}/{endpoint}", arguments), 1, f"submit to {endpoint}")
         try:
-            request_id, status_url, response_url = (submitted["request_id"], submitted["status_url"],
-                                                    submitted["response_url"])
+            submitted["request_id"], submitted["status_url"], submitted["response_url"]
         except (KeyError, TypeError):
             raise FalError(self._scrub(f"submit to {endpoint} answered without a request: {submitted}")) from None
+        return submitted
+
+    def wait(self, endpoint: str, submitted: dict) -> dict:
+        """Poll a submitted request until it is done, fetch its result, and return fal's three answers."""
+        request_id, status_url, response_url = submitted["request_id"], submitted["status_url"], submitted["response_url"]
         for _ in range(WAIT_SECONDS // POLL_SECONDS):
             status = self._json(self._queue(status_url), TRIES, f"status of {endpoint} request {request_id}")
             if status.get("status") == "COMPLETED":

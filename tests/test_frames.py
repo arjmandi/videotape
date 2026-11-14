@@ -3,7 +3,7 @@ import subprocess
 import pytest
 
 from videotape import frames
-from videotape.frames import HEIGHT, WIDTH, FfmpegError, Frame
+from videotape.frames import HEIGHT, WIDTH, DecodeError, FfmpegError, Frame
 
 
 def solid(red: int, green: int, blue: int) -> Frame:
@@ -38,3 +38,16 @@ def test_a_clip_of_another_size_decodes_at_its_own_size_and_rate(tmp_path):
     assert frames.shape(clip) == frames.Shape(1280, 720, 29.97)
     with pytest.raises(FfmpegError, match="cannot compare a 1280x720 frame with a 1280x704 one"):
         frames.difference(first, solid(0, 0, 0))
+
+
+def test_a_file_that_does_not_decode_is_a_decode_error_and_a_missing_ffmpeg_is_not(tmp_path, monkeypatch):
+    corrupt = tmp_path / "take.mp4"
+    corrupt.write_bytes(b"not a clip at all")
+    with pytest.raises(DecodeError):
+        frames.last_frame(corrupt)
+    with pytest.raises(DecodeError):
+        frames.first_frame(tmp_path / "missing.mp4")
+    monkeypatch.setenv("PATH", str(tmp_path))
+    with pytest.raises(FfmpegError, match="ffmpeg is not on PATH") as error:
+        frames.last_frame(corrupt)
+    assert not isinstance(error.value, DecodeError)

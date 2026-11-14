@@ -2,12 +2,14 @@
 kept key it starts on to the kept key it lands on. Its takes are only compared with the 5B's, never trained on."""
 
 import base64
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from videotape.fal import Fal, FalError, Price, Receipt
 from videotape.plan import Mode
+from videotape.publish import publish
 
 # fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-10: Wan30TextToVideoInput and
 # Wan30ImageToVideoInput, whose start_image_url is the "First frame of the generated video" and end_image_url the
@@ -77,9 +79,24 @@ class Wan3:
         return self._film(request(Mode.FIRST_AND_LAST_FRAME, prompt, seed, start, end), out)
 
     def _film(self, built: Wan3Request, out: Path) -> Receipt:
-        url, receipt = bill(self.fal.run(built.endpoint, built.arguments))
+        """One take, submitted once. fal's answer to the submit is recorded beside the take before the wait, so a
+        render that dies between submitting and downloading polls and downloads that request on resume instead of
+        paying for it again. The record holds the request id and its urls, never the key."""
+        record = request_record(out)
+        if record.exists():
+            submitted = json.loads(record.read_text())
+        else:
+            submitted = self.fal.submit(built.endpoint, built.arguments)
+            publish(record, lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
+        url, receipt = bill(self.fal.wait(built.endpoint, submitted))
         self.fal.download(url, out)
         return receipt
+
+
+def request_record(out: Path) -> Path:
+    """Where a take's submitted request is recorded: beside the take, under the take's name. A render films a take
+    into <name>.partial.mp4 and publishes it as <name>.mp4, so the record goes by the name before the first dot."""
+    return out.with_name(f"{out.name.partition('.')[0]}.request.json")
 
 
 def from_environment() -> Wan3:

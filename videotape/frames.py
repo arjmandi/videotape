@@ -15,6 +15,14 @@ class FfmpegError(RuntimeError):
     pass
 
 
+class NoTool(FfmpegError):
+    """ffmpeg or ffprobe is not on PATH."""
+
+
+class DecodeError(FfmpegError):
+    """A file that did not decode into one frame, which a take's file is when it is corrupt."""
+
+
 @dataclass(frozen=True)
 class Box:
     x: int
@@ -45,7 +53,7 @@ def _tool(tool: str, *args: str, feed: bytes | None = None) -> bytes:
     try:
         run = subprocess.run(command, capture_output=True, **stdin)
     except FileNotFoundError:
-        raise FfmpegError(f"{tool} is not on PATH") from None
+        raise NoTool(f"{tool} is not on PATH") from None
     if run.returncode != 0:
         raise FfmpegError(f"{' '.join(command)}\n{run.stderr.decode(errors='replace').strip()}")
     return run.stdout
@@ -69,11 +77,16 @@ def _raw(frame: Frame) -> tuple[str, ...]:
 
 def _decode(source: Path, *filters: str) -> Frame:
     # A PPM names its own size in its header, so one decode reads a frame of whatever size the clip has.
-    ppm = _ffmpeg("-i", str(source), *filters, "-frames:v", "1", "-f", "image2pipe", "-c:v", "ppm", "-")
+    try:
+        ppm = _ffmpeg("-i", str(source), *filters, "-frames:v", "1", "-f", "image2pipe", "-c:v", "ppm", "-")
+    except NoTool:
+        raise
+    except FfmpegError as error:
+        raise DecodeError(str(error)) from None
     header = re.match(rb"P6\s(\d+)\s(\d+)\s255\s", ppm)
     width, height = (int(header[1]), int(header[2])) if header else (0, 0)
     if not header or len(ppm) != header.end() + width * height * 3:
-        raise FfmpegError(f"{source} did not decode to one rgb24 frame")
+        raise DecodeError(f"{source} did not decode to one rgb24 frame")
     return Frame(width, height, ppm[header.end():])
 
 

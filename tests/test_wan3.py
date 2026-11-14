@@ -1,6 +1,8 @@
 import base64
+import io
 import json
 import subprocess
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -90,8 +92,13 @@ def test_a_response_without_a_video_is_an_error():
         wan3.bill({**response, "result": {"detail": "the safety checker flagged the output"}})
 
 
+def http(code: int, body: str = "") -> urllib.error.HTTPError:
+    return urllib.error.HTTPError("https://queue.fal.run/x", code, "error", {}, io.BytesIO(body.encode()))
+
+
 class Hosted:
-    """fal's queue for a whole render: each submit gets its own request id and a solid 1280x720 clip of its own colour."""
+    """fal's queue for a whole render: each submit gets its own request id and a solid 1280x720 clip of its own colour.
+    A url in broken answers HTTP 400 once, which fal's client does not retry."""
 
     def __init__(self, scratch: Path):
         self.scratch = scratch
@@ -99,9 +106,13 @@ class Hosted:
         self.posts: list[tuple[str, dict]] = []
         self.served: set[bytes] = set()
         self.seen: list[urllib.request.Request] = []
+        self.broken: set[str] = set()
 
     def __call__(self, request: urllib.request.Request) -> bytes:
         self.seen.append(request)
+        if request.full_url in self.broken:
+            self.broken.remove(request.full_url)
+            raise http(400, "a hiccup at the gateway")
         if request.get_method() != "POST":
             return self.answers[request.full_url]
         mode = request.full_url.rsplit("/", 1)[1]
@@ -116,6 +127,29 @@ class Hosted:
         self.served.add(self.answers[video])
         return json.dumps({**response["submitted"], "request_id": f"request-{number}", "status_url": f"{queue}/status",
                            "response_url": queue}).encode()
+
+
+def test_a_take_is_submitted_once_even_when_the_render_dies_between_submitting_and_downloading(tmp_path):
+    fal = Hosted(tmp_path)
+    status = "https://queue.fal.run/alibaba/wan-3.0/requests/request-0/status"
+    fal.broken.add(status)
+    model = wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None))
+    (tmp_path / "takes").mkdir()
+    out = tmp_path / "takes" / "abc123.partial.mp4"
+    with pytest.raises(FalError, match="status of alibaba/wan-3.0/text-to-video request request-0 failed with HTTP 400"):
+        model.text_to_video("a prompt", 1, out)
+    record = tmp_path / "takes" / "abc123.request.json"
+    assert json.loads(record.read_text())["request_id"] == "request-0"
+    assert json.loads(record.read_text())["status_url"] == status
+    assert KEY not in record.read_text()
+    assert not out.exists() and len(fal.posts) == 1
+    receipt = model.text_to_video("a prompt", 1, out)
+    assert len(fal.posts) == 1
+    assert [url for url, in ((r.full_url,) for r in fal.seen)][1:] == [
+        status, status, "https://queue.fal.run/alibaba/wan-3.0/requests/request-0",
+        "https://v3b.fal.media/files/test/request-0.mp4"]
+    assert (receipt.request_id, out.read_bytes()) == ("request-0", fal.answers["https://v3b.fal.media/files/test/request-0.mp4"])
+    assert record.exists()
 
 
 @pytest.fixture

@@ -69,9 +69,14 @@ def in_its_story(code: str) -> tuple[str, ...]:
     return ("--story", "neon") if code >= "VT300" else ()
 
 
-def test_a_fixture_triggers_every_code():
-    assert sorted(path.name.upper() for path in (FIXTURES / "errors").iterdir()) == sorted(CODES)
-    assert sorted([*ERRORS, *WARNINGS]) == sorted(CODES)
+PLANNED = sorted(code for code in CODES if code < "VT400")
+"""The codes a plan can raise, each with a fixture. The render's and the checks' codes need a model and are covered
+by the render tests."""
+
+
+def test_a_fixture_triggers_every_code_the_plan_can_raise():
+    assert sorted(path.name.upper() for path in (FIXTURES / "errors").iterdir()) == PLANNED
+    assert sorted([*ERRORS, *WARNINGS]) == PLANNED
 
 
 @pytest.mark.parametrize("code", sorted(ERRORS))
@@ -142,7 +147,8 @@ def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framewo
         assert title == f"{code}: {entry.title}"
         assert len(long.split()) > 15
         assert example.startswith("Example:\n    ") and len(example.splitlines()) > 1
-        assert "\n\nFix:\n    " in f"\n\n{fix}" and len(fix.splitlines()) > 1
+        what = "Next" if code >= "VT400" else "Fix"
+        assert f"\n\n{what}:\n    " in f"\n\n{fix}" and len(fix.splitlines()) > 1
 
 
 def test_explain_rejects_a_code_that_does_not_exist(tmp_path):
