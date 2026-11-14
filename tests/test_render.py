@@ -747,26 +747,17 @@ def test_a_corrupt_take_is_vt403_its_seed_is_skipped_from_then_on_and_the_shot_g
     assert dailies.read(directory / TAPE)["corrupt"] == record["corrupt"]
 
 
-def test_a_corrupt_paid_take_is_downloaded_again_and_counted_once(tmp_path):
+def test_a_corrupt_take_from_a_model_with_nothing_to_download_again_is_vt403_and_not_filmed_again(tmp_path):
     directory = copy_of("cafe", tmp_path)
+    # Filmed again, each garbled take would heal. It is not: its seed is skipped and paid for once, like every other.
     model = GarbledBilled({1}, heal=True, flaw=clean)
-    result = rendered(directory, model, takes=1)
-    assert [filmed.kept.seed for filmed in result.shots] == [1] * 11
-    assert [filmed.reported for filmed in result.shots] == [()] * 11
-    assert len(model.garbled) == 11 and len(model.calls) == 22
-    book = ledger.of(directory, directory / TAPE)
-    assert [line["seed"] for line in book.lines()] == [1] * 11
-    assert book.totals()["usd"] == 5.54
-
-
-def test_a_paid_take_still_corrupt_after_a_second_download_is_vt403(tmp_path):
-    directory = copy_of("cafe", tmp_path)
-    model = GarbledBilled({1}, heal=False, flaw=clean)
     result = rendered(directory, model, takes=2)
     assert [filmed.kept.seed for filmed in result.shots] == [2] * 11
     assert [error.code for filmed in result.shots for error in filmed.reported] == ["VT403"] * 11
-    assert result.keys[0].reported[0].message.startswith("downloaded again, and still: ")
     assert dailies.read(directory / TAPE)["corrupt"]["key menu()"] == [1]
+    book = ledger.of(directory, directory / TAPE)
+    assert [line["seed"] for line in book.lines()].count(1) == 11 and len(book.lines()) == 22
+    assert next(model.requests) == 22
 
 
 def test_every_take_corrupt_stops_the_render_with_vt403(tmp_path):

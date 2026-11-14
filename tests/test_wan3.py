@@ -1,7 +1,9 @@
 import base64
 import io
 import json
+import re
 import subprocess
+import threading
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -9,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from conftest import FIXTURES, copy_of, planned, told, words
-from videotape import ledger, wan3
+from videotape import dailies, ledger, wan3
 from videotape.fal import Fal, FalError, Receipt
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
@@ -98,7 +100,8 @@ def http(code: int, body: str = "") -> urllib.error.HTTPError:
 
 class Hosted:
     """fal's queue for a whole render: each submit gets its own request id and a solid 1280x720 clip of its own colour.
-    A url in broken answers HTTP 400 once, which fal's client does not retry."""
+    A url in broken answers HTTP 400 once, which fal's client does not retry. One request is answered at a time, so
+    two workers never number their submits alike."""
 
     def __init__(self, scratch: Path):
         self.scratch = scratch
@@ -107,8 +110,13 @@ class Hosted:
         self.served: set[bytes] = set()
         self.seen: list[urllib.request.Request] = []
         self.broken: set[str] = set()
+        self.lock = threading.Lock()
 
     def __call__(self, request: urllib.request.Request) -> bytes:
+        with self.lock:
+            return self._answer(request)
+
+    def _answer(self, request: urllib.request.Request) -> bytes:
         self.seen.append(request)
         if request.full_url in self.broken:
             self.broken.remove(request.full_url)
@@ -163,7 +171,11 @@ def hosted(tmp_path, monkeypatch):
     return directory, fal
 
 
-RENDER = ("render", "--story", "chalk", "--model", "wan3.0", "--takes", "1", "--out", "tape-wan3", "--cap-usd", "20")
+def render_args(takes: int = 1, cap: str = "20") -> tuple[str, ...]:
+    return ("render", "--story", "chalk", "--model", "wan3.0", "--takes", str(takes), "--out", "tape-wan3", "--cap-usd", cap)
+
+
+RENDER = render_args()
 
 
 def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys(hosted, cli, capsys):
@@ -218,6 +230,64 @@ def test_a_cached_wan3_render_calls_fal_for_nothing(hosted, cli, capsys):
     cli(directory, *RENDER)
     assert len(fal.seen) == posts
     assert book.lines() == lines
+
+
+def a_take(directory: Path) -> tuple[Path, dict, str]:
+    """One filmed take of a move of the wan3 tape: its clip, its sidecar, and the title of its shot from the ledger.
+    A move, since nothing is pinned to a move, so another kept take of it renders nothing else again."""
+    sidecars = {clip: json.loads(clip.with_suffix(".json").read_text())
+                for clip in sorted((directory / "tape-wan3" / "takes").glob("*.mp4"))}
+    shots = {line["request_id"]: line["shot"] for line in ledger.of(directory, directory / "tape-wan3").lines()}
+    clip, sidecar = next((clip, sidecar) for clip, sidecar in sidecars.items() if " -> " in shots[sidecar["request_id"]])
+    return clip, sidecar, shots[sidecar["request_id"]]
+
+
+def video_of(sidecar: dict) -> str:
+    return f"https://v3b.fal.media/files/test/{sidecar['request_id']}.mp4"
+
+
+def test_a_corrupt_take_is_downloaded_again_from_its_record_and_counted_once(hosted, cli, capsys):
+    directory, fal = hosted
+    cli(directory, *RENDER)
+    clip, sidecar, shot = a_take(directory)
+    clip.write_bytes(b"not a clip")
+    capsys.readouterr()
+    assert cli(directory, *RENDER) == 1
+    assert "VT403" not in capsys.readouterr().err
+    assert clip.read_bytes() == fal.answers[video_of(sidecar)]
+    book = ledger.of(directory, directory / "tape-wan3")
+    assert len(fal.posts) == len(book.lines()) == 11 and book.totals()["usd"] == 5.5
+
+
+def test_a_take_still_corrupt_after_a_download_is_vt403_and_its_seed_is_skipped(hosted, cli, capsys):
+    directory, fal = hosted
+    cli(directory, *RENDER)
+    clip, sidecar, shot = a_take(directory)
+    clip.write_bytes(b"not a clip")
+    fal.answers[video_of(sidecar)] = b"still not a clip"
+    capsys.readouterr()
+    assert cli(directory, *render_args(takes=2)) == 1
+    err = capsys.readouterr().err
+    assert f"error VT403 {shot} take 1: downloaded again, and still: " in err
+    assert "next: nothing; seed 1 is skipped from now on" in err
+    assert dailies.read(directory / "tape-wan3")["corrupt"] == {shot: [1]}
+    # Every shot fails its checks on these solid clips, so each films seed 2, and the corrupt seed is not filmed again.
+    assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 22
+
+
+def test_a_corrupt_take_whose_record_is_gone_is_vt403_and_never_submitted_again(hosted, cli, capsys):
+    directory, fal = hosted
+    cli(directory, *RENDER)
+    clip, sidecar, shot = a_take(directory)
+    clip.write_bytes(b"not a clip")
+    wan3.request_record(clip).unlink()
+    capsys.readouterr()
+    assert cli(directory, *render_args(takes=2)) == 1
+    err = capsys.readouterr().err
+    assert re.search(rf"error VT403 {re.escape(shot)} take 1: tape-wan3/takes/[0-9a-f]{{64}}\.mp4 did not decode to one frame: ", err)
+    assert "next: nothing; seed 1 is skipped from now on" in err
+    assert dailies.read(directory / "tape-wan3")["corrupt"] == {shot: [1]}
+    assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 22
 
 
 @pytest.mark.parametrize("old, new, calls", [
