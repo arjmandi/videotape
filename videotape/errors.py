@@ -148,12 +148,12 @@ CODES: dict[str, Code] = {
         'look = "A quiet airport terminal at first light."',
     ),
     "VT307": Code(
-        "a prompt is longer than the model reads",
-        "A warning. A model reads a prompt up to a limit and drops the rest without saying so, and a key's prompt "
-        "ends with the elements at the bottom of its state. Wan 2.2 reads 512 tokens. The plan has no tokenizer, so "
-        "it counts high: one token for every four letters of a word, one for every other character that is not a "
-        "space, and one for the end. Wan 3.0 on fal takes 20,000 characters. The stand-in has no limit. The plan goes "
-        "on.",
+        "a prompt is longer than the model takes",
+        "A warning. A model takes a prompt up to a limit. Wan 2.2 reads 512 tokens and drops the rest without saying "
+        "so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it would "
+        "never draw. The plan has no tokenizer, so it counts high: one token for every four letters of a word, one "
+        "for every other character that is not a space, and one for the end. Wan 3.0 on fal takes 20,000 characters. "
+        "The stand-in has no limit. The plan goes on.",
         'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
         "Shorten the look, the scene's direction or the appearances in the story, or show fewer lines in the state.",
     ),

@@ -1,16 +1,18 @@
 ---
 name: verify
-description: Drive the videotape CLI in an app's project (`videotape plan`, `videotape explain <code>`, `videotape render [--model <name>] [--takes N] [--out <tape>]` and `videotape dailies`) the way an app developer does, and build and test the TapePlayer macOS app that plays a rendered tape. Capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, a screenplay or its data under examples/, scripts/, or clients/macos/, before claiming the plan, the error codes, the rendered tape and dailies, the checks, the Wan renders, the reader test, or TapePlayer behave.
+description: Drive the videotape CLI in an app's project (`videotape plan [--story <name>]`, `videotape shots --story <name> [--state <state>]`, `videotape explain <code>`, `videotape render --story <name> [--model <name>] [--takes N] [--out <tape>]`, `videotape dailies --story <name>` and `videotape diff <tape> <tape>`) the way an app developer does, and build and test the TapePlayer macOS app that plays a rendered tape. Capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, a screenplay, its data or its stories under examples/, scripts/, or clients/macos/, before claiming the plan, the prompts and their sources, the error codes, the rendered tape and dailies, what made a tape, the checks, the Wan renders, the reader test, or TapePlayer behave.
 ---
 
 # Verify videotape
 
-videotape lets a developer write an app as a screenplay: typed records, scenes that are functions of their arguments, and a closed set of elements. An app lives in a project, the folder whose `pyproject.toml` names the screenplay in `[tool.videotape]`. Every command runs inside the project and finds it from the working directory upward, so no command takes a folder.
+videotape lets a developer write an app as a screenplay: typed records, scenes that are functions of their arguments, and a closed set of elements. The screenplay holds the app's words and nothing of its looks. A story holds the looks: one TOML file under `stories/` in the project, named by its file. An app lives in a project, the folder whose `pyproject.toml` names the screenplay in `[tool.videotape]`. Every command but `diff` runs inside the project and finds it from the working directory upward, so no command takes a folder.
 
-- `videotape plan` walks every state the app can reach and prints each scene's states and moves.
-- `videotape explain <code>` prints the long form of an error code, `VT201` to `VT211`.
-- `videotape render` draws a key for each state and a move for each action into `tape/` in the project, with the model that `[tool.videotape]` names, and writes `dailies.html` there for review. `--model` names another model, `--takes N` sets the takes per shot, and `--out <tape>` writes another tape.
-- `videotape dailies` rewrites a tape's dailies page from its record and the project's `ledger.jsonl`.
+- `videotape plan` walks every state the app can reach and prints each scene's states and moves. `--story <name>` also checks that story, and `--model <name>` checks its prompts against that model's limit.
+- `videotape shots --story <name>` prints every shot's prompt, one clause to a line with the clause's source beside it. `--state <state>` prints one state's key and the moves that leave it.
+- `videotape explain <code>` prints the long form of an error code, `VT201` to `VT211` for a screenplay and its data, and `VT301` to `VT307` for a story. There is no `VT305`.
+- `videotape render --story <name>` draws a key for each state and a move for each action into `tapes/<name>/` in the project, with the model that `[tool.videotape]` names, and writes `dailies.html` there for review. `--model` names another model, `--takes N` sets the takes per shot, and `--out <tape>` writes another tape. `tape.json` carries a `made` block that says which code, data, story, model and engine made the tape.
+- `videotape dailies --story <name>` rewrites a tape's dailies page from its record and the project's `ledger.jsonl`. `--out <tape>` names a tape that `render --out` wrote.
+- `videotape diff <tape> <tape>` says whether two tapes are of the same app and the same story, and how many states and moves they share.
 
 The stand-in model needs no GPU, and its own reader checks its keys. `--model wan2.2-5b` renders with Wan 2.2 and needs a CUDA GPU, which `scripts/runpod-render` rents on Runpod; see [features/gpu-render.md](features/gpu-render.md). `--model wan3.0` renders with Wan 3.0 on fal, which bills per call and needs `FAL_KEY`; see [features/wan3-render.md](features/wan3-render.md). Qwen3-VL-8B checks the keys of both. `scripts/reader-test` asks Claude what Contrail does from its screenplay alone; see [features/reader-test.md](features/reader-test.md). There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
 
@@ -46,8 +48,10 @@ Pick a run directory once per verification session and reuse it for every drive:
 
 ```bash
 RUN=.verify/runs/$(date -u +%Y%m%dT%H%M%SZ)
-.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- plan
-.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- render
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- plan --story <story>
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- shots --story <story>
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- render --story <story>
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- diff tapes/<story> tapes/<other-story>
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> . -- explain VT208
 ```
 
@@ -64,14 +68,14 @@ It prints a one-line summary. Read the files to assert; the summary is not proof
 `exec` captures any other command the same way, and `-C <dir>` runs it in a folder. Use it for the README's own commands, which go through `uv run` in the example:
 
 ```bash
-.claude/skills/verify/scripts/vt-verify exec "$RUN" <name> -C examples/contrail -- uv run videotape plan
+.claude/skills/verify/scripts/vt-verify exec "$RUN" <name> -C examples/contrail -- uv run videotape plan --story terminal
 ```
 
 TapePlayer drives use the same `$RUN`:
 
 ```bash
 .claude/skills/verify/scripts/vt-verify player-build "$RUN"
-.claude/skills/verify/scripts/vt-verify player-press "$RUN" examples/contrail/tape "Where to?" "Seattle (SEA)"
+.claude/skills/verify/scripts/vt-verify player-press "$RUN" examples/contrail/tapes/terminal "Where to?" "Seattle (SEA)"
 .claude/skills/verify/scripts/vt-verify player-test "$RUN"
 .claude/skills/verify/scripts/vt-verify player-cuts "$RUN"
 ```
@@ -80,10 +84,10 @@ Each writes `player-build.*`, `player-press.*`, `player-test.*` or `player-cuts.
 
 Projects to drive:
 
-- `examples/contrail` is the shipped example, a flight booking app with 58 states. Its expected output is in [features/plan.md](features/plan.md).
-- `tests/fixtures/cafe` is a small app with 5 states, for the render journeys that need a copy or an edit.
-- `tests/fixtures/errors/vt201` to `vt211` hold one project per error code. Do not edit a fixture to make a journey pass.
-- For a new case, write a project into a fresh directory `"${TMPDIR:-/tmp}"/videotape-verify-<name>`, drive it, and delete that directory in cleanup. A project is a `pyproject.toml` with `[tool.videotape] screenplay = "app:app"` beside an `app.py`. `run` keeps a copy of its files with the evidence.
+- `examples/contrail` is the shipped example, a flight booking app with 58 states and two stories, `terminal` and `posters`. Its expected output is in [features/plan.md](features/plan.md) and [features/stories.md](features/stories.md).
+- `tests/fixtures/cafe` is a small app with 5 states and one story, `chalk`, for the render journeys that need a copy or an edit.
+- `tests/fixtures/errors/vt201` to `vt211` and `vt301` to `vt307` hold one project per error code. Each `vt3xx` project has one story, `neon`. Do not edit a fixture to make a journey pass.
+- For a new case, write a project into a fresh directory `"${TMPDIR:-/tmp}"/videotape-verify-<name>`, drive it, and delete that directory in cleanup. A project is a `pyproject.toml` with `[tool.videotape] screenplay = "app:app"` beside an `app.py`, and a render also needs a story, such as `stories/bare.toml` with a `version` and a `look`. `run` keeps a copy of its files with the evidence.
 
 Keep `$RUN` from the `date` line above. Don't rebuild it from `ls` output: on this machine `ls` is aliased to a tool that prefixes icons, and the evidence lands in a stray, un-ignored directory.
 
@@ -95,7 +99,7 @@ Read [features/README.md](features/README.md) before driving, then follow the fe
 
 Proof lives in `$RUN` (`.verify/runs/<timestamp>/`, gitignored) and survives cleanup. A proof:
 
-- drives the real command a developer types, `videotape plan` or `videotape render` in the project, through `vt-verify run`, never by importing `plan`, `render` or an eye in a Python snippet;
+- drives the real command a developer types, such as `videotape plan --story terminal` or `videotape render --story terminal` in the project, through `vt-verify run`, never by importing `plan`, `render`, a story or an eye in a Python snippet;
 - quotes the asserted lines from `<name>.stdout` or `<name>.stderr` together with `<name>.exit`;
 - for a project you wrote, includes its `<name>.project/` copy so the reader sees the input;
 - names the `info build` line from doctor.
@@ -108,7 +112,7 @@ Proof lives in `$RUN` (`.verify/runs/<timestamp>/`, gitignored) and survives cle
 find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'videotape-verify-*' -exec rm -rf {} +
 ```
 
-This removes only scratch projects, so name yours `"${TMPDIR:-/tmp}"/videotape-verify-<something>`. Use `find`, not a bare glob, because zsh errors on a glob with no match. Never delete `.verify/runs/`, fixtures, or `examples/`. The one exception is a stand-in tape: `examples/contrail/tape` and the project's `ledger.jsonl` are generated and gitignored, and the first-render journey removes both on purpose when the ledger names no Wan take. A tape whose ledger lines name a Wan model cost money. Never delete it, its lines in `ledger.jsonl`, or its `takes/`, and never render it again. There are no processes to stop.
+This removes only scratch projects, so name yours `"${TMPDIR:-/tmp}"/videotape-verify-<something>`. Use `find`, not a bare glob, because zsh errors on a glob with no match. Never delete `.verify/runs/`, fixtures, or `examples/`. The one exception is a stand-in tape: `examples/contrail/tapes/` and the project's `ledger.jsonl` are generated and gitignored, and the first-render journey removes both on purpose when the ledger names no Wan take. A tape whose ledger lines name a Wan model cost money. Never delete it, its lines in `ledger.jsonl`, or its `takes/`, and never render it again. There are no processes to stop.
 
 ## Helpers
 

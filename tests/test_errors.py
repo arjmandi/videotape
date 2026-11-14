@@ -50,7 +50,7 @@ WARNINGS = {
                "shorten it to 12 words or fewer")],
     "VT304": [("stories/neon.toml", "the scene detail has no direction, so its keys get only the look",
                'add detail = "..." under [scenes]')],
-    "VT307": [("key home()", "the prompt is about 778 tokens long, and wan2.2-5b reads only the first 512",
+    "VT307": [("key home()", "the prompt is about 778 tokens long, and wan2.2-5b takes no more than 512",
                "shorten the look, the scene's direction or the appearances in stories/neon.toml, or show fewer lines "
                "in this state")],
 }

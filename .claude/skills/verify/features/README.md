@@ -1,6 +1,6 @@
 # videotape verification map
 
-This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes a screenplay and its data in a project, runs `videotape plan` there to walk the app's states, and runs `videotape render` to draw them into a tape. TapePlayer's user is the person who then clicks through that tape on a Mac. Read this index before driving, then use the matching feature file as the recipe.
+This directory is the maintained source for verifying what a videotape user can observe. The user is an app developer who writes a screenplay and its data in a project, and the app's looks as stories under `stories/`. They run `videotape plan` there to walk the app's states, `videotape shots --story <name>` to read the prompts, and `videotape render --story <name>` to draw the app in that story into a tape. TapePlayer's user is the person who then clicks through that tape on a Mac. Read this index before driving, then use the matching feature file as the recipe.
 
 ## Baseline preconditions
 
@@ -39,10 +39,11 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 
 ## Features
 
-- [Plan](./plan.md) covers `videotape plan` on Contrail: its 11 scenes, 58 states and 102 moves, the same output through `uv run` and from a subfolder, the strict type check of the example, the cafe fixture, and a warning.
-- [Errors](./errors.md) covers each logical error the plan rejects, `VT201` to `VT210`, with its code, place and fix, the `VT211` warning, `videotape explain`, and a folder that is not a project.
-- [Render](./render.md) covers rendering Contrail with the stand-in: the first render of 58 keys then 102 moves, the cached rerun, the files in `tape/`, the ledger in the project, and the dailies page. The cafe fixture covers the cascade after an edit, one take per shot, another tape with `--out`, and an unknown model.
-- [Player](./player.md) covers the TapePlayer macOS app: building it, booking a flight through the Contrail tape with and without a window, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
-- [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render`, run inside the project: the dry run, the refusals, the local `--model wan2.2-5b` errors, the paid runs behind the user's cap, `--out`, and the ledger.
+- [Plan](./plan.md) covers `videotape plan` on Contrail: its 11 scenes, 58 states and 102 moves, the same with `--story`, through `uv run` and from a subfolder, the strict type check of the example, the cafe fixture, and a warning.
+- [Stories](./stories.md) covers an app's looks: the story file, `videotape shots` and the source of every clause of a prompt, `--state`, a story or a state the project does not have, the `made` block and label in `tape.json`, `videotape diff`, and what a change to a story or the data renders again.
+- [Errors](./errors.md) covers each logical error the plan rejects, `VT201` to `VT210` in a screenplay or its data and `VT301` to `VT306` in a story, with its code, place and fix, the warnings `VT211`, `VT304` and `VT307`, `videotape explain`, and a folder that is not a project.
+- [Render](./render.md) covers rendering Contrail in a story with the stand-in: the first render of 58 keys then 102 moves, the cached rerun, the files in `tapes/<story>/`, the ledger in the project, and the dailies page. The cafe fixture covers the cascade after an edit, one take per shot, another tape with `--out`, and an unknown model.
+- [Player](./player.md) covers the TapePlayer macOS app: building it, booking a flight through each Contrail tape with and without a window, cuts between clips, hotspots, Start Over, File > Open, a bad tape, and the window's shape.
+- [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render --story <name>`, run inside the project: the dry run, the refusals, the local `--model wan2.2-5b` errors, the paid runs behind the user's cap, `--out`, and the ledger.
 - [Wan 3.0 render](./wan3-render.md) covers rendering with Wan 3.0 on fal into another tape of the project: the missing-key error, the requests and answers the tests prove, the paid run behind the user's cap, the price line, the cached rerun, and the ledger.
 - [Reader test](./reader-test.md) covers `scripts/reader-test`: the missing-key error, the requests and answers the tests prove, and the paid run behind the user's cap.

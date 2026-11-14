@@ -198,7 +198,7 @@ def check(story: Story, plan: Plan, limit: PromptLimit | None) -> tuple[Screenpl
     if limit:
         lengths = {shot: limit.count(text(prompt(shot, story))) for shot in plan.shots}
         warnings += [ScreenplayError("VT307", shot.title, f"the prompt is {limit.says.format(length)} long, and "
-                                     f"{limit.model} reads only the first {limit.most:,}",
+                                     f"{limit.model} takes no more than {limit.most:,}",
                                      f"shorten the look, the scene's direction or the appearances in {place}, or show "
                                      "fewer lines in this state")
                      for shot, length in lengths.items() if length > limit.most]

@@ -30,7 +30,7 @@ class Model(Protocol):
 
 @dataclass(frozen=True)
 class PromptLimit:
-    """The longest prompt a model reads, in the unit it counts in, and how a count in that unit reads in a warning."""
+    """The longest prompt a model takes, in the unit it counts in, and how a count in that unit reads in a warning."""
 
     model: str
     most: int
