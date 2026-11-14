@@ -393,23 +393,26 @@ class Refusing(Hosted):
 def test_a_recorded_request_that_fails_for_good_names_its_record_and_deleting_it_submits_a_new_paid_take(
         tmp_path, monkeypatch, cli, capsys):
     directory, fal = hosted_by(Refusing, tmp_path, monkeypatch)
-    menu = SHOTS["key menu()"]
+    # Two keys are submitted at once, and whichever posts first is request 0.
+    refused = None
     for attempt in range(2):
         assert cli(directory, *RENDER) == 1
         err = capsys.readouterr().err.splitlines()
-        assert err[0].startswith("error VT401 key menu() take 1: ")
-        assert err[0].endswith('request request-0 failed with HTTP 422: {"detail": "content policy"}')
+        failed = re.fullmatch(r"error VT401 (key .+) take 1: result of alibaba/wan-3.0/text-to-video request request-0 "
+                              r'failed with HTTP 422: {"detail": "content policy"}', err[0])
+        assert failed and refused in (None, failed[1])
+        refused = failed[1]
         assert err[1:3] == ["next: run the render again, which resumes; this request is polled, not submitted again:",
                             "videotape render --story chalk --model wan3.0 --takes 1 --out tape-wan3 --cap-usd 20.00"]
         named = re.fullmatch(r"or delete (tape-wan3/takes/[0-9a-f]{64}\.request\.json) first, and the render submits a "
                              r"new, paid take", err[3])
         assert named and json.loads((directory / named[1]).read_text())["request_id"] == "request-0"
-        assert [arguments["prompt"] for _, arguments in fal.posts].count(menu) == 1
+        assert [arguments["prompt"] for _, arguments in fal.posts].count(SHOTS[refused]) == 1
     (directory / named[1]).unlink()
     assert cli(directory, *RENDER) == 1
     err = capsys.readouterr().err
     assert "VT401" not in err and (directory / "tape-wan3" / "tape.json").exists()
-    assert [arguments["prompt"] for _, arguments in fal.posts].count(menu) == 2
+    assert [arguments["prompt"] for _, arguments in fal.posts].count(SHOTS[refused]) == 2
     assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) + 1
 
 
