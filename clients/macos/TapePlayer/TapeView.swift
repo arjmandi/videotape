@@ -2,7 +2,7 @@ import AppKit
 import TapeKit
 
 /// The whole window: the tape's frames and nothing else. While a scene rests, its hotspots take clicks, show a
-/// pointing hand, and appear to accessibility as buttons.
+/// pointing hand, and appear to accessibility as buttons. A search bar takes typed text through the platform's sheet.
 @MainActor
 final class TapeView: NSView {
     private var player: Player
@@ -53,10 +53,39 @@ final class TapeView: NSView {
     private func pressed(_ outcome: Pressed) -> Bool {
         switch outcome {
         case .move: render()
-        case .bar: break
+        case .bar: ask(text: "")
         case .nothing: return false
         }
         return true
+    }
+
+    /// A printable key on a scene with a search bar opens the sheet with that key in the field.
+    override func keyDown(with event: NSEvent) {
+        guard player.scene?.search != nil, let text = event.characters, !text.isEmpty,
+              event.modifierFlags.isDisjoint(with: [.command, .control]), text.unicodeScalars.allSatisfy(\.isPrintable) else {
+            return super.keyDown(with: event)
+        }
+        ask(text: text)
+    }
+
+    /// The platform's text sheet: the bar's placeholder over one text field. Return types the field into the bar, and
+    /// Escape closes the sheet and stays.
+    private func ask(text: String) {
+        guard let window, let search = player.scene?.search else { return }
+        let alert = NSAlert()
+        alert.messageText = search.bar
+        alert.addButton(withTitle: "Search")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(string: text)
+        field.frame = NSRect(x: 0, y: 0, width: 240, height: 24)
+        alert.accessoryView = field
+        alert.beginSheetModal(for: window) { [weak self] response in
+            guard response == .alertFirstButtonReturn, let self, player.type(field.stringValue) else { return }
+            render()
+        }
+        // The field selects all its text on focus, so the next typed key would replace the first.
+        alert.window.makeFirstResponder(field)
+        field.currentEditor()?.selectedRange = NSRange(location: (text as NSString).length, length: 0)
     }
 
     private func render() {
@@ -155,4 +184,9 @@ private final class HotspotButton: NSAccessibilityElement {
         let label = hotspot.label
         return MainActor.assumeIsolated { view.press(label) }
     }
+}
+
+private extension Unicode.Scalar {
+    /// A character a person types into a field, as opposed to a control, function or arrow key.
+    var isPrintable: Bool { ![.control, .privateUse, .format].contains(properties.generalCategory) }
 }
