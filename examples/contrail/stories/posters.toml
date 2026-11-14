@@ -1,0 +1,36 @@
+# Contrail as a long wall of screen-printed travel posters in a 1960s airline office.
+version = "1.0.0"
+
+look = """
+A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat
+shapes, a few bold colors (teal, coral, mustard, and cream), paper grain, and bold geometric
+sans-serif letters. The camera faces the wall straight on.
+"""
+
+[scenes]
+home = "A poster of a plane over the Golden Gate Bridge."
+search = "A poster of a map with routes fanning out from San Francisco."
+not_found = "A poster of a question mark drawn in clouds."
+no_flights = "A poster of an empty runway at dusk."
+dates = "A poster of a big printed December calendar."
+results = "A poster of a printed timetable under a city skyline."
+flight = "A poster of the plane above the clouds."
+booked = "A poster of a large ticket, stamped."
+my_trips = "A poster of ticket stubs pinned in rows."
+trip = "A poster of one large ticket stub."
+profile = "A poster of printed charts beside a suitcase."
+
+[elements]
+Heading = "big bold cream letters across the top of the poster"
+Text = "smaller dark letters printed on the poster"
+Button = "a printed coral tab with bold cream letters"
+SearchBar = "a printed cream box with dark letters and a small magnifier, its destinations printed below it on cream strips"
+DatePicker = "a printed month calendar, each day a square with its number and its fare, and days without flights faded"
+DateStrip = "a printed row of day squares, with the chosen day in coral"
+List = "a printed timetable, one line per row"
+BarChart = "a screen-printed bar chart in teal, with cream labels"
+LineChart = "a screen-printed line chart in coral, with cream labels"
+Tabs = "three printed tabs along the poster's bottom edge, the current one in coral"
+
+[moves]
+default = "The camera slides along the wall to the next poster and settles straight on."
