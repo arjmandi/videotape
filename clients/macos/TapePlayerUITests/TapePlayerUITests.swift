@@ -47,7 +47,7 @@ final class TapePlayerUITests: XCTestCase {
         attachment.name = summary
         attachment.lifetime = .keepAlways
         add(attachment)
-        // The two key images themselves sit 10.45 apart on this grid.
+        // The two key images themselves sit about 10.5 apart on this grid.
         XCTAssertLessThan(home, 3, "the window shows the home key: \(summary)")
         XCTAssertGreaterThan(booked, home + 5, "the window is clearly not the booking's key: \(summary)")
     }

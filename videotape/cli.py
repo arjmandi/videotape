@@ -48,14 +48,14 @@ def plan_app(args) -> int:
     if args.model and not args.story:
         raise ProjectError("--model checks a story's prompts against that model, so pass --story with it")
     planned = _planned(found)
-    warnings, look = planned.warnings, ""
+    warnings, in_story = planned.warnings, ""
     if args.story:
         told, more = _told(found, planned, args.story, _listing(found, args.model))
-        warnings, look = (*warnings, *more), f" + {told.name} {told.version}"
+        warnings, in_story = (*warnings, *more), f" + {told.name} {told.version}"
     states, moves = len(planned.keys), len(planned.moves)
     per_scene = Counter(key.state.scene.name for key in planned.keys)
     out = Counter(move.start.scene.name for move in planned.moves)
-    print(f"{' '.join(filter(None, (planned.title, found.version)))}{look}: {_count(len(planned.scenes), 'scene')}, "
+    print(f"{' '.join(filter(None, (planned.title, found.version)))}{in_story}: {_count(len(planned.scenes), 'scene')}, "
           f"{_count(states, 'state')}, {_count(states, 'key')}, {_count(moves, 'move')}, {_count(states + moves, 'shot')}")
     print()
     print(f"{'scene':<13}{'states':>6}{'moves out':>12}")
