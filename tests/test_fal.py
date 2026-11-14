@@ -2,6 +2,7 @@ import io
 import json
 import urllib.error
 import urllib.request
+from http.client import IncompleteRead
 from pathlib import Path
 
 import pytest
@@ -77,7 +78,8 @@ def test_the_key_rides_only_in_the_authorization_header_and_never_follows_a_redi
         assert KEY not in repr(moved.header_items())
 
 
-@pytest.mark.parametrize("failure", [http(500, "runner crashed"), urllib.error.URLError("connection reset")])
+@pytest.mark.parametrize("failure", [http(500, "runner crashed"), urllib.error.URLError("connection reset"),
+                                     IncompleteRead(b"{", 20)])
 def test_a_failed_submit_is_never_sent_again(failure):
     _, queue = exchange(submit=[failure])
     with pytest.raises(FalError, match="submit to alibaba/wan-3.0/image-to-video failed"):
@@ -86,13 +88,14 @@ def test_a_failed_submit_is_never_sent_again(failure):
 
 
 def test_a_failed_poll_or_download_is_tried_again(tmp_path):
-    response, queue = exchange(status=[http(503), urllib.error.URLError("timed out"), recorded("image-to-video")["status"]],
+    response, queue = exchange(status=[http(503), urllib.error.URLError("timed out"), IncompleteRead(b"{", 20),
+                                       recorded("image-to-video")["status"]],
                                video=[urllib.error.URLError("reset"), b"the video"])
     client = Fal(KEY, send=queue, sleep=lambda _: None)
     assert client.run("alibaba/wan-3.0/image-to-video", {"prompt": "p"}) == response
     client.download(response["result"]["video"]["url"], tmp_path / "take.mp4")
     assert (tmp_path / "take.mp4").read_bytes() == b"the video"
-    assert [method for method, _, _ in queue.sent()] == ["POST", "GET", "GET", "GET", "GET", "GET", "GET"]
+    assert [method for method, _, _ in queue.sent()] == ["POST", "GET", "GET", "GET", "GET", "GET", "GET", "GET"]
 
 
 def test_the_key_never_appears_in_an_error():
@@ -101,6 +104,19 @@ def test_the_key_never_appears_in_an_error():
         Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert KEY not in str(error.value)
     assert "HTTP 401" in str(error.value) and "<FAL_KEY>" in str(error.value)
+
+
+@pytest.mark.parametrize("answer, said", [
+    (http(401, "x" * 480 + f"Key {KEY}"), "HTTP 401"),
+    (("x" * 280 + f"Key {KEY}").encode(), "something other than a JSON object"),
+])
+def test_the_key_is_scrubbed_before_a_long_error_is_cut(answer, said):
+    """The key sits where the message is cut, so a cut before the scrub would leave its first characters."""
+    _, queue = exchange(submit=[answer])
+    with pytest.raises(FalError) as error:
+        Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
+    assert said in str(error.value)
+    assert "<FAL_KEY>" in str(error.value) and KEY[:8] not in str(error.value)
 
 
 def test_the_key_is_sent_only_to_the_queue():
