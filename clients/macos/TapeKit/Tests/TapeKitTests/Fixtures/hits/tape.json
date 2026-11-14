@@ -5,6 +5,7 @@
   "scenes": {
     "menu": {
       "key": "keys/menu.png",
+      "words": ["Menu", "Back", "Front"],
       "hotspots": [
         {"label": "Back", "box": {"x": 0.25, "y": 0.25, "w": 0.5, "h": 0.5}, "move": "menu--back"},
         {"label": "Front", "box": {"x": 0.5, "y": 0.5, "w": 0.5, "h": 0.5}, "move": "menu--front"}

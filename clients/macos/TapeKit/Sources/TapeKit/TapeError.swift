@@ -17,7 +17,7 @@ public enum TapeError: Error, Equatable, CustomStringConvertible, LocalizedError
         case .malformedManifest(let manifest, let reason):
             "\(manifest.shown) is not a tape: \(reason)."
         case .unknownMove(let scene, let label, let move):
-            "Hotspot \"\(label)\" in scene \"\(scene)\" plays move \"\(move)\", which tape.json does not define."
+            "\"\(label)\" in scene \"\(scene)\" plays move \"\(move)\", which tape.json does not define."
         case .unknownScene(let clip, let lands):
             "\(clip) lands on scene \"\(lands)\", which tape.json does not define."
         case .missingClip(let clip, let directory):

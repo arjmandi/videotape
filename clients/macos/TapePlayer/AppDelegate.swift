@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
-        window.title = tape.name
+        window.title = tape.made.label
         window.contentAspectRatio = tape.size
         window.collectionBehavior = .fullScreenNone
         window.delegate = self

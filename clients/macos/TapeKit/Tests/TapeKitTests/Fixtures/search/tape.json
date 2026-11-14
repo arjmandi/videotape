@@ -1,0 +1,97 @@
+{
+  "size": {"width": 100, "height": 100},
+  "fps": 24,
+  "opening": {"clip": "moves/opening.mp4", "lands": "home()"},
+  "scenes": {
+    "home()": {
+      "key": "keys/home.png",
+      "words": ["Good morning, Alex", "Where to?", "Your next trip", "San Francisco to New York", "Friday, December 18", "48,250 Contrail Miles", "Home", "Trips", "Profile"],
+      "hotspots": [
+        {"label": "Where to?", "box": {"x": 0.0, "y": 0.1, "w": 0.5, "h": 0.1}, "move": "home--where-to"}
+      ]
+    },
+    "search()": {
+      "key": "keys/search.png",
+      "words": ["Where to?", "Boston (BOS)", "Honolulu (HNL)", "New Orleans (MSY)", "New York (JFK)", "Seattle (SEA)"],
+      "hotspots": [
+        {"label": "Where to?", "box": {"x": 0.0, "y": 0.0, "w": 0.5, "h": 0.1}, "move": "search--where-to"},
+        {"label": "Boston (BOS)", "box": {"x": 0.0, "y": 0.1, "w": 0.5, "h": 0.1}, "move": "search--boston-bos"},
+        {"label": "Honolulu (HNL)", "box": {"x": 0.0, "y": 0.2, "w": 0.5, "h": 0.1}, "move": "search--honolulu-hnl"},
+        {"label": "New York (JFK)", "box": {"x": 0.0, "y": 0.4, "w": 0.5, "h": 0.1}, "move": "search--new-york-jfk"},
+        {"label": "Seattle (SEA)", "box": {"x": 0.0, "y": 0.5, "w": 0.5, "h": 0.1}, "move": "search--seattle-sea"}
+      ],
+      "search": {
+        "bar": "Where to?",
+        "options": [
+          {"label": "Boston (BOS)", "move": "search--boston-bos"},
+          {"label": "Honolulu (HNL)", "move": "search--honolulu-hnl"},
+          {"label": "New Orleans (MSY)", "move": "search--new-orleans-msy"},
+          {"label": "New York (JFK)", "move": "search--new-york-jfk"},
+          {"label": "Seattle (SEA)", "move": "search--seattle-sea"}
+        ],
+        "no_match": {"move": "search--where-to", "lands": "not_found()"}
+      }
+    },
+    "not_found()": {
+      "key": "keys/not-found.png",
+      "words": ["No airport matches", "Try a city or a three-letter airport code.", "Search again"],
+      "hotspots": [
+        {"label": "Search again", "box": {"x": 0.0, "y": 0.2, "w": 0.5, "h": 0.1}, "move": "not-found--search-again"}
+      ]
+    },
+    "no_flights(BOS)": {
+      "key": "keys/no-flights-bos.png",
+      "words": ["No flights to Boston", "In December, Contrail flies to Honolulu, New York, and Seattle.", "Search again"],
+      "hotspots": [
+        {"label": "Search again", "box": {"x": 0.0, "y": 0.2, "w": 0.5, "h": 0.1}, "move": "no-flights-bos--search-again"}
+      ]
+    },
+    "no_flights(MSY)": {
+      "key": "keys/no-flights-msy.png",
+      "words": ["No flights to New Orleans", "In December, Contrail flies to Honolulu, New York, and Seattle.", "Search again"],
+      "hotspots": []
+    },
+    "dates(HNL)": {
+      "key": "keys/dates-hnl.png",
+      "words": ["San Francisco to Honolulu", "Pick a day. Each shows the lowest one-way fare.", "Friday, December 11, $279"],
+      "hotspots": []
+    },
+    "dates(JFK)": {
+      "key": "keys/dates-jfk.png",
+      "words": ["San Francisco to New York", "Pick a day. Each shows the lowest one-way fare.", "Friday, December 11, $199"],
+      "hotspots": []
+    },
+    "dates(SEA)": {
+      "key": "keys/dates-sea.png",
+      "words": ["San Francisco to Seattle", "Pick a day. Each shows the lowest one-way fare.", "Friday, December 11, $99"],
+      "hotspots": [
+        {"label": "Friday, December 11, $99", "box": {"x": 0.0, "y": 0.2, "w": 0.1, "h": 0.1}, "move": "dates-sea--11"}
+      ]
+    },
+    "results(SEA, 2026-12-11)": {
+      "key": "keys/results-sea-2026-12-11.png",
+      "words": ["San Francisco to Seattle", "8:15 AM to 10:25 AM", "2h 10m, Nonstop", "$99"],
+      "hotspots": []
+    }
+  },
+  "moves": {
+    "home--where-to": {"clip": "moves/home--where-to.mp4", "lands": "search()"},
+    "search--where-to": {"clip": "moves/search--where-to.mp4", "lands": "not_found()"},
+    "search--boston-bos": {"clip": "moves/search--boston-bos.mp4", "lands": "no_flights(BOS)"},
+    "search--honolulu-hnl": {"clip": "moves/search--honolulu-hnl.mp4", "lands": "dates(HNL)"},
+    "search--new-orleans-msy": {"clip": "moves/search--new-orleans-msy.mp4", "lands": "no_flights(MSY)"},
+    "search--new-york-jfk": {"clip": "moves/search--new-york-jfk.mp4", "lands": "dates(JFK)"},
+    "search--seattle-sea": {"clip": "moves/search--seattle-sea.mp4", "lands": "dates(SEA)"},
+    "not-found--search-again": {"clip": "moves/not-found--search-again.mp4", "lands": "search()"},
+    "no-flights-bos--search-again": {"clip": "moves/no-flights-bos--search-again.mp4", "lands": "search()"},
+    "dates-sea--11": {"clip": "moves/dates-sea--11.mp4", "lands": "results(SEA, 2026-12-11)"}
+  },
+  "made": {
+    "label": "contrail 0.1.0 + terminal 1.0.0",
+    "id": "b57fdca8b9b4e4de47fcc5c9373ab19c11baf2da6aecedd5cc1a4d8a2ce0f31a",
+    "app": {"name": "contrail", "version": "0.1.0", "code": "c0de", "data": "da7a"},
+    "story": {"name": "terminal", "version": "1.0.0", "hash": "7e51"},
+    "model": {"name": "stand-in", "settings": {"text-to-video": {}, "first-and-last-frame": {}}},
+    "engine": "e791"
+  }
+}
