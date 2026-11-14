@@ -50,8 +50,11 @@ while let wanted = todo.popFirst() {
         let hotspot = scene.hotspots.first {
             wanted.hasSuffix("*") ? $0.label.hasPrefix(String(wanted.dropLast())) : $0.label == wanted
         }
-        guard let hotspot, player.press(label: hotspot.label) == .move else {
-            fail("\(scene.name) offers no \"\(wanted)\"; it offers \(scene.hotspots.map(\.label))")
+        guard let hotspot else { fail("\(scene.name) offers no \"\(wanted)\"; it offers \(scene.hotspots.map(\.label))") }
+        switch player.press(label: hotspot.label) {
+        case .move: break
+        case .bar: fail("\(scene.name) asks for text at \"\(hotspot.label)\"; type into it with --type <text>")
+        case .nothing: fail("\(scene.name) does not take a press while a clip plays")
         }
         scene = rest()
         print("press \"\(hotspot.label)\" -> \(scene.name)")
