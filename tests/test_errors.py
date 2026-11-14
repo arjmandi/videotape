@@ -7,12 +7,21 @@ from conftest import FIXTURES, videotape
 from videotape.errors import CODES
 
 PLAIN = "plain ASCII letters, digits, spaces, and . , ' ? ! $ % ( ) : -"
+
+
+def division_by_zero(guests: int = 0) -> str:
+    """What this Python says when the vt203 fixture's scene divides by no guests. Python 3.14 reworded it."""
+    with pytest.raises(ZeroDivisionError) as raised:
+        120 // guests
+    return str(raised.value)
+
+
 ERRORS = {
     "VT201": ("app.py:3", "the screenplay has no scenes",
               "add a scene with @app.scene; the first one is where the app opens"),
     "VT202": ("app.py:8", 'the to= of Button "Open" is the scene detail itself, not a state, in state home()',
               "call the scene to name a state, as in detail()"),
-    "VT203": ("app.py:13", "the scene raised ZeroDivisionError: integer division or modulo by zero, in state split(0)",
+    "VT203": ("app.py:13", f"the scene raised ZeroDivisionError: {division_by_zero()}, in state split(0)",
               "make the scene build for these arguments, or keep this state out of every to="),
     "VT204": ("app.py:11", "no action reaches the scene help",
               "lead to it from a scene that is reached, as in to=help(), or delete it"),

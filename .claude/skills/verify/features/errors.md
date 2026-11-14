@@ -66,6 +66,6 @@ Preconditions:
 - Exit code `2` with a `usage:` line means the arguments were wrong, not that the screenplay was rejected. Recheck the command.
 - A place is relative to the working directory, which is the project, so `app.py:8` and `drinks.json:3` name files in the fixture.
 - The plan stops at the first error it meets, in walk order. A state that cannot be built hides its actions, so nothing after it could be trusted.
-- `VT203`'s message quotes Python's own exception text. Python 3.12, which `.python-version` pins, says `integer division or modulo by zero`.
+- `VT203`'s message quotes Python's own exception text. Python 3.12, which `.python-version` pins and `vt-verify run` uses, says `integer division or modulo by zero`. Python 3.14 says `division by zero`, so `tests/test_errors.py` takes the text from the Python it runs on.
 - The `vt210` fixture sets `max_states = 5` in its `pyproject.toml`. Without that line the limit is 500.
 - `vt-verify run` sets `PYTHONDONTWRITEBYTECODE=1`, so a drive leaves no `__pycache__` in a fixture. A fixture declares no dependencies, so `uv run videotape plan` typed by hand in one fails with ``error: Failed to spawn: `videotape` `` and leaves a `.venv` and a `uv.lock` there. Use `vt-verify run`.
