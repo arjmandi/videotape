@@ -101,14 +101,16 @@ class Budget:
         self.reserved = 0.0
 
     def reserve(self, place: str, resume: str) -> None:
-        """Hold the price of one call, or refuse when it would pass the cap."""
+        """Hold the listed price of one call, or refuse when it would pass the cap. The ledger records what the call
+        then billed, which can differ a little, so the spend can end a little past the cap."""
         if not self.price:
             return
         with self.lock:
             if self.cap is not None and self.spent + self.reserved + self.price.usd > self.cap:
                 raise RenderError("VT402", place, f"the next call would pass the cap of ${self.cap:.2f}, with "
                                   f"${self.spent:.2f} spent on this tape and ${self.reserved:.2f} reserved for the "
-                                  "calls in flight", f"raise the cap and run the render again, which resumes:\n{resume}")
+                                  f"calls in flight, at the listed price of ${self.price.usd:.2f} a call",
+                                  f"raise the cap and run the render again, which resumes:\n{resume}")
             self.reserved += self.price.usd
 
     def settle(self, line: dict, reserved: bool) -> bool:

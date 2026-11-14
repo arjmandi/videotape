@@ -195,8 +195,11 @@ CODES: dict[str, Code] = {
         "A model that bills per call renders under a cap: cap_usd in [tool.videotape], or --cap-usd. What a tape has "
         "spent is the sum of its lines in the project's ledger, so running the render again never resets it. Before "
         "each paid call the render stops when the call would pass the cap, says what was spent, and lets the calls "
-        "in flight finish and be recorded. A paid model with no cap at all does not start.",
-        "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape",
+        "in flight finish and be recorded. The cap is checked against each call's listed price, and the ledger "
+        "records what the call then billed, which can differ a little, so the spend can end a little past the cap. "
+        "A paid model with no cap at all does not start.",
+        "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
+        "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
         "next: raise the cap and run the render again, which resumes:\n"
         "videotape render --story terminal --cap-usd 10.00\nor set it for good in [tool.videotape]:\ncap_usd = 10",
     ),
