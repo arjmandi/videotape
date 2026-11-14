@@ -16,7 +16,7 @@ final class TapePlayerUITests: XCTestCase {
     func testBookingTheMorningFlightToSeattleLandsBackOnHome() throws {
         let (app, tape) = try launch()
         let image = app.images["tape"]
-        XCTAssertTrue(image.wait(for: \.label, toEqual: "home", timeout: 30), "the opening rests on home")
+        XCTAssertTrue(image.wait(for: \.label, toEqual: "home()", timeout: 30), "the opening rests on home()")
         press(app.buttons["Where to?"], "home offers its search bar")
         press(app.buttons["Seattle (SEA)"], "the search bar plays into search, which offers Seattle (SEA)")
         press(app.buttons["Saturday, December 12, $89"], "Seattle plays into its dates, which offer December 12")
@@ -32,7 +32,7 @@ final class TapePlayerUITests: XCTestCase {
             "Book for $89 plays into the booking"
         )
         press(app.buttons["Done"], "the booking offers Done")
-        XCTAssertTrue(image.wait(for: \.label, toEqual: "home", timeout: 30), "Done plays back into home")
+        XCTAssertTrue(image.wait(for: \.label, toEqual: "home()", timeout: 30), "Done plays back into home")
         XCTAssertTrue(app.buttons["Where to?"].waitForExistence(timeout: 5), "home offers its search bar again")
 
         let shot = image.screenshot()

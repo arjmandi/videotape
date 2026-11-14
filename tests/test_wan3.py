@@ -47,7 +47,7 @@ def test_a_key_is_text_to_video_from_its_own_prompt_at_720p_without_sound_or_pro
 
 
 def test_a_move_is_image_to_video_from_the_key_it_starts_on_to_the_key_it_lands_on(tmp_path):
-    pick = SHOTS['menu -> order(Latte) "Latte, $5"']
+    pick = SHOTS['menu() -> order(Latte) "Latte, $5"']
     menu, order = png(tmp_path / "menu.png", "red"), png(tmp_path / "order.png", "blue")
     built = wan3.request(pick.mode, pick.prompt, 2, menu, order)
     assert built.endpoint == "alibaba/wan-3.0/image-to-video"
@@ -133,7 +133,7 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     assert cli(directory, *RENDER) == 1
     stdout, stderr = capsys.readouterr()
     assert stdout.splitlines()[0] == "wan3.0: 11 calls, $5.50 at $0.10/s"
-    assert 'fail: 1. key menu  kept take 1 fails hotspot "Espresso, $3": not found' in stderr.splitlines()
+    assert 'fail: 1. key menu()  kept take 1 fails hotspot "Espresso, $3": not found' in stderr.splitlines()
     assert stdout.splitlines()[-1] == "rendered 11 of 11 shots -> tape-wan3"
     assert [mode for mode, _ in fal.posts] == ["text-to-video"] * 5 + ["image-to-video"] * 6
     plan = planned(directory)

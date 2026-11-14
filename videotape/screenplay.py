@@ -24,7 +24,7 @@ class State:
 
     @property
     def name(self) -> str:
-        return f"{self.scene.name}({', '.join(map(_named, self.args))})" if self.args else self.scene.name
+        return f"{self.scene.name}({', '.join(map(_named, self.args))})"
 
 
 def _named(value: object) -> str:

@@ -10,7 +10,7 @@ PLAIN = "plain ASCII letters, digits, spaces, and . , ' ? ! $ % ( ) : -"
 ERRORS = {
     "VT201": ("app.py:3", "the screenplay has no scenes",
               "add a scene with @app.scene; the first one is where the app opens"),
-    "VT202": ("app.py:8", 'the to= of Button "Open" is the scene detail itself, not a state, in state home',
+    "VT202": ("app.py:8", 'the to= of Button "Open" is the scene detail itself, not a state, in state home()',
               "call the scene to name a state, as in detail()"),
     "VT203": ("app.py:13", "the scene raised ZeroDivisionError: integer division or modulo by zero, in state split(0)",
               "make the scene build for these arguments, or keep this state out of every to="),
@@ -19,16 +19,16 @@ ERRORS = {
     "VT205": ("app.py:9", "no data file at drinks.json",
               'create it, or correct the path; "drinks.json" is relative to the folder of pyproject.toml'),
     "VT206": ("drinks.json:3", 'record 2 field "price" is "six", not a whole number', "write a whole number"),
-    "VT207": ("app.py:15", 'Drink has no field "cost", in state home', "name one of its fields: name, price"),
-    "VT208": ("app.py:15", "get(name='Mocha') matched no Drink from drinks.json, in state home",
+    "VT207": ("app.py:15", 'Drink has no field "cost", in state home()', "name one of its fields: name, price"),
+    "VT208": ("app.py:15", "get(name='Mocha') matched no Drink from drinks.json, in state home()",
               "ask for a row the data holds, or count the matches with where(...).count()"),
-    "VT209": ("home", 'two actions have the label "Open"', "give each action its own label"),
+    "VT209": ("home()", 'two actions have the label "Open"', "give each action its own label"),
     "VT210": ("count(5)", "the plan reached more than 5 states",
               "take a scene's arguments from the data, which ends, or raise max_states in [tool.videotape]"),
 }
 WARNINGS = {
-    "VT211": [("home", 'the line "Café Lumière" has the characters è é', f"write it with {PLAIN}"),
-              ("home", 'the line "We open every single day of the week at seven in the morning sharp." has 14 words',
+    "VT211": [("home()", 'the line "Café Lumière" has the characters è é', f"write it with {PLAIN}"),
+              ("home()", 'the line "We open every single day of the week at seven in the morning sharp." has 14 words',
                "shorten it to 12 words or fewer")],
 }
 

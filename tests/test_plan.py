@@ -76,7 +76,7 @@ def test_a_state_is_named_by_its_scene_and_its_arguments():
     def seat(row: int, letter: str = "A"):
         return []
 
-    assert home().name == "home"
+    assert home().name == "home()"
     assert results(SEA, date(2026, 12, 12)).name == "results(SEA, 2026-12-12)"
     assert flight(CT300).name == "flight(CT 300, 2026-12-12)"
     assert seat(14).name == "seat(14, A)"
@@ -99,11 +99,11 @@ def test_the_walk_is_breadth_first_from_the_first_scene():
 
     planned = plan(app)
     assert planned.scenes == ("hall", "room", "inside")
-    assert [key.state.name for key in planned.keys] == ["hall", "room(left)", "room(right)", "inside(left)", "inside(right)"]
+    assert [key.state.name for key in planned.keys] == ["hall()", "room(left)", "room(right)", "inside(left)", "inside(right)"]
     assert [(move.start.name, move.label, move.land.name) for move in planned.moves] == [
-        ("hall", "Left door", "room(left)"), ("hall", "Right door", "room(right)"),
-        ("room(left)", "Open", "inside(left)"), ("room(left)", "Back", "hall"),
-        ("room(right)", "Open", "inside(right)"), ("room(right)", "Back", "hall")]
+        ("hall()", "Left door", "room(left)"), ("hall()", "Right door", "room(right)"),
+        ("room(left)", "Open", "inside(left)"), ("room(left)", "Back", "hall()"),
+        ("room(right)", "Open", "inside(right)"), ("room(right)", "Back", "hall()")]
     assert [key.mode for key in planned.keys] == [Mode.TEXT_TO_VIDEO] * 5
     assert [move.mode for move in planned.moves] == [Mode.FIRST_AND_LAST_FRAME] * 6
     assert planned.shots == (*planned.keys, *planned.moves)
@@ -135,15 +135,15 @@ def test_an_action_is_found_by_its_words_and_pressed_by_its_hotspots_label():
     def actions(*elements: vt.Element) -> list[tuple[str, str, str]]:
         return [(action.label, action.words, action.to.name) for action in home_key(*elements).actions]
 
-    assert actions(vt.Button("Book for $89", there)) == [("Book for $89", "Book for $89", "there")]
-    assert actions(vt.SearchBar("Where to?", to=there)) == [("Where to?", "Where to?", "there")]
+    assert actions(vt.Button("Book for $89", there)) == [("Book for $89", "Book for $89", "there()")]
+    assert actions(vt.SearchBar("Where to?", to=there)) == [("Where to?", "Where to?", "there()")]
     assert actions(vt.SearchBar("Where to?", options=[vt.Option("Boston (BOS)", there)], no_match=a_state("lost"))) == [
-        ("Where to?", "Where to?", "lost"), ("Boston (BOS)", "Boston (BOS)", "there")]
-    assert actions(vt.DatePicker(days)) == [("Saturday, December 12, $89", "12", "there")]
-    assert actions(vt.DateStrip(days)) == [("Saturday, December 12, $89", "Sat 12", "there")]
+        ("Where to?", "Where to?", "lost()"), ("Boston (BOS)", "Boston (BOS)", "there()")]
+    assert actions(vt.DatePicker(days)) == [("Saturday, December 12, $89", "12", "there()")]
+    assert actions(vt.DateStrip(days)) == [("Saturday, December 12, $89", "Sat 12", "there()")]
     assert actions(vt.List([vt.Row("8:15 AM to 10:25 AM", "2h 10m, Nonstop", "$89", to=there)])) == [
-        ("8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89", "8:15 AM to 10:25 AM", "there")]
-    assert actions(vt.Tabs({"Trips": there})) == [("Trips", "Trips", "there")]
+        ("8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89", "8:15 AM to 10:25 AM", "there()")]
+    assert actions(vt.Tabs({"Trips": there})) == [("Trips", "Trips", "there()")]
 
 
 def test_what_leads_nowhere_is_no_action():
@@ -208,7 +208,7 @@ def test_a_moves_prompt_names_what_is_pressed_by_the_words_it_is_found_by():
         f'The button "Book for $89" is pressed. {changes}', f'The tab "Trips" is pressed. {changes}',
         f'The day "12" is pressed. {changes}', f'The row "8:15 AM" is pressed. {changes}',
         f'The search bar "Where to?" is pressed. {changes}']
-    assert [move.title for move in moves][:2] == ['home -> there "Book for $89"', 'home -> trips "Trips"']
+    assert [move.title for move in moves][:2] == ['home() -> there() "Book for $89"', 'home() -> trips() "Trips"']
 
 
 def test_every_key_and_move_of_contrail_has_its_own_file_safe_name():
@@ -248,5 +248,5 @@ def test_a_line_that_is_hard_to_letter_is_a_vt211_warning_and_the_plan_goes_on(l
     planned = plan(one_scene(vt.Heading(line), vt.Text(line), vt.Text("Twelve words: it's $5 (50% off)! So? Yes, yes - indeed, 100%.")))
     assert len(planned.keys) == 1
     [warning] = planned.warnings
-    assert (warning.code, warning.place, warning.fix) == ("VT211", "home", fix)
+    assert (warning.code, warning.place, warning.fix) == ("VT211", "home()", fix)
     assert warning.message == f'the line "{line}" {wrong}'

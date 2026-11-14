@@ -58,9 +58,9 @@ Preconditions:
   ```
 - **Warning.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-warning tests/fixtures/errors/vt211 -- plan`. `.exit` is `0`, the first `.stdout` line is `Cafe 0.1.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot`, the last is `0 errors, 2 warnings`, and `.stderr` is exactly:
   ```
-  warning VT211 home: the line "Café Lumière" has the characters è é
+  warning VT211 home(): the line "Café Lumière" has the characters è é
   fix: write it with plain ASCII letters, digits, spaces, and . , ' ? ! $ % ( ) : -
-  warning VT211 home: the line "We open every single day of the week at seven in the morning sharp." has 14 words
+  warning VT211 home(): the line "We open every single day of the week at seven in the morning sharp." has 14 words
   fix: shorten it to 12 words or fewer
   ```
 - **Proof.** For each journey cite `.cmd`, `.exit` and the asserted `.stdout` lines, and the empty `cmp` for `plan-readme` and `plan-subfolder`.

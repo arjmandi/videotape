@@ -16,7 +16,7 @@ from videotape.plan import Mode
 def test_a_key_runs_ti2v_from_text_and_a_move_runs_fun_inp_between_two_keys():
     plan = planned(FIXTURES / "cafe")
     menu, pick = plan.keys[0], plan.moves[0]
-    assert (menu.title, pick.title) == ("key menu", 'menu -> order(Espresso) "Espresso, $3"')
+    assert (menu.title, pick.title) == ("key menu()", 'menu() -> order(Espresso) "Espresso, $3"')
     start, end = Path("tape") / menu.image, Path("tape") / plan.keys[1].image
     common = dict(negative_prompt=wan.NEGATIVE_PROMPT, width=1280, height=704, frames=81, fps=24, steps=50, shift=5.0)
     assert wan.request(menu.mode, menu.prompt, None, None, 1) == wan.Request(

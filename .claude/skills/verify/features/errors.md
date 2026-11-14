@@ -35,14 +35,14 @@ Preconditions:
   | Fixture | `.stderr` |
   | --- | --- |
   | `vt201` | `error VT201 app.py:3: the screenplay has no scenes`<br>`fix: add a scene with @app.scene; the first one is where the app opens` |
-  | `vt202` | `error VT202 app.py:8: the to= of Button "Open" is the scene detail itself, not a state, in state home`<br>`fix: call the scene to name a state, as in detail()` |
+  | `vt202` | `error VT202 app.py:8: the to= of Button "Open" is the scene detail itself, not a state, in state home()`<br>`fix: call the scene to name a state, as in detail()` |
   | `vt203` | `error VT203 app.py:13: the scene raised ZeroDivisionError: integer division or modulo by zero, in state split(0)`<br>`fix: make the scene build for these arguments, or keep this state out of every to=` |
   | `vt204` | `error VT204 app.py:11: no action reaches the scene help`<br>`fix: lead to it from a scene that is reached, as in to=help(), or delete it` |
   | `vt205` | `error VT205 app.py:9: no data file at drinks.json`<br>`fix: create it, or correct the path; "drinks.json" is relative to the folder of pyproject.toml` |
   | `vt206` | `error VT206 drinks.json:3: record 2 field "price" is "six", not a whole number`<br>`fix: write a whole number` |
-  | `vt207` | `error VT207 app.py:15: Drink has no field "cost", in state home`<br>`fix: name one of its fields: name, price` |
-  | `vt208` | `error VT208 app.py:15: get(name='Mocha') matched no Drink from drinks.json, in state home`<br>`fix: ask for a row the data holds, or count the matches with where(...).count()` |
-  | `vt209` | `error VT209 home: two actions have the label "Open"`<br>`fix: give each action its own label` |
+  | `vt207` | `error VT207 app.py:15: Drink has no field "cost", in state home()`<br>`fix: name one of its fields: name, price` |
+  | `vt208` | `error VT208 app.py:15: get(name='Mocha') matched no Drink from drinks.json, in state home()`<br>`fix: ask for a row the data holds, or count the matches with where(...).count()` |
+  | `vt209` | `error VT209 home(): two actions have the label "Open"`<br>`fix: give each action its own label` |
   | `vt210` | `error VT210 count(5): the plan reached more than 5 states`<br>`fix: take a scene's arguments from the data, which ends, or raise max_states in [tool.videotape]` |
 - **Render.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-render tests/fixtures/errors/vt204 -- render --model stand-in`. `.exit` is `1`, `.stdout` is empty, `.stderr` is the two `vt204` lines above, and `command ls tests/fixtures/errors/vt204` lists only `app.py` and `pyproject.toml`.
 - **Explain.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-explain . -- explain VT207`. `.exit` is `0` and `.stdout` is exactly:

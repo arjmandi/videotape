@@ -16,15 +16,15 @@ from videotape.plan import Mode
 from videotape.render import render, uncached
 from videotape.standin import Flaw, StandIn, StandInEye
 
-STATES = ("menu", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)")
-KEYS = {"menu": "menu", "order(Espresso)": "order-espresso", "order(Latte)": "order-latte",
+STATES = ("menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)")
+KEYS = {"menu()": "menu", "order(Espresso)": "order-espresso", "order(Latte)": "order-latte",
         "thanks(Espresso)": "thanks-espresso", "thanks(Latte)": "thanks-latte"}
 MOVES = {"menu--espresso": "order(Espresso)", "menu--latte": "order(Latte)", "order-espresso--order": "thanks(Espresso)",
-         "order-latte--order": "thanks(Latte)", "thanks-espresso--done": "menu", "thanks-latte--done": "menu"}
-TITLES = ["key menu", "key order(Espresso)", "key order(Latte)", "key thanks(Espresso)", "key thanks(Latte)",
-          'menu -> order(Espresso) "Espresso, $3"', 'menu -> order(Latte) "Latte, $5"',
+         "order-latte--order": "thanks(Latte)", "thanks-espresso--done": "menu()", "thanks-latte--done": "menu()"}
+TITLES = ["key menu()", "key order(Espresso)", "key order(Latte)", "key thanks(Espresso)", "key thanks(Latte)",
+          'menu() -> order(Espresso) "Espresso, $3"', 'menu() -> order(Latte) "Latte, $5"',
           'order(Espresso) -> thanks(Espresso) "Order"', 'order(Latte) -> thanks(Latte) "Order"',
-          'thanks(Espresso) -> menu "Done"', 'thanks(Latte) -> menu "Done"']
+          'thanks(Espresso) -> menu() "Done"', 'thanks(Latte) -> menu() "Done"']
 THANKS_LATTE = '"One Latte coming up."'
 DONE = 'The button "Done" is pressed.'
 
@@ -103,11 +103,11 @@ def test_the_tape_has_one_scene_for_each_state_with_its_hotspots_and_moves(first
     data = json.loads((first[0] / "tape" / "tape.json").read_text())
     assert data["size"] == {"width": 1280, "height": 704}
     assert data["fps"] == 24
-    assert data["opening"] == {"clip": "moves/opening.mp4", "lands": "menu"}
+    assert data["opening"] == {"clip": "moves/opening.mp4", "lands": "menu()"}
     assert {name: scene["key"] for name, scene in data["scenes"].items()} == {
         state: f"keys/{name}.png" for state, name in KEYS.items()}
     assert {name: [(h["label"], h["move"]) for h in scene["hotspots"]] for name, scene in data["scenes"].items()} == {
-        "menu": [("Espresso, $3", "menu--espresso"), ("Latte, $5", "menu--latte")],
+        "menu()": [("Espresso, $3", "menu--espresso"), ("Latte, $5", "menu--latte")],
         "order(Espresso)": [("Order", "order-espresso--order")],
         "order(Latte)": [("Order", "order-latte--order")],
         "thanks(Espresso)": [("Done", "thanks-espresso--done")],
@@ -178,7 +178,7 @@ def test_each_key_is_its_kept_takes_last_frame_and_the_entrys_kept_take_is_the_o
     tape = directory / "tape"
     for filmed in result.keys:
         assert frames.difference(frames.read_png(tape / filmed.shot.image), frames.last_frame(filmed.kept.path)) < 0.001
-    assert result.keys[0].shot.state.name == "menu"
+    assert result.keys[0].shot.state.name == "menu()"
     assert (tape / "moves" / "opening.mp4").read_bytes() == result.keys[0].kept.path.read_bytes()
     for filmed in result.moves:
         assert (tape / filmed.shot.clip).read_bytes() == filmed.kept.path.read_bytes()
@@ -230,8 +230,8 @@ def test_dailies_page_is_a_view_of_its_record(first):
     assert '<section class="shot keys" id="keys">' in page
     assert "5 keys checked by stand-in, all passing" in page
     assert page.count('<section class="shot" id="shot-') == 11
-    assert "<h2>1. key menu (text-to-video)</h2>" in page
-    assert "<h2>11. thanks(Latte) -&gt; menu &quot;Done&quot; (first-and-last-frame)</h2>" in page
+    assert "<h2>1. key menu() (text-to-video)</h2>" in page
+    assert "<h2>11. thanks(Latte) -&gt; menu() &quot;Done&quot; (first-and-last-frame)</h2>" in page
     failing = [item for shot in record["keys"] + record["moves"] for take in shot["takes"] for item in take["items"]
                if not item["passed"]]
     assert page.count('<li class="fail">') == len(failing) >= 6
@@ -373,7 +373,7 @@ def test_takes_flag_sets_the_takes_per_shot_and_the_projects_model_renders(tmp_p
     assert cli(directory, "render", "--takes", "1") == 0
     assert [call.seed for call in model.calls] == [1] * 11
     out = capsys.readouterr().out.splitlines()
-    assert out[0] == "1. key menu  rendered 1 take, kept take 1"
+    assert out[0] == "1. key menu()  rendered 1 take, kept take 1"
     assert out[-1] == "rendered 11 of 11 shots -> tape"
     with pytest.raises(SystemExit) as exit:
         cli(directory, "render", "--takes", "0")
@@ -432,17 +432,17 @@ def test_editing_one_line_rerenders_its_key_and_only_the_moves_that_touch_it(fir
     assert cli(directory, "render") == 0
     assert len(model.calls) == 15
     assert capsys.readouterr().out.splitlines() == [
-        "1. key menu  rendered 3 takes, kept take 1",
+        "1. key menu()  rendered 3 takes, kept take 1",
         "2. key order(Espresso)  cached, kept take 1",
         "3. key order(Latte)  cached, kept take 1",
         "4. key thanks(Espresso)  cached, kept take 1",
         "5. key thanks(Latte)  cached, kept take 3",
-        '6. menu -> order(Espresso) "Espresso, $3"  rendered 3 takes, kept take 1',
-        '7. menu -> order(Latte) "Latte, $5"  rendered 3 takes, kept take 1',
+        '6. menu() -> order(Espresso) "Espresso, $3"  rendered 3 takes, kept take 1',
+        '7. menu() -> order(Latte) "Latte, $5"  rendered 3 takes, kept take 1',
         '8. order(Espresso) -> thanks(Espresso) "Order"  cached, kept take 1',
         '9. order(Latte) -> thanks(Latte) "Order"  cached, kept take 1',
-        '10. thanks(Espresso) -> menu "Done"  rendered 3 takes, kept take 1',
-        '11. thanks(Latte) -> menu "Done"  rendered 3 takes, kept take 1',
+        '10. thanks(Espresso) -> menu() "Done"  rendered 3 takes, kept take 1',
+        '11. thanks(Latte) -> menu() "Done"  rendered 3 takes, kept take 1',
         "rendered 5 of 11 shots -> tape",
     ]
 
@@ -454,7 +454,7 @@ def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take(tmp_path
     assert cli(directory, "render", "--takes", "1") == 1
     err = capsys.readouterr().err.splitlines()
     assert len(err) == 5
-    assert err[0].startswith('fail: 1. key menu  kept take 1 fails text "')
+    assert err[0].startswith('fail: 1. key menu()  kept take 1 fails text "')
     assert "kept take fails checks" in (directory / "tape" / "dailies.html").read_text()
     assert sorted(json.loads((directory / "tape" / "tape.json").read_text())["moves"]) == sorted(MOVES)
 
@@ -470,13 +470,13 @@ def test_an_action_the_checks_do_not_find_has_no_hotspot_but_its_move_still_rend
     monkeypatch.setitem(MODELS, "stand-in", stand_in(model))
     assert cli(tmp_path, "render", "--takes", "2") == 1
     data = json.loads((tmp_path / "tape" / "tape.json").read_text())
-    assert data["scenes"]["hall"]["hotspots"] == []
-    assert [hotspot["label"] for hotspot in data["scenes"]["room"]["hotspots"]] == ["Go out"]
+    assert data["scenes"]["hall()"]["hotspots"] == []
+    assert [hotspot["label"] for hotspot in data["scenes"]["room()"]["hotspots"]] == ["Go out"]
     assert sorted(data["moves"]) == ["hall--go-in", "room--go-out"]
     assert (tmp_path / "tape" / "moves" / "hall--go-in.mp4").is_file()
     assert capsys.readouterr().err.splitlines() == [
-        'fail: 1. key hall  kept take 1 fails hotspot "Go in": not found',
-        'fail: 1. key hall  kept take 1 fails text "Go in": read nothing, CER 1.000']
+        'fail: 1. key hall()  kept take 1 fails hotspot "Go in": not found',
+        'fail: 1. key hall()  kept take 1 fails text "Go in": read nothing, CER 1.000']
     assert 'hotspot &quot;Go in&quot;</span><span class="result">not found' in (tmp_path / "tape" / "dailies.html").read_text()
     assert [call.mode for call in model.calls].count(Mode.FIRST_AND_LAST_FRAME) == 4
 
@@ -490,7 +490,7 @@ def test_out_writes_another_tape_whose_ledger_lines_and_totals_are_its_own(first
     out = directory / "tape-b"
     assert len(model.calls) == 11
     assert capsys.readouterr().out.splitlines()[-1] == "rendered 11 of 11 shots -> tape-b"
-    assert json.loads((out / "tape.json").read_text())["opening"] == {"clip": "moves/opening.mp4", "lands": "menu"}
+    assert json.loads((out / "tape.json").read_text())["opening"] == {"clip": "moves/opening.mp4", "lands": "menu()"}
     assert sorted(path.name for path in (out / "keys").iterdir()) == sorted(name for name in before if name.endswith(".png"))
     lines = [json.loads(line) for line in (directory / "ledger.jsonl").read_text().splitlines()]
     assert [line["tape"] for line in lines] == ["tape"] * 33 + ["tape-b"] * 11

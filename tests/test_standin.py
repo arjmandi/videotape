@@ -35,7 +35,7 @@ def test_the_stand_in_draws_every_contrail_key_so_its_eye_reads_every_line_and_f
             assert eye.find(frame, action.words) == boxes[action.words], (key.state.name, action.label)
 
 
-@pytest.mark.parametrize("state, lines, actions", [("profile", 51, 2), ("search", 7, 7), ("my_trips", 16, 4)])
+@pytest.mark.parametrize("state, lines, actions", [("profile()", 51, 2), ("search()", 7, 7), ("my_trips()", 16, 4)])
 def test_a_take_of_a_dense_key_still_reads_exactly_after_it_is_encoded(tmp_path, state, lines, actions):
     key = contrail_key(state)
     assert (len(key.lines), len(key.actions)) == (lines, actions)
