@@ -4,7 +4,7 @@ import TapeKit
 /// The whole window: the tape's frames and nothing else. While a scene rests, its hotspots take clicks, show a
 /// pointing hand, and appear to accessibility as buttons. A search bar takes typed text through the platform's sheet.
 @MainActor
-final class TapeView: NSView {
+final class TapeView: NSView, NSMenuItemValidation {
     private var player: Player
     private let projector = Projector()
     private var buttons: [HotspotButton] = []
@@ -36,6 +36,15 @@ final class TapeView: NSView {
     @objc func startOver(_ sender: Any?) {
         player.startOver()
         render()
+    }
+
+    @objc func back(_ sender: Any?) {
+        guard player.back() != nil else { return }
+        render()
+    }
+
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        item.action == #selector(back(_:)) ? player.canGoBack : true
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -89,14 +98,18 @@ final class TapeView: NSView {
     }
 
     private func render() {
-        if case .playing(let clip) = player.playback {
-            projector.play(clip.url, ready: { [weak self] in
-                self?.firstFrame?()
-                self?.firstFrame = nil
-            }, ended: { [weak self] in
-                self?.player.clipEnded()
-                self?.render()
-            })
+        let shown: @MainActor () -> Void = { [weak self] in
+            self?.firstFrame?()
+            self?.firstFrame = nil
+        }
+        let ended: @MainActor () -> Void = { [weak self] in
+            self?.player.clipEnded()
+            self?.render()
+        }
+        switch player.playback {
+        case .playing(let clip): projector.play(clip.url, ready: shown, ended: ended)
+        case .rewinding(let clip, _): projector.rewind(clip.url, fps: player.tape.fps, ready: shown, ended: ended)
+        case .resting: break
         }
         buttons = hotspots.map { HotspotButton(hotspot: $0, view: self) }
         window?.invalidateCursorRects(for: self)

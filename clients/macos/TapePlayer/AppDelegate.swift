@@ -95,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         file.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
 
         let playback = NSMenu(title: "Playback")
+        playback.addItem(withTitle: "Back", action: #selector(TapeView.back(_:)), keyEquivalent: "[")
         playback.addItem(withTitle: "Start Over", action: #selector(TapeView.startOver(_:)), keyEquivalent: "r")
 
         let windows = NSMenu(title: "Window")
