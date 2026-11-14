@@ -16,7 +16,7 @@ from pathlib import Path
 from videotape import dailies, frames
 from videotape.checks import Checks, Eye, Failure, score, seams
 from videotape.dailies import Carried
-from videotape.errors import RenderError
+from videotape.errors import RenderError, shown
 from videotape.fal import FalError, Price, Receipt
 from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.ledger import Ledger, now
@@ -27,6 +27,7 @@ from videotape.screenplay import State
 from videotape.standin import StandInError
 from videotape.story import Prompt, Story, prompt, text
 from videotape.wan import WanError
+from videotape.wan3 import RecordedFailure
 
 
 @dataclass(frozen=True)
@@ -328,7 +329,12 @@ def _downloaded_again(shared: _Set, path: Path, place: str) -> Receipt | None:
 
 
 def _failed(error: Exception, place: str, resume: str) -> RenderError:
-    """VT401: a model call failed. A submitted request is recorded beside its take, so the next render polls it."""
+    """VT401: a model call failed. A submitted request is recorded beside its take, so the next render polls it and
+    never submits it again on its own; only deleting the record lets a render submit a new, paid take."""
+    if isinstance(error, RecordedFailure):
+        return RenderError("VT401", place, str(error), f"run the render again, which resumes; this request is "
+                           f"polled, not submitted again:\n{resume}\nor delete {shown(error.record)} first, and the "
+                           "render submits a new, paid take")
     return RenderError("VT401", place, str(error), f"run the render again, which resumes; a request that was "
                        f"submitted is polled, not submitted again:\n{resume}")
 

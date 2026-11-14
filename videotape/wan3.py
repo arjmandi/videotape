@@ -33,6 +33,15 @@ class Wan3Request:
     arguments: dict
 
 
+class RecordedFailure(FalError):
+    """A recorded request's poll or download failed. A render never submits it again on its own, so the error names
+    the record, which deleting lets a render submit a new, paid take."""
+
+    def __init__(self, message: str, record: Path) -> None:
+        super().__init__(message)
+        self.record = record
+
+
 def request(mode: Mode, prompt: str, seed: int, start: Path | None = None, end: Path | None = None) -> Wan3Request:
     """A key is text-to-video from its prompt. A move is image-to-video pinned to the two key images it joins."""
     images = {"start_image_url": _data_uri(start), "end_image_url": _data_uri(end)} \
@@ -82,7 +91,7 @@ class Wan3:
         record = request_record(out)
         if not record.exists():
             return None
-        return self._fetch(json.loads(record.read_text()), out)
+        return self._fetch(record, json.loads(record.read_text()), out)
 
     def _film(self, built: Wan3Request, out: Path) -> Receipt:
         """One take, submitted once. fal's answer to the submit is recorded beside the take before the wait, so a
@@ -90,13 +99,17 @@ class Wan3:
         paying for it again. The record holds the endpoint, the request id and its urls, never the key."""
         if (receipt := self.download_again(out)) is not None:
             return receipt
+        record = request_record(out)
         submitted = {"endpoint": built.endpoint, **self.fal.submit(built.endpoint, built.arguments)}
-        publish(request_record(out), lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
-        return self._fetch(submitted, out)
+        publish(record, lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
+        return self._fetch(record, submitted, out)
 
-    def _fetch(self, submitted: dict, out: Path) -> Receipt:
-        url, receipt = bill(self.fal.wait(submitted["endpoint"], submitted))
-        self.fal.download(url, out)
+    def _fetch(self, record: Path, submitted: dict, out: Path) -> Receipt:
+        try:
+            url, receipt = bill(self.fal.wait(submitted["endpoint"], submitted))
+            self.fal.download(url, out)
+        except FalError as error:
+            raise RecordedFailure(str(error), record) from None
         return receipt
 
 

@@ -182,9 +182,13 @@ CODES: dict[str, Code] = {
         "A render asks the model for one take at a time, and this call did not come back with a clip. The error "
         "prints the provider's message and the request id when there is one, and never a key. The takes already on "
         "disk and the requests already submitted are kept, so running the render again resumes from them, and a "
-        "submitted request is polled and downloaded, never submitted again.",
-        "error VT401 key home() take 2: status of alibaba/wan-3.0/text-to-video request 01a1... failed with HTTP 503",
-        "next: run the render again, which resumes; a request that was submitted is polled, not submitted again",
+        "submitted request is polled and downloaded, never submitted again on its own. A request fal has recorded "
+        "beside its take and refuses for good, as when its safety checker flags the output, fails the same way on "
+        "every run, so the next step names its record: deleting that file lets the render submit a new, paid take.",
+        "error VT401 key home() take 2: result of alibaba/wan-3.0/text-to-video request 01a1... failed with HTTP 422",
+        "next: run the render again, which resumes; this request is polled, not submitted again:\n"
+        "videotape render --story terminal --model wan3.0 --cap-usd 20.00\n"
+        "or delete tapes/terminal/takes/3f9a....request.json first, and the render submits a new, paid take",
     ),
     "VT402": Code(
         "the next call would pass the cap",
