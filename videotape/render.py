@@ -141,6 +141,13 @@ class _Set:
     """The command that runs this render again."""
     stop: threading.Event
     """Set when the render stops on an error: a take in flight finishes and is recorded, and no new one starts."""
+    locks: dict[Path, threading.Lock]
+    """One lock per take name, so two shots that share a take film it once and the other reads it."""
+    lock: threading.Lock
+
+    def one_at_a_time(self, path: Path) -> threading.Lock:
+        with self.lock:
+            return self.locks.setdefault(path, threading.Lock())
 
 
 class _Stopped(Exception):
@@ -162,7 +169,7 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
         (tape / folder).mkdir(parents=True, exist_ok=True)
     carried = dailies.carried(tape)
     shared = _Set(model, eye, tape, {key.state: tape / key.image for key in plan.keys}, Budget(ledger, price, cap), resume,
-                  threading.Event())
+                  threading.Event(), {}, threading.Lock())
     seeds = {shot.title: _seeds(shot, takes, carried) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
     stopped: RenderError | None = None
@@ -300,19 +307,22 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
 
 def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
           film: Callable[[int, Path], Receipt | None], check: Callable[[Path], Checks]) -> Take | RenderError:
-    """One take and its checks. A take whose file does not decode is downloaded again from the request the model
-    recorded beside it, and is VT403 when it is still corrupt, or when the model recorded nothing to download again."""
-    path, cached, timing = _film(shared, shot, words, images, seed, place, film)
-    try:
-        checks = check(path)
-    except DecodeError as corrupt:
-        if _downloaded_again(shared, path, place) is None:
-            return RenderError("VT403", place, str(corrupt), f"nothing; seed {seed} is skipped from now on")
+    """One take and its checks, one shot at a time per take name, so two shots that share a take film it once. A
+    take whose file does not decode is downloaded again from the request the model recorded beside it, and is VT403
+    when it is still corrupt, or when the model recorded nothing to download again."""
+    path = _take_path(shared.model, shot, words, images, seed, shared.tape)
+    with shared.one_at_a_time(path):
+        cached, timing = _film(shared, shot, path, seed, place, film)
         try:
             checks = check(path)
-        except DecodeError as again:
-            return RenderError("VT403", place, f"downloaded again, and still: {again}",
-                               f"nothing; seed {seed} is skipped from now on")
+        except DecodeError as corrupt:
+            if _downloaded_again(shared, path, place) is None:
+                return RenderError("VT403", place, str(corrupt), f"nothing; seed {seed} is skipped from now on")
+            try:
+                checks = check(path)
+            except DecodeError as again:
+                return RenderError("VT403", place, f"downloaded again, and still: {again}",
+                                   f"nothing; seed {seed} is skipped from now on")
     return Take(seed, path, cached, checks, timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
 
 
@@ -353,15 +363,15 @@ def _take_path(model: Model, shot: Shot, words: str, images: tuple[Path, ...], s
     return tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
 
 
-def _film(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
-          film: Callable[[int, Path], Receipt | None]) -> tuple[Path, bool, dict]:
-    """The take for this shot and seed: from the cache, else downloaded again from the request the model recorded
-    beside it, which costs nothing, else filmed, which reserves its price first. The render time and any price live
-    in a sidecar next to the take, so they survive caching. A take the ledger already holds counts as cached."""
-    path = _take_path(shared.model, shot, words, images, seed, shared.tape)
+def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
+          film: Callable[[int, Path], Receipt | None]) -> tuple[bool, dict]:
+    """Whether the take at path was already there, and its timing. A take that is not is downloaded again from the
+    request the model recorded beside it, which costs nothing, else filmed, which reserves its price first. The render
+    time and any price live in a sidecar next to the take, so they survive caching. A take the ledger already holds
+    counts as cached."""
     timing = path.with_suffix(".json")
     if path.exists():
-        return path, True, json.loads(timing.read_text()) if timing.exists() else {}
+        return True, json.loads(timing.read_text()) if timing.exists() else {}
     started = time.perf_counter()
     receipt = _downloaded_again(shared, path, place)
     reserved = receipt is None
@@ -378,7 +388,7 @@ def _film(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: 
                                     "mode": shot.mode.value, "seed": seed, **filmed}, reserved)
     response = {"response": receipt.response} if receipt else {}
     publish(timing, lambda out: out.write_text(json.dumps({**filmed, **response}) + "\n"))
-    return path, not written, {**filmed, **response}
+    return not written, {**filmed, **response}
 
 
 def _fraction(box: Box, size: Shape) -> dict:
