@@ -53,8 +53,10 @@ can press there, and where each press leads. Say only what this file supports.
 
 CHECK = """Below are an answer that describes an app, and a numbered list of features.
 
-For each feature, decide whether the answer states it. Say yes only if the answer says everything the feature says, \
-in any words. Judge by the answer alone, and not by what such an app would usually do.
+For each feature, decide whether the answer describes that feature's behavior: what the person is shown, what they \
+can do there, and what happens when they do. Say yes only if the answer describes all of it, in any words. The answer \
+was written from a screenplay, which can't say how an element looks, such as that a date picker is a month calendar, \
+so never ask it for a look. Judge by the answer alone, and not by what such an app would usually do.
 
 <answer>
 {answer}
