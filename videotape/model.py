@@ -27,6 +27,11 @@ class Model(Protocol):
 
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> Receipt | None: ...
 
+    def download_again(self, out: Path) -> Receipt | None:
+        """Write the take at out again from the request the model recorded beside it, which submits nothing and
+        costs nothing, and return its receipt. None when no request is recorded there."""
+        ...
+
 
 @dataclass(frozen=True)
 class PromptLimit:

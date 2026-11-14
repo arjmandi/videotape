@@ -78,17 +78,24 @@ class Wan3:
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> Receipt:
         return self._film(request(Mode.FIRST_AND_LAST_FRAME, prompt, seed, start, end), out)
 
+    def download_again(self, out: Path) -> Receipt | None:
+        record = request_record(out)
+        if not record.exists():
+            return None
+        return self._fetch(json.loads(record.read_text()), out)
+
     def _film(self, built: Wan3Request, out: Path) -> Receipt:
         """One take, submitted once. fal's answer to the submit is recorded beside the take before the wait, so a
         render that dies between submitting and downloading polls and downloads that request on resume instead of
-        paying for it again. The record holds the request id and its urls, never the key."""
-        record = request_record(out)
-        if record.exists():
-            submitted = json.loads(record.read_text())
-        else:
-            submitted = self.fal.submit(built.endpoint, built.arguments)
-            publish(record, lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
-        url, receipt = bill(self.fal.wait(built.endpoint, submitted))
+        paying for it again. The record holds the endpoint, the request id and its urls, never the key."""
+        if (receipt := self.download_again(out)) is not None:
+            return receipt
+        submitted = {"endpoint": built.endpoint, **self.fal.submit(built.endpoint, built.arguments)}
+        publish(request_record(out), lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
+        return self._fetch(submitted, out)
+
+    def _fetch(self, submitted: dict, out: Path) -> Receipt:
+        url, receipt = bill(self.fal.wait(submitted["endpoint"], submitted))
         self.fal.download(url, out)
         return receipt
 

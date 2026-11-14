@@ -102,6 +102,9 @@ class StandIn:
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> None:
         self._film(Mode.FIRST_AND_LAST_FRAME, prompt, seed, start, end, out)
 
+    def download_again(self, out: Path) -> None:
+        return None
+
     def _film(self, mode: Mode, prompt: str, seed: int, start: Path | None, end: Path | None, out: Path) -> None:
         self.calls.append(Call(mode, prompt, seed, start, end, out))
         rows = quoted(prompt)

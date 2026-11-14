@@ -22,7 +22,7 @@ from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
-from videotape.publish import publish
+from videotape.publish import partial, publish
 from videotape.screenplay import State
 from videotape.standin import StandInError
 from videotape.story import Prompt, Story, prompt, text
@@ -211,9 +211,9 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
                       ledger.totals())
         raise stopped
     opening = result.keys[0].kept
-    publish(tape / "moves" / "opening.mp4", lambda partial: shutil.copyfile(opening.path, partial))
+    publish(tape / "moves" / "opening.mp4", lambda out: shutil.copyfile(opening.path, out))
     manifest = {**_manifest(plan, result), "made": made}
-    publish(tape / "tape.json", lambda partial: partial.write_text(json.dumps(manifest, indent=2) + "\n"))
+    publish(tape / "tape.json", lambda out: out.write_text(json.dumps(manifest, indent=2) + "\n"))
     dailies.write(tape, dailies.record(plan.title, eye.name, result, story, ledger.tape, corrupt, takes), ledger.totals())
     return result
 
@@ -240,7 +240,7 @@ def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes
     filmed = _film_shot(shared, key, clauses, seeds, retakes, lambda seed, out: shared.model.text_to_video(words, seed, out),
                         (), lambda path: score(frames.last_frame(path), key, shared.eye))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
-    publish(shared.tape / key.image, lambda partial: frames.write_png(frames.last_frame(filmed.kept.path), partial))
+    publish(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
     return filmed
 
 
@@ -251,7 +251,7 @@ def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], reta
     filmed = _film_shot(shared, move, clauses, seeds, retakes,
                         lambda seed, out: shared.model.first_last_frame(words, start, end, seed, out), (start, end),
                         lambda path: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
-    publish(shared.tape / move.clip, lambda partial: shutil.copyfile(filmed.kept.path, partial))
+    publish(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
     return filmed
 
 
@@ -296,22 +296,38 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
 
 def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
           film: Callable[[int, Path], Receipt | None], check: Callable[[Path], Checks]) -> Take | RenderError:
-    """One take and its checks. A take whose file does not decode is downloaded again when the model kept its
-    request, and is VT403 when it is still corrupt or when there is nothing to download again."""
+    """One take and its checks. A take whose file does not decode is downloaded again from the request the model
+    recorded beside it, and is VT403 when it is still corrupt, or when the model recorded nothing to download again."""
     path, cached, timing = _film(shared, shot, words, images, seed, place, film)
     try:
         checks = check(path)
     except DecodeError as corrupt:
-        if not timing.get("request_id"):
+        if _downloaded_again(shared, path, place) is None:
             return RenderError("VT403", place, str(corrupt), f"nothing; seed {seed} is skipped from now on")
-        path.unlink()
-        publish(path, lambda partial: film(seed, partial))
         try:
             checks = check(path)
         except DecodeError as again:
             return RenderError("VT403", place, f"downloaded again, and still: {again}",
                                f"nothing; seed {seed} is skipped from now on")
     return Take(seed, path, cached, checks, timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
+
+
+def _downloaded_again(shared: _Set, path: Path, place: str) -> Receipt | None:
+    """The take written again from the request the model recorded beside it, which submits nothing and costs
+    nothing, or None when the model recorded none."""
+    try:
+        receipt = shared.model.download_again(partial(path))
+    except (FalError, WanError, StandInError) as error:
+        raise _failed(error, place, shared.resume) from None
+    if receipt is not None:
+        partial(path).replace(path)
+    return receipt
+
+
+def _failed(error: Exception, place: str, resume: str) -> RenderError:
+    """VT401: a model call failed. A submitted request is recorded beside its take, so the next render polls it."""
+    return RenderError("VT401", place, str(error), f"run the render again, which resumes; a request that was "
+                       f"submitted is polled, not submitted again:\n{resume}")
 
 
 def _cached(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int) -> bool:
@@ -339,12 +355,10 @@ def _film(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: 
     shared.budget.reserve(place, shared.resume)
     started = time.perf_counter()
     try:
-        receipt = publish(path, lambda partial: film(seed, partial))
+        receipt = publish(path, lambda out: film(seed, out))
     except (FalError, WanError, StandInError) as error:
         shared.budget.release()
-        raise RenderError("VT401", place, str(error),
-                          f"run the render again, which resumes; a request that was submitted is polled, not "
-                          f"submitted again:\n{shared.resume}") from None
+        raise _failed(error, place, shared.resume) from None
     except BaseException:
         shared.budget.release()
         raise
@@ -354,7 +368,7 @@ def _film(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: 
     shared.budget.settle({"kind": "take", "at": now(), "model": shared.model.name, "shot": shot.title,
                           "mode": shot.mode.value, "seed": seed, **filmed})
     response = {"response": receipt.response} if receipt else {}
-    publish(timing, lambda partial: partial.write_text(json.dumps({**filmed, **response}) + "\n"))
+    publish(timing, lambda out: out.write_text(json.dumps({**filmed, **response}) + "\n"))
     return path, False, {**filmed, **response}
 
 
