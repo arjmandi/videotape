@@ -172,12 +172,14 @@ def _top(told: dict, name: str, place: str, example: str) -> str:
     words = told.get(name)
     if isinstance(words, str) and words.strip():
         return _plain(words)
-    wrong = f"no {name}" if words is None or isinstance(words, str) else f"the {name} {words!r}, which is not in quotes"
-    raise ScreenplayError("VT301", place, f"the story has {wrong}", f"write {name} = {example} above the first [heading]")
+    blank = words is None or isinstance(words, str)
+    wrong = f"no {name}" if blank else f"the {name} {words!r}, which is not in quotes"
+    raise ScreenplayError("VT301", place, f"the story has {wrong}",
+                          f"write {name} = {example} above the first [heading]")
 
 
 def check(story: Story, plan: Plan, limit: PromptLimit | None) -> tuple[ScreenplayError, ...]:
-    """Check a story against the app it gives a look to, and its prompts against the longest one the model reads.
+    """Check a story against the app it gives a look to, and its prompts against the longest one the model takes.
     An error is raised, and the warnings are returned."""
     place = errors.shown(story.path)
     for name in story.scenes:
@@ -212,11 +214,12 @@ def _plain(words: str) -> str:
 
 def _toml_error(error: tomllib.TOMLDecodeError, document: str) -> tuple[int, str]:
     """The line a TOML error is at, and what is wrong there. Python 3.14 gives both. Python 3.12 gives one message
-    that ends with the place."""
+    that ends with the place. An error at the end of the document is at its last line."""
+    last = len(document.splitlines())
     said = re.fullmatch(r"(?s)(.*) \(at (?:line (\d+), column \d+|end of document)\)", str(error))
     wrong = getattr(error, "msg", None) or (said[1] if said else str(error))
-    line = getattr(error, "lineno", None) or (int(said[2]) if said and said[2] else len(document.splitlines()))
-    return line, wrong
+    line = getattr(error, "lineno", None) or (int(said[2]) if said and said[2] else last)
+    return min(line, last), wrong
 
 
 def _at(path: Path, table: str, name: str) -> str:

@@ -253,6 +253,15 @@ def test_plan_checks_a_contrail_story_and_names_it_after_the_apps_version(name):
     assert result.stdout.splitlines()[1:] == videotape(CONTRAIL, "plan").stdout.splitlines()[1:]
 
 
+def test_a_quote_that_never_closes_is_not_toml_at_the_storys_last_line(tmp_path):
+    file = tmp_path / "open.toml"
+    file.write_text('version = "1.0.0"\nlook = """\nA plain room.\n')
+    with pytest.raises(vt.ScreenplayError) as error:
+        story.load(file)
+    assert (error.value.code, error.value.place.rpartition(":")[2]) == ("VT306", "3")
+    assert error.value.message.startswith("the story is not TOML: ")
+
+
 def test_a_table_that_holds_something_other_than_words_is_refused(tmp_path):
     file = tmp_path / "odd.toml"
     file.write_text('version = "1.0.0"\nlook = "A plain room."\n\n[scenes]\nhome = 3\n')
