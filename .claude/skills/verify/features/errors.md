@@ -89,7 +89,7 @@ Preconditions:
 - A place is relative to the working directory, which is the project, so `app.py:8` and `drinks.json:3` name files in the fixture.
 - The plan stops at the first error it meets, in walk order. A state that cannot be built hides its actions, so nothing after it could be trusted. A story is checked after the screenplay, so a story's error shows only once the screenplay plans.
 - A story's place is its file from the project, with the line of the key when the key is written under its `[scenes]`, `[elements]` or `[moves]` heading. `VT301` names only the file, since what it reports is missing. `VT304` names only the file too.
-- `VT306`'s message quotes Python's TOML reader. Python 3.12 and 3.14 both say `Invalid value` for words without quotes.
+- `VT306`'s message quotes Python's TOML reader. Python 3.12 and 3.14 both say `Invalid value` for words without quotes. A quote that never closes is found at the end of the file, and the error names the file's last line.
 - `VT307` in the `vt307` fixture comes from its own `model = "wan2.2-5b"` in `[tool.videotape]`. The plan counts tokens without a tokenizer and counts high. umT5's own tokenizer makes 641 tokens of that prompt, which is also over 512.
 - A `vt3xx` fixture's story is named `neon`. With another name the plan stops with `error: no story "<name>" in stories; the stories are neon`.
 - `VT203`'s message quotes Python's own exception text. Python 3.12, which `.python-version` pins and `vt-verify run` uses, says `integer division or modulo by zero`. Python 3.14 says `division by zero`, so `tests/test_errors.py` takes the text from the Python it runs on.
