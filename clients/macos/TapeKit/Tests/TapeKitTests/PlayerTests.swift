@@ -53,22 +53,23 @@ struct PlayerTests {
 
     @Test mutating func pressesByAccessibilityLabel() {
         player.clipEnded()
-        let pressed = player.press(label: "Enter shop")
+        let pressed = player.press(label: "Enter shop") == .move
         #expect(pressed)
         #expect(player.playing == "moves/welcome--enter-shop.mp4")
     }
 
     @Test mutating func clickReportsAMoveStarted() {
         player.clipEnded()
-        let pressed = player.click("Enter shop")
+        let pressed = player.click("Enter shop") == .move
         #expect(pressed)
     }
 
     @Test mutating func ignoresPressesThatMissEveryHotspot() {
         player.clipEnded()
-        let byLabel = player.press(label: "Browse as guest")
-        let byPoint = player.press(CGPoint(x: 0.05, y: 0.05))
-        #expect(!byLabel && !byPoint)
+        let pressed = player.press(label: "Browse as guest") == .nothing
+        #expect(pressed)
+        let pressedPoint = player.press(CGPoint(x: 0.05, y: 0.05))
+        #expect(pressedPoint == .nothing)
         #expect(player.resting == "welcome")
     }
 
@@ -79,14 +80,15 @@ struct PlayerTests {
         player.click("Browse as guest")
         player.clipEnded()
         let pressed = player.press(CGPoint(x: 0.5, y: 0.77))
-        #expect(!pressed)
+        #expect(pressed == .nothing)
         #expect(player.resting == "gallery")
     }
 
     @Test mutating func ignoresPressesWhilePlaying() {
-        let byLabel = player.press(label: "Enter shop")
-        let byPoint = player.press(CGPoint(x: 0.5, y: 0.59))
-        #expect(!byLabel && !byPoint)
+        let pressed = player.press(label: "Enter shop") == .nothing
+        #expect(pressed)
+        let pressedPoint = player.press(CGPoint(x: 0.5, y: 0.59))
+        #expect(pressedPoint == .nothing)
         #expect(player.playing == "moves/opening.mp4")
     }
 

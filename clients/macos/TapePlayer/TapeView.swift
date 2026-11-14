@@ -42,12 +42,20 @@ final class TapeView: NSView {
         let point = convert(event.locationInWindow, from: nil)
         let video = videoRect
         let fraction = CGPoint(x: (point.x - video.minX) / video.width, y: (point.y - video.minY) / video.height)
-        if player.press(fraction) { render() }
+        pressed(player.press(fraction))
     }
 
     fileprivate func press(_ label: String) -> Bool {
-        guard player.press(label: label) else { return false }
-        render()
+        pressed(player.press(label: label))
+    }
+
+    @discardableResult
+    private func pressed(_ outcome: Pressed) -> Bool {
+        switch outcome {
+        case .move: render()
+        case .bar: break
+        case .nothing: return false
+        }
         return true
     }
 
@@ -77,10 +85,7 @@ final class TapeView: NSView {
         (overHotspot ? NSCursor.pointingHand : NSCursor.arrow).set()
     }
 
-    private var hotspots: [Hotspot] {
-        guard case .resting(let scene) = player.playback else { return [] }
-        return scene.hotspots
-    }
+    private var hotspots: [Hotspot] { player.scene?.hotspots ?? [] }
 
     /// Where the tape's frame lies in the view. Like the projector's video, it covers the view and crops what overhangs,
     /// so a window a fraction of a point off the tape's aspect ratio never shows its background at an edge.
@@ -109,10 +114,7 @@ final class TapeView: NSView {
     override func accessibilityRole() -> NSAccessibility.Role? { .image }
     override func accessibilityIdentifier() -> String { "tape" }
 
-    override func accessibilityLabel() -> String? {
-        guard case .resting(let scene) = player.playback else { return "" }
-        return scene.name
-    }
+    override func accessibilityLabel() -> String? { player.scene?.name ?? "" }
 
     override func accessibilityChildren() -> [Any]? { buttons }
 
