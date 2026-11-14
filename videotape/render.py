@@ -90,7 +90,7 @@ class Render:
 class Budget:
     """What a render may still spend. One lock keeps the invariant: spent plus reserved never passes the cap, where
     spent is the sum of this tape's lines in the ledger and reserved is the price of every call in flight. Every ledger
-    write goes through settle, under the same lock."""
+    write goes through settle, under the same lock, and a request's line is written once."""
 
     def __init__(self, ledger: Ledger, price: Price | None, cap: float | None) -> None:
         self.ledger, self.price, self.cap = ledger, price, cap
@@ -114,13 +114,20 @@ class Budget:
             with self.lock:
                 self.reserved -= self.price.usd
 
-    def settle(self, line: dict) -> None:
-        """Record a finished call: its line goes into the ledger and its price out of the reservation."""
+    def settle(self, line: dict, reserved: bool) -> bool:
+        """Record a finished call: its line goes into the ledger, unless the ledger holds its request already, and
+        the price reserved for it is let go. Whether the line was written."""
         with self.lock:
-            self.ledger.append(line)
-            if self.price:
-                self.reserved -= self.price.usd
+            written = not self._holds(line.get("request_id"))
+            if written:
+                self.ledger.append(line)
                 self.spent += line.get("usd") or 0.0
+            if self.price and reserved:
+                self.reserved -= self.price.usd
+        return written
+
+    def _holds(self, request_id: str | None) -> bool:
+        return bool(request_id) and any(line.get("request_id") == request_id for line in self.ledger.lines())
 
 
 @dataclass(frozen=True)
@@ -346,30 +353,34 @@ def _take_path(model: Model, shot: Shot, words: str, images: tuple[Path, ...], s
 
 def _film(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
           film: Callable[[int, Path], Receipt | None]) -> tuple[Path, bool, dict]:
-    """The take for this shot and seed, filmed unless it is already in the cache. The render time and any price live
-    in a sidecar next to the take, so they survive caching."""
+    """The take for this shot and seed: from the cache, else downloaded again from the request the model recorded
+    beside it, which costs nothing, else filmed, which reserves its price first. The render time and any price live
+    in a sidecar next to the take, so they survive caching. A take the ledger already holds counts as cached."""
     path = _take_path(shared.model, shot, words, images, seed, shared.tape)
     timing = path.with_suffix(".json")
     if path.exists():
         return path, True, json.loads(timing.read_text()) if timing.exists() else {}
-    shared.budget.reserve(place, shared.resume)
     started = time.perf_counter()
-    try:
-        receipt = publish(path, lambda out: film(seed, out))
-    except (FalError, WanError, StandInError) as error:
-        shared.budget.release()
-        raise _failed(error, place, shared.resume) from None
-    except BaseException:
-        shared.budget.release()
-        raise
+    receipt = _downloaded_again(shared, path, place)
+    reserved = receipt is None
+    if reserved:
+        shared.budget.reserve(place, shared.resume)
+        try:
+            receipt = publish(path, lambda out: film(seed, out))
+        except (FalError, WanError, StandInError) as error:
+            shared.budget.release()
+            raise _failed(error, place, shared.resume) from None
+        except BaseException:
+            shared.budget.release()
+            raise
     filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": shared.model.device}
     if receipt:
         filmed |= {"request_id": receipt.request_id, "duration": receipt.duration, "usd": receipt.usd}
-    shared.budget.settle({"kind": "take", "at": now(), "model": shared.model.name, "shot": shot.title,
-                          "mode": shot.mode.value, "seed": seed, **filmed})
+    written = shared.budget.settle({"kind": "take", "at": now(), "model": shared.model.name, "shot": shot.title,
+                                    "mode": shot.mode.value, "seed": seed, **filmed}, reserved)
     response = {"response": receipt.response} if receipt else {}
     publish(timing, lambda out: out.write_text(json.dumps({**filmed, **response}) + "\n"))
-    return path, False, {**filmed, **response}
+    return path, not written, {**filmed, **response}
 
 
 def _fraction(box: Box, size: Shape) -> dict:
