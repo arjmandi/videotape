@@ -168,29 +168,39 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
         pending: dict[Future[Filmed], Shot] = {
             pool.submit(_film_key, shared, key, prompt(key, story), *seeds[key.title]): key for key in plan.keys}
         waiting = list(plan.moves)
-        while pending:
-            done, _ = wait(pending, return_when=FIRST_COMPLETED)
-            for future in done:
-                shot = pending.pop(future)
-                try:
-                    filmed = future.result()
-                except (CancelledError, _Stopped):
-                    continue
-                except RenderError as error:
-                    if stopped is None:
-                        stopped = error
-                        shared.stop.set()
-                        for other in pending:
-                            other.cancel()
-                    continue
-                finished[shot] = filmed
-                report(filmed)
-                if stopped is not None or not isinstance(shot, Key):
-                    continue
-                ready = {key.state for key in plan.keys if key in finished}
-                for move in [move for move in waiting if {move.start, move.land} <= ready]:
-                    waiting.remove(move)
-                    pending[pool.submit(_film_move, shared, move, prompt(move, story), *seeds[move.title])] = move
+
+        def stop() -> None:
+            shared.stop.set()
+            for other in pending:
+                other.cancel()
+
+        try:
+            while pending:
+                done, _ = wait(pending, return_when=FIRST_COMPLETED)
+                for future in done:
+                    shot = pending.pop(future)
+                    try:
+                        filmed = future.result()
+                    except (CancelledError, _Stopped):
+                        continue
+                    except RenderError as error:
+                        if stopped is None:
+                            stopped = error
+                            stop()
+                        continue
+                    finished[shot] = filmed
+                    report(filmed)
+                    if stopped is not None or not isinstance(shot, Key):
+                        continue
+                    ready = {key.state for key in plan.keys if key in finished}
+                    for move in [move for move in waiting if {move.start, move.land} <= ready]:
+                        waiting.remove(move)
+                        pending[pool.submit(_film_move, shared, move, prompt(move, story), *seeds[move.title])] = move
+        except BaseException:
+            # Leaving the pool waits for every future, so a Ctrl-C or a worker's unexpected error would otherwise
+            # run every queued shot. Cancelled, only the takes in flight finish, and they are settled.
+            stop()
+            raise
     elapsed = time.perf_counter() - started
     keys = tuple(finished[key] for key in plan.keys if key in finished)
     moves = tuple(finished[move] for move in plan.moves if move in finished)
