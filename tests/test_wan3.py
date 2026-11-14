@@ -11,10 +11,13 @@ from pathlib import Path
 import pytest
 
 from conftest import FIXTURES, copy_of, planned, told, words
-from videotape import dailies, ledger, wan3
+from videotape import dailies, ledger, project, wan3
+from videotape.errors import RenderError
 from videotape.fal import Fal, FalError, Receipt
+from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
+from videotape.render import render
 from videotape.standin import StandInEye
 
 KEY = "fal-test-key-0123456789abcdef"
@@ -321,6 +324,57 @@ def test_a_render_that_died_between_submitting_and_downloading_downloads_on_resu
     assert len(fal.posts) == 11
     assert sorted(line["request_id"] for line in book.lines()) == sorted(f"request-{n}" for n in range(11))
     assert book.totals()["usd"] == 5.5
+
+
+class Window(Hosted):
+    """Opens the window in which a reservation could leak. Request 0's download waits for go and then fails for good,
+    so its call was paid for and is never settled. The third submit waits until a fourth comes, or gives up, so a
+    worker that reserves after request 0 fails has the time to submit."""
+
+    def __init__(self, scratch: Path):
+        super().__init__(scratch)
+        self.go, self.fourth = threading.Event(), threading.Event()
+        self.submits = 0
+
+    def __call__(self, request: urllib.request.Request) -> bytes:
+        if request.full_url == "https://v3b.fal.media/files/test/request-0.mp4":
+            self.go.wait(5)
+            raise http(404, "gone")
+        if request.get_method() == "POST":
+            with self.lock:
+                self.submits += 1
+                third = self.submits == 3
+            if third:
+                self.fourth.wait(1.5)
+        answer = super().__call__(request)
+        if request.get_method() == "POST" and len(self.posts) == 4:
+            self.fourth.set()
+        return answer
+
+
+def test_a_call_that_fails_after_its_submit_keeps_its_reservation(tmp_path):
+    """Under a cap of $1.50, two keys are submitted at once and a third is reserved. Request 0 then fails after its
+    submit. Were its reservation let go, the worker could reserve that money before the main thread stops the
+    render, and four submits at $0.50 would pass the cap."""
+    directory = copy_of("cafe", tmp_path)
+    (tmp_path / "clips").mkdir()
+    fal = Window(tmp_path / "clips")
+    model = wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None))
+    reported = []
+
+    def report(filmed):
+        reported.append(filmed)
+        if len(reported) == 1:
+            fal.go.set()
+            fal.fourth.wait(1.5)
+
+    chalk, tape = told(directory), directory / "tape-wan3"
+    with pytest.raises(RenderError) as error:
+        render(planned(directory), chalk, model, StandInEye(), tape, ledger.of(directory, tape),
+               made(project.find(directory), chalk, model), takes=1, limit=2, price=wan3.PRICE, cap=1.5, report=report)
+    assert error.value.code in ("VT401", "VT402")
+    assert 0.5 * len(fal.posts) <= 1.5 and len(fal.posts) == 3
+    assert sorted(line["request_id"] for line in ledger.of(directory, tape).lines()) == ["request-1", "request-2"]
 
 
 @pytest.mark.parametrize("old, new, calls", [
