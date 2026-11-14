@@ -1,0 +1,5 @@
+version = "1.0.0"
+look = A narrow shop on a rainy street at night.
+
+[scenes]
+home = "The shop front, under its neon sign."

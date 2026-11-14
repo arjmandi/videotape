@@ -1,7 +1,7 @@
 import pytest
 
 import videotape as vt
-from conftest import CONTRAIL, planned
+from conftest import CONTRAIL, a_story, planned, told, words
 from videotape import frames, standin
 from videotape.checks import KeyChecks, Reading, readings, score
 from videotape.frames import Box
@@ -23,10 +23,11 @@ def repeated() -> Key:
     return plan(app).keys[0]
 
 
-def test_the_stand_in_draws_every_contrail_key_so_its_eye_reads_every_line_and_finds_every_action():
-    eye = StandInEye()
+@pytest.mark.parametrize("name", ["terminal", "posters"])
+def test_the_stand_in_draws_every_contrail_key_so_its_eye_reads_every_line_and_finds_every_action(name):
+    eye, look = StandInEye(), told(CONTRAIL, name)
     for key in planned(CONTRAIL).keys:
-        frame, drawn = standin.draw(standin.quoted(key.prompt))
+        frame, drawn = standin.draw(standin.quoted(words(key, look)))
         assert (frame.width, frame.height) == (1280, 704)
         assert eye.read(frame) == list(key.lines), key.state.name
         assert score(frame, key, eye).failures == [], key.state.name
@@ -40,7 +41,7 @@ def test_a_take_of_a_dense_key_still_reads_exactly_after_it_is_encoded(tmp_path,
     key = contrail_key(state)
     assert (len(key.lines), len(key.actions)) == (lines, actions)
     model = StandIn(flaw=clean)
-    model.text_to_video(key.prompt, 1, tmp_path / "take.mp4")
+    model.text_to_video(words(key, told(CONTRAIL, "terminal")), 1, tmp_path / "take.mp4")
     frame = frames.last_frame(tmp_path / "take.mp4")
     checks = score(frame, key, StandInEye())
     assert checks.failures == []
@@ -70,7 +71,7 @@ def test_a_flawed_take_fails_its_checks_even_when_the_flaw_is_on_a_line_the_key_
     assert key.lines == ("$89", "$89")
     for seed in (1, 2, 3):
         take = tmp_path / f"{seed}.mp4"
-        StandIn(flaw=lambda mode, prompt, seed: flaw).text_to_video(key.prompt, seed, take)
+        StandIn(flaw=lambda mode, prompt, seed: flaw).text_to_video(words(key, a_story()), seed, take)
         checks = score(frames.last_frame(take), key, StandInEye())
         assert [reading.cer for reading in checks.text].count(0.0) == 1
         assert [item.name for item in checks.failures] == ['text "$89"']
@@ -81,7 +82,7 @@ def test_only_seeds_one_and_two_ever_carry_a_flaw_and_some_do(tmp_path):
     for key in planned(CONTRAIL).keys[:4]:
         for seed in (1, 2, 3, 4):
             model = StandIn()
-            model.text_to_video(key.prompt, seed, tmp_path / "take.mp4")
+            model.text_to_video(words(key, told(CONTRAIL, "terminal")), seed, tmp_path / "take.mp4")
             if [d.text for d in model.drawn[tmp_path / "take.mp4"]] != list(key.lines):
                 flawed.add(seed)
     assert flawed == {1, 2}

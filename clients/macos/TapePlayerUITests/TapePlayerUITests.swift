@@ -4,13 +4,13 @@ import XCTest
 
 /// Clicks through the Contrail tape the way a person does, then checks what the window shows.
 final class TapePlayerUITests: XCTestCase {
-    /// `examples/contrail/tape` in the checkout this file lives in.
+    /// `examples/contrail/tapes/terminal` in the checkout this file lives in.
     private static let tape = URL(filePath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
-        .appending(path: "examples/contrail/tape")
+        .appending(path: "examples/contrail/tapes/terminal")
 
     @MainActor
     func testBookingTheMorningFlightToSeattleLandsBackOnHome() throws {
@@ -80,7 +80,7 @@ final class TapePlayerUITests: XCTestCase {
         let exists = FileManager.default.fileExists(atPath: Self.tape.appending(path: "tape.json").path(percentEncoded: false))
         let tape = try XCTUnwrap(
             exists ? Self.tape : nil,
-            "No tape.json in \(Self.tape.path(percentEncoded: false)). In examples/contrail, run: uv run videotape render"
+            "No tape.json in \(Self.tape.path(percentEncoded: false)). In examples/contrail, run: uv run videotape render --story terminal"
         )
         let app = XCUIApplication()
         app.launchArguments = [tape.path(percentEncoded: false)]

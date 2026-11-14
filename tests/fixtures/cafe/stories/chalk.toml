@@ -1,0 +1,22 @@
+# The cafe as a chalkboard behind its counter.
+version = "1.0.0"
+
+look = """
+A chalkboard behind the counter of a small corner cafe, lettered by hand in white chalk. Warm light
+from the left, and a strip of pale wood along the bottom edge.
+"""
+
+[scenes]
+menu = "The whole board, seen from across the counter."
+order = "One panel of the board, up close."
+thanks = "A paper cup on the counter, in front of the board."
+
+[elements]
+Heading = "large chalk letters across the top of the board"
+Text = "a line of smaller chalk letters"
+Button = "a chalk box with bold letters inside"
+List = "chalk lines, one per row, with a dotted line from each name to its price"
+
+[moves]
+default = "The camera drifts along the board to the next panel and settles."
+Button = "The chalk box is rubbed out. The camera pulls back from the board."

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Rent one Runpod GPU, render an app on it with Wan 2.2, bring the tape back, and delete the pod.
+"""Rent one Runpod GPU, render an app in a story on it with Wan 2.2, bring the tape back, and delete the pod.
 
 Run it in the app's project, the folder whose pyproject.toml has [tool.videotape], inside this repository:
 
     cd examples/contrail
-    ../../scripts/runpod-render --takes 3 --cap-usd 20 [--out tape-wan2] [--gpu "NVIDIA H100 80GB HBM3"] [--dry-run]
+    ../../scripts/runpod-render --story terminal --takes 3 --cap-usd 20 [--out tape-wan2] [--gpu "NVIDIA H100 80GB HBM3"] [--dry-run]
 
 Needs RUNPOD_API_KEY in the environment, except under --dry-run, which prints the plan and creates nothing.
 Only this script creates pods. Standard library only, on any Python from 3.9, so the system python3 can run it.
@@ -67,6 +67,8 @@ class ApiError(Exception):
 class Plan:
     project: str
     """The app's project folder, from the repository's root."""
+    story: str
+    """The story to render the app in, which is stories/<story>.toml in the project."""
     tape: str
     """The tape folder, from the project. It is the tape's name in the project's ledger."""
     takes: int
@@ -87,8 +89,13 @@ def deadline_seconds(cap_usd: float, usd_per_hour: float) -> int:
     return int(cap_usd / usd_per_hour * 3600) - TEARDOWN_MARGIN
 
 
-def plan(project: str, tape: str, takes: int, gpu: str, cap_usd: float, usd_per_hour: float, price_source: str,
-         public_key: str, image: str = IMAGE, cloud: str = CLOUD, name: str | None = None) -> Plan:
+def own_tape(story: str) -> str:
+    """The tape videotape renders a story into when --out names no other."""
+    return f"tapes/{story}"
+
+
+def plan(project: str, story: str, tape: str, takes: int, gpu: str, cap_usd: float, usd_per_hour: float,
+         price_source: str, public_key: str, image: str = IMAGE, cloud: str = CLOUD, name: str | None = None) -> Plan:
     if usd_per_hour <= 0:
         raise PlanError(f"{gpu} has no {cloud.lower()} price")
     deadline = deadline_seconds(cap_usd, usd_per_hour)
@@ -97,8 +104,8 @@ def plan(project: str, tape: str, takes: int, gpu: str, cap_usd: float, usd_per_
         raise PlanError(f"a cap of ${cap_usd:.2f} buys {deadline / 60:.0f} minutes of render time at ${usd_per_hour:.2f}/h "
                         f"after the {TEARDOWN_MARGIN // 60} minute teardown margin; the least that makes sense is ${least:.2f}")
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return Plan(project, tape, takes, gpu, cloud, usd_per_hour, price_source, cap_usd, deadline, image, DISK_GB, MIN_CUDA,
-                public_key.strip(), name or f"videotape-{Path(project).name}-{stamp}")
+    return Plan(project, story, tape, takes, gpu, cloud, usd_per_hour, price_source, cap_usd, deadline, image, DISK_GB,
+                MIN_CUDA, public_key.strip(), name or f"videotape-{Path(project).name}-{stamp}")
 
 
 def self_destruct(deadline: int) -> str:
@@ -174,10 +181,16 @@ def setup_script() -> str:
     ])
 
 
+def which_tape(built: Plan) -> list[str]:
+    """How a videotape command names this plan's tape: by its story, or with --out when it is not the story's own."""
+    return ["--story", built.story] if built.tape == own_tape(built.story) else ["--out", built.tape]
+
+
 def render_command(built: Plan) -> str:
     """Run in the project on the pod. The repository's environment has the wan and qwen extras, so it runs videotape."""
-    out = "" if built.tape == "tape" else f" --out {shlex.quote(built.tape)}"
-    return f"uv run --project {REMOTE} videotape render --model wan2.2-5b --takes {built.takes}{out}"
+    out = "" if built.tape == own_tape(built.story) else f" --out {shlex.quote(built.tape)}"
+    return (f"uv run --project {REMOTE} videotape render --story {shlex.quote(built.story)} --model wan2.2-5b "
+            f"--takes {built.takes}{out}")
 
 
 def render_script(built: Plan) -> str:
@@ -195,7 +208,8 @@ def describe(built: Plan) -> str:
     hours = built.cap_usd / built.usd_per_hour
     price = f"${built.usd_per_hour:.2f}/h ({built.price_source})"
     return "\n".join([
-        f"project       {built.project}, {built.takes} take{'s' if built.takes > 1 else ''} per shot, tape {fetched(built)}",
+        f"project       {built.project} in the story {built.story}, {built.takes} take{'s' if built.takes > 1 else ''} "
+        f"per shot, tape {fetched(built)}",
         f"gpu           {built.gpu}, {built.cloud.lower()} cloud, {price}",
         f"cap           ${built.cap_usd:.2f} buys {hours:.2f} h; the pod self-destructs after {built.deadline_seconds} s "
         f"({built.deadline_seconds / 3600:.2f} h), leaving {TEARDOWN_MARGIN // 60} min to copy the tape back and delete",
@@ -339,8 +353,7 @@ def ledger_path(built: Plan) -> str:
 
 def dailies_command(built: Plan) -> list[str]:
     """Run in the project here. The repository's environment runs videotape, as on the pod, so the project needs none."""
-    out = [] if built.tape == "tape" else ["--out", built.tape]
-    return ["uv", "run", "--project", str(ROOT), "videotape", "dailies", *out]
+    return ["uv", "run", "--project", str(ROOT), "videotape", "dailies", *which_tape(built)]
 
 
 def download(ssh: Ssh, built: Plan) -> None:
@@ -428,19 +441,31 @@ def find_project(start: Path) -> str:
     return folder.resolve().relative_to(ROOT).as_posix()
 
 
+def find_story(project: str, story: str) -> str:
+    """The story's name, once its file is known to be in the project, so a pod is never rented to find it missing."""
+    stories = ROOT / project / "stories"
+    if not (stories / f"{story}.toml").is_file():
+        have = sorted(path.stem for path in stories.glob("*.toml"))
+        raise PlanError(f'no story "{story}" in {project}/stories; ' +
+                        (f"the stories are {' and '.join(have)}" if have else f"add {project}/stories/{story}.toml"))
+    return story
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--story", required=True, help="the story to render the app in, stories/<story>.toml in the project")
     parser.add_argument("--takes", type=int, default=3)
     parser.add_argument("--cap-usd", type=float, required=True, help="the most this run may cost; sets the self-destruct deadline")
     parser.add_argument("--gpu", default=DEFAULT_GPU, help=f"Runpod GPU type id (default {DEFAULT_GPU})")
     parser.add_argument("--image", default=IMAGE)
-    parser.add_argument("--out", default="tape", help="the tape folder to render into, in the project (default tape)")
+    parser.add_argument("--out", help="the tape folder to render into, in the project (default tapes/<story>)")
     parser.add_argument("--usd-per-hour", type=float, default=ASSUMED_USD_PER_HOUR,
                         help="price a keyless --dry-run assumes; with a key the catalog price is used")
     parser.add_argument("--dry-run", action="store_true", help="print the plan and create nothing")
     args = parser.parse_args(argv)
     try:
         project = find_project(Path.cwd())
+        story = find_story(project, args.story)
     except PlanError as error:
         print(f"error: {error}", file=sys.stderr)
         return 2
@@ -457,7 +482,8 @@ def main(argv=None) -> int:
                 raise PlanError(f"no {args.gpu} with CUDA >= {MIN_CUDA} in the {CLOUD.lower()} cloud right now ({source})")
         else:
             price, source = args.usd_per_hour, "assumed, catalog read of 2026-11-09; set RUNPOD_API_KEY for the live price"
-        built = plan(project, args.out, args.takes, args.gpu, args.cap_usd, price, source, ensure_key(), image=args.image)
+        built = plan(project, story, args.out or own_tape(story), args.takes, args.gpu, args.cap_usd, price, source,
+                     ensure_key(), image=args.image)
     except (PlanError, ApiError) as error:
         print(f"error: {error}", file=sys.stderr)
         return 2

@@ -1,0 +1,10 @@
+version = "1.0.0"
+look = "A narrow shop on a rainy street at night."
+
+[scenes]
+home = "The shop front, under its neon sign."
+detail = "A brass plate beside the door."
+
+[elements]
+Heading = "tall neon letters"
+Buton = "a lit bell push with small letters under it"

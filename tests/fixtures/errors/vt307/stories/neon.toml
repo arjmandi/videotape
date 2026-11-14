@@ -1,0 +1,33 @@
+version = "1.0.0"
+
+look = """
+A narrow shop front on a rainy street at night, seen straight on from the far pavement. A neon sign
+in pink and pale blue hangs above the door and hums, and its light pools on the wet cobbles. The
+window is crowded with brass lamps, glass jars, folded maps, clocks that have all stopped, and one
+sleeping cat. Rain runs down the glass in long threads and gathers along the sill, where moss grows
+between the bricks. A striped awning sags under the weight of the water, and every few seconds a
+drop falls from its lowest corner. Inside, a single bulb swings on its cord and throws slow shadows
+across shelves that reach up into the dark. The door is painted bottle green, its brass handle worn
+bright, and a paper notice is pinned to it at eye level. To the left a bicycle leans against a
+drainpipe, its basket full of wet newspapers tied up with string. To the right a red pillar box
+stands half in shadow, and behind it an alley runs back toward a distant yellow window. Steam rises
+from a grating in the road, drifts across the front of the shop, and thins out under the sign. The
+whole street is quiet, the colors are deep and saturated, and every painted letter is crisp and
+evenly spaced. Above the shop there are two more floors of dark brick, with tall sash windows, iron
+balconies, and a crooked chimney. A tram wire crosses the top of the frame, beaded with rain, and a
+single pigeon sits on it with its feathers puffed. Reflections of the sign stretch down the road
+toward the camera and break up where the cobbles dip into puddles. Nothing moves except the rain,
+the steam, the swinging bulb, and the slow drip from the corner of the awning. The camera is level
+and still, about the height of a person standing, with the door exactly in the middle. A hand-
+painted board beside the door lists the hours in gold leaf, and a second, smaller board hangs under
+it on two short chains. The gutter along the kerb runs fast with rainwater, carrying a paper boat, a
+few yellow leaves, and the reflection of a street lamp. Across the upper windows the curtains are
+drawn, except one, where a reading lamp shows the back of an armchair and a tall stack of books. A
+row of iron railings guards the steps down to a cellar door, and a coal hole cover in the pavement
+shines like a dark coin. Far down the street a clock tower shows a quarter past eleven, small and
+pale against a sky the color of slate. Every surface is wet, every edge catches a little of the pink
+and blue light, and the paint on the shop front is fresh and unchipped.
+"""
+
+[scenes]
+home = "The shop front, under its neon sign."

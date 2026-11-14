@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from videotape import project
+from videotape import project, story
 from videotape.cli import main
-from videotape.plan import Plan, plan
+from videotape.plan import Plan, Shot, plan
+from videotape.story import Story
 
 FIXTURES = Path(__file__).parent / "fixtures"
 CONTRAIL = Path(__file__).parent.parent / "examples" / "contrail"
@@ -28,6 +29,22 @@ def planned(directory: Path) -> Plan:
     found = project.find(directory)
     forget(found)
     return plan(found.load(), found.max_states)
+
+
+def told(directory: Path, name: str = "chalk") -> Story:
+    """A project's story. chalk is the cafe fixture's."""
+    return story.named(directory, name)
+
+
+def a_story(scenes: dict[str, str] | None = None, elements: dict[str, str] | None = None,
+            moves: dict[str, str] | None = None) -> Story:
+    """A story that is only a look, for an app made up in a test, with whatever else the test gives it."""
+    return Story("plain", "1.0.0", "A plain room.", scenes or {}, elements or {}, moves or {}, Path("plain.toml"), "")
+
+
+def words(shot: Shot, told: Story) -> str:
+    """The prompt a story gives a shot, as the model is sent it."""
+    return story.text(story.prompt(shot, told))
 
 
 def copy_of(fixture: str, to: Path) -> Path:

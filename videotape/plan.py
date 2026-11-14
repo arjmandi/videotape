@@ -1,4 +1,5 @@
-"""The plan: every state an app can reach, walked breadth first from its entry before anything renders."""
+"""The plan: every state an app can reach, walked breadth first from its entry before anything renders. It holds the
+screenplay's words and nothing of how they look, which a story adds when it gives each shot its prompt."""
 
 import inspect
 import re
@@ -28,10 +29,17 @@ class Key:
 
     id: str
     state: State
-    prompt: str
-    lines: tuple[str, ...]
-    actions: tuple[Action, ...]
+    shown: tuple[Shown, ...]
+    """What the state shows: each element, in reading order."""
     mode: ClassVar[Mode] = Mode.TEXT_TO_VIDEO
+
+    @property
+    def lines(self) -> tuple[str, ...]:
+        return tuple(line.words for element in self.shown for line in element.lines)
+
+    @property
+    def actions(self) -> tuple[Action, ...]:
+        return tuple(line.action for element in self.shown for line in element.lines if line.action)
 
     @property
     def title(self) -> str:
@@ -49,10 +57,18 @@ class Move:
 
     id: str
     start: State
-    land: State
-    label: str
-    prompt: str
+    action: Action
+    element: str
+    """The type of the element that holds the action."""
     mode: ClassVar[Mode] = Mode.FIRST_AND_LAST_FRAME
+
+    @property
+    def land(self) -> State:
+        return self.action.to
+
+    @property
+    def label(self) -> str:
+        return self.action.label
 
     @property
     def title(self) -> str:
@@ -84,19 +100,16 @@ class Plan:
 
 def plan(screenplay: Screenplay, max_states: int = MAX_STATES) -> Plan:
     entry = _entry(screenplay)
-    title = screenplay.title
     keys, ids, warned = list[Key](), set[str](), dict[str, ScreenplayError]()
     reached, queue = {entry}, deque([entry])
     while queue:
         state = queue.popleft()
-        shown = _show(state)
-        lines = tuple(line for element in shown for line in element.lines)
-        actions = tuple(line.action for line in lines if line.action)
-        _told_apart(state, actions)
-        for line in lines:
-            for warning in _hard_to_letter(state, line.words):
+        key = Key(_unique(_slug(state.name), ids), state, _show(state))
+        _told_apart(state, key.actions)
+        for words in key.lines:
+            for warning in _hard_to_letter(state, words):
                 warned.setdefault(warning.message, warning)
-        for action in actions:
+        for action in key.actions:
             if action.to not in reached:
                 if len(reached) == max_states:
                     raise ScreenplayError("VT210", action.to.name, f"the plan reached more than {max_states} states",
@@ -104,22 +117,16 @@ def plan(screenplay: Screenplay, max_states: int = MAX_STATES) -> Plan:
                                           "in [tool.videotape]")
                 reached.add(action.to)
                 queue.append(action.to)
-        prompt = f"The {title} app at rest, flat and head-on. {' '.join(element.sentence for element in shown)} " \
-                 "Sharp, legible lettering."
-        keys.append(Key(_unique(_slug(state.name), ids), state, prompt, tuple(line.words for line in lines), actions))
+        keys.append(key)
     unreached = [scene for scene in screenplay.scenes if scene not in {state.scene for state in reached}]
     if unreached:
         names = [scene.name for scene in unreached]
         raise ScreenplayError("VT204", f"{errors.shown(unreached[0].defined[0])}:{unreached[0].defined[1]}",
                               f"no action reaches the scene{'' if len(names) == 1 else 's'} {' and '.join(names)}",
                               f"lead to it from a scene that is reached, as in to={unreached[0].called}, or delete it")
-    moves = list[Move]()
-    for key in keys:
-        for action in key.actions:
-            prompt = f'The {action.kind} "{action.words}" is pressed. The app changes smoothly to what it shows next.'
-            moves.append(Move(_unique(f"{key.id}--{_slug(action.words)}", ids), key.state, action.to, action.label,
-                              prompt))
-    return Plan(title, tuple(scene.name for scene in screenplay.scenes), tuple(keys), tuple(moves),
+    moves = [Move(_unique(f"{key.id}--{_slug(line.action.words)}", ids), key.state, line.action, element.type)
+             for key in keys for element in key.shown for line in element.lines if line.action]
+    return Plan(screenplay.title, tuple(scene.name for scene in screenplay.scenes), tuple(keys), tuple(moves),
                 tuple(warned.values()))
 
 
@@ -137,7 +144,7 @@ def _entry(screenplay: Screenplay) -> State:
     return first()
 
 
-def _show(state: State) -> list[Shown]:
+def _show(state: State) -> tuple[Shown, ...]:
     scene = state.scene
     try:
         shown = list[Shown]()
@@ -145,7 +152,7 @@ def _show(state: State) -> list[Shown]:
             if not isinstance(element, Element):
                 raise TypeError(f"{scene.name} returned {element!r}, which is not an element")
             shown.append(element.show(state))
-        return shown
+        return tuple(shown)
     except ScreenplayError as error:
         raise error.in_state(state.name) from None
     except Exception as error:

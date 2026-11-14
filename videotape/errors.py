@@ -1,4 +1,4 @@
-"""Every logical error a screenplay or its data can have: its code, what it means, an example, and the fix."""
+"""Every logical error a screenplay, its data or a story can have: its code, what it means, an example, and the fix."""
 
 import os
 import sys
@@ -103,6 +103,59 @@ CODES: dict[str, Code] = {
         "may come out misspelt in a take.",
         'vt.Text("Café Lumière opens at 7 & closes at 9")',
         'vt.Text("Cafe Lumiere opens at 7 and closes at 9")',
+    ),
+    "VT301": Code(
+        "a story has no version or no look",
+        "A story is one file under stories/, and it opens with its version and its look. The look is the sentence or "
+        "two that every key's prompt starts from, and a tape's label names the story by its version. Both are words "
+        "in quotes above the first [heading], because a line under a heading belongs to that heading's table.",
+        '[scenes]\nhome = "The main hall."\nlook = "A quiet airport terminal at first light."',
+        'version = "1.0.0"\nlook = "A quiet airport terminal at first light."\n\n[scenes]\nhome = "The main hall."',
+    ),
+    "VT302": Code(
+        "a story directs a scene the screenplay doesn't have",
+        "Under [scenes] a story gives a scene its direction, by the scene's name, which is the name of its function "
+        "in the screenplay. No scene has this name, so no key would ever get the direction. The error names the "
+        "line, and the fix names the closest real scene.",
+        '[scenes]\nresult = "The departure board, showing one day\'s flights."',
+        '[scenes]\nresults = "The departure board, showing one day\'s flights."',
+    ),
+    "VT303": Code(
+        "a story names an element type the screenplay doesn't use",
+        "Under [elements] a story gives an element type its appearance, and under [moves] its camera move, by the "
+        "type's class name, such as Button or DateStrip. An Option takes those of its SearchBar, DatePicker or "
+        "DateStrip, and a Row those of its List. No state of this app shows an element of this type, so the words "
+        "would never be used. [moves] may also hold default, the move of every type without its own. The error names "
+        "the line, and the fix names the closest type the app does show.",
+        '[elements]\nButon = "a lit amber panel with bold black letters"',
+        '[elements]\nButton = "a lit amber panel with bold black letters"',
+    ),
+    "VT304": Code(
+        "a scene has no direction",
+        "A warning. A key's prompt is the story's look, then its scene's direction, then each element it shows. This "
+        "story directs other scenes and not this one, so each of this scene's keys gets only the look, and nothing "
+        "sets its place apart from the rest of the app. The plan goes on.",
+        '[scenes]\nhome = "The main hall, facing the big departure board."',
+        '[scenes]\nhome = "The main hall, facing the big departure board."\n'
+        'search = "Up close at the departure board."',
+    ),
+    "VT306": Code(
+        "a story is not TOML",
+        'A story is a TOML file: lines of name = "words", above and under the headings [scenes], [elements] and '
+        "[moves]. This file breaks TOML's rules, most often with words that are not in quotes or a quote that never "
+        "closes. The error names the line and says what TOML's reader found there.",
+        "look = A quiet airport terminal at first light.",
+        'look = "A quiet airport terminal at first light."',
+    ),
+    "VT307": Code(
+        "a prompt is longer than the model reads",
+        "A warning. A model reads a prompt up to a limit and drops the rest without saying so, and a key's prompt "
+        "ends with the elements at the bottom of its state. Wan 2.2 reads 512 tokens. The plan has no tokenizer, so "
+        "it counts high: one token for every four letters of a word, one for every other character that is not a "
+        "space, and one for the end. Wan 3.0 on fal takes 20,000 characters. The stand-in has no limit. The plan goes "
+        "on.",
+        'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
+        "Shorten the look, the scene's direction or the appearances in the story, or show fewer lines in the state.",
     ),
 }
 

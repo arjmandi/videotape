@@ -19,6 +19,8 @@ ENDPOINTS = {
 # Five seconds without sound, like the 5B's clips. fal's defaults are 1080p, an adaptive aspect ratio, audio on and
 # prompt expansion on, which rewrites the prompt, so each is set to give both models the same words at one size.
 SETTINGS = {"resolution": "720p", "aspect_ratio": "16:9", "duration": 5, "audio": False, "enable_prompt_expansion": False}
+# The same two schemas, read 2026-11-14: each gives its prompt a maxLength of 20000 characters.
+PROMPT_CHARACTERS = 20_000
 # Both endpoints' model pages on 2026-11-10: "$0.05 480p, $0.10 720p, or $0.20 1080p" for every second generated.
 PRICE = Price(usd_per_second=0.10, seconds=SETTINGS["duration"])
 

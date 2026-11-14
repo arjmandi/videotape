@@ -14,6 +14,7 @@ from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
 from videotape.publish import publish
+from videotape.story import Story, prompt, text
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class Take:
 @dataclass(frozen=True)
 class Filmed:
     shot: Shot
+    prompt: str
     takes: tuple[Take, ...]
     kept: Take
 
@@ -49,57 +51,61 @@ class Render:
         return *self.keys, *self.moves
 
 
-def render(plan: Plan, model: Model, eye: Eye, tape: Path, ledger: Ledger, takes: int = 3) -> Render:
-    """Draw a key for every state of the plan and a move for every action, and write them into the tape."""
+def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger: Ledger, takes: int = 3) -> Render:
+    """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
+    and write them into the tape."""
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     seeds = range(1, takes + 1)
     # Every key first, so each move is pinned to two kept keys, and Wan swaps its checkpoint once per render.
     filmed_keys = []
     for key in plan.keys:
-        key_takes = tuple(_key_take(model, eye, key, seed, tape, ledger) for seed in seeds)
+        words = text(prompt(key, story))
+        key_takes = tuple(_key_take(model, eye, key, words, seed, tape, ledger) for seed in seeds)
         kept = min(key_takes, key=lambda take: take.checks.rank(take.seed))
         publish(tape / key.image, lambda partial: frames.write_png(frames.last_frame(kept.path), partial))
-        filmed_keys.append(Filmed(key, key_takes, kept))
+        filmed_keys.append(Filmed(key, words, key_takes, kept))
     opening = filmed_keys[0].kept
     publish(tape / "moves" / "opening.mp4", lambda partial: shutil.copyfile(opening.path, partial))
     images = {key.state: tape / key.image for key in plan.keys}
     filmed_moves = []
     for move in plan.moves:
+        words = text(prompt(move, story))
         start, end = images[move.start], images[move.land]
         pinned = frames.read_png(start), frames.read_png(end)
-        move_takes = tuple(_move_take(model, move, start, end, pinned, seed, tape, ledger) for seed in seeds)
+        move_takes = tuple(_move_take(model, move, words, start, end, pinned, seed, tape, ledger) for seed in seeds)
         kept = min(move_takes, key=lambda take: take.checks.rank(take.seed))
         publish(tape / move.clip, lambda partial: shutil.copyfile(kept.path, partial))
-        filmed_moves.append(Filmed(move, move_takes, kept))
+        filmed_moves.append(Filmed(move, words, move_takes, kept))
     result = Render(tape, tuple(filmed_keys), tuple(filmed_moves))
     publish(tape / "tape.json", lambda partial: partial.write_text(json.dumps(_tape(plan, result), indent=2) + "\n"))
     dailies.write(tape, dailies.record(plan.title, eye.name, result), ledger.totals())
     return result
 
 
-def _key_take(model: Model, eye: Eye, key: Key, seed: int, tape: Path, ledger: Ledger) -> Take:
-    path, cached, timing = _film(model, key, (), seed, tape, ledger,
-                                 lambda out: model.text_to_video(key.prompt, seed, out))
+def _key_take(model: Model, eye: Eye, key: Key, words: str, seed: int, tape: Path, ledger: Ledger) -> Take:
+    path, cached, timing = _film(model, key, words, (), seed, tape, ledger,
+                                 lambda out: model.text_to_video(words, seed, out))
     return Take(seed, path, cached, score(frames.last_frame(path), key, eye), timing.get("seconds"), timing.get("gpu"),
                 timing.get("usd"))
 
 
-def _move_take(model: Model, move: Move, start: Path, end: Path, pinned: tuple[Frame, Frame], seed: int, tape: Path,
-               ledger: Ledger) -> Take:
-    path, cached, timing = _film(model, move, (start, end), seed, tape, ledger,
-                                 lambda out: model.first_last_frame(move.prompt, start, end, seed, out))
+def _move_take(model: Model, move: Move, words: str, start: Path, end: Path, pinned: tuple[Frame, Frame], seed: int,
+               tape: Path, ledger: Ledger) -> Take:
+    path, cached, timing = _film(model, move, words, (start, end), seed, tape, ledger,
+                                 lambda out: model.first_last_frame(words, start, end, seed, out))
     return Take(seed, path, cached, seams(frames.first_frame(path), frames.last_frame(path), *pinned),
                 timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
 
 
-def uncached(plan: Plan, model: Model, takes: int, tape: Path) -> int:
+def uncached(plan: Plan, story: Story, model: Model, takes: int, tape: Path) -> int:
     """How many takes a render will film. A move counts every take unless both its keys are cached and their images
     are on the tape, since a key that renders again may change and move every take pinned to it."""
     seeds = range(1, takes + 1)
     count, changing = 0, set()
     for key in plan.keys:
-        missing = sum(not _take_path(model, key, (), seed, tape).exists() for seed in seeds)
+        words = text(prompt(key, story))
+        missing = sum(not _take_path(model, key, words, (), seed, tape).exists() for seed in seeds)
         count += missing
         if missing:
             changing.add(key.state)
@@ -109,24 +115,25 @@ def uncached(plan: Plan, model: Model, takes: int, tape: Path) -> int:
         if {move.start, move.land} & changing or not all(image.exists() for image in pinned):
             count += takes
         else:
-            count += sum(not _take_path(model, move, pinned, seed, tape).exists() for seed in seeds)
+            words = text(prompt(move, story))
+            count += sum(not _take_path(model, move, words, pinned, seed, tape).exists() for seed in seeds)
     return count
 
 
-def _take_path(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path) -> Path:
+def _take_path(model: Model, shot: Shot, words: str, images: tuple[Path, ...], seed: int, tape: Path) -> Path:
     """A take's name hashes everything its pixels depend on: the mode, the prompt, the key images a move is pinned to,
     the model, the seed and the model's settings."""
-    fields = [shot.mode.value, shot.prompt, *(hashlib.sha256(image.read_bytes()).hexdigest() for image in images),
+    fields = [shot.mode.value, words, *(hashlib.sha256(image.read_bytes()).hexdigest() for image in images),
               model.name, seed]
     if settings := model.settings(shot.mode):
         fields.append(settings)
     return tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
 
 
-def _film(model: Model, shot: Shot, images: tuple[Path, ...], seed: int, tape: Path, ledger: Ledger,
+def _film(model: Model, shot: Shot, words: str, images: tuple[Path, ...], seed: int, tape: Path, ledger: Ledger,
           film: Callable[[Path], Receipt | None]) -> tuple[Path, bool, dict]:
     """The take for this shot and seed, filmed unless it is already in the cache."""
-    path = _take_path(model, shot, images, seed, tape)
+    path = _take_path(model, shot, words, images, seed, tape)
     # The render time and any price live in a sidecar next to the take, so they survive caching.
     timing = path.with_suffix(".json")
     cached = path.exists()

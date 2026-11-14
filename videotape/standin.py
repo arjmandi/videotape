@@ -139,11 +139,14 @@ class StandInEye:
 
 
 def quoted(prompt: str) -> list[list[str]]:
-    """The lines a prompt quotes, in rows: a sentence, or a part of one that ends at a colon or semicolon, is a row."""
+    """The lines a prompt quotes, in rows: a sentence, or a part of one that ends at a colon or semicolon, is a row.
+    A line the prompt quotes again to say it is the chosen one, as in with "Home" chosen, is drawn once."""
     rows, row = list[list[str]](), list[str]()
-    for index, part in enumerate(re.split(r'"([^"]*)"', prompt)):
-        if index % 2 and part:
-            row.append(part)
+    parts = re.split(r'"([^"]*)"', prompt)
+    for index, part in enumerate(parts):
+        if index % 2:
+            if part and not parts[index + 1].startswith(" chosen"):
+                row.append(part)
         elif row and re.search("[.:;]", part):
             rows.append(row)
             row = []

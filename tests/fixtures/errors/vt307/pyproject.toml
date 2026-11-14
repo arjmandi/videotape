@@ -1,0 +1,7 @@
+[project]
+name = "vt307"
+version = "0.1.0"
+
+[tool.videotape]
+screenplay = "app:app"
+model = "wan2.2-5b"

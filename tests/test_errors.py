@@ -34,12 +34,34 @@ ERRORS = {
     "VT209": ("home()", 'two actions have the label "Open"', "give each action its own label"),
     "VT210": ("count(5)", "the plan reached more than 5 states",
               "take a scene's arguments from the data, which ends, or raise max_states in [tool.videotape]"),
+    "VT301": ("stories/neon.toml", "the story has no look",
+              'write look = "...", the look of the whole app in a sentence or two, above the first [heading]'),
+    "VT302": ("stories/neon.toml:6", "the story directs the scene detial, and the screenplay has no scene of that name",
+              "write detail, the closest of the screenplay's scenes"),
+    "VT303": ("stories/neon.toml:10",
+              "the story gives an appearance to the element type Buton, which the screenplay does not use",
+              "write Button, the closest of the screenplay's element types"),
+    "VT306": ("stories/neon.toml:2", "the story is not TOML: Invalid value",
+              'write each line as name = "words", under [scenes], [elements] or [moves], or above all three'),
 }
 WARNINGS = {
     "VT211": [("home()", 'the line "Café Lumière" has the characters è é', f"write it with {PLAIN}"),
               ("home()", 'the line "We open every single day of the week at seven in the morning sharp." has 14 words',
                "shorten it to 12 words or fewer")],
+    "VT304": [("stories/neon.toml", "the scene detail has no direction, so its keys get only the look",
+               'add detail = "..." under [scenes]')],
+    "VT307": [("key home()", "the prompt is about 778 tokens long, and wan2.2-5b reads only the first 512",
+               "shorten the look, the scene's direction or the appearances in stories/neon.toml, or show fewer lines "
+               "in this state")],
 }
+SUMMARIES = {"VT211": "Cafe 0.1.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot",
+             "VT304": "Shop 0.1.0 + neon 1.0.0: 2 scenes, 2 states, 2 keys, 1 move, 3 shots",
+             "VT307": "Shop 0.1.0 + neon 1.0.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot"}
+
+
+def in_its_story(code: str) -> tuple[str, ...]:
+    """A VT3xx fixture is a project with a story of its own, named neon, which the command has to name."""
+    return ("--story", "neon") if code >= "VT300" else ()
 
 
 def test_a_fixture_triggers_every_code():
@@ -50,7 +72,7 @@ def test_a_fixture_triggers_every_code():
 @pytest.mark.parametrize("code", sorted(ERRORS))
 def test_an_error_prints_its_code_its_place_and_its_fix_and_plans_nothing(code):
     place, message, fix = ERRORS[code]
-    result = videotape(FIXTURES / "errors" / code.lower(), "plan")
+    result = videotape(FIXTURES / "errors" / code.lower(), "plan", *in_its_story(code))
     assert (result.stdout, result.returncode) == ("", 1)
     assert result.stderr == f"error {code} {place}: {message}\nfix: {fix}\n"
 
@@ -58,19 +80,45 @@ def test_an_error_prints_its_code_its_place_and_its_fix_and_plans_nothing(code):
 @pytest.mark.parametrize("code", sorted(ERRORS))
 def test_render_stops_on_the_same_error_before_it_draws_anything(code):
     directory = FIXTURES / "errors" / code.lower()
-    result = videotape(directory, "render", "--model", "stand-in")
+    result = videotape(directory, "render", "--story", "neon", "--model", "stand-in")
     assert (result.stdout, result.returncode) == ("", 1)
     assert result.stderr.startswith(f"error {code} {ERRORS[code][0]}: ")
-    assert not (directory / "tape").exists() and not (directory / "ledger.jsonl").exists()
+    assert not (directory / "tapes").exists() and not (directory / "ledger.jsonl").exists()
 
 
-def test_a_warning_prints_its_code_its_place_and_its_fix_and_the_plan_goes_on():
-    result = videotape(FIXTURES / "errors" / "vt211", "plan")
+@pytest.mark.parametrize("code", sorted(code for code in ERRORS if code >= "VT300"))
+def test_shots_stops_on_a_storys_error_before_it_prints_a_prompt(code):
+    result = videotape(FIXTURES / "errors" / code.lower(), "shots", "--story", "neon")
+    assert (result.stdout, result.returncode) == ("", 1)
+    assert result.stderr.startswith(f"error {code} {ERRORS[code][0]}: ")
+
+
+@pytest.mark.parametrize("code", sorted(WARNINGS))
+def test_a_warning_prints_its_code_its_place_and_its_fix_and_the_plan_goes_on(code):
+    result = videotape(FIXTURES / "errors" / code.lower(), "plan", *in_its_story(code))
     assert result.returncode == 0
-    assert result.stderr == "".join(f"warning VT211 {place}: {message}\nfix: {fix}\n"
-                                    for place, message, fix in WARNINGS["VT211"])
-    assert result.stdout.splitlines()[0] == "Cafe 0.1.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot"
-    assert result.stdout.splitlines()[-1] == "0 errors, 2 warnings"
+    assert result.stderr == "".join(f"warning {code} {place}: {message}\nfix: {fix}\n"
+                                    for place, message, fix in WARNINGS[code])
+    assert result.stdout.splitlines()[0] == SUMMARIES[code]
+    count = len(WARNINGS[code])
+    assert result.stdout.splitlines()[-1] == f"0 errors, {count} warning{'' if count == 1 else 's'}"
+
+
+def test_a_key_of_a_scene_without_a_direction_gets_only_the_look_before_its_elements():
+    result = videotape(FIXTURES / "errors" / "vt304", "shots", "--story", "neon", "--state", "detail()")
+    assert (result.stderr, result.returncode) == ("", 0)
+    assert result.stdout.splitlines()[:4] == [
+        "key detail()", "  engine                      Static shot.",
+        "  story look                  A narrow shop on a rainy street at night.",
+        '  screenplay detail, Heading  Reading "Detail".']
+
+
+def test_the_stand_in_reads_any_length_of_prompt_so_the_same_story_has_no_vt307_with_it():
+    result = videotape(FIXTURES / "errors" / "vt307", "plan", "--story", "neon", "--model", "stand-in")
+    assert (result.stderr, result.returncode) == ("", 0)
+    assert result.stdout.splitlines()[-1] == "0 errors, 0 warnings"
+    over = videotape(FIXTURES / "errors" / "vt307", "plan", "--story", "neon", "--model", "wan3.0")
+    assert (over.stderr, over.stdout.splitlines()[-1]) == ("", "0 errors, 0 warnings")
 
 
 def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framework_can_raise():
