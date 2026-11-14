@@ -18,7 +18,7 @@ from videotape.checks import Checks, Eye, Failure, score, seams
 from videotape.dailies import Carried
 from videotape.errors import RenderError
 from videotape.fal import FalError, Price, Receipt
-from videotape.frames import Box, DecodeError, FfmpegError, Frame, Shape
+from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
