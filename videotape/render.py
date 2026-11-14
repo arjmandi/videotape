@@ -1,20 +1,32 @@
+"""A render draws every shot of a plan in a story into a tape. Each shot films one take at a time, seed by seed, and
+stops at the first take that passes every check. Shots that do not depend on each other film at once, up to the
+model's limit: every key is submitted first, and a move as soon as both of its keys are done. A model that bills per
+call films under a cap. Every take on disk is reused, so a render run again resumes without paying for a take twice."""
+
 import hashlib
 import json
 import shutil
+import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import FIRST_COMPLETED, CancelledError, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 
 from videotape import dailies, frames
-from videotape.checks import Checks, Eye, score, seams
-from videotape.fal import Receipt
-from videotape.frames import Box, FfmpegError, Frame, Shape
+from videotape.checks import Checks, Eye, Failure, score, seams
+from videotape.dailies import Carried
+from videotape.errors import RenderError
+from videotape.fal import FalError, Price, Receipt
+from videotape.frames import Box, DecodeError, FfmpegError, Frame, Shape
 from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
 from videotape.publish import publish
-from videotape.story import Story, prompt, text
+from videotape.screenplay import State
+from videotape.standin import StandInError
+from videotape.story import Prompt, Story, prompt, text
+from videotape.wan import WanError
 
 
 @dataclass(frozen=True)
@@ -31,13 +43,35 @@ class Take:
 @dataclass(frozen=True)
 class Filmed:
     shot: Shot
-    prompt: str
+    prompt: Prompt
     takes: tuple[Take, ...]
     kept: Take
+    reported: tuple[RenderError, ...] = ()
+    """What went wrong on the way and was skipped: a corrupt take per seed in corrupt."""
+    corrupt: tuple[int, ...] = ()
 
     @property
     def rendered(self) -> int:
         return sum(not take.cached for take in self.takes)
+
+    @property
+    def usd(self) -> float:
+        """What this run paid for the shot."""
+        return sum(take.usd or 0.0 for take in self.takes if not take.cached)
+
+    @property
+    def seconds(self) -> float:
+        """What this run spent filming the shot."""
+        return sum(take.seconds or 0.0 for take in self.takes if not take.cached)
+
+    @property
+    def passed(self) -> bool:
+        return self.kept.checks.passed
+
+    @property
+    def failures(self) -> list[Failure]:
+        return [Failure(item.code, self.shot.title, item.about, item.result, item.box)
+                for item in self.kept.checks.failures]
 
 
 @dataclass(frozen=True)
@@ -45,81 +79,233 @@ class Render:
     tape: Path
     keys: tuple[Filmed, ...]
     moves: tuple[Filmed, ...]
+    seconds: float
+    """The wall clock of the run."""
 
     @property
     def shots(self) -> tuple[Filmed, ...]:
         return *self.keys, *self.moves
 
 
-def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger: Ledger, made: dict,
-           takes: int = 3) -> Render:
+class Budget:
+    """What a render may still spend. One lock keeps the invariant: spent plus reserved never passes the cap, where
+    spent is the sum of this tape's lines in the ledger and reserved is the price of every call in flight. Every ledger
+    write goes through settle, under the same lock."""
+
+    def __init__(self, ledger: Ledger, price: Price | None, cap: float | None) -> None:
+        self.ledger, self.price, self.cap = ledger, price, cap
+        self.lock = threading.Lock()
+        self.spent = ledger.totals()["usd"]
+        self.reserved = 0.0
+
+    def reserve(self, place: str, resume: str) -> None:
+        """Hold the price of one call, or refuse when it would pass the cap."""
+        if not self.price:
+            return
+        with self.lock:
+            if self.cap is not None and self.spent + self.reserved + self.price.usd > self.cap:
+                raise RenderError("VT402", place, f"the next call would pass the cap of ${self.cap:.2f}, with "
+                                  f"${self.spent:.2f} spent on this tape and ${self.reserved:.2f} reserved for the "
+                                  "calls in flight", f"raise the cap and run the render again, which resumes:\n{resume}")
+            self.reserved += self.price.usd
+
+    def release(self) -> None:
+        if self.price:
+            with self.lock:
+                self.reserved -= self.price.usd
+
+    def settle(self, line: dict) -> None:
+        """Record a finished call: its line goes into the ledger and its price out of the reservation."""
+        with self.lock:
+            self.ledger.append(line)
+            if self.price:
+                self.reserved -= self.price.usd
+                self.spent += line.get("usd") or 0.0
+
+
+@dataclass(frozen=True)
+class _Set:
+    """Everything every shot of one render shares."""
+
+    model: Model
+    eye: Eye
+    tape: Path
+    images: dict[State, Path]
+    """Each state's key image, which the moves that leave or land on it are pinned to."""
+    budget: Budget
+    resume: str
+    """The command that runs this render again."""
+    stop: threading.Event
+    """Set when the render stops on an error: a take in flight finishes and is recorded, and no new one starts."""
+
+
+class _Stopped(Exception):
+    """A shot that did not film because the render had stopped."""
+
+
+def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger: Ledger, made: dict, takes: int = 4,
+           limit: int = 1, price: Price | None = None, cap: float | None = None, resume: str = "videotape render",
+           report: Callable[[Filmed], None] = lambda filmed: None) -> Render:
     """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
-    and write them into the tape. made is the block that says what made the tape, which tape.json carries."""
+    and write them into the tape. made is the block that says what made the tape, which tape.json carries. report is
+    told each shot as it finishes."""
+    started = time.perf_counter()
+    if price and cap is None:
+        raise RenderError("VT402", "before the first call", f"{model.name} bills per call, and no cap is set",
+                          f"set the most this render may spend, as in {resume} --cap-usd 20, or for good in "
+                          "[tool.videotape]:\ncap_usd = 20")
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
-    seeds = range(1, takes + 1)
-    # Every key first, so each move is pinned to two kept keys, and Wan swaps its checkpoint once per render.
-    filmed_keys = []
-    for key in plan.keys:
-        words = text(prompt(key, story))
-        key_takes = tuple(_key_take(model, eye, key, words, seed, tape, ledger) for seed in seeds)
-        kept = min(key_takes, key=lambda take: take.checks.rank(take.seed))
-        publish(tape / key.image, lambda partial: frames.write_png(frames.last_frame(kept.path), partial))
-        filmed_keys.append(Filmed(key, words, key_takes, kept))
-    opening = filmed_keys[0].kept
+    carried = dailies.carried(tape)
+    shared = _Set(model, eye, tape, {key.state: tape / key.image for key in plan.keys}, Budget(ledger, price, cap), resume,
+                  threading.Event())
+    seeds = {shot.title: _seeds(shot, takes, carried) for shot in plan.shots}
+    finished = dict[Shot, Filmed]()
+    stopped: RenderError | None = None
+    # Every key is submitted first. A move is submitted when both of its keys are done, since it is pinned to their
+    # images. With one worker the keys all run before any move, so Wan 2.2 swaps its checkpoint once.
+    with ThreadPoolExecutor(max_workers=limit) as pool:
+        pending: dict[Future[Filmed], Shot] = {
+            pool.submit(_film_key, shared, key, prompt(key, story), *seeds[key.title]): key for key in plan.keys}
+        waiting = list(plan.moves)
+        while pending:
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                shot = pending.pop(future)
+                try:
+                    filmed = future.result()
+                except (CancelledError, _Stopped):
+                    continue
+                except RenderError as error:
+                    if stopped is None:
+                        stopped = error
+                        shared.stop.set()
+                        for other in pending:
+                            other.cancel()
+                    continue
+                finished[shot] = filmed
+                report(filmed)
+                if stopped is not None or not isinstance(shot, Key):
+                    continue
+                ready = {key.state for key in plan.keys if key in finished}
+                for move in [move for move in waiting if {move.start, move.land} <= ready]:
+                    waiting.remove(move)
+                    pending[pool.submit(_film_move, shared, move, prompt(move, story), *seeds[move.title])] = move
+    elapsed = time.perf_counter() - started
+    keys = tuple(finished[key] for key in plan.keys if key in finished)
+    moves = tuple(finished[move] for move in plan.moves if move in finished)
+    result = Render(tape, keys, moves, elapsed)
+    corrupt = _corrupt(carried, result)
+    if stopped is not None:
+        dailies.write(tape, dailies.record(plan.title, eye.name, result, story, ledger.tape, corrupt, takes, False),
+                      ledger.totals())
+        raise stopped
+    opening = result.keys[0].kept
     publish(tape / "moves" / "opening.mp4", lambda partial: shutil.copyfile(opening.path, partial))
-    images = {key.state: tape / key.image for key in plan.keys}
-    filmed_moves = []
-    for move in plan.moves:
-        words = text(prompt(move, story))
-        start, end = images[move.start], images[move.land]
-        pinned = frames.read_png(start), frames.read_png(end)
-        move_takes = tuple(_move_take(model, move, words, start, end, pinned, seed, tape, ledger) for seed in seeds)
-        kept = min(move_takes, key=lambda take: take.checks.rank(take.seed))
-        publish(tape / move.clip, lambda partial: shutil.copyfile(kept.path, partial))
-        filmed_moves.append(Filmed(move, words, move_takes, kept))
-    result = Render(tape, tuple(filmed_keys), tuple(filmed_moves))
-    manifest = {**_tape(plan, result), "made": made}
+    manifest = {**_manifest(plan, result), "made": made}
     publish(tape / "tape.json", lambda partial: partial.write_text(json.dumps(manifest, indent=2) + "\n"))
-    dailies.write(tape, dailies.record(plan.title, eye.name, result), ledger.totals())
+    dailies.write(tape, dailies.record(plan.title, eye.name, result, story, ledger.tape, corrupt, takes), ledger.totals())
     return result
 
 
-def _key_take(model: Model, eye: Eye, key: Key, words: str, seed: int, tape: Path, ledger: Ledger) -> Take:
-    path, cached, timing = _film(model, key, words, (), seed, tape, ledger,
-                                 lambda out: model.text_to_video(words, seed, out))
-    return Take(seed, path, cached, score(frames.last_frame(path), key, eye), timing.get("seconds"), timing.get("gpu"),
-                timing.get("usd"))
+def _seeds(shot: Shot, takes: int, carried: Carried) -> tuple[list[int], list[int]]:
+    """The seeds a shot tries: 1 up to the limit, minus the seeds its record marks corrupt, and then the seeds a
+    retake added."""
+    corrupt, retakes = carried.corrupt.get(shot.title, []), carried.retakes.get(shot.title, [])
+    return [seed for seed in range(1, takes + 1) if seed not in corrupt], [seed for seed in retakes if seed not in corrupt]
 
 
-def _move_take(model: Model, move: Move, words: str, start: Path, end: Path, pinned: tuple[Frame, Frame], seed: int,
-               tape: Path, ledger: Ledger) -> Take:
-    path, cached, timing = _film(model, move, words, (start, end), seed, tape, ledger,
-                                 lambda out: model.first_last_frame(words, start, end, seed, out))
-    return Take(seed, path, cached, seams(frames.first_frame(path), frames.last_frame(path), *pinned),
-                timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
+def _corrupt(carried: Carried, result: Render) -> Carried:
+    """The record to carry on, with every seed found corrupt in this run added."""
+    corrupt = {title: list(seeds) for title, seeds in carried.corrupt.items()}
+    for filmed in result.shots:
+        for seed in filmed.corrupt:
+            if seed not in corrupt.setdefault(filmed.shot.title, []):
+                corrupt[filmed.shot.title].append(seed)
+    return Carried(carried.retakes, corrupt, carried.accepted)
 
 
-def uncached(plan: Plan, story: Story, model: Model, takes: int, tape: Path) -> int:
-    """How many takes a render will film. A move counts every take unless both its keys are cached and their images
-    are on the tape, since a key that renders again may change and move every take pinned to it."""
-    seeds = range(1, takes + 1)
-    count, changing = 0, set()
-    for key in plan.keys:
-        words = text(prompt(key, story))
-        missing = sum(not _take_path(model, key, words, (), seed, tape).exists() for seed in seeds)
-        count += missing
-        if missing:
-            changing.add(key.state)
-    images = {key.state: tape / key.image for key in plan.keys}
-    for move in plan.moves:
-        pinned = images[move.start], images[move.land]
-        if {move.start, move.land} & changing or not all(image.exists() for image in pinned):
-            count += takes
-        else:
-            words = text(prompt(move, story))
-            count += sum(not _take_path(model, move, words, pinned, seed, tape).exists() for seed in seeds)
-    return count
+def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int]) -> Filmed:
+    words = text(clauses)
+    filmed = _film_shot(shared, key, clauses, seeds, retakes, lambda seed, out: shared.model.text_to_video(words, seed, out),
+                        (), lambda path: score(frames.last_frame(path), key, shared.eye))
+    # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
+    publish(shared.tape / key.image, lambda partial: frames.write_png(frames.last_frame(filmed.kept.path), partial))
+    return filmed
+
+
+def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], retakes: list[int]) -> Filmed:
+    words = text(clauses)
+    start, end = shared.images[move.start], shared.images[move.land]
+    pinned = frames.read_png(start), frames.read_png(end)
+    filmed = _film_shot(shared, move, clauses, seeds, retakes,
+                        lambda seed, out: shared.model.first_last_frame(words, start, end, seed, out), (start, end),
+                        lambda path: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
+    publish(shared.tape / move.clip, lambda partial: shutil.copyfile(filmed.kept.path, partial))
+    return filmed
+
+
+def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], retakes: list[int],
+               film: Callable[[int, Path], Receipt | None], images: tuple[Path, ...],
+               check: Callable[[Path], Checks]) -> Filmed:
+    """Film the shot's takes seed by seed. Each take comes from the cache or the model, then its checks. The seeds up
+    to the limit are filmed until one passes, and a take on disk is always read. The retake seeds are filmed whatever
+    passed before, and with them the shot keeps the best of all its takes."""
+    words = text(clauses)
+    takes, reported, corrupt = list[Take](), list[RenderError](), list[int]()
+    passed = False
+    try:
+        for seed, always in [*((seed, False) for seed in seeds), *((seed, True) for seed in retakes)]:
+            if passed and not always and not _cached(shared, shot, words, images, seed):
+                continue
+            if shared.stop.is_set():
+                raise _Stopped()
+            place = f"{shot.title} take {seed}"
+            taken = _take(shared, shot, words, images, seed, place, film, check)
+            if isinstance(taken, RenderError):
+                reported.append(taken)
+                corrupt.append(seed)
+                continue
+            takes.append(taken)
+            passed = passed or taken.checks.passed
+            if passed and not retakes:
+                break
+    except DecodeError as error:
+        raise RenderError("VT404", f"{shot.title}", str(error), "delete the file it names and run the render again") \
+            from None
+    except FfmpegError as error:
+        raise RenderError("VT404", f"{shot.title}", str(error),
+                          "install ffmpeg, as in brew install ffmpeg, and run the render again") from None
+    if not takes:
+        raise RenderError("VT403", shot.title, "every take of the shot is corrupt",
+                          f"raise takes in [tool.videotape] or pass --takes, or retake the shot: "
+                          f'videotape retake "{dailies.named(shot)}"')
+    return Filmed(shot, clauses, tuple(takes), min(takes, key=lambda take: take.checks.rank(take.seed)),
+                  tuple(reported), tuple(corrupt))
+
+
+def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
+          film: Callable[[int, Path], Receipt | None], check: Callable[[Path], Checks]) -> Take | RenderError:
+    """One take and its checks. A take whose file does not decode is downloaded again when the model kept its
+    request, and is VT403 when it is still corrupt or when there is nothing to download again."""
+    path, cached, timing = _film(shared, shot, words, images, seed, place, film)
+    try:
+        checks = check(path)
+    except DecodeError as corrupt:
+        if not timing.get("request_id"):
+            return RenderError("VT403", place, str(corrupt), f"nothing; seed {seed} is skipped from now on")
+        path.unlink()
+        publish(path, lambda partial: film(seed, partial))
+        try:
+            checks = check(path)
+        except DecodeError as again:
+            return RenderError("VT403", place, f"downloaded again, and still: {again}",
+                               f"nothing; seed {seed} is skipped from now on")
+    return Take(seed, path, cached, checks, timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
+
+
+def _cached(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int) -> bool:
+    return _take_path(shared.model, shot, words, images, seed, shared.tape).exists()
 
 
 def _take_path(model: Model, shot: Shot, words: str, images: tuple[Path, ...], seed: int, tape: Path) -> Path:
@@ -132,24 +318,34 @@ def _take_path(model: Model, shot: Shot, words: str, images: tuple[Path, ...], s
     return tape / "takes" / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.mp4"
 
 
-def _film(model: Model, shot: Shot, words: str, images: tuple[Path, ...], seed: int, tape: Path, ledger: Ledger,
-          film: Callable[[Path], Receipt | None]) -> tuple[Path, bool, dict]:
-    """The take for this shot and seed, filmed unless it is already in the cache."""
-    path = _take_path(model, shot, words, images, seed, tape)
-    # The render time and any price live in a sidecar next to the take, so they survive caching.
+def _film(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
+          film: Callable[[int, Path], Receipt | None]) -> tuple[Path, bool, dict]:
+    """The take for this shot and seed, filmed unless it is already in the cache. The render time and any price live
+    in a sidecar next to the take, so they survive caching."""
+    path = _take_path(shared.model, shot, words, images, seed, shared.tape)
     timing = path.with_suffix(".json")
-    cached = path.exists()
-    if not cached:
-        started = time.perf_counter()
-        receipt = publish(path, film)
-        filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": model.device}
-        if receipt:
-            filmed |= {"request_id": receipt.request_id, "duration": receipt.duration, "usd": receipt.usd}
-        response = {"response": receipt.response} if receipt else {}
-        publish(timing, lambda partial: partial.write_text(json.dumps({**filmed, **response}) + "\n"))
-        ledger.append({"kind": "take", "at": now(), "model": model.name, "shot": shot.title,
-                       "mode": shot.mode.value, "seed": seed, **filmed})
-    return path, cached, json.loads(timing.read_text()) if timing.exists() else {}
+    if path.exists():
+        return path, True, json.loads(timing.read_text()) if timing.exists() else {}
+    shared.budget.reserve(place, shared.resume)
+    started = time.perf_counter()
+    try:
+        receipt = publish(path, lambda partial: film(seed, partial))
+    except (FalError, WanError, StandInError) as error:
+        shared.budget.release()
+        raise RenderError("VT401", place, str(error),
+                          f"run the render again, which resumes; a request that was submitted is polled, not "
+                          f"submitted again:\n{shared.resume}") from None
+    except BaseException:
+        shared.budget.release()
+        raise
+    filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": shared.model.device}
+    if receipt:
+        filmed |= {"request_id": receipt.request_id, "duration": receipt.duration, "usd": receipt.usd}
+    shared.budget.settle({"kind": "take", "at": now(), "model": shared.model.name, "shot": shot.title,
+                          "mode": shot.mode.value, "seed": seed, **filmed})
+    response = {"response": receipt.response} if receipt else {}
+    publish(timing, lambda partial: partial.write_text(json.dumps({**filmed, **response}) + "\n"))
+    return path, False, {**filmed, **response}
 
 
 def _fraction(box: Box, size: Shape) -> dict:
@@ -166,24 +362,46 @@ def _shape(result: Render) -> Shape:
     return next(iter(shapes.values()))
 
 
-def _tape(plan: Plan, result: Render) -> dict:
-    """tape.json: one scene for each state, named as the plan names it."""
+def _manifest(plan: Plan, result: Render) -> dict:
+    """tape.json: one scene for each state, named as the plan names it, with its words, its hotspots and its search."""
     found = {filmed.shot.state: filmed.kept.checks.hotspots for filmed in result.keys}
     moves = {(move.start, move.label): move for move in plan.moves}
     size = _shape(result)
+    scenes = {}
+    for key in plan.keys:
+        scene = {
+            "key": key.image,
+            "words": list(key.lines),
+            # A hotspot needs a box, and a box is never invented, so an action the checks did not find has none.
+            "hotspots": [{"label": action.label, "box": _fraction(box, size), "move": moves[(key.state, action.label)].id}
+                         for action in key.actions if (box := found[key.state][action.label])],
+        }
+        if search := _search(key, moves):
+            scene["search"] = search
+        scenes[key.state.name] = scene
     return {
         "size": {"width": size.width, "height": size.height},
         "fps": size.fps,
         "opening": {"clip": "moves/opening.mp4", "lands": plan.keys[0].state.name},
-        "scenes": {
-            key.state.name: {
-                "key": key.image,
-                # A hotspot needs a box, and a box is never invented, so an action the checks did not find has none.
-                "hotspots": [{"label": action.label, "box": _fraction(box, size),
-                              "move": moves[(key.state, action.label)].id}
-                             for action in key.actions if (box := found[key.state][action.label])],
-            }
-            for key in plan.keys
-        },
+        "scenes": scenes,
         "moves": {move.id: {"clip": move.clip, "lands": move.land.name} for move in plan.moves},
     }
+
+
+def _search(key: Key, moves: dict[tuple[State, str], Move]) -> dict | None:
+    """The search a state offers: its bar, every option with the move its press plays, and the move the bar plays
+    when the typed text picks no option. Only a state that shows a search bar with options has one."""
+    for element in key.shown:
+        if element.type != "SearchBar" or len(element.rows) < 2:
+            continue
+        bar, options = element.rows[0][0][0], [row[0][0] for row in element.rows[1:]]
+        if bar.action is None:
+            continue
+        no_match = moves[(key.state, bar.action.label)]
+        return {
+            "bar": bar.words,
+            "options": [{"label": option.words, "move": moves[(key.state, option.action.label)].id}
+                        for option in options if option.action],
+            "no_match": {"move": no_match.id, "lands": no_match.land.name},
+        }
+    return None

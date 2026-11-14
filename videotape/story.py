@@ -252,15 +252,20 @@ def _toml_error(error: tomllib.TOMLDecodeError, document: str) -> tuple[int, str
 
 
 def _at(path: Path, table: str, name: str) -> str:
-    """The file and line of a table's key. tomllib keeps no line numbers, so this reads the file again, and names only
-    the file for a key that is written in another way than under its [heading]."""
-    inside = False
+    return errors.shown(path) if (number := line_of(path, table, name)) is None else f"{errors.shown(path)}:{number}"
+
+
+def line_of(path: Path, table: str | None, name: str) -> int | None:
+    """The line of a table's key, or of a key above every heading when table is None. tomllib keeps no line
+    numbers, so this reads the file again, and finds no line for a key that is written in another way than under
+    its [heading]."""
+    inside = table is None
     for number, line in enumerate(path.read_text().splitlines(), 1):
         if heading := re.fullmatch(r"\s*\[\s*([^\]]+?)\s*\]\s*(#.*)?", line):
             inside = heading[1] == table
         elif inside and re.match(rf"""\s*["']?{re.escape(name)}["']?\s*=""", line):
-            return f"{errors.shown(path)}:{number}"
-    return errors.shown(path)
+            return number
+    return None
 
 
 def _closest(name: str, real: Sequence[str], kind: str) -> str:

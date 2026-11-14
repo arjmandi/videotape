@@ -163,7 +163,7 @@ def hosted(tmp_path, monkeypatch):
     return directory, fal
 
 
-RENDER = ("render", "--story", "chalk", "--model", "wan3.0", "--takes", "1", "--out", "tape-wan3")
+RENDER = ("render", "--story", "chalk", "--model", "wan3.0", "--takes", "1", "--out", "tape-wan3", "--cap-usd", "20")
 
 
 def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys(hosted, cli, capsys):
@@ -171,24 +171,28 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     out = directory / "tape-wan3"
     assert cli(directory, *RENDER) == 1
     stdout, stderr = capsys.readouterr()
-    assert stdout.splitlines()[0] == "wan3.0: 11 shots, 11 calls, $5.50 at $0.10/s"
-    assert 'fail: 1. key menu()  kept take 1 fails hotspot "Espresso, $3": not found' in stderr.splitlines()
-    assert stdout.splitlines()[-1] == "rendered 11 of 11 shots -> tape-wan3"
-    assert [mode for mode, _ in fal.posts] == ["text-to-video"] * 5 + ["image-to-video"] * 6
+    assert stdout.splitlines()[0] == "wan3.0: 11 shots, 11 calls, $5.50 at $0.10/s, cap $20.00, $0.00 spent"
+    assert "fail: 1. key menu()  VT501 Espresso, $3: not found" in stderr.splitlines()
+    assert '  next: videotape retake "menu()" --story chalk --out tape-wan3' in stderr.splitlines()
+    assert stdout.splitlines()[-1].startswith("11 shots, 11 takes filmed, $5.50, ") and stdout.endswith(" MB -> tape-wan3\n")
+    assert sorted(mode for mode, _ in fal.posts) == ["image-to-video"] * 6 + ["text-to-video"] * 5
     plan = planned(directory)
-    assert [arguments["prompt"] for _, arguments in fal.posts] == [words(shot, told(directory)) for shot in plan.shots]
+    assert sorted(arguments["prompt"] for _, arguments in fal.posts) == sorted(words(shot, told(directory)) for shot in plan.shots)
     images = {key.state: out / key.image for key in plan.keys}
-    for move, (_, arguments) in zip(plan.moves, fal.posts[5:]):
-        assert unpacked(arguments["start_image_url"]) == images[move.start].read_bytes()
-        assert unpacked(arguments["end_image_url"]) == images[move.land].read_bytes()
+    pinned = {(words(move, told(directory)), images[move.start].read_bytes(), images[move.land].read_bytes())
+              for move in plan.moves}
+    for mode, arguments in fal.posts:
+        if mode == "image-to-video":
+            assert (arguments["prompt"], unpacked(arguments["start_image_url"]), unpacked(arguments["end_image_url"])) in pinned
     assert len({image.read_bytes() for image in images.values()}) == 5
     assert {take.read_bytes() for take in (out / "takes").glob("*.mp4")} <= fal.served
     data = json.loads((out / "tape.json").read_text())
     assert (data["size"], data["fps"]) == ({"width": 1280, "height": 720}, 24)
     lines = ledger.of(directory, out).lines()
-    assert [(line["tape"], line["model"], line["shot"], line["mode"], line["seed"], line["request_id"], line["duration"],
-             line["usd"]) for line in lines] == [("tape-wan3", "wan3.0", shot.title, shot.mode.value, 1, f"request-{number}",
-                                                  5.0, 0.5) for number, shot in enumerate(plan.shots)]
+    assert sorted((line["tape"], line["model"], line["shot"], line["mode"], line["seed"], line["duration"], line["usd"])
+                  for line in lines) == sorted(("tape-wan3", "wan3.0", shot.title, shot.mode.value, 1, 5.0, 0.5)
+                                               for shot in plan.shots)
+    assert {line["request_id"] for line in lines} == {f"request-{number}" for number in range(11)}
     assert all(line["seconds"] > 0 and line["gpu"] == "fal" for line in lines)
     assert ledger.of(directory, out).totals()["usd"] == 5.5
     assert not (directory / "tapes").exists()
@@ -197,9 +201,12 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     assert KEY not in written + stdout + stderr
     record = json.loads((out / "dailies.json").read_text())
     sidecar = json.loads((out / record["keys"][0]["takes"][0]["clip"]).with_suffix(".json").read_text())
-    assert (sidecar["request_id"], sidecar["duration"], sidecar["usd"]) == ("request-0", 5.0, 0.5)
-    assert sidecar["response"]["submitted"]["request_id"] == "request-0"
-    assert sidecar["response"]["result"]["video"]["url"] == "https://v3b.fal.media/files/test/request-0.mp4"
+    number = sidecar["request_id"]
+    assert (number in ("request-0", "request-1"), sidecar["duration"], sidecar["usd"]) == (True, 5.0, 0.5)
+    assert sidecar["response"]["submitted"]["request_id"] == number
+    assert sidecar["response"]["result"]["video"]["url"] == f"https://v3b.fal.media/files/test/{number}.mp4"
+    assert sorted(path.name for path in (out / "takes").glob("*.request.json")) == sorted(
+        f"{path.stem}.request.json" for path in (out / "takes").glob("*.mp4"))
 
 
 def test_a_cached_wan3_render_calls_fal_for_nothing(hosted, cli, capsys):
@@ -226,7 +233,7 @@ def test_an_edit_submits_only_the_calls_it_needs(hosted, cli, capsys, old, new, 
     posts = len(fal.posts)
     capsys.readouterr()
     cli(directory, *RENDER)
-    assert capsys.readouterr().out.splitlines()[0] == "wan3.0: 11 shots, 11 calls, $5.50 at $0.10/s"
+    assert capsys.readouterr().out.splitlines()[0] == "wan3.0: 11 shots, 11 calls, $5.50 at $0.10/s, cap $20.00, $5.50 spent"
     assert len(fal.posts) - posts == calls
 
 
