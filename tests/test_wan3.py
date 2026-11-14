@@ -290,6 +290,39 @@ def test_a_corrupt_take_whose_record_is_gone_is_vt403_and_never_submitted_again(
     assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 22
 
 
+def test_a_take_whose_clip_is_gone_is_downloaded_again_under_any_cap_and_counted_once(hosted, cli, capsys):
+    directory, fal = hosted
+    cli(directory, *RENDER)
+    clip, sidecar, shot = a_take(directory)
+    clip.unlink()
+    capsys.readouterr()
+    # The tape has spent the whole cap. Downloading again costs nothing, so the cap does not stop it.
+    assert cli(directory, *render_args(cap="5.50")) == 1
+    out, err = capsys.readouterr()
+    assert "VT402" not in err
+    assert clip.read_bytes() == fal.answers[video_of(sidecar)]
+    book = ledger.of(directory, directory / "tape-wan3")
+    assert len(fal.posts) == 11 and [line["request_id"] for line in book.lines()].count(sidecar["request_id"]) == 1
+    assert (book.totals()["takes"], book.totals()["usd"]) == (11, 5.5)
+    assert out.splitlines()[-1].startswith("11 shots, 0 takes filmed, $0.00, ")
+
+
+def test_a_render_that_died_between_submitting_and_downloading_downloads_on_resume_and_pays_once(hosted, cli, capsys):
+    directory, fal = hosted
+    fal.broken.add("https://queue.fal.run/alibaba/wan-3.0/requests/request-0/status")
+    assert cli(directory, *RENDER) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error VT401 ") and "request request-0 failed with HTTP 400" in err
+    book = ledger.of(directory, directory / "tape-wan3")
+    # Two workers, one of which may begin one more key before the stop reaches it.
+    assert "request-0" not in {line["request_id"] for line in book.lines()} and len(fal.posts) <= 3
+    assert cli(directory, *RENDER) == 1
+    assert "VT401" not in capsys.readouterr().err
+    assert len(fal.posts) == 11
+    assert sorted(line["request_id"] for line in book.lines()) == sorted(f"request-{n}" for n in range(11))
+    assert book.totals()["usd"] == 5.5
+
+
 @pytest.mark.parametrize("old, new, calls", [
     ('vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")', 5),
     ("coming up.", "on its way.", 6),
