@@ -413,6 +413,40 @@ def test_a_recorded_request_that_fails_for_good_names_its_record_and_deleting_it
     assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) + 1
 
 
+class Meeting(Hosted):
+    """Holds a submit of the shared prompt until a second one arrives, or gives up after a second, so two shots
+    that film the same take at once both get to submit it."""
+
+    def __init__(self, scratch: Path):
+        super().__init__(scratch)
+        self.both = threading.Barrier(2, timeout=1.0)
+
+    def __call__(self, request: urllib.request.Request) -> bytes:
+        if request.get_method() == "POST" and b"Coming up." in request.data:
+            try:
+                self.both.wait()
+            except threading.BrokenBarrierError:
+                pass
+        return super().__call__(request)
+
+
+def test_two_shots_that_share_a_take_name_film_it_once(tmp_path, monkeypatch, cli, capsys):
+    directory, fal = hosted_by(Meeting, tmp_path, monkeypatch)
+    # Both thanks states now show the same words, so their keys share a prompt, a take name, and a key image, and
+    # so do the two Done moves that leave them.
+    screenplay = directory / "cafe.py"
+    screenplay.write_text(screenplay.read_text().replace('vt.Text(f"One {drink.name} coming up.")', 'vt.Text("Coming up.")'))
+    assert cli(directory, *RENDER) == 1
+    posts = [(mode, arguments["prompt"], arguments["seed"], arguments.get("start_image_url"), arguments.get("end_image_url"))
+             for mode, arguments in fal.posts]
+    assert len(set(posts)) == len(posts) == 9
+    assert len(ledger.of(directory, directory / "tape-wan3").lines()) == 9
+    record = dailies.read(directory / "tape-wan3")
+    thanks = [shot for shot in record["keys"] if shot["title"].startswith("key thanks(")]
+    assert len(thanks) == 2 and len({shot["takes"][0]["clip"] for shot in thanks}) == 1
+    assert [shot["takes"][0]["cached"] for shot in thanks].count(True) == 1
+
+
 @pytest.mark.parametrize("old, new, calls", [
     ('vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")', 5),
     ("coming up.", "on its way.", 6),
