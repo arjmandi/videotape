@@ -2,6 +2,7 @@
   "size": {"width": 100, "height": 100},
   "fps": 24,
   "opening": {"clip": "moves/opening.mp4", "lands": "home"},
-  "scenes": {"home": {"key": "keys/home.png", "hotspots": [{"label": "Go", "box": {"x": 0, "y": 0, "w": 1, "h": 1}}]}},
-  "moves": {}
+  "scenes": {"home": {"key": "keys/home.png", "words": ["Go"], "hotspots": [{"label": "Go", "box": {"x": 0, "y": 0, "w": 1, "h": 1}}]}},
+  "moves": {},
+  "made": {"label": "cafe 0.1.0 + chalk 1.0.0", "id": "0f6f6e1a6a3b0c5d7e9f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d"}
 }

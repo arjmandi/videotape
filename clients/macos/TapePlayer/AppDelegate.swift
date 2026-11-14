@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             backing: .buffered, defer: false
         )
         window.isReleasedWhenClosed = false
-        window.title = tape.name
+        window.title = tape.made.label
         window.contentAspectRatio = tape.size
         window.collectionBehavior = .fullScreenNone
         window.delegate = self
@@ -76,6 +76,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return window.frameRect(forContentRect: AVMakeRect(aspectRatio: window.contentAspectRatio, insideRect: room))
     }
 
+    /// The standard About panel, with the open tape's label and id under the app's name.
+    @objc func about(_ sender: Any?) {
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
+        if let made = (window?.contentView as? TapeView)?.tape.made {
+            options[.credits] = NSAttributedString(string: "\(made.label)\n\(made.id)")
+        }
+        NSApp.orderFrontStandardAboutPanel(options: options)
+    }
+
     private func show(_ error: TapeError) {
         let alert = NSAlert()
         alert.messageText = "This tape cannot play."
@@ -85,7 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func mainMenu() -> NSMenu {
         let app = NSMenu()
-        app.addItem(withTitle: "About TapePlayer", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "About TapePlayer", action: #selector(about(_:)), keyEquivalent: "")
         app.addItem(.separator())
         app.addItem(withTitle: "Hide TapePlayer", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
         app.addItem(withTitle: "Quit TapePlayer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
@@ -95,6 +104,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         file.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
 
         let playback = NSMenu(title: "Playback")
+        playback.addItem(withTitle: "Back", action: #selector(TapeView.back(_:)), keyEquivalent: "[")
         playback.addItem(withTitle: "Start Over", action: #selector(TapeView.startOver(_:)), keyEquivalent: "r")
 
         let windows = NSMenu(title: "Window")

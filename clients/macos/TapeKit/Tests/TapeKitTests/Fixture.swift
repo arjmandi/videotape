@@ -11,23 +11,28 @@ enum Fixture {
 
 extension Player {
     /// The resting scene's name, or nil while a clip plays.
-    var resting: String? {
-        guard case .resting(let scene) = playback else { return nil }
-        return scene.name
-    }
+    var resting: String? { scene?.name }
 
-    /// The playing clip's path inside the tape, or nil while resting.
+    /// The path inside the tape of the clip playing forward, or nil otherwise.
     var playing: String? {
         guard case .playing(let clip) = playback else { return nil }
-        return clip.url.pathComponents.suffix(2).joined(separator: "/")
+        return clip.path
+    }
+
+    /// The path inside the tape of the clip playing backward, with the scene it rewinds to, or nil otherwise.
+    var rewinding: (clip: String, to: String)? {
+        guard case .rewinding(let clip, let scene) = playback else { return nil }
+        return (clip.path, scene.name)
     }
 
     /// Presses the middle of the resting scene's hotspot with this label.
     @discardableResult
-    mutating func click(_ label: String) -> Bool {
-        guard case .resting(let scene) = playback, let box = scene.hotspots.first(where: { $0.label == label })?.box else {
-            return false
-        }
+    mutating func click(_ label: String) -> Pressed {
+        guard let box = scene?.hotspots.first(where: { $0.label == label })?.box else { return .nothing }
         return press(CGPoint(x: box.x + box.w / 2, y: box.y + box.h / 2))
     }
+}
+
+extension Clip {
+    var path: String { url.pathComponents.suffix(2).joined(separator: "/") }
 }

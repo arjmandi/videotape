@@ -11,6 +11,11 @@
   "scenes": {
     "welcome": {
       "key": "keys/welcome.png",
+      "words": [
+        "Surf Shop",
+        "Boards, wax and lessons on the beach",
+        "Enter shop"
+      ],
       "hotspots": [
         {
           "label": "Enter shop",
@@ -26,6 +31,12 @@
     },
     "entrance": {
       "key": "keys/entrance.png",
+      "words": [
+        "Welcome",
+        "I have an account",
+        "Create an account",
+        "Browse as guest"
+      ],
       "hotspots": [
         {
           "label": "I have an account",
@@ -61,10 +72,21 @@
     },
     "login": {
       "key": "keys/login.png",
+      "words": [
+        "Log in",
+        "Email",
+        "Password"
+      ],
       "hotspots": []
     },
     "signup": {
       "key": "keys/signup.png",
+      "words": [
+        "Sign up",
+        "Email",
+        "Password",
+        "Sign up"
+      ],
       "hotspots": [
         {
           "label": "Sign up",
@@ -80,6 +102,13 @@
     },
     "gallery": {
       "key": "keys/gallery.png",
+      "words": [
+        "Boards",
+        "Longboard",
+        "$499",
+        "Fish",
+        "$399"
+      ],
       "hotspots": []
     }
   },
@@ -104,5 +133,28 @@
       "clip": "moves/signup--sign-up.mp4",
       "lands": "login"
     }
+  },
+  "made": {
+    "label": "surf_shop 0.1.0 + beach 1.0.0",
+    "id": "4c1d0e8f6a2b9c7d5e3f1a0b8c6d4e2f0a9b7c5d3e1f8a6b4c2d0e9f7a5b3c1d",
+    "app": {
+      "name": "surf_shop",
+      "version": "0.1.0",
+      "code": "5u2f",
+      "data": "5h0p"
+    },
+    "story": {
+      "name": "beach",
+      "version": "1.0.0",
+      "hash": "b3ac"
+    },
+    "model": {
+      "name": "stand-in",
+      "settings": {
+        "text-to-video": {},
+        "first-and-last-frame": {}
+      }
+    },
+    "engine": "e791"
   }
 }

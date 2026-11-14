@@ -42,4 +42,9 @@ final class Projector {
             MainActor.assumeIsolated { ready() }
         }
     }
+
+    /// The harness never goes back, so this only keeps the API TapePlayer's view builds against.
+    func rewind(_ url: URL, fps: Int, ready: @escaping @MainActor () -> Void, ended: @escaping @MainActor () -> Void) {
+        play(url, ready: ready, ended: ended)
+    }
 }

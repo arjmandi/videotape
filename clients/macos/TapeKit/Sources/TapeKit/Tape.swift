@@ -23,9 +23,47 @@ public struct Hotspot: Equatable, Sendable {
     public let clip: Clip
 }
 
+/// One option of a search bar. Typing its label plays its clip, and so does its hotspot when the checks found its box.
+public struct Option: Equatable, Sendable {
+    public let label: String
+    public let clip: Clip
+}
+
+/// A search bar with options.
+public struct Search: Equatable, Sendable {
+    /// The bar's placeholder, which is also its hotspot's label when the checks found its box.
+    public let bar: String
+    public let options: [Option]
+    /// The clip the bar plays when the typed text picks no option.
+    public let noMatch: Clip
+
+    /// The one option whose label the text names, ignoring case: the whole label, or a prefix that starts at the label's
+    /// start or after a character that is not a letter or digit. Nil when no option matches, or more than one does.
+    public func option(matching text: String) -> Option? {
+        let text = text.lowercased()
+        guard !text.isEmpty else { return nil }
+        let matches = options.filter { Self.startsAWord(of: $0.label.lowercased(), with: text) }
+        return matches.count == 1 ? matches[0] : nil
+    }
+
+    private static func startsAWord(of label: String, with text: String) -> Bool {
+        var previous: Character?
+        for index in label.indices {
+            defer { previous = label[index] }
+            guard previous.map({ !$0.isLetter && !$0.isNumber }) ?? true else { continue }
+            if label[index...].hasPrefix(text) { return true }
+        }
+        return false
+    }
+}
+
 public struct Scene: Equatable, Sendable {
     public let name: String
+    /// Every string on screen in reading order, which is what a screen reader reads.
+    public let words: [String]
     public let hotspots: [Hotspot]
+    /// The search bar with options, on a state that shows one.
+    public let search: Search?
 
     /// `point` is in fractions of the frame, with a top-left origin. Overlapping boxes resolve to the first hotspot in tape order.
     public func hotspot(at point: CGPoint) -> Hotspot? {
@@ -33,14 +71,20 @@ public struct Scene: Equatable, Sendable {
     }
 }
 
+/// What made the tape, from the `made` block of `tape.json`.
+public struct Made: Equatable, Sendable {
+    /// The app and the story, each by name and version, such as `contrail 0.1.0 + terminal 1.0.0`.
+    public let label: String
+    public let id: String
+}
+
 public struct Tape: Equatable, Sendable {
     public let directory: URL
     public let size: CGSize
+    public let fps: Int
     public let opening: Clip
     public let scenes: [String: Scene]
-
-    /// The folder the tape was rendered from, so `examples/surf_shop/tape` is named `surf_shop`.
-    public var name: String { directory.deletingLastPathComponent().lastPathComponent }
+    public let made: Made
 
     /// Reads a tape from its directory or its `tape.json`, and resolves every name it uses.
     public static func load(_ url: URL) throws(TapeError) -> Tape {
@@ -68,22 +112,35 @@ public struct Tape: Equatable, Sendable {
         for name in raw.moves.keys.sorted() {
             moves[name] = try resolve(raw.moves[name]!)
         }
+        func clip(_ move: String, played label: String, in scene: String) throws(TapeError) -> Clip {
+            guard let clip = moves[move] else { throw .unknownMove(scene: scene, label: label, move: move) }
+            return clip
+        }
+
         var scenes: [String: Scene] = [:]
         for name in raw.scenes.keys.sorted() {
+            let scene = raw.scenes[name]!
             var hotspots: [Hotspot] = []
-            for hotspot in raw.scenes[name]!.hotspots {
-                guard let clip = moves[hotspot.move] else {
-                    throw .unknownMove(scene: name, label: hotspot.label, move: hotspot.move)
-                }
-                hotspots.append(Hotspot(label: hotspot.label, box: hotspot.box, clip: clip))
+            for hotspot in scene.hotspots {
+                hotspots.append(Hotspot(label: hotspot.label, box: hotspot.box, clip: try clip(hotspot.move, played: hotspot.label, in: name)))
             }
-            scenes[name] = Scene(name: name, hotspots: hotspots)
+            var search: Search?
+            if let bar = scene.search {
+                var options: [Option] = []
+                for option in bar.options {
+                    options.append(Option(label: option.label, clip: try clip(option.move, played: option.label, in: name)))
+                }
+                search = Search(bar: bar.bar, options: options, noMatch: try clip(bar.noMatch.move, played: "no_match", in: name))
+            }
+            scenes[name] = Scene(name: name, words: scene.words, hotspots: hotspots, search: search)
         }
         return Tape(
             directory: directory,
             size: CGSize(width: raw.size.width, height: raw.size.height),
+            fps: raw.fps,
             opening: opening,
-            scenes: scenes
+            scenes: scenes,
+            made: Made(label: raw.made.label, id: raw.made.id)
         )
     }
 
@@ -123,12 +180,23 @@ private struct Manifest: Decodable {
     struct Size: Decodable { let width, height: Double }
     struct Clip: Decodable { let clip, lands: String }
     struct Hotspot: Decodable { let label: String; let box: Box; let move: String }
-    struct Scene: Decodable { let hotspots: [Hotspot] }
+    struct Option: Decodable { let label, move: String }
+    struct NoMatch: Decodable { let move: String }
+    struct Search: Decodable {
+        let bar: String
+        let options: [Option]
+        let noMatch: NoMatch
+        enum CodingKeys: String, CodingKey { case bar, options, noMatch = "no_match" }
+    }
+    struct Scene: Decodable { let words: [String]; let hotspots: [Hotspot]; let search: Search? }
+    struct Made: Decodable { let label, id: String }
 
     let size: Size
+    let fps: Int
     let opening: Clip
     let scenes: [String: Scene]
     let moves: [String: Clip]
+    let made: Made
 }
 
 private func reason(_ error: any Error) -> String {
