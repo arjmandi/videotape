@@ -62,16 +62,21 @@ def plan_app(args) -> int:
     for name in planned.scenes:
         print(f"{name:<13}{per_scene[name]:>6}{out[name]:>12}")
     print()
-    for warning in warnings:
-        print(warning.report("warning"), file=sys.stderr)
+    _warn(warnings)
     print(f"0 errors, {_count(len(warnings), 'warning')}")
     return 0
+
+
+def _warn(warnings: tuple[ScreenplayError, ...]) -> None:
+    for warning in warnings:
+        print(warning.report("warning"), file=sys.stderr)
 
 
 def print_shots(args) -> int:
     found = project.find(Path.cwd())
     planned = _planned(found)
-    told, _ = _told(found, planned, args.story, _listing(found, None))
+    told, warnings = _told(found, planned, args.story, _listing(found, None))
+    _warn((*planned.warnings, *warnings))
     shots = planned.shots
     if args.state:
         names = [key.state.name for key in planned.keys]
@@ -109,7 +114,8 @@ def render_tape(args) -> int:
     if listing is None:
         raise ProjectError("no model to render with; pass --model, or set model in [tool.videotape]")
     planned = _planned(found)
-    told, _ = _told(found, planned, args.story, listing)
+    told, warnings = _told(found, planned, args.story, listing)
+    _warn((*planned.warnings, *warnings))
     tape = _tape(found, told.name, args.out)
     model, eye = listing.model(), listing.eye(tape)
     if model.price and (calls := uncached(planned, told, model, args.takes, tape)):

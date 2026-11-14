@@ -214,7 +214,7 @@ def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, cli, capsys, m
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
     assert capsys.readouterr() == ("", "error: wan3.0 needs FAL_KEY in the environment\n")
     assert sent == []
-    assert sorted(path.name for path in directory.iterdir()) == ["cafe.py", "drinks.json", "pyproject.toml", "stories"]
+    assert sorted(path.name for path in directory.iterdir()) == ["cafe.py", "data", "pyproject.toml", "stories"]
 
 
 def test_a_key_a_header_cannot_carry_is_refused_without_printing_it(tmp_path, cli, capsys, monkeypatch):

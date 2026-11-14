@@ -8,6 +8,7 @@ from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, fields
 from datetime import date, time
 from operator import attrgetter
+from pathlib import PurePosixPath
 from typing import Any, ClassVar, cast, dataclass_transform, get_type_hints
 
 from videotape import errors
@@ -141,8 +142,16 @@ class _File:
         return at
 
 
+DATA = "data"
+
+
 def _open(path: str) -> tuple[_File, Any]:
     asked, _ = errors.origin()
+    parts = PurePosixPath(path).parts
+    # Every file an app loads sits under data/, which is what the data hash in a tape's made block covers.
+    if not parts or parts[0] != DATA or ".." in parts or PurePosixPath(path).is_absolute():
+        raise ScreenplayError("VT205", errors.here(), f'"{path}" is not under {DATA}/',
+                              f'keep every data file under {DATA}/ in the project, as in {DATA}/{PurePosixPath(path).name}')
     root = next((folder for folder in asked.parents if (folder / "pyproject.toml").is_file()), None)
     if root is None:
         raise ScreenplayError("VT205", errors.here(), f'"{path}" is relative to the project, and no folder above '

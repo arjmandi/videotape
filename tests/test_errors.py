@@ -25,11 +25,11 @@ ERRORS = {
               "make the scene build for these arguments, or keep this state out of every to="),
     "VT204": ("app.py:11", "no action reaches the scene help",
               "lead to it from a scene that is reached, as in to=help(), or delete it"),
-    "VT205": ("app.py:9", "no data file at drinks.json",
-              'create it, or correct the path; "drinks.json" is relative to the folder of pyproject.toml'),
-    "VT206": ("drinks.json:3", 'record 2 field "price" is "six", not a whole number', "write a whole number"),
+    "VT205": ("app.py:9", "no data file at data/drinks.json",
+              'create it, or correct the path; "data/drinks.json" is relative to the folder of pyproject.toml'),
+    "VT206": ("data/drinks.json:3", 'record 2 field "price" is "six", not a whole number', "write a whole number"),
     "VT207": ("app.py:15", 'Drink has no field "cost", in state home()', "name one of its fields: name, price"),
-    "VT208": ("app.py:15", "get(name='Mocha') matched no Drink from drinks.json, in state home()",
+    "VT208": ("app.py:15", "get(name='Mocha') matched no Drink from data/drinks.json, in state home()",
               "ask for a row the data holds, or count the matches with where(...).count()"),
     "VT209": ("home()", 'two actions have the label "Open"', "give each action its own label"),
     "VT210": ("count(5)", "the plan reached more than 5 states",
@@ -43,6 +43,9 @@ ERRORS = {
               "write Button, the closest of the screenplay's element types"),
     "VT306": ("stories/neon.toml:2", "the story is not TOML: Invalid value",
               'write each line as name = "words", under [scenes], [elements] or [moves], or above all three'),
+    "VT308": ("stories/neon.toml:5", "home under [scenes] quotes '\u201cOpen\u201d.'",
+              "take the quotes out; the screenplay owns every word on screen, so describe their look"),
+    "VT309": ("stories", 'no story "neon"', "name one of the stories there, glow"),
 }
 WARNINGS = {
     "VT211": [("home()", 'the line "Café Lumière" has the characters è é', f"write it with {PLAIN}"),
@@ -106,7 +109,8 @@ def test_a_warning_prints_its_code_its_place_and_its_fix_and_the_plan_goes_on(co
 
 def test_a_key_of_a_scene_without_a_direction_gets_only_the_look_before_its_elements():
     result = videotape(FIXTURES / "errors" / "vt304", "shots", "--story", "neon", "--state", "detail()")
-    assert (result.stderr, result.returncode) == ("", 0)
+    [(place, message, fix)] = WARNINGS["VT304"]
+    assert (result.stderr, result.returncode) == (f"warning VT304 {place}: {message}\nfix: {fix}\n", 0)
     assert result.stdout.splitlines()[:4] == [
         "key detail()", "  engine                      Static shot.",
         "  story look                  A narrow shop on a rainy street at night.",

@@ -50,10 +50,11 @@ CODES: dict[str, Code] = {
         'Lead to it from a scene that is reached, as in vt.Button("Help", to=help()), or delete it.',
     ),
     "VT205": Code(
-        "a data file is missing",
+        "a data file is missing, or is not under data/",
         "vt.table and vt.one load their file when the module is imported. A path is relative to the project, the "
-        "folder that holds pyproject.toml, and no file is at this one.",
-        'flights = vt.table(Flight, "data/flight.json")',
+        "folder that holds pyproject.toml, and it is under data/, so that the data hash in a tape's made block covers "
+        "every record the app loads. Either no file is at this path, or the path leads outside data/.",
+        'flights = vt.table(Flight, "flights.json")',
         'flights = vt.table(Flight, "data/flights.json")',
     ),
     "VT206": Code(
@@ -140,12 +141,13 @@ CODES: dict[str, Code] = {
         'search = "Up close at the departure board."',
     ),
     "VT306": Code(
-        "a story is not TOML",
+        "a story is not TOML, or a table holds something other than words",
         'A story is a TOML file: lines of name = "words", above and under the headings [scenes], [elements] and '
         "[moves]. This file breaks TOML's rules, most often with words that are not in quotes or a quote that never "
-        "closes. The error names the line and says what TOML's reader found there.",
-        "look = A quiet airport terminal at first light.",
-        'look = "A quiet airport terminal at first light."',
+        "closes, or one of its tables holds a number, a list or another table where words belong. The error names "
+        "the line and says what is there.",
+        "look = A quiet airport terminal at first light.\n\n[scenes]\nhome = 3",
+        'look = "A quiet airport terminal at first light."\n\n[scenes]\nhome = "The main hall."',
     ),
     "VT307": Code(
         "a prompt is longer than the model takes",
@@ -156,6 +158,23 @@ CODES: dict[str, Code] = {
         "The stand-in has no limit. The plan goes on.",
         'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
         "Shorten the look, the scene's direction or the appearances in the story, or show fewer lines in the state.",
+    ),
+    "VT308": Code(
+        "a story quotes words",
+        "The screenplay owns every word on screen, and a story says only how they look. A video model letters "
+        "whatever a prompt quotes, so a story that quotes words puts them on every key it reaches, beside the "
+        "screenplay's own. A straight double quote or a curly one anywhere in a story's words is this error, which "
+        "names the line.",
+        'SearchBar = "a white slot that says \\"Where to?\\" in black letters"',
+        'SearchBar = "a wide white slot with black letters"',
+    ),
+    "VT309": Code(
+        "no story has this name",
+        "A story is stories/<name>.toml in the project, and --story names it by the file's stem. No file under "
+        "stories/ has this name. The fix lists the stories that are there, or names the file to add when there are "
+        "none.",
+        "videotape plan --story poster",
+        "videotape plan --story posters",
     ),
 }
 

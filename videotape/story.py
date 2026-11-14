@@ -16,10 +16,11 @@ from videotape import errors
 from videotape.errors import ScreenplayError
 from videotape.model import PromptLimit
 from videotape.plan import Key, Move, Plan, Shot
-from videotape.project import ProjectError
 from videotape.screenplay import Shown
 
 DEFAULT = "default"
+QUOTES = '"\u201c\u201d'
+"""A straight double quote and the curly pair. A story never quotes words, because a model letters what a prompt quotes."""
 
 
 @dataclass(frozen=True)
@@ -141,8 +142,9 @@ def named(root: Path, name: str) -> Story:
     path = root / "stories" / f"{name}.toml"
     if not path.is_file():
         have = sorted(found.stem for found in path.parent.glob("*.toml"))
-        raise ProjectError(f'no story "{name}" in {errors.shown(path.parent)}; ' + (
-            f"the stories are {' and '.join(have)}" if have else f"add {errors.shown(path)}"))
+        raise ScreenplayError("VT309", errors.shown(path.parent), f'no story "{name}"',
+                              f"name one of the stories there, {_listed(have, ',')}" if have
+                              else f"add {errors.shown(path)}")
     return load(path)
 
 
@@ -156,25 +158,52 @@ def load(path: Path) -> Story:
         raise ScreenplayError("VT306", f"{place}:{line}", f"the story is not TOML: {wrong}",
                               'write each line as name = "words", under [scenes], [elements] or [moves], or above '
                               "all three") from None
-    version = _top(told, "version", place, '"1.0.0"')
-    look = _top(told, "look", place, '"...", the look of the whole app in a sentence or two,')
+    version = _top(told, "version", path, '"1.0.0"')
+    look = _top(told, "look", path, '"...", the look of the whole app in a sentence or two,')
     tables = dict[str, dict[str, str]]()
     for table in ("scenes", "elements", "moves"):
         held = told.get(table, {})
-        if not isinstance(held, dict) or not all(isinstance(words, str) for words in held.values()):
-            raise ProjectError(f'{place}: [{table}] holds something other than words, as in name = "..."')
+        if not isinstance(held, dict):
+            raise ScreenplayError("VT306", _line_with(path, f"{table} ="), f"{table} is {held!r}, not a [{table}] table",
+                                  f'write [{table}] on a line of its own, with name = "words" lines under it')
+        for name, words in held.items():
+            if not isinstance(words, str):
+                raise ScreenplayError("VT306", _at(path, table, name), f"under [{table}], {name} is {words!r}, not words",
+                                      f'write {name} = "..." in quotes')
+            _unquoted(path, words, f"{name} under [{table}]")
         tables[table] = {name: _plain(words) for name, words in held.items()}
     return Story(path.stem, version, look, tables["scenes"], tables["elements"], tables["moves"], path,
                  hashlib.sha256(raw).hexdigest())
 
 
-def _top(told: dict, name: str, place: str, example: str) -> str:
+def _unquoted(path: Path, words: str, what: str) -> None:
+    """A story describes how words look and never quotes them: a model letters whatever a prompt quotes."""
+    at = next((index for index, char in enumerate(words) if char in QUOTES), None)
+    if at is None:
+        return
+    quoted = words[at:at + 24].splitlines()[0]
+    # The line is found by the words beside the quote, since a straight quote is escaped in the file.
+    beside = re.match(r"[^\\\"\u201c\u201d]{1,8}", words[at + 1:]) or re.search(r"[^\\\"\u201c\u201d]{1,8}$", words[:at])
+    raise ScreenplayError("VT308", _line_with(path, beside[0] if beside else ""), f"{what} quotes {quoted!r}",
+                          "take the quotes out; the screenplay owns every word on screen, so describe their look")
+
+
+def _line_with(path: Path, needle: str) -> str:
+    """The file and the first line that holds the needle, or the file alone."""
+    for number, line in enumerate(path.read_text().splitlines(), 1):
+        if needle and needle in line:
+            return f"{errors.shown(path)}:{number}"
+    return errors.shown(path)
+
+
+def _top(told: dict, name: str, path: Path, example: str) -> str:
     words = told.get(name)
     if isinstance(words, str) and words.strip():
+        _unquoted(path, words, f"the {name}")
         return _plain(words)
     blank = words is None or isinstance(words, str)
     wrong = f"no {name}" if blank else f"the {name} {words!r}, which is not in quotes"
-    raise ScreenplayError("VT301", place, f"the story has {wrong}",
+    raise ScreenplayError("VT301", errors.shown(path), f"the story has {wrong}",
                           f"write {name} = {example} above the first [heading]")
 
 

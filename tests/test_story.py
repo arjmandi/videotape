@@ -8,7 +8,6 @@ import videotape as vt
 from conftest import CONTRAIL, FIXTURES, a_story, planned, told, videotape, words
 from videotape import story
 from videotape.plan import Key, plan
-from videotape.project import ProjectError
 
 RESULTS = "results(SEA, 2026-12-12)"
 POSTERS_RESULTS = (
@@ -185,6 +184,7 @@ def test_contrails_moves_take_their_types_move_in_terminal_and_the_default_in_po
 
 
 SHOTS = ("shots", "--story", "posters", "--state", RESULTS)
+NO_POSTER = 'error VT309 stories: no story "poster"\nfix: name one of the stories there, posters and terminal\n'
 
 
 def test_shots_prints_each_prompt_under_its_title_one_clause_to_a_line_with_its_source_beside_it():
@@ -219,9 +219,9 @@ def test_shots_without_a_state_prints_every_shot_of_the_plan():
     (("shots", "--story", "posters", "--state", "results(SEA, 2026-12-21)"), 1,
      'error: the app has no state "results(SEA, 2026-12-21)"; the closest are results(SEA, 2026-12-11), '
      "results(SEA, 2026-12-12), results(SEA, 2026-12-13)\n"),
-    (("shots", "--story", "poster"), 1, 'error: no story "poster" in stories; the stories are posters and terminal\n'),
-    (("render", "--story", "poster"), 1, 'error: no story "poster" in stories; the stories are posters and terminal\n'),
-    (("plan", "--story", "poster"), 1, 'error: no story "poster" in stories; the stories are posters and terminal\n'),
+    (("shots", "--story", "poster"), 1, NO_POSTER),
+    (("render", "--story", "poster"), 1, NO_POSTER),
+    (("plan", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--model", "wan3.0"), 1,
      "error: --model checks a story's prompts against that model, so pass --story with it\n"),
 ])
@@ -241,7 +241,7 @@ def test_shots_and_render_need_a_story(command):
 def test_a_project_without_stories_says_which_file_to_add():
     result = videotape(FIXTURES / "errors" / "vt211", "shots", "--story", "neon")
     assert (result.stdout, result.stderr, result.returncode) == (
-        "", 'error: no story "neon" in stories; add stories/neon.toml\n', 1)
+        "", 'error VT309 stories: no story "neon"\nfix: add stories/neon.toml\n', 1)
 
 
 @pytest.mark.parametrize("name", ["terminal", "posters"])
@@ -262,12 +262,39 @@ def test_a_quote_that_never_closes_is_not_toml_at_the_storys_last_line(tmp_path)
     assert error.value.message.startswith("the story is not TOML: ")
 
 
-def test_a_table_that_holds_something_other_than_words_is_refused(tmp_path):
+def test_a_table_that_holds_something_other_than_words_is_vt306_at_its_line(tmp_path):
     file = tmp_path / "odd.toml"
     file.write_text('version = "1.0.0"\nlook = "A plain room."\n\n[scenes]\nhome = 3\n')
-    with pytest.raises(ProjectError, match=r'odd\.toml: \[scenes\] holds something other than words, as in name = "\.\.\."'):
+    with pytest.raises(vt.ScreenplayError) as error:
         story.load(file)
+    assert (error.value.code, error.value.place.rpartition(":")[2], error.value.message) == (
+        "VT306", "5", "under [scenes], home is 3, not words")
+    file.write_text('version = "1.0.0"\nlook = "A plain room."\nscenes = ["home"]\n')
+    with pytest.raises(vt.ScreenplayError) as error:
+        story.load(file)
+    assert (error.value.code, error.value.place.rpartition(":")[2]) == ("VT306", "3")
+    assert error.value.message == "scenes is ['home'], not a [scenes] table"
     file.write_text('version = 1.0\nlook = "A plain room."\n')
     with pytest.raises(vt.ScreenplayError) as error:
         story.load(file)
     assert (error.value.code, error.value.message) == ("VT301", "the story has the version 1.0, which is not in quotes")
+
+
+@pytest.mark.parametrize("text, line, quoted", [
+    ('look = "A sign that says \\"Open\\" in neon."\n\n[scenes]\nhome = "The front."\n', 1, '\'"Open" in neon.\''),
+    ('look = """\nA shop.\nIts sign reads \u201cOpen\u201d at night.\n"""\n', 3, "'\u201cOpen\u201d at night.'"),
+    ('look = "A shop."\n\n[elements]\nButton = \'a tab that says "Book"\'\n', 4, '\'"Book"\''),
+])
+def test_a_story_that_quotes_words_is_vt308_at_the_line_that_quotes_them(tmp_path, text, line, quoted):
+    file = tmp_path / "quoting.toml"
+    file.write_text('version = "1.0.0"\n' + text)
+    with pytest.raises(vt.ScreenplayError) as error:
+        story.load(file)
+    assert (error.value.code, error.value.place.rpartition(":")[2]) == ("VT308", str(line + 1))
+    assert error.value.message.endswith(f"quotes {quoted}")
+    assert error.value.fix == "take the quotes out; the screenplay owns every word on screen, so describe their look"
+
+
+def test_contrails_stories_and_the_cafes_quote_nothing():
+    for directory, name in ((CONTRAIL, "terminal"), (CONTRAIL, "posters"), (FIXTURES / "cafe", "chalk")):
+        told(directory, name)

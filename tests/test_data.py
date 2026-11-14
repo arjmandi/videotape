@@ -134,6 +134,14 @@ def test_a_missing_data_file_is_vt205_at_the_line_that_loads_it(tmp_path, monkey
     assert error.fix == 'create it, or correct the path; "data/flights.json" is relative to the folder of pyproject.toml'
 
 
+@pytest.mark.parametrize("path", ["flights.json", "../data/flights.json", "data/../flights.json", "/data/flights.json",
+                                  "records/flights.json"])
+def test_a_path_outside_data_is_vt205_at_the_line_that_loads_it(tmp_path, monkeypatch, path):
+    error = rejected(tmp_path, monkeypatch, FLIGHT.replace("data/flights.json", path))
+    assert (error.code, error.place, error.message) == ("VT205", "app.py:13", f'"{path}" is not under data/')
+    assert error.fix == "keep every data file under data/ in the project, as in data/flights.json"
+
+
 @pytest.mark.parametrize("rows, place, message", [
     ('[\n  {"number": "CT 100", "day": "2026-12-11", "departs": "07:05"}\n]', "data/flights.json:2",
      'record 1 has no field "fare"'),
