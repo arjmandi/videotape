@@ -132,3 +132,67 @@ def test_an_app_without_a_project_name_is_named_by_its_folder(tmp_path):
     (directory / "stories" / "bare.toml").write_text('version = "2.0.0"\nlook = "A bare hallway."\n')
     found = block(directory, "bare")
     assert (found["label"], found["app"]["name"], found["app"]["version"]) == ("doors + bare 2.0.0", "doors", None)
+
+
+@pytest.fixture
+def two(cafe, tmp_path, cli, monkeypatch, capsys):
+    """A copy of the rendered cafe, and a way to render it again after a change, with a stand-in that never flaws."""
+    directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), lambda tape: StandInEye()))
+
+    def render_again(*arguments: str) -> None:
+        assert cli(directory, "render", "--takes", "1", *arguments) == 0
+        capsys.readouterr()
+    return directory, render_again
+
+
+def diff(cli, capsys, directory: Path, a: str, b: str) -> list[str]:
+    assert cli(directory, "diff", a, b) == 0
+    out, err = capsys.readouterr()
+    assert err == ""
+    return out.splitlines()
+
+
+def test_diff_of_a_tape_with_itself_is_the_same_app_and_story_and_shares_everything(two, cli, capsys):
+    directory, _ = two
+    made_ = json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())["made"]
+    line = f"tapes/chalk  cafe 0.3.0 + chalk 1.0.0  {made_['id']}"
+    assert diff(cli, capsys, directory, "tapes/chalk", "tapes/chalk") == [
+        line, line, "same app", "same story", "5 states shared, of 5 and 5", "6 moves shared, of 6 and 6"]
+
+
+def test_diff_of_two_stories_of_one_app_is_the_same_app_and_another_story(two, cli, capsys):
+    directory, render_again = two
+    chalk = (directory / "stories" / "chalk.toml").read_text()
+    (directory / "stories" / "neon.toml").write_text(chalk.replace("A chalkboard behind", "A neon sign above"))
+    render_again("--story", "neon")
+    chalk_id, neon_id = (json.loads((directory / "tapes" / name / "tape.json").read_text())["made"]["id"]
+                         for name in ("chalk", "neon"))
+    assert chalk_id != neon_id
+    assert diff(cli, capsys, directory, "tapes/chalk", "tapes/neon") == [
+        f"tapes/chalk  cafe 0.3.0 + chalk 1.0.0  {chalk_id}",
+        f"tapes/neon   cafe 0.3.0 + neon 1.0.0   {neon_id}",
+        "same app", "another story", "5 states shared, of 5 and 5", "6 moves shared, of 6 and 6"]
+
+
+def test_diff_after_the_code_changes_is_another_app_and_counts_the_states_and_moves_both_tapes_have(two, cli, capsys):
+    directory, render_again = two
+    screenplay = directory / "cafe.py"
+    listed = 'for drink in drinks.order_by("name")]'
+    assert screenplay.read_text().count(listed) == 1
+    screenplay.write_text(screenplay.read_text().replace(listed, 'for drink in drinks.where(price=3)]'))
+    render_again("--story", "chalk", "--out", "tape-espresso")
+    assert diff(cli, capsys, directory, "tapes/chalk", "tape-espresso")[2:] == [
+        "another app", "same story", "3 states shared, of 5 and 3", "3 moves shared, of 6 and 3"]
+
+
+def test_diff_says_which_tape_has_no_tape_json_or_does_not_say_what_made_it(two, cli, capsys):
+    directory, _ = two
+    assert cli(directory, "diff", "tapes/chalk", "tapes/neon") == 1
+    assert capsys.readouterr() == ("", "error: no tape.json in tapes/neon; render the screenplay first\n")
+    old = directory / "tape-old"
+    old.mkdir()
+    manifest = json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())
+    (old / "tape.json").write_text(json.dumps({name: part for name, part in manifest.items() if name != "made"}))
+    assert cli(directory, "diff", "tape-old", "tapes/chalk") == 1
+    assert capsys.readouterr() == ("", "error: tape-old/tape.json does not say what made it; render the tape again\n")

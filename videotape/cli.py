@@ -138,6 +138,31 @@ def rewrite_dailies(args) -> int:
     return 0
 
 
+def _manifest(tape: str) -> dict:
+    """A tape's tape.json, which says what made it."""
+    file = Path(tape) / "tape.json"
+    if not file.is_file():
+        raise ChecksError(f"no tape.json in {tape}; render the screenplay first")
+    manifest = json.loads(file.read_text())
+    if "made" not in manifest:
+        raise ChecksError(f"{file} does not say what made it; render the tape again")
+    return manifest
+
+
+def diff_tapes(args) -> int:
+    a, b = _manifest(args.a), _manifest(args.b)
+    rows = [(tape, manifest["made"]["label"], manifest["made"]["id"]) for tape, manifest in ((args.a, a), (args.b, b))]
+    widths = [max(map(len, column)) for column in zip(*rows)]
+    for row in rows:
+        print("  ".join(f"{cell:<{width}}" for cell, width in zip(row, widths)))
+    app, other = a["made"]["app"], b["made"]["app"]
+    print("same app" if (app["code"], app["data"]) == (other["code"], other["data"]) else "another app")
+    print("same story" if a["made"]["story"]["hash"] == b["made"]["story"]["hash"] else "another story")
+    for part, noun in (("scenes", "state"), ("moves", "move")):
+        print(f"{_count(len(a[part].keys() & b[part].keys()), noun)} shared, of {len(a[part])} and {len(b[part])}")
+    return 0
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="videotape", description="Run in an app's project, the folder whose "
                                      "pyproject.toml names its screenplay in [tool.videotape].")
@@ -167,6 +192,11 @@ def main(argv=None) -> int:
     which.add_argument("--story", help="the story whose tape it is, tapes/<story> in the project")
     which.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
     rewriting.set_defaults(run=rewrite_dailies)
+    diffing = commands.add_parser("diff", help="say whether two tapes are of the same app and the same story, and how "
+                                  "many states and moves they share")
+    diffing.add_argument("a", help="a tape directory")
+    diffing.add_argument("b", help="another tape directory")
+    diffing.set_defaults(run=diff_tapes)
     args = parser.parse_args(argv)
     try:
         return args.run(args)

@@ -26,7 +26,8 @@ uv run pyright contrail
 uv run videotape shots --story posters --state "results(SEA, 2026-12-12)"
 uv run videotape render --story terminal
 uv run videotape render --story posters
+uv run videotape diff tapes/terminal tapes/posters
 open ../../clients/macos/build/TapePlayer.app --args examples/contrail/tapes/terminal
 ```
 
-`plan` checks the screenplay and the story. `shots` prints each prompt with the source of every clause. `render` writes the tape to `tapes/<story>/`.
+`plan` checks the screenplay and the story. `shots` prints each prompt with the source of every clause. `render` writes the tape to `tapes/<story>/`, and its `tape.json` says which code, data, story, model, and engine made it. `diff` says whether two tapes are of the same app and the same story.
