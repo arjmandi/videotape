@@ -210,8 +210,8 @@ def test_a_key_keeps_the_take_whose_checks_pass_over_a_misspelt_one_and_one_with
     [misspelt] = [line for line in lines if line not in drawn[0]]
     [dropped] = [line for line in lines if line not in drawn[1]]
     assert len(drawn[0]) == 3 and len(drawn[1]) == 2
-    assert f'text "{misspelt}"' in [item.name for item in misspelt_take.checks.failures]
-    assert f'text "{dropped}"' in [item.name for item in dropped_take.checks.failures]
+    assert ("VT502", misspelt) in [(item.code, item.about) for item in misspelt_take.checks.failures]
+    assert ("VT502", dropped) in [(item.code, item.about) for item in dropped_take.checks.failures]
     assert clean_take.checks.rank(3) < min(misspelt_take.checks.rank(1), dropped_take.checks.rank(2))
 
 
@@ -221,9 +221,9 @@ def test_a_move_keeps_the_take_whose_frames_sit_closest_to_its_keys(first):
     wrong_start, wrong_end, clean_take = done.takes
     assert done.kept is clean_take
     assert wrong_start.checks.start > MAX_DIFFERENCE and wrong_start.checks.end <= MAX_DIFFERENCE
-    assert [item.name for item in wrong_start.checks.failures] == ["start"]
+    assert [(item.code, item.about) for item in wrong_start.checks.failures] == [("VT508", "start")]
     assert wrong_end.checks.end > MAX_DIFFERENCE and wrong_end.checks.start <= MAX_DIFFERENCE
-    assert [item.name for item in wrong_end.checks.failures] == ["end"]
+    assert [(item.code, item.about) for item in wrong_end.checks.failures] == [("VT508", "end")]
     assert clean_take.checks.failures == []
     assert clean_take.checks.rank(3) < wrong_start.checks.rank(1) and clean_take.checks.rank(3) < wrong_end.checks.rank(2)
 
@@ -237,9 +237,10 @@ def test_dailies_page_is_a_view_of_its_record(first):
     assert (record["title"], record["checks"]) == ("Corner Cafe", "stand-in")
     assert [(key["state"], key["key"], key["title"]) for key in record["keys"]] == [
         (state, f"keys/{name}.png", f"key {state}") for state, name in KEYS.items()]
-    assert [(item["name"], item["passed"]) for item in record["keys"][0]["items"]] == [
-        ('hotspot "Espresso, $3"', True), ('hotspot "Latte, $5"', True), ('text "Corner Cafe"', True),
-        ('text "Drinks"', True), ('text "Espresso"', True), ('text "$3"', True), ('text "Latte"', True), ('text "$5"', True)]
+    assert [(item["code"], item["about"], item["passed"]) for item in record["keys"][0]["items"]] == [
+        ("VT501", "Espresso, $3", True), ("VT501", "Latte, $5", True), ("VT502", "Corner Cafe", True),
+        ("VT502", "Drinks", True), ("VT502", "Espresso", True), ("VT502", "$3", True), ("VT502", "Latte", True),
+        ("VT502", "$5", True)]
     assert record["keys"][0]["items"][0]["result"].startswith("found at ")
     assert [move["move"] for move in record["moves"]] == [f"moves/{move}.mp4" for move in MOVES]
     assert '<section class="shot keys" id="keys">' in page
@@ -444,7 +445,7 @@ def test_editing_one_line_rerenders_its_key_and_only_the_moves_that_touch_it(fir
     directory = again(first, tmp_path, 'vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")')
     model = StandIn(flaw=clean)
     monkeypatch.setitem(MODELS, "stand-in", stand_in(model))
-    assert cli(directory, *RENDER) == 0
+    assert cli(directory, *RENDER, "--takes", "3") == 0
     assert len(model.calls) == 15
     assert capsys.readouterr().out.splitlines() == [
         "1. key menu()  rendered 3 takes, kept take 1",

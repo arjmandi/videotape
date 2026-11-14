@@ -128,7 +128,7 @@ def render_tape(args) -> int:
         print(f"{number}. {filmed.shot.title}  {status}, kept take {filmed.kept.seed}")
     print(f"rendered {sum(bool(filmed.rendered) for filmed in result.shots)} of {_count(len(result.shots), 'shot')}"
           f" -> {errors.shown(tape)}")
-    failures = [f"{number}. {filmed.shot.title}  kept take {filmed.kept.seed} fails {item.name}: {item.result}"
+    failures = [f"{number}. {filmed.shot.title}  kept take {filmed.kept.seed} fails {item.code} {item.about}: {item.result}"
                 for number, filmed in enumerate(result.shots, 1) for item in filmed.kept.checks.failures]
     for failure in failures:
         print(f"fail: {failure}", file=sys.stderr)

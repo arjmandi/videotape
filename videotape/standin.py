@@ -12,7 +12,7 @@ from itertools import groupby
 from pathlib import Path
 
 from videotape import frames
-from videotape.checks import cer
+from videotape.checks import Spot
 from videotape.frames import HEIGHT, WIDTH, Box, Frame
 from videotape.plan import Mode
 
@@ -42,7 +42,8 @@ CONTRAST = 30
 # The mark is a row of cells along the bottom edge, below every box. A cell is this much lighter or darker than the
 # background, which is too little for the eye to take it for a box.
 MARK_CELLS, MARK_HEIGHT, MARK_SHADE = 64, 16, 8
-FIND_MAX_CER = 0.2
+# What the extra box flaw letters: a line no screenplay shows, drawn as one more row.
+EXTRA = "Not in the script"
 
 
 class StandInError(RuntimeError):
@@ -53,13 +54,15 @@ class Flaw(Enum):
     NONE = "none"
     MISSPELL = "misspell"
     DROP_LINE = "drop line"
+    EXTRA_BOX = "extra box"
     WRONG_START = "wrong start"
     WRONG_END = "wrong end"
 
 
-# Seeds 1 and 2 may carry a flaw of their kind, so both rankers have something to reject. Seed 3 is always clean.
+# Seeds 1 and 2 may carry a flaw of their kind, so the checks have something to reject. Seed 3 is always clean. A key
+# flaw is a misspelt line (VT502), a line left out (VT501 and VT502), or a box the prompt never asked for (VT503).
 FLAWS = {
-    Mode.TEXT_TO_VIDEO: (Flaw.MISSPELL, Flaw.DROP_LINE),
+    Mode.TEXT_TO_VIDEO: (Flaw.MISSPELL, Flaw.DROP_LINE, Flaw.EXTRA_BOX),
     Mode.FIRST_AND_LAST_FRAME: (Flaw.WRONG_START, Flaw.WRONG_END),
 }
 
@@ -109,6 +112,8 @@ class StandIn:
             raise ValueError(f"{flaw.name} does not apply to this {mode.value} take")
         if flaw in (Flaw.MISSPELL, Flaw.DROP_LINE):
             rows = _spoil(rows, flaw, digest)
+        elif flaw is Flaw.EXTRA_BOX:
+            rows = rows + [[EXTRA]]
         with tempfile.TemporaryDirectory() as scratch:
             scratch = Path(scratch)
             drawn: tuple[Drawn, ...] = ()
@@ -127,15 +132,12 @@ class StandIn:
 
 
 class StandInEye:
+    """Reads the stand-in's boxes back from the pixels. Every box it draws is a control."""
+
     name = "stand-in"
 
-    def read(self, frame: Frame) -> list[str]:
-        return [text for _, text in _segment(frame)]
-
-    def find(self, frame: Frame, words: str) -> Box | None:
-        scored = [(cer(words, text), box) for box, text in _segment(frame)]
-        error, box = min(scored, key=lambda pair: pair[0], default=(1.0, None))
-        return box if error <= FIND_MAX_CER else None
+    def see(self, frame: Frame) -> tuple[Spot, ...]:
+        return tuple(Spot(text, box, True) for box, text in _segment(frame))
 
 
 def quoted(prompt: str) -> list[list[str]]:

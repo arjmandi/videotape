@@ -159,7 +159,7 @@ def _failing(checked: dict) -> bool:
 def checklist(items: list[dict]) -> str:
     return "".join(
         f'<li class="{"pass" if item["passed"] else "fail"}"><span class="mark">{"✓" if item["passed"] else "✗"}</span>'
-        f'<span class="name">{escape(item["name"])}</span><span class="result">{escape(item["result"])}</span></li>'
+        f'<span class="name">{item["code"]} {escape(item["about"])}</span><span class="result">{escape(item["result"])}</span></li>'
         for item in items)
 
 

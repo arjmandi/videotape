@@ -3,10 +3,19 @@ import pytest
 import videotape as vt
 from conftest import CONTRAIL, a_story, planned, told, words
 from videotape import frames, standin
-from videotape.checks import KeyChecks, Reading, readings, score
+from videotape.checks import KeyChecks, Reading, Spot, find, read, readings, score
 from videotape.frames import Box
 from videotape.plan import Key, Mode, plan
-from videotape.standin import Flaw, StandIn, StandInEye
+from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
+
+
+def seen(*texts: str) -> tuple[Spot, ...]:
+    """Spots as an eye reports them, each at its own place."""
+    return tuple(Spot(text, Box(0, 40 * number, 100, 33), True) for number, text in enumerate(texts))
+
+
+def failed(checks: KeyChecks) -> list[tuple[str, str]]:
+    return [(item.code, item.about) for item in checks.failures]
 
 
 def clean(mode: Mode, prompt: str, seed: int) -> Flaw:
@@ -29,11 +38,11 @@ def test_the_stand_in_draws_every_contrail_key_so_its_eye_reads_every_line_and_f
     for key in planned(CONTRAIL).keys:
         frame, drawn = standin.draw(standin.quoted(words(key, look)))
         assert (frame.width, frame.height) == (1280, 704)
-        assert eye.read(frame) == list(key.lines), key.state.name
+        assert read(eye.see(frame)) == list(key.lines), key.state.name
         assert score(frame, key, eye).failures == [], key.state.name
         boxes = {text: box for text, box in ((d.text, d.box) for d in drawn)}
         for action in key.actions:
-            assert eye.find(frame, action.words) == boxes[action.words], (key.state.name, action.label)
+            assert find(eye.see(frame), action.words) == boxes[action.words], (key.state.name, action.label)
 
 
 @pytest.mark.parametrize("state, lines, actions", [("profile()", 51, 2), ("search()", 7, 7), ("my_trips()", 16, 4)])
@@ -58,7 +67,7 @@ def test_two_prompts_that_quote_the_same_line_give_two_pictures_and_the_eye_read
         take = tmp_path / f"{len(seen)}.mp4"
         StandIn(flaw=clean).text_to_video(prompt, 1, take)
         frame = frames.last_frame(take)
-        assert StandInEye().read(frame) == ["Trips"]
+        assert read(StandInEye().see(frame)) == ["Trips"]
         assert seen.setdefault(prompt, frame) == frame
     sign, poster = seen.values()
     assert sign.rgb != poster.rgb
@@ -74,7 +83,24 @@ def test_a_flawed_take_fails_its_checks_even_when_the_flaw_is_on_a_line_the_key_
         StandIn(flaw=lambda mode, prompt, seed: flaw).text_to_video(words(key, a_story()), seed, take)
         checks = score(frames.last_frame(take), key, StandInEye())
         assert [reading.cer for reading in checks.text].count(0.0) == 1
-        assert [item.name for item in checks.failures] == ['text "$89"']
+        assert failed(checks) == [("VT502", "$89")]
+
+
+def test_an_extra_box_is_an_invented_control_which_fails_vt503_with_its_box(tmp_path):
+    key = contrail_key("thanks(Latte)") if False else repeated()
+    take = tmp_path / "extra.mp4"
+    model = StandIn(flaw=lambda mode, prompt, seed: Flaw.EXTRA_BOX)
+    model.text_to_video(words(key, a_story()), 1, take)
+    checks = score(frames.last_frame(take), key, StandInEye())
+    [extra] = [d for d in model.drawn[take] if d.text == EXTRA]
+    assert [(spot.text, spot.control) for spot in checks.invented] == [(EXTRA, True)]
+    assert failed(checks) == [("VT503", EXTRA)]
+    [item] = checks.failures
+    assert item.box == checks.invented[0].box
+    assert max(abs(item.box.x - extra.box.x), abs(item.box.y - extra.box.y)) <= 2
+    assert item.result.startswith(f'a control reading "{EXTRA}" at ')
+    clean_checks = KeyChecks({}, checks.text)
+    assert clean_checks.rank(3) < checks.rank(1)
 
 
 def test_only_seeds_one_and_two_ever_carry_a_flaw_and_some_do(tmp_path):
@@ -88,24 +114,43 @@ def test_only_seeds_one_and_two_ever_carry_a_flaw_and_some_do(tmp_path):
     assert flawed == {1, 2}
 
 
-def test_each_line_is_read_from_a_different_line_the_eye_saw():
-    assert readings(("$89", "Sat 12", "$89"), ["$89", "Sat 12", "x89"]) == (
-        Reading("$89", "$89", 0.0), Reading("Sat 12", "Sat 12", 0.0), Reading("$89", "x89", 1 / 3))
-    assert readings(("$89", "Sat 12", "$89"), ["Sat 12", "$89"]) == (
-        Reading("$89", "$89", 0.0), Reading("Sat 12", "Sat 12", 0.0), Reading("$89", "", 1.0))
-    assert readings(("Book",), ["Trips", "Bonk", "Book now"]) == (Reading("Book", "Bonk", 0.25),)
-    assert readings((), ["Trips"]) == ()
+def test_each_line_is_read_from_a_different_spot_the_eye_saw_and_knows_where():
+    spots = seen("$89", "Sat 12", "x89")
+    assert readings(("$89", "Sat 12", "$89"), spots) == (
+        Reading("$89", "$89", 0.0, spots[0].box), Reading("Sat 12", "Sat 12", 0.0, spots[1].box),
+        Reading("$89", "x89", 1 / 3, spots[2].box))
+    spots = seen("Sat 12", "$89")
+    assert readings(("$89", "Sat 12", "$89"), spots) == (
+        Reading("$89", "$89", 0.0, spots[1].box), Reading("Sat 12", "Sat 12", 0.0, spots[0].box),
+        Reading("$89", "", 1.0, None))
+    spots = seen("Trips", "Bonk", "Book now")
+    assert readings(("Book",), spots) == (Reading("Book", "Bonk", 0.25, spots[1].box),)
+    assert readings((), seen("Trips")) == ()
+
+
+def test_find_takes_the_closest_spot_within_the_limit_and_a_control_before_a_plain_one():
+    spots = seen("Book", "Trips")
+    plain = (Spot("Book", Box(0, 0, 50, 20), False), spots[0])
+    assert find(spots, "Book") == spots[0].box
+    assert find(plain, "Book") == spots[0].box
+    assert find(spots, "Boook") == spots[0].box
+    assert find(spots, "Bonk") is None
+    assert find(spots, "Profile") is None
+    assert find((), "Book") is None
 
 
 def test_a_missing_hotspot_costs_a_take_more_than_any_misread_line_and_the_seed_breaks_ties():
     box = Box(24, 24, 100, 33)
-    clean_take = KeyChecks({"Done": box}, (Reading("Thanks", "Thanks", 0.0),))
-    misread = KeyChecks({"Done": box}, (Reading("Thanks", "", 1.0),))
-    unfound = KeyChecks({"Done": None}, (Reading("Thanks", "Thanks", 0.0),))
-    assert clean_take.rank(3) < misread.rank(1) < unfound.rank(1)
+    clean_take = KeyChecks({"Done": box}, (Reading("Thanks", "Thanks", 0.0, box),))
+    misread = KeyChecks({"Done": box}, (Reading("Thanks", "", 1.0, None),))
+    unfound = KeyChecks({"Done": None}, (Reading("Thanks", "Thanks", 0.0, box),))
+    invented = KeyChecks({"Done": box}, (Reading("Thanks", "Thanks", 0.0, box),), (Spot("Cancel", box, True),))
+    assert clean_take.rank(3) < misread.rank(1) < invented.rank(1) < unfound.rank(1)
     assert clean_take.rank(2) < clean_take.rank(3)
-    assert [item.name for item in unfound.failures] == ['hotspot "Done"']
-    assert [(item.name, item.result) for item in misread.failures] == [('text "Thanks"', "read nothing, CER 1.000")]
+    assert failed(unfound) == [("VT501", "Done")] and failed(invented) == [("VT503", "Cancel")]
+    assert [(item.code, item.about, item.result) for item in misread.failures] == [
+        ("VT502", "Thanks", "read nothing, CER 1.000")]
+    assert (clean_take.passed, misread.passed, unfound.passed, invented.passed) == (True, False, False, False)
 
 
 def test_the_stand_in_says_which_line_it_has_no_room_or_no_letters_for(tmp_path):

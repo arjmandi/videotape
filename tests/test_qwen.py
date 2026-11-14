@@ -6,10 +6,10 @@ import pytest
 import videotape as vt
 from conftest import FIXTURES, copy_of
 from videotape import standin
-from videotape.checks import Reading, cer, score
+from videotape.checks import Reading, Spot, cer, find, read, score
 from videotape.frames import Box, Frame
 from videotape.plan import plan
-from videotape.qwen import QwenEye, Spot, spots
+from videotape.qwen import QwenEye, spots
 
 # Measured on MPS in bf16: the sign read at CER 0 with IoU 0.870.
 MAX_SIGN_CER = 0.1
@@ -97,8 +97,9 @@ def test_qwen_reads_a_misspelling_as_written(eye):
     app.scene(lambda: [vt.Heading("Brushstroke Surf Co."), vt.Text("Hand-painted surfboards from California")]).name = "home"
     frame, _ = standin.draw([["Brushstroke Surf Co."], ["Hand-painted surfboards from Califxrnia"]])
     checks = score(frame, plan(app).keys[0], eye)
-    assert checks.text[1] == Reading("Hand-painted surfboards from California", "Hand-painted surfboards from Califxrnia", 1 / 39)
-    assert [item.name for item in checks.failures] == ['text "Hand-painted surfboards from California"']
+    assert checks.text[1].line == "Hand-painted surfboards from California"
+    assert (checks.text[1].seen, checks.text[1].cer) == ("Hand-painted surfboards from Califxrnia", 1 / 39)
+    assert [(item.code, item.about) for item in checks.failures] == [("VT502", "Hand-painted surfboards from California")]
 
 
 @pytest.mark.qwen
@@ -108,10 +109,11 @@ def test_qwen_reads_and_finds_a_hand_painted_shop_sign(eye, capsys):
     fixture = dict(line.split(": ", 1) for line in (FIXTURES / "local-oysters.txt").read_text().splitlines())
     image = Image.open(FIXTURES / "local-oysters.jpg").convert("RGB")
     photo = Frame(image.width, image.height, image.tobytes())
-    reading = min((cer(fixture["text"], line), line) for line in eye.read(photo))
-    box = eye.find(photo, fixture["text"])
+    seen = eye.see(photo)
+    reading = min((cer(fixture["text"], line), line) for line in read(seen))
+    box = find(seen, fixture["text"])
     overlap = iou(box, Box(*map(int, fixture["box"].split(",")))) if box else 0.0
     with capsys.disabled():
-        print(f"\n  read {eye.read(photo)}\n  sign CER {reading[0]:.3f} ({reading[1]!r}), box {box}, IoU {overlap:.3f}")
+        print(f"\n  read {read(seen)}\n  sign CER {reading[0]:.3f} ({reading[1]!r}), box {box}, IoU {overlap:.3f}")
     assert reading[0] <= MAX_SIGN_CER
     assert overlap >= MIN_SIGN_IOU
