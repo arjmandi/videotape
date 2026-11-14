@@ -4,6 +4,7 @@ Hosts, paths and the auth header follow fal's queue REST docs (fal.ai/docs/model
 https://queue.fal.run/<endpoint> with "Authorization: Key <FAL_KEY>" answers with a request id, a status_url and a
 response_url, polled until the status is COMPLETED."""
 
+import http.client
 import itertools
 import json
 import time
@@ -119,7 +120,8 @@ class Fal:
         except json.JSONDecodeError:
             answer = None
         if not isinstance(answer, dict):
-            raise FalError(self._scrub(f"{what} answered with something other than a JSON object: {body[:300]!r}"))
+            shown = self._scrub(body.decode(errors="replace"))[:300]
+            raise FalError(f"{what} answered with something other than a JSON object: {shown!r}")
         return answer
 
     def _call(self, request: urllib.request.Request, tries: int, what: str) -> bytes:
@@ -128,8 +130,9 @@ class Fal:
                 return self._send(request)
             except urllib.error.HTTPError as error:
                 retry = error.code == 429 or error.code >= 500
-                failure = f"{what} failed with HTTP {error.code}: {error.read().decode(errors='replace')[:500]}"
-            except OSError as error:
+                said = self._scrub(error.read().decode(errors="replace"))[:500]
+                failure = f"{what} failed with HTTP {error.code}: {said}"
+            except (OSError, http.client.HTTPException) as error:
                 retry, failure = True, f"{what} failed: {error}"
             if not retry or attempt == tries:
                 raise FalError(self._scrub(failure))
