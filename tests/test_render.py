@@ -805,6 +805,43 @@ def test_a_failed_model_call_is_vt401_with_the_providers_message_and_nothing_is_
     assert (directory / TAPE / "tape.json").exists() and dailies.read(directory / TAPE)["complete"] is True
 
 
+class Crashing(StandIn):
+    """Raises what no render error covers on one shot, as a bug or a dropped connection would."""
+
+    def __init__(self, on: str, **kwargs):
+        super().__init__(**kwargs)
+        self.on = on
+
+    def _film(self, mode, prompt, seed, start, end, out):
+        if self.on in prompt:
+            raise RuntimeError("the stand-in fell over")
+        super()._film(mode, prompt, seed, start, end, out)
+
+
+def test_an_error_no_render_error_covers_stops_the_render_and_settles_the_take_in_flight(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    model = Crashing('"Corner Cafe"', flaw=clean)
+    with pytest.raises(RuntimeError, match="the stand-in fell over"):
+        rendered(directory, model, takes=1, limit=1)
+    # The one worker may have begun the next key before the stop reached it. The other keys and the moves never start.
+    assert len(model.calls) <= 1
+    assert [line["shot"] for line in ledger.of(directory, directory / TAPE).lines()] == ["key order(Espresso)"] * len(model.calls)
+    assert not (directory / TAPE / "tape.json").exists()
+
+
+def test_an_interrupt_stops_the_render_before_the_queued_shots_start(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    model = StandIn(flaw=clean)
+
+    def interrupted(filmed):
+        raise KeyboardInterrupt
+
+    with pytest.raises(KeyboardInterrupt):
+        rendered(directory, model, takes=1, limit=1, report=interrupted)
+    assert 1 <= len(model.calls) <= 2
+    assert len(ledger.of(directory, directory / TAPE).lines()) == len(model.calls)
+
+
 def test_a_missing_ffmpeg_is_vt404(tmp_path, cli, capsys, monkeypatch):
     directory = copy_of("cafe", tmp_path)
     monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
