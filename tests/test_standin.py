@@ -51,6 +51,19 @@ def test_a_take_of_a_dense_key_still_reads_exactly_after_it_is_encoded(tmp_path,
         assert max(abs(found.x - truth.x), abs(found.y - truth.y), abs(found.w - truth.w), abs(found.h - truth.h)) <= 2
 
 
+def test_two_prompts_that_quote_the_same_line_give_two_pictures_and_the_eye_reads_the_line_in_both(tmp_path):
+    seen = {}
+    for prompt in ('A dark sign reads "Trips".', 'A printed poster reads "Trips".', 'A dark sign reads "Trips".'):
+        take = tmp_path / f"{len(seen)}.mp4"
+        StandIn(flaw=clean).text_to_video(prompt, 1, take)
+        frame = frames.last_frame(take)
+        assert StandInEye().read(frame) == ["Trips"]
+        assert seen.setdefault(prompt, frame) == frame
+    sign, poster = seen.values()
+    assert sign.rgb != poster.rgb
+    assert frames.difference(sign, poster) < 0.005
+
+
 @pytest.mark.parametrize("flaw", [Flaw.MISSPELL, Flaw.DROP_LINE])
 def test_a_flawed_take_fails_its_checks_even_when_the_flaw_is_on_a_line_the_key_shows_twice(tmp_path, flaw):
     key = repeated()
