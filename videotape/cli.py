@@ -10,6 +10,7 @@ from videotape.checks import ChecksError
 from videotape.errors import CODES, ScreenplayError
 from videotape.fal import FalError
 from videotape.frames import FfmpegError
+from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Key, Plan, plan
 from videotape.project import Project, ProjectError
@@ -113,7 +114,8 @@ def render_tape(args) -> int:
     model, eye = listing.model(), listing.eye(tape)
     if model.price and (calls := uncached(planned, told, model, args.takes, tape)):
         print(model.price.estimate(model.name, calls), flush=True)
-    result = render(planned, told, model, eye, tape, ledger.of(found.root, tape), takes=args.takes)
+    result = render(planned, told, model, eye, tape, ledger.of(found.root, tape), made(found, told, model),
+                    takes=args.takes)
     for number, filmed in enumerate(result.shots, 1):
         status = f"rendered {_count(filmed.rendered, 'take')}" if filmed.rendered else "cached"
         print(f"{number}. {filmed.shot.title}  {status}, kept take {filmed.kept.seed}")

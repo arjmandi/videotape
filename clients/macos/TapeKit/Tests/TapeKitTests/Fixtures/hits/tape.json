@@ -14,5 +14,13 @@
   "moves": {
     "menu--back": {"clip": "moves/menu--back.mp4", "lands": "menu"},
     "menu--front": {"clip": "moves/menu--front.mp4", "lands": "menu"}
+  },
+  "made": {
+    "label": "hits 0.1.0 + plain 1.0.0",
+    "id": "0f6f6e1a6a3b0c5d7e9f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d",
+    "app": {"name": "hits", "version": "0.1.0", "code": "c0de", "data": "da7a"},
+    "story": {"name": "plain", "version": "1.0.0", "hash": "5707"},
+    "model": {"name": "stand-in", "settings": {"text-to-video": {}, "first-and-last-frame": {}}},
+    "engine": "e791"
   }
 }

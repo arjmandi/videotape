@@ -51,9 +51,10 @@ class Render:
         return *self.keys, *self.moves
 
 
-def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger: Ledger, takes: int = 3) -> Render:
+def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger: Ledger, made: dict,
+           takes: int = 3) -> Render:
     """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
-    and write them into the tape."""
+    and write them into the tape. made is the block that says what made the tape, which tape.json carries."""
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     seeds = range(1, takes + 1)
@@ -78,7 +79,8 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
         publish(tape / move.clip, lambda partial: shutil.copyfile(kept.path, partial))
         filmed_moves.append(Filmed(move, words, move_takes, kept))
     result = Render(tape, tuple(filmed_keys), tuple(filmed_moves))
-    publish(tape / "tape.json", lambda partial: partial.write_text(json.dumps(_tape(plan, result), indent=2) + "\n"))
+    manifest = {**_tape(plan, result), "made": made}
+    publish(tape / "tape.json", lambda partial: partial.write_text(json.dumps(manifest, indent=2) + "\n"))
     dailies.write(tape, dailies.record(plan.title, eye.name, result), ledger.totals())
     return result
 

@@ -7,10 +7,11 @@ from pathlib import Path
 import pytest
 
 from conftest import copy_of, planned, told, words
-from videotape import dailies, frames, ledger
+from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
 from videotape.fal import Receipt
 from videotape.ledger import Ledger
+from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
 from videotape.render import render, uncached
@@ -60,8 +61,9 @@ RENDER = ("render", "--story", "chalk")
 
 
 def rendered(directory: Path, model, takes: int = 3, out: str = TAPE):
-    return render(planned(directory), told(directory), model, StandInEye(), directory / out,
-                  ledger.of(directory, directory / out), takes=takes)
+    chalk = told(directory)
+    return render(planned(directory), chalk, model, StandInEye(), directory / out, ledger.of(directory, directory / out),
+                  made(project.find(directory), chalk, model), takes=takes)
 
 
 @pytest.fixture(scope="module")
