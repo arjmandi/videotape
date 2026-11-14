@@ -60,6 +60,8 @@ WARNINGS = {
 SUMMARIES = {"VT211": "Cafe 0.1.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot",
              "VT304": "Shop 0.1.0 + neon 1.0.0: 2 scenes, 2 states, 2 keys, 1 move, 3 shots",
              "VT307": "Shop 0.1.0 + neon 1.0.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot"}
+ESTIMATES = {"VT307": ["wan2.2-5b: 1 shot, 1 to 4 calls, free"]}
+"""The plan ends with the estimate for the project's model, and only the vt307 fixture names one."""
 
 
 def in_its_story(code: str) -> tuple[str, ...]:
@@ -104,7 +106,9 @@ def test_a_warning_prints_its_code_its_place_and_its_fix_and_the_plan_goes_on(co
                                     for place, message, fix in WARNINGS[code])
     assert result.stdout.splitlines()[0] == SUMMARIES[code]
     count = len(WARNINGS[code])
-    assert result.stdout.splitlines()[-1] == f"0 errors, {count} warning{'' if count == 1 else 's'}"
+    estimate = ESTIMATES.get(code, [])
+    assert result.stdout.splitlines()[-1 - len(estimate):] == [
+        f"0 errors, {count} warning{'' if count == 1 else 's'}", *estimate]
 
 
 def test_a_key_of_a_scene_without_a_direction_gets_only_the_look_before_its_elements():
@@ -120,9 +124,10 @@ def test_a_key_of_a_scene_without_a_direction_gets_only_the_look_before_its_elem
 def test_the_stand_in_reads_any_length_of_prompt_so_the_same_story_has_no_vt307_with_it():
     result = videotape(FIXTURES / "errors" / "vt307", "plan", "--story", "neon", "--model", "stand-in")
     assert (result.stderr, result.returncode) == ("", 0)
-    assert result.stdout.splitlines()[-1] == "0 errors, 0 warnings"
+    assert result.stdout.splitlines()[-2:] == ["0 errors, 0 warnings", "stand-in: 1 shot, 1 to 4 calls, free"]
     over = videotape(FIXTURES / "errors" / "vt307", "plan", "--story", "neon", "--model", "wan3.0")
-    assert (over.stderr, over.stdout.splitlines()[-1]) == ("", "0 errors, 0 warnings")
+    assert (over.stderr, over.stdout.splitlines()[-2:]) == (
+        "", ["0 errors, 0 warnings", "wan3.0: 1 shot, 1 to 4 calls, $0.50 to $2.00 at $0.10/s"])
 
 
 def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framework_can_raise():

@@ -125,7 +125,7 @@ def hosted(tmp_path, monkeypatch):
     (tmp_path / "clips").mkdir()
     fal = Hosted(tmp_path / "clips")
     monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)),
-                                                  lambda tape: StandInEye()))
+                                                  lambda tape: StandInEye(), price=wan3.PRICE, limit=2))
     return directory, fal
 
 
@@ -137,7 +137,7 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     out = directory / "tape-wan3"
     assert cli(directory, *RENDER) == 1
     stdout, stderr = capsys.readouterr()
-    assert stdout.splitlines()[0] == "wan3.0: 11 calls, $5.50 at $0.10/s"
+    assert stdout.splitlines()[0] == "wan3.0: 11 shots, 11 calls, $5.50 at $0.10/s"
     assert 'fail: 1. key menu()  kept take 1 fails hotspot "Espresso, $3": not found' in stderr.splitlines()
     assert stdout.splitlines()[-1] == "rendered 11 of 11 shots -> tape-wan3"
     assert [mode for mode, _ in fal.posts] == ["text-to-video"] * 5 + ["image-to-video"] * 6
@@ -168,7 +168,7 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     assert sidecar["response"]["result"]["video"]["url"] == "https://v3b.fal.media/files/test/request-0.mp4"
 
 
-def test_a_cached_wan3_render_calls_fal_for_nothing_and_says_no_price(hosted, cli, capsys):
+def test_a_cached_wan3_render_calls_fal_for_nothing(hosted, cli, capsys):
     directory, fal = hosted
     cli(directory, *RENDER)
     book = ledger.of(directory, directory / "tape-wan3")
@@ -177,14 +177,13 @@ def test_a_cached_wan3_render_calls_fal_for_nothing_and_says_no_price(hosted, cl
     cli(directory, *RENDER)
     assert len(fal.seen) == posts
     assert book.lines() == lines
-    assert not capsys.readouterr().out.startswith("wan3.0:")
 
 
-@pytest.mark.parametrize("old, new, calls, line", [
-    ('vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")', 5, "wan3.0: 5 calls, $2.50 at $0.10/s"),
-    ("coming up.", "on its way.", 6, "wan3.0: 6 calls, $3.00 at $0.10/s"),
+@pytest.mark.parametrize("old, new, calls", [
+    ('vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")', 5),
+    ("coming up.", "on its way.", 6),
 ])
-def test_the_price_line_counts_only_the_calls_an_edit_needs(hosted, cli, capsys, old, new, calls, line):
+def test_an_edit_submits_only_the_calls_it_needs(hosted, cli, capsys, old, new, calls):
     directory, fal = hosted
     cli(directory, *RENDER)
     screenplay = directory / "cafe.py"
@@ -193,7 +192,7 @@ def test_the_price_line_counts_only_the_calls_an_edit_needs(hosted, cli, capsys,
     posts = len(fal.posts)
     capsys.readouterr()
     cli(directory, *RENDER)
-    assert capsys.readouterr().out.splitlines()[0] == line
+    assert capsys.readouterr().out.splitlines()[0] == "wan3.0: 11 shots, 11 calls, $5.50 at $0.10/s"
     assert len(fal.posts) - posts == calls
 
 

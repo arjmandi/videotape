@@ -19,6 +19,7 @@ trip              2           0
 profile           1           2
 
 0 errors, 0 warnings
+stand-in: 160 shots, 160 to 640 calls, free
 """
 TODAY = "2026-12-01"
 HOME = "SFO"
@@ -52,7 +53,7 @@ def counted_from_the_data() -> dict[str, tuple[int, int]]:
 
 
 def table(text: str) -> dict[str, tuple[int, int]]:
-    rows = (line.split() for line in text.splitlines()[3:-2])
+    rows = (line.split() for line in text.splitlines()[3:-3])
     return {name: (int(states), int(moves)) for name, states, moves in rows}
 
 

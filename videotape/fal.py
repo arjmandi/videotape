@@ -44,9 +44,15 @@ class Price:
     usd_per_second: float
     seconds: int
 
-    def estimate(self, model: str, calls: int) -> str:
-        return (f"{model}: {calls} call{'' if calls == 1 else 's'}, ${calls * self.seconds * self.usd_per_second:.2f}"
-                f" at ${self.usd_per_second:.2f}/s")
+    @property
+    def usd(self) -> float:
+        """What one call costs."""
+        return self.seconds * self.usd_per_second
+
+    def span(self, least: int, most: int) -> str:
+        """What this many calls cost, as a range when they differ."""
+        prices = f"${least * self.usd:.2f} to ${most * self.usd:.2f}" if most > least else f"${least * self.usd:.2f}"
+        return f"{prices} at ${self.usd_per_second:.2f}/s"
 
 
 def _urlopen(request: urllib.request.Request) -> bytes:

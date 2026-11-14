@@ -11,10 +11,10 @@ from videotape.errors import CODES, ScreenplayError
 from videotape.fal import FalError
 from videotape.frames import FfmpegError
 from videotape.made import made
-from videotape.model import MODELS, Listing
+from videotape.model import MODELS, Listing, estimate
 from videotape.plan import Key, Plan, plan
 from videotape.project import Project, ProjectError
-from videotape.render import render, uncached
+from videotape.render import render
 from videotape.standin import StandInError
 from videotape.story import Story
 from videotape.wan import WanError
@@ -47,10 +47,10 @@ def plan_app(args) -> int:
     found = project.find(Path.cwd())
     if args.model and not args.story:
         raise ProjectError("--model checks a story's prompts against that model, so pass --story with it")
-    planned = _planned(found)
+    planned, listing = _planned(found), _listing(found, args.model)
     warnings, in_story = planned.warnings, ""
     if args.story:
-        told, more = _told(found, planned, args.story, _listing(found, args.model))
+        told, more = _told(found, planned, args.story, listing)
         warnings, in_story = (*warnings, *more), f" + {told.name} {told.version}"
     states, moves = len(planned.keys), len(planned.moves)
     per_scene = Counter(key.state.scene.name for key in planned.keys)
@@ -64,6 +64,8 @@ def plan_app(args) -> int:
     print()
     _warn(warnings)
     print(f"0 errors, {_count(len(warnings), 'warning')}")
+    if listing:
+        print(estimate(args.model or found.model, listing, len(planned.shots), found.takes))
     return 0
 
 
@@ -117,11 +119,10 @@ def render_tape(args) -> int:
     told, warnings = _told(found, planned, args.story, listing)
     _warn((*planned.warnings, *warnings))
     tape = _tape(found, told.name, args.out)
-    model, eye = listing.model(), listing.eye(tape)
-    if model.price and (calls := uncached(planned, told, model, args.takes, tape)):
-        print(model.price.estimate(model.name, calls), flush=True)
-    result = render(planned, told, model, eye, tape, ledger.of(found.root, tape), made(found, told, model),
-                    takes=args.takes)
+    model, eye, takes = listing.model(), listing.eye(tape), args.takes or found.takes
+    if listing.price:
+        print(estimate(model.name, listing, len(planned.shots), takes), flush=True)
+    result = render(planned, told, model, eye, tape, ledger.of(found.root, tape), made(found, told, model), takes=takes)
     for number, filmed in enumerate(result.shots, 1):
         status = f"rendered {_count(filmed.rendered, 'take')}" if filmed.rendered else "cached"
         print(f"{number}. {filmed.shot.title}  {status}, kept take {filmed.kept.seed}")
@@ -190,7 +191,10 @@ def main(argv=None) -> int:
     rendering.add_argument("--story", required=True, help="the story, which is stories/<story>.toml in the project")
     rendering.add_argument("--model", choices=sorted(MODELS), help="the model to render with (default: model in "
                            "[tool.videotape])")
-    rendering.add_argument("--takes", type=positive, default=3, help="takes per shot; the best by its checks is kept (default 3)")
+    rendering.add_argument("--takes", type=positive, help="the most takes a shot gets; it stops at the first that "
+                           "passes (default: takes in [tool.videotape], or 4)")
+    rendering.add_argument("--cap-usd", type=float, help="the most this render may spend on a model that bills per "
+                           "call (default: cap_usd in [tool.videotape])")
     rendering.add_argument("--out", help="the tape directory to write (default: tapes/<story> in the project)")
     rendering.set_defaults(run=render_tape)
     rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies page from its record and the ledger")
