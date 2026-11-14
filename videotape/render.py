@@ -90,7 +90,8 @@ class Render:
 class Budget:
     """What a render may still spend. One lock keeps the invariant: spent plus reserved never passes the cap, where
     spent is the sum of this tape's lines in the ledger and reserved is the price of every call in flight. Every ledger
-    write goes through settle, under the same lock, and a request's line is written once."""
+    write goes through settle, under the same lock, and a request's line is written once. A call that fails keeps its
+    reservation, since a submitted call may have been billed, and the render stops on it anyway."""
 
     def __init__(self, ledger: Ledger, price: Price | None, cap: float | None) -> None:
         self.ledger, self.price, self.cap = ledger, price, cap
@@ -108,11 +109,6 @@ class Budget:
                                   f"${self.spent:.2f} spent on this tape and ${self.reserved:.2f} reserved for the "
                                   "calls in flight", f"raise the cap and run the render again, which resumes:\n{resume}")
             self.reserved += self.price.usd
-
-    def release(self) -> None:
-        if self.price:
-            with self.lock:
-                self.reserved -= self.price.usd
 
     def settle(self, line: dict, reserved: bool) -> bool:
         """Record a finished call: its line goes into the ledger, unless the ledger holds its request already, and
@@ -368,11 +364,7 @@ def _film(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: 
         try:
             receipt = publish(path, lambda out: film(seed, out))
         except (FalError, WanError, StandInError) as error:
-            shared.budget.release()
             raise _failed(error, place, shared.resume) from None
-        except BaseException:
-            shared.budget.release()
-            raise
     filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": shared.model.device}
     if receipt:
         filmed |= {"request_id": receipt.request_id, "duration": receipt.duration, "usd": receipt.usd}
