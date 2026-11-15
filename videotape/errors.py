@@ -125,10 +125,11 @@ CODES: dict[str, Code] = {
     ),
     "VT206": Code(
         "a record is not what its class says",
-        "A data table's file holds a JSON array of objects, and vt.one's file holds one object. Each object has exactly "
-        'the fields of its record class, and each value has its field\'s type: a string, a whole number, a date '
-        'written like "2026-12-11", or a time written like "07:05". The fields that key= names identify a record, so '
-        "no two records in a data table share them. The error names the file, the record's position, and the field.",
+        "A data table's file holds a JSON array of objects, and vt.one's file holds one object. Each object has "
+        'exactly the fields of its record class, and each value has its field\'s type: a string, a whole number, a '
+        'date written like "2026-12-11", or a time written like "07:05". The fields that key= names identify a '
+        "record, so no two records in a data table share them. The error names the file, the record's position, and "
+        "the field.",
         '{"number": "CT 100", "day": "12/11/2026", "fare": "219"}',
         '{"number": "CT 100", "day": "2026-12-11", "fare": 219}',
     ),
@@ -259,8 +260,8 @@ CODES: dict[str, Code] = {
     "VT401": Code(
         "a model call failed",
         "A render asks the model for one take at a time, and this call did not come back with a take. The error "
-        "prints the provider's message and the request id when there is one, and never an API key. The takes already on "
-        "disk and the requests already submitted are kept, so running the render again resumes from them, and a "
+        "prints the provider's message and the request id when there is one, and never an API key. The takes already "
+        "on disk and the requests already submitted are kept, so running the render again resumes from them, and a "
         "submitted request is polled and downloaded, never submitted again on its own. When fal refuses a submitted "
         "request for good, as when its safety checker flags the output, polling it fails the same way on every run, "
         "so the next step names the request's file beside its take: deleting it lets the render submit a new, paid "
