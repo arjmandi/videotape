@@ -66,15 +66,16 @@ def videotape(directory: Path, *arguments: str) -> subprocess.CompletedProcess[s
 
 
 VARIES = re.compile(r"(?P<shot>(?<=^error VT\d{3} ).+?(?= take \d|: ))|(?P<ffmpeg>(?<=decode to one frame: ).+$)"
-                    r"|(?P<story>(?<=--story )\S+)|(?P<path>\S*/\S*)|(?P<number>(?<![\w.])\d+(?:\.\d+)?)", re.MULTILINE)
-WILDCARDS = {"shot": r"(?:(?! take \d).)+", "ffmpeg": r".+", "story": r"\S+", "path": r"\S+",
+                    r"|(?P<story>(?<=--story )\S+)|(?P<path>\S*/\S*)|(?P<hash>\b[0-9a-f]{12,64}\b)"
+                    r"|(?P<number>(?<![\w.])\d+(?:\.\d+)?)", re.MULTILINE)
+WILDCARDS = {"shot": r"(?:(?! take \d).)+", "ffmpeg": r".+", "story": r"\S+", "path": r"\S+", "hash": r"[0-9a-f]{12,64}",
              "number": r"\d+(?:\.\d+)?"}
 
 
 def as_explained(code: str) -> re.Pattern[str]:
-    """The lines a render prints for a code, as videotape explain shows them in its example and its next step, with
-    what differs from run to run left open: the shot, a path and the hash in it, a number, the story a command names,
-    and what ffmpeg said."""
+    """The lines a command prints for a code, as videotape explain shows them in its example and its next step or fix,
+    with what differs from run to run left open: the shot, a path and the hash in it, a hash, a number, the story a
+    command names, and what ffmpeg said."""
     entry = CODES[code]
     example = f"{entry.example}\n{entry.fix}"
     pattern, at = "", 0
