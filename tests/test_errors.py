@@ -60,7 +60,7 @@ WARNINGS = {
 SUMMARIES = {"VT211": "Cafe 0.1.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot",
              "VT304": "Shop 0.1.0 + neon 1.0.0: 2 scenes, 2 states, 2 keys, 1 move, 3 shots",
              "VT307": "Shop 0.1.0 + neon 1.0.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot"}
-ESTIMATES = {"VT307": ["wan2.2-5b: 1 shot, 1 to 4 calls, free"]}
+ESTIMATES = {"VT307": ["wan2.2-5b: 1 shot, 1 to 4 calls, free, and 1 to 4 reads by claude-opus-5-5, at most $0.17 to $0.69"]}
 """The plan ends with the estimate for the project's model, and only the vt307 fixture names one."""
 
 
@@ -133,7 +133,7 @@ def test_the_stand_in_reads_any_length_of_prompt_so_the_same_story_has_no_vt307_
     assert result.stdout.splitlines()[-2:] == ["0 errors, 0 warnings", "stand-in: 1 shot, 1 to 4 calls, free"]
     over = videotape(FIXTURES / "errors" / "vt307", "plan", "--story", "neon", "--model", "wan3.0")
     assert (over.stderr, over.stdout.splitlines()[-2:]) == (
-        "", ["0 errors, 0 warnings", "wan3.0: 1 shot, 1 to 4 calls, $0.50 to $2.00 at $0.10/s"])
+        "", ["0 errors, 0 warnings", "wan3.0: 1 shot, 1 to 4 calls, $0.50 to $2.00 at $0.10/s, and 1 to 4 reads by claude-opus-5-5, at most $0.17 to $0.69"])
 
 
 def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framework_can_raise():
