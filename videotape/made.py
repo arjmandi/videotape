@@ -7,13 +7,13 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from videotape.errors import PACKAGE
-from videotape.model import Model
+from videotape.model import Kind
 from videotape.plan import Mode
 from videotape.project import Project
 from videotape.story import Story
 
 
-def made(found: Project, story: Story, model: Model) -> dict:
+def made(found: Project, story: Story, model: Kind) -> dict:
     """tape.json's made block. The app's code is every .py file of the package that holds its screenplay, or the one
     module when there is no package. Its data is every file under data/."""
     top = found.root / found.screenplay.partition(":")[0].partition(".")[0]

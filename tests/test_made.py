@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from conftest import CONTRAIL, copy_of, planned, told
-from videotape import ledger, project
+from videotape import ledger, project, wan3
 from videotape.errors import PACKAGE
+from videotape.fal import Fal
 from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
@@ -41,6 +42,15 @@ def test_a_tapes_made_block_names_the_app_the_story_the_model_and_the_engine_and
 
 def test_the_same_everything_has_one_id_wherever_the_project_is(tmp_path):
     assert block(contrail(tmp_path)) == block(CONTRAIL)
+
+
+def test_each_listed_models_class_gives_the_made_block_its_built_model_does_without_a_key(monkeypatch):
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    found, terminal = project.find(CONTRAIL), told(CONTRAIL, "terminal")
+    assert made(found, terminal, MODELS["wan3.0"].kind) == made(found, terminal, wan3.Wan3(Fal("a key")))
+    assert made(found, terminal, MODELS["stand-in"].kind) == made(found, terminal, StandIn())
+    assert {name: made(found, terminal, listing.kind)["model"]["name"] for name, listing in MODELS.items()} == \
+        {name: name for name in MODELS}
 
 
 class Tuned(StandIn):
@@ -116,7 +126,7 @@ def test_tape_json_carries_the_made_block_beside_what_the_player_reads(cafe):
 def test_the_cli_writes_the_made_block_of_the_model_it_rendered_with(cafe, tmp_path, cli, monkeypatch):
     directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
     tuned = Tuned(flaw=clean)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: tuned, lambda tape: StandInEye()))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: tuned, lambda tape: StandInEye(), kind=tuned))
     assert cli(directory, "render", "--story", "chalk", "--takes", "1", "--out", "tape-tuned") == 0
     written = json.loads((directory / "tape-tuned" / "tape.json").read_text())["made"]
     assert written == block(directory, "chalk", tuned)
@@ -138,7 +148,7 @@ def test_an_app_without_a_project_name_is_named_by_its_folder(tmp_path):
 def two(cafe, tmp_path, cli, monkeypatch, capsys):
     """A copy of the rendered cafe, and a way to render it again after a change, with a stand-in that never flaws."""
     directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), lambda tape: StandInEye()))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), lambda tape: StandInEye(), kind=StandIn))
 
     def render_again(*arguments: str) -> None:
         assert cli(directory, "render", "--takes", "1", *arguments) == 0

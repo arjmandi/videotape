@@ -59,7 +59,7 @@ def clean(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 
 def stand_in(model: StandIn, **listing) -> Listing:
-    return Listing(lambda: model, lambda tape: StandInEye(), **listing)
+    return Listing(lambda: model, lambda tape: StandInEye(), kind=model, **listing)
 
 
 class Witness(StandIn):
