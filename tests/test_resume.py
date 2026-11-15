@@ -153,4 +153,5 @@ def test_a_cap_that_is_not_dollars_is_refused(tmp_path, cap, shown):
     pyproject.write_text(pyproject.read_text() + f"cap_usd = {cap}\n")
     result = videotape(directory, *RENDER)
     assert (result.stdout, result.returncode) == ("", 1)
-    assert result.stderr == f"error: pyproject.toml: [tool.videotape] cap_usd is {shown}, not a number of dollars\n"
+    assert result.stderr == (f"error VT107 pyproject.toml: [tool.videotape] cap_usd is {shown}, not a number of "
+                             "dollars\nfix: set it to the most a render may spend, in dollars, as in cap_usd = 20\n")

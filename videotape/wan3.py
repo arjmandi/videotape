@@ -121,7 +121,7 @@ def request_record(out: Path) -> Path:
 
 def from_environment() -> Wan3:
     if not (key := os.environ.get("FAL_KEY", "").strip()):
-        raise FalError("wan3.0 needs FAL_KEY in the environment")
+        raise FalError("wan3.0 needs FAL_KEY in the environment or the project's .env")
     # http.client rejects a header with a control character by quoting the whole header, key and all, in its error.
     if not key.isprintable():
         raise FalError("FAL_KEY holds a character an HTTP header cannot carry, such as a line break")

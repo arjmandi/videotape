@@ -20,6 +20,70 @@ class Code:
 
 
 CODES: dict[str, Code] = {
+    "VT101": Code(
+        "Python is older than videotape needs",
+        "videotape runs on the Python its package names in requires-python. doctor compares the Python it runs on "
+        "with that. uv picks a Python that fits when it makes a project's environment, so this happens to an "
+        "environment made by hand, or with an older Python named.",
+        "fail VT101 Python 3.11.4, and videotape needs >=3.12",
+        "make the project's environment with a newer Python, as in uv sync --python 3.12",
+    ),
+    "VT102": Code(
+        "ffmpeg or ffprobe is not on PATH",
+        "A render decodes takes, writes key images and copies clips with ffmpeg, and reads clips with ffprobe. doctor "
+        "looks for both on PATH. A render without them stops at its first take with VT404.",
+        "fail VT102 ffprobe is not on PATH",
+        "install ffmpeg, which brings ffprobe, as in brew install ffmpeg",
+    ),
+    "VT103": Code(
+        "Xcode is missing, so TapePlayer cannot build",
+        "play and publish build TapePlayer, the macOS app that plays a tape, from the Swift source videotape carries. "
+        "The build needs Xcode itself, with xcode-select pointing at it. The Command Line Tools alone have no "
+        "xcodebuild that builds an app, and play stops with VT603.",
+        "fail VT103 xcode-select points at /Library/Developer/CommandLineTools, the Command Line Tools without Xcode, "
+        "so TapePlayer cannot build",
+        "install Xcode from the App Store, then point xcode-select at it, as in "
+        "sudo xcode-select --switch /Applications/Xcode.app",
+    ),
+    "VT104": Code(
+        "a key the project's model needs is not set",
+        "A model that runs as a service needs its key: wan3.0 runs on fal and needs FAL_KEY. A project command reads "
+        "keys from the environment and from the project's .env, one KEY=VALUE line each, and a key already in the "
+        "environment wins. No command prints a key's value. The stand-in and wan2.2-5b run here and need none.",
+        "fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env",
+        "copy .env.example to .env and set FAL_KEY there, or export it",
+    ),
+    "VT105": Code(
+        "the checks need a GPU this machine does not have",
+        "After a render films a key, an eye reads it back to check every line and find every action. The eye of the "
+        "Wan models is Qwen3-VL-8B, which runs on Apple silicon or a CUDA GPU. The stand-in's eye reads its own boxes "
+        "and needs neither.",
+        "fail VT105 wan3.0's checks need Apple silicon or a CUDA GPU, and this machine is Linux on x86_64 without "
+        "nvidia-smi",
+        "render on a Mac with Apple silicon or a machine with a CUDA GPU, or with the stand-in, as in "
+        "videotape render --story starter --model stand-in",
+    ),
+    "VT106": Code(
+        "no project here",
+        "A project is the folder that holds an app's pyproject.toml, with a [tool.videotape] table that names the "
+        "app's screenplay. Every command but new, doctor, explain and diff runs in a project, and finds it from the "
+        "working folder upward. Neither this folder nor any above it holds a pyproject.toml, or the nearest one has "
+        "no [tool.videotape] table.",
+        "error VT106 pyproject.toml: no pyproject.toml here or in any folder above",
+        "run the command in the app's project, or start one:\nvideotape new shop\nor add the table to the project's "
+        'pyproject.toml:\n[tool.videotape]\nscreenplay = "shop.screenplay:app"',
+    ),
+    "VT107": Code(
+        "a value in [tool.videotape] is wrong",
+        "[tool.videotape] in the project's pyproject.toml names the screenplay as module:name, the module that holds "
+        "it and the name of its vt.Screenplay. It may set model, one of the models videotape has, max_states and "
+        "takes, whole numbers of at least 1, and cap_usd, a number of dollars. A value here is none of what its "
+        "setting takes, the screenplay it names is not a vt.Screenplay in the project, or the file is not TOML. The "
+        "error names the setting and what it holds.",
+        'error VT107 pyproject.toml: [tool.videotape] model is "wan3", and videotape has no such model',
+        "set each to what it takes:\n[tool.videotape]\n"
+        'screenplay = "shop.screenplay:app"\nmodel = "wan3.0"\ntakes = 4\ncap_usd = 20',
+    ),
     "VT201": Code(
         "the screenplay has no scenes",
         "The app opens on the state of the screenplay's first scene, called with no arguments. A screenplay with no "
@@ -255,6 +319,17 @@ CODES: dict[str, Code] = {
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
         "retake the move, change the story's move for that element type, or accept it with a reason",
     ),
+    "VT603": Code(
+        "TapePlayer did not build",
+        "play and publish build TapePlayer, the macOS app that plays a tape, from the Swift source videotape carries. "
+        "It builds in Release with xcodebuild, in a cache under ~/Library/Caches/videotape, or VIDEOTAPE_CACHE_DIR "
+        "when that is set, once for each version of the source. This build did not finish, so nothing was cached. The "
+        "error names the build's log, which holds everything xcodebuild printed, and quotes its first error.",
+        "error VT603 ~/Library/Caches/videotape/player/3f9a0c1d2e4b5a67/build.log: the build exited with 1: "
+        "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory "
+        "'/Library/Developer/CommandLineTools' is a command line tools instance",
+        "run videotape doctor, which checks for Xcode; when it passes, the log says what failed",
+    ),
 }
 
 
@@ -290,7 +365,7 @@ class RenderError(Exception):
 
 def explain(code: str) -> str:
     entry = CODES[code]
-    what = "Next" if code >= "VT400" else "Fix"
+    what = "Next" if "VT400" <= code < "VT600" else "Fix"
     return (f"{code}: {entry.title}\n\n{entry.long}\n\nExample:\n{_indented(entry.example)}\n\n"
             f"{what}:\n{_indented(entry.fix)}")
 

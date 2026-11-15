@@ -56,16 +56,23 @@ class Listing:
     """What one call costs, for a model that bills per call."""
     limit: int = 1
     """How many shots the model films at once."""
+    key: str | None = None
+    """The environment variable that holds the key a model run as a service needs. The environment or the project's
+    .env sets it."""
+    eye_gpu: bool = False
+    """Whether the eye needs a GPU, Apple silicon or CUDA, as Qwen does."""
 
 
 MODELS: dict[str, Listing] = {
     "stand-in": Listing(StandIn, lambda tape: StandInEye(), limit=8),
     # One GPU on one pod draws one take at a time.
-    "wan2.2-5b": Listing(Wan, QwenEye, PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens), limit=1),
+    "wan2.2-5b": Listing(Wan, QwenEye, PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens), limit=1,
+                         eye_gpu=True),
     # fal.ai/docs/documentation/model-apis/concurrency-limits, read 2026-11-14: "Every new account starts with a
     # concurrency limit of 2 concurrent requests."
     "wan3.0": Listing(wan3.from_environment, QwenEye,
-                      PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2),
+                      PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2,
+                      key="FAL_KEY", eye_gpu=True),
 }
 
 

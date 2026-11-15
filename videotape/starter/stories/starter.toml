@@ -1,0 +1,21 @@
+# {{title}} as a notebook open on a desk. Each scene is a page of it.
+version = "1.0.0"
+
+look = """
+A paper notebook open on a wooden desk under a warm lamp. Clean off-white pages, a red ribbon
+bookmark, and soft shadows. Every line is printed in crisp black letters in a plain sans-serif face.
+"""
+
+[scenes]
+home = "The notebook's first page, seen from above."
+todo = "A page further on, up close, with a short printed list."
+
+[elements]
+Heading = "large black letters across the top of the page"
+Text = "a line of smaller black letters"
+Button = "a rounded black tab with white letters, like a sticker on the page"
+List = "a printed list, one line per row, its place in grey beneath it"
+
+[moves]
+default = "The page turns, and the camera settles on the next one."
+Button = "The tab is pressed. The page turns."

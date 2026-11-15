@@ -9,7 +9,7 @@ import pytest
 
 from videotape import project, story
 from videotape.cli import main
-from videotape.errors import CODES
+from videotape.errors import CODES, ScreenplayError
 from videotape.plan import Plan, Shot, plan
 from videotape.story import Story
 
@@ -84,11 +84,24 @@ def as_explained(code: str) -> re.Pattern[str]:
     return re.compile(f"^{pattern}{re.escape(example[at:])}$", re.MULTILINE)
 
 
+@pytest.fixture(autouse=True)
+def environment():
+    """Drop what a project's .env added to the environment, so its keys stay in the test that loaded them. A .env
+    never overrides a key, so dropping the added keys undoes it."""
+    before = set(os.environ)
+    yield
+    for key in set(os.environ) - before:
+        del os.environ[key]
+
+
 @pytest.fixture
 def cli(monkeypatch):
     """Run videotape's main in a project, in this process, so a test can swap the model it renders with."""
     def run(directory: Path, *arguments: str) -> int:
         monkeypatch.chdir(directory)
-        forget(project.find(directory))
+        try:
+            forget(project.find(directory))
+        except ScreenplayError:
+            pass  # A project that is not one has no modules to forget, and the command reports it.
         return main(list(arguments))
     return run
