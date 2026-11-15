@@ -120,7 +120,8 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
     lock = (contrail / "videotape.lock").read_text()
     assert lock.startswith("# What videotape publish shipped")
     assert tomllib.loads(lock) == {LABEL: {
-        "id": made_by["id"], "code": made_by["app"]["code"], "data": made_by["app"]["data"],
+        "id": made_by["id"], "screenplay": "contrail.screenplay:app", "code": made_by["app"]["code"],
+        "data": made_by["app"]["data"],
         "story": made_by["story"]["hash"], "model": "stand-in", "settings": settings, "engine": made_by["engine"]}}
 
     assert cli(contrail, "publish", "--story", "starter") == 0
@@ -162,6 +163,18 @@ def test_a_tape_older_than_its_sources_is_vt601_naming_what_changed(contrail, cl
     assert cli(contrail, "publish", "--story", "starter") == 1
     assert refused(contrail, capsys).startswith("error VT601 tapes/starter: the app's version, the app's code and the "
                                                 "data changed since the tape was rendered\n")
+
+
+def test_a_tape_of_another_screenplay_of_the_same_package_is_vt601(contrail, cli, capsys):
+    package = contrail / "contrail"
+    (package / "other.py").write_text((package / "screenplay.py").read_text().replace("of two scenes", "of two pages"))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    capsys.readouterr()
+    pyproject = contrail / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"contrail.screenplay:app"', '"contrail.other:app"'))
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert refused(contrail, capsys).startswith("error VT601 tapes/starter: the app's screenplay changed since the "
+                                                "tape was rendered\n")
 
 
 def as_wan3(folder: Path) -> dict:

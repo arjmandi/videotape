@@ -27,9 +27,9 @@ from videotape.project import Project, ProjectError
 LOCK = "videotape.lock"
 HEADER = ("# What videotape publish shipped: each label, with the id of the tape it holds and the hashes the id is made of.\n"
           "# Commit it. A label ships once, so another tape under the same versions is refused with VT305.\n")
-WORDS = {"code": "the app's code", "data": "the data", "story": "the story", "model": "the model",
-         "settings": "the model's settings", "engine": "videotape itself"}
-"""Each hash the lock records but the id, as a person names what changed."""
+WORDS = {"screenplay": "the app's screenplay", "code": "the app's code", "data": "the data", "story": "the story",
+         "model": "the model", "settings": "the model's settings", "engine": "videotape itself"}
+"""Each part of the made id the lock records, as a person names what changed."""
 
 
 @dataclass(frozen=True)
@@ -86,11 +86,12 @@ def publish(found: Project, tape: Path) -> Published:
 
 
 def entry(block: dict) -> dict[str, str]:
-    """What the lock records of a tape: its id, and each hash its id is made of, with the model by its name."""
+    """What the lock records of a tape: its id, and what its id is made of, the screenplay by its module:app and the
+    model by its name."""
     settings = hashlib.sha256(json.dumps(block["model"]["settings"], sort_keys=True).encode()).hexdigest()
-    return {"id": block["id"], "code": block["app"]["code"], "data": block["app"]["data"],
-            "story": block["story"]["hash"], "model": block["model"]["name"], "settings": settings,
-            "engine": block["engine"]}
+    return {"id": block["id"], "screenplay": block["app"]["screenplay"], "code": block["app"]["code"],
+            "data": block["app"]["data"], "story": block["story"]["hash"], "model": block["model"]["name"],
+            "settings": settings, "engine": block["engine"]}
 
 
 def read_lock(root: Path) -> dict[str, dict[str, str]]:

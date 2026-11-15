@@ -847,7 +847,7 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **ledger**. `ledger.jsonl` in the project, with one line for each take filmed and its price.
 - **lock**. `videotape.lock` in the project, with the label, the made id, and the file hashes of each tape published. A label is published with one made id only.
 - **look**. The sentence or two of a story that every key's prompt starts with.
-- **made id**. One hash of everything that made a tape: the app's Python files and data, the story, the model and its settings, and videotape itself. Two tapes with one made id were made from the same things.
+- **made id**. One hash of everything that made a tape: the screenplay that `[tool.videotape]` names, the app's Python files and data, the story, the model and its settings, and videotape itself. Two tapes with one made id were made from the same things.
 - **model**. The video model that films takes: `stand-in`, `wan3.0`, or `wan2.2-5b`.
 - **move**. The shot of one action: the press, from the key of the state it leaves to the key of the state it lands on. A story's `[moves]` says what the camera does in it.
 - **plan**. Every state the app can reach, walked from the first scene, with the keys and moves to film. `videotape plan`.

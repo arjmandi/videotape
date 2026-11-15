@@ -214,8 +214,9 @@ CODES: dict[str, Code] = {
         "A tape's label names the app and the story, each by its version, as in contrail 0.1.0 + starter 1.0.0, and "
         "its made id hashes everything that made it. For each tape it publishes, publish writes the label and made id "
         "into videotape.lock, at the project's root, which the project commits. This tape's label is in the lock "
-        "with another made id: the code, the data, the story, the model or videotape changed, and neither version "
-        "did, so one label would name two different tapes. Publish leaves dist/ and the lock as they were.",
+        "with another made id: the screenplay, the code, the data, the story, the model or videotape changed, and "
+        "neither version did, so one label would name two different tapes. Publish leaves dist/ and the lock as they "
+        "were.",
         "error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published with made id 3f9a0c1d2e4b, and "
         "this tape under the same label has made id 7b2e9d4c1a0f: the data changed",
         "fix: give the tape a label of its own: bump version in pyproject.toml, or in stories/starter.toml for a "
@@ -339,11 +340,12 @@ CODES: dict[str, Code] = {
     ),
     "VT601": Code(
         "the tape is out of date",
-        "tape.json names everything that made the tape: the app's code and data, the story, the model's settings and "
-        "videotape itself, and the made id that hashes them all. Publish works these out again from the project as "
-        "it is now, for the tape's story and model, and compares the two made ids. They differ, so the app would play "
-        "a tape filmed from what the project no longer holds. The error says what changed. A render that stopped "
-        "before its last shot also leaves its tape out of date. Publish leaves dist/ and the lock as they were.",
+        "tape.json names everything that made the tape: the app's screenplay, code and data, the story, the model's "
+        "settings and videotape itself, and the made id that hashes them all. Publish works these out again from the "
+        "project as it is now, for the tape's story and model, and compares the two made ids. They differ, so the "
+        "app would play a tape filmed from what the project no longer holds. The error says what changed. A render "
+        "that stopped before its last shot also leaves its tape out of date. Publish leaves dist/ and the lock as they "
+        "were.",
         "error VT601 tapes/starter: the app's code changed since the tape was rendered",
         "fix: render the tape again with the model that made it, then publish it:\n"
         "videotape render --story starter --model stand-in",

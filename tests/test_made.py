@@ -32,7 +32,8 @@ def test_a_tapes_made_block_names_the_app_the_story_the_model_and_the_engine_and
     found = block(CONTRAIL)
     assert list(found) == ["label", "id", "app", "story", "model", "engine"]
     assert found["label"] == "contrail 0.1.0 + terminal 1.0.0"
-    assert {name: found["app"][name] for name in ("name", "version")} == {"name": "contrail", "version": "0.1.0"}
+    assert {name: found["app"][name] for name in ("name", "version", "screenplay")} == \
+        {"name": "contrail", "version": "0.1.0", "screenplay": "contrail.screenplay:app"}
     assert found["story"] == {"name": "terminal", "version": "1.0.0", "hash": hashlib.sha256(
         (CONTRAIL / "stories" / "terminal.toml").read_bytes()).hexdigest()}
     assert found["model"] == {"name": "stand-in", "settings": {"text-to-video": {}, "first-and-last-frame": {}}}
@@ -89,6 +90,17 @@ def test_the_id_changes_with_the_code_the_data_the_story_and_the_models_settings
     assert changed(directory, block(directory)) == {"story", "id"}
     assert changed(CONTRAIL, block(CONTRAIL, "posters")) == {"story", "id", "label"}
     assert changed(CONTRAIL, block(CONTRAIL, model=Tuned())) == {"model", "id"}
+
+
+def test_the_id_changes_with_the_screenplay_the_project_names_from_one_package(tmp_path):
+    directory = contrail(tmp_path)
+    (directory / "contrail" / "again.py").write_text("from contrail.screenplay import app\n")
+    before = block(directory)
+    pyproject = directory / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"contrail.screenplay:app"', '"contrail.again:app"'))
+    after = block(directory)
+    assert {name for name in before if before[name] != after[name]} == {"app", "id"}
+    assert {name for name in before["app"] if before["app"][name] != after["app"][name]} == {"screenplay"}
 
 
 def test_the_engines_hash_is_of_videotapes_own_python_files(tmp_path, monkeypatch):
