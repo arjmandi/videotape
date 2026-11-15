@@ -732,7 +732,7 @@ uv run videotape explain VT502
 ```
 
 ```text
-VT502: a word was misread
+VT502: a line was misread
 
 Every line of a state is read back from its key, and a line reads back exactly or the check fails. The character error rate says how far off it was, and the dailies show the line's box when the eye saw one.
 

@@ -312,7 +312,7 @@ CODES: dict[str, Code] = {
         "reason",
     ),
     "VT502": Code(
-        "a word was misread",
+        "a line was misread",
         "Every line of a state is read back from its key, and a line reads back exactly or the check fails. The "
         "character error rate says how far off it was, and the dailies show the line's box when the eye saw one.",
         'vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"',
