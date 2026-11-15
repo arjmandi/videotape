@@ -231,11 +231,11 @@ CODES: dict[str, Code] = {
     ),
     "VT307": Code(
         "a prompt is longer than the model allows",
-        "A warning. A model allows a prompt up to a limit. Wan 2.2 reads 512 tokens and drops the rest without saying "
-        "so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it would "
-        "leave out. The plan has no tokenizer, so it counts high: one token for every four letters of a word, one "
-        "for every other character that is not a space, and one for the end. Wan 3.0 on fal allows 20,000 characters. "
-        "The stand-in has no limit. The plan goes on.",
+        "A warning. A model reads a prompt only up to a limit. Wan 2.2 reads 512 tokens and drops the rest without "
+        "saying so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it "
+        "would leave out. The plan has no tokenizer, so it counts high: one token for every four letters of a word, "
+        "one for every other character that is not a space, and one for the end. Wan 3.0 on fal allows 20,000 "
+        "characters. The stand-in has no limit. The plan goes on.",
         'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
         "Shorten the look, the scene's direction or the appearances in the story, or show fewer lines in the state.",
     ),
@@ -321,8 +321,8 @@ CODES: dict[str, Code] = {
     "VT503": Code(
         "the model invented a control",
         "The kept take shows a control-like box whose words are none of the state's lines, so a person would try "
-        "to press something the app does not have. The eye lists every control-like box with its text, and one is "
-        "invented when its text matches no line within the character error the find allows.",
+        "to press something the app does not have. The eye lists every control-like box with its words, and one is "
+        "invented when its words match no line within the character error the find allows.",
         'a lit panel reading "Cancel" on a key whose state has no such line',
         "retake the shot, change the story's appearance for the element type it came from, or accept it with a "
         "reason, as in --reason \"a printed logo, not a control\"",

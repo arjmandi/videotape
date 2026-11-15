@@ -94,7 +94,7 @@ def test_a_recorded_response_reads_into_a_video_and_a_receipt_without_the_networ
 
 def test_a_response_without_a_video_is_an_error():
     response = recorded("text-to-video")
-    with pytest.raises(FalError, match="request 01a1c5fb-027e-7b70-857e-d4305eafbbdb answered without a video"):
+    with pytest.raises(FalError, match="request 01a1c5fb-027e-7b70-857e-d4305eafbbdb answered without video.url"):
         wan3.bill({**response, "result": {"detail": "the safety checker flagged the output"}})
 
 
