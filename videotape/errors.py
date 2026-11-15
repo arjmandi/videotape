@@ -102,15 +102,15 @@ CODES: dict[str, Code] = {
     "VT203": Code(
         "a scene raised",
         "The plan builds every state by calling its scene with the state's arguments. This scene raised an exception "
-        "for these arguments, or returned something other than a list of elements, so its state cannot be drawn. The "
-        "error names the state and the line.",
+        "for these arguments, or returned something other than a list of elements, so the plan cannot build its "
+        "state. The error names the state and the line.",
         '@app.scene\ndef receipt(order: Order):\n    return [vt.Text(f"${order.total // order.guests} each")]',
         "Handle every value the data holds, here an order with no guests, or keep that state out of every to=.",
     ),
     "VT204": Code(
         "no action reaches a scene",
         "Every state is reached by actions, starting from the first scene. No action in any reached state leads to "
-        "this scene, so nobody using the app could get to it and it would never be drawn.",
+        "this scene, so nobody using the app could get to it and no render would film it.",
         '@app.scene\ndef home():\n    return [vt.Heading("Shop")]\n\n\n@app.scene\ndef help():\n'
         '    return [vt.Text("Call us.")]',
         'Lead to it from a scene that is reached, as in vt.Button("Help", to=help()), or delete it.',
@@ -158,9 +158,9 @@ CODES: dict[str, Code] = {
     ),
     "VT210": Code(
         "the plan reached more states than max_states",
-        "The plan walks every state the app can reach, and a render draws each one. It stopped when it passed "
-        "max_states, which is 500 unless [tool.videotape] sets it. Usually a scene's argument grows without end, "
-        "such as a counter that every state passes on plus one.",
+        "The plan walks every state the app can reach, and a render films the key of each one. It stopped when it "
+        "passed max_states, which is 500 unless [tool.videotape] sets it. Usually a scene's argument grows without "
+        "end, such as a counter that every state passes on plus one.",
         '@app.scene\ndef count(n: int):\n    return [vt.Button("More", to=count(n + 1))]',
         "Take a scene's arguments from the data, which ends. If the app really has more states, raise the limit:\n"
         "[tool.videotape]\nmax_states = 2000",
@@ -233,7 +233,7 @@ CODES: dict[str, Code] = {
         "a prompt is longer than the model takes",
         "A warning. A model takes a prompt up to a limit. Wan 2.2 reads 512 tokens and drops the rest without saying "
         "so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it would "
-        "never draw. The plan has no tokenizer, so it counts high: one token for every four letters of a word, one "
+        "leave out. The plan has no tokenizer, so it counts high: one token for every four letters of a word, one "
         "for every other character that is not a space, and one for the end. Wan 3.0 on fal takes 20,000 characters. "
         "The stand-in has no limit. The plan goes on.",
         'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
@@ -309,8 +309,8 @@ CODES: dict[str, Code] = {
         "on the kept take, so the action has no hotspot in the tape and cannot be pressed. The dailies show where "
         "the box should be, from another take that found it when there is one.",
         'vt.Button("Book for $89", to=booked(f)), with no box reading "Book for $89" on the key',
-        "retake the shot, change the story line that draws the element, change the screenplay, or accept it with a "
-        "reason",
+        "retake the shot, change the story's appearance for the element's type, change the screenplay, or accept it "
+        "with a reason",
     ),
     "VT502": Code(
         "a line was misread",
@@ -325,12 +325,12 @@ CODES: dict[str, Code] = {
         "to press something the app does not have. The eye lists every control-like box with its text, and one is "
         "invented when its text matches no line within the character error the find allows.",
         'a lit panel reading "Cancel" on a key whose state has no such line',
-        "retake the shot, change the story's appearance for the element type that drew it, or accept it with a "
+        "retake the shot, change the story's appearance for the element type it came from, or accept it with a "
         "reason, as in --reason \"a printed logo, not a control\"",
     ),
     "VT508": Code(
         "a seam between a move and its key is too wide",
-        "A move is drawn from the key it leaves to the key it lands on, and its first and last frames are compared "
+        "A move is filmed from the key it leaves to the key it lands on, and its first and last frames are compared "
         "with those two keys. A difference over 0.05 at either end is a visible jump when the tape plays. The "
         "dailies name which end and by how much.",
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
