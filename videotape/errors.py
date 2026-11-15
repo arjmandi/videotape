@@ -56,9 +56,9 @@ CODES: dict[str, Code] = {
     ),
     "VT105": Code(
         "the checks need a GPU this machine does not have",
-        "After a render films a key, an eye reads it back to check every line and find every action. The eye of the "
-        "Wan models is Qwen3-VL-8B, which runs on Apple silicon or a CUDA GPU. The stand-in's eye reads its own boxes "
-        "and needs neither.",
+        "After a render films a take of a key, an eye reads it back to check every line and find every action. The eye "
+        "of the Wan models is Qwen3-VL-8B, which runs on Apple silicon or a CUDA GPU. The stand-in's eye reads its own "
+        "boxes and needs neither.",
         "fail VT105 wan3.0's checks need Apple silicon or a CUDA GPU, and this machine is Linux on x86_64 without "
         "nvidia-smi",
         "render on a Mac with Apple silicon or a machine with a CUDA GPU, or with the stand-in, as in "
@@ -214,7 +214,7 @@ CODES: dict[str, Code] = {
         "its made id hashes everything that made it. For each tape it publishes, publish writes the label and made id "
         "into videotape.lock, at the project's root, which the project commits. This tape's label is in the lock "
         "with another made id: the code, the data, the story, the model or videotape changed, and neither version "
-        "did, so one label would name two different apps. Publish leaves dist/ and the lock as they were.",
+        "did, so one label would name two different tapes. Publish leaves dist/ and the lock as they were.",
         "error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published with made id 3f9a0c1d2e4b, and "
         "this tape under the same label has made id 7b2e9d4c1a0f: the data changed",
         "fix: give the tape a label of its own: bump version in pyproject.toml, or in stories/starter.toml for a "
