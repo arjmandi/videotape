@@ -258,7 +258,7 @@ CODES: dict[str, Code] = {
     ),
     "VT401": Code(
         "a model call failed",
-        "A render asks the model for one take at a time, and this call did not come back with a clip. The error "
+        "A render asks the model for one take at a time, and this call did not come back with a take. The error "
         "prints the provider's message and the request id when there is one, and never an API key. The takes already on "
         "disk and the requests already submitted are kept, so running the render again resumes from them, and a "
         "submitted request is polled and downloaded, never submitted again on its own. When fal refuses a submitted "
