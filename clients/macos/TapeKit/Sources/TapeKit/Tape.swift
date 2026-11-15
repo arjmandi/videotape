@@ -171,6 +171,12 @@ public struct Tape: Equatable, Sendable {
         throw .notFound(path, cwd: cwd, app: app)
     }
 
+    /// The tape a published app carries in its bundle, at `Contents/Resources/tape`, or nil when it carries none.
+    public static func carried(by app: URL) -> URL? {
+        let tape = app.appending(path: "Contents/Resources/tape", directoryHint: .isDirectory)
+        return FileManager.default.fileExists(atPath: manifest(tape).path(percentEncoded: false)) ? tape : nil
+    }
+
     private static func manifest(_ url: URL) -> URL {
         url.lastPathComponent == "tape.json" ? url : url.appending(path: "tape.json")
     }

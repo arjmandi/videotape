@@ -60,6 +60,15 @@ struct LocateTests: ~Copyable {
         #expect(try Tape.locate("/nowhere/tape", cwd: root, app: app) == URL(filePath: "/nowhere/tape"))
     }
 
+    @Test func findsTheTapeAPublishedAppCarries() throws {
+        #expect(Tape.carried(by: app) == nil)
+        let carried = app.appending(path: "Contents/Resources/tape")
+        try FileManager.default.createDirectory(at: carried, withIntermediateDirectories: true)
+        #expect(Tape.carried(by: app) == nil, "a folder without tape.json is no tape")
+        try Data("{}".utf8).write(to: carried.appending(path: "tape.json"))
+        #expect(Tape.carried(by: app)?.standardizedFileURL == carried.standardizedFileURL)
+    }
+
     @Test func reportsWhereItLooked() {
         #expect(throws: TapeError.notFound("examples/beach/tape", cwd: URL(filePath: "/"), app: app)) {
             try Tape.locate("examples/beach/tape", cwd: URL(filePath: "/"), app: app)
