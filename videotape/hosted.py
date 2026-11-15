@@ -50,7 +50,7 @@ class FalModel:
             url, duration = result["video"]["url"], float(result.get("duration", self.price.seconds))
         except (AttributeError, KeyError, TypeError, ValueError):
             raise FalError(f"request {submitted['request_id']} answered without video.url: {result}") from None
-        return url, Receipt(submitted["request_id"], duration, round(duration * self.price.usd_per_second, 4), response)
+        return url, Receipt(submitted["request_id"], duration, self.price.billed(duration), response)
 
 
 @dataclass(frozen=True)
@@ -95,7 +95,29 @@ MINIMAX_H3 = FalModel(
     price=Price(usd_per_second=0.06, seconds=5),
 )
 
-FAL_MODELS = (WAN3, MINIMAX_H3)
+# fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-15: GeminiOmniFlashV12TextToVideoInput
+# and GeminiOmniFlashV12ImageToVideoInput. Its image-to-video takes the first frame in image_url, and with an end image
+# films at most 10 s. Its default is 8 s. Neither has a field for audio, which is always on, or for prompt expansion.
+# Its answer carries no duration.
+GEMINI_OMNI_FLASH = FalModel(
+    "gemini-omni-flash-1.2",
+    {Mode.TEXT_TO_VIDEO: "google/gemini-omni-flash/v1.2/text-to-video",
+     Mode.FIRST_AND_LAST_FRAME: "google/gemini-omni-flash/v1.2/image-to-video"},
+    {Mode.TEXT_TO_VIDEO: {"resolution": "720p", "aspect_ratio": "16:9"},
+     Mode.FIRST_AND_LAST_FRAME: {"resolution": "720p", "aspect_ratio": "16:9"}},
+    "image_url",
+    # Neither schema has a seed. A take is still named by its seed, and a render run again reuses the take on disk by
+    # that name, so a seed tried again is never filmed again, and only a seed not tried before gets new pixels.
+    seeded=False,
+    # Both schemas give the prompt a maxLength of 20000 characters.
+    prompt_characters=20_000,
+    # Both endpoints' model pages, read 2026-11-15: "for 720p, $0.0819 per second" and "input tokens at a rate of $1.50
+    # per million tokens". No answer counts the tokens, so each call is priced at the most a prompt can cost: 20,000
+    # characters are at most 20,000 tokens, $0.03. The image-to-video page says the input images are not billed.
+    price=Price(usd_per_second=0.0819, seconds=5, usd_per_call=0.03),
+)
+
+FAL_MODELS = (WAN3, MINIMAX_H3, GEMINI_OMNI_FLASH)
 
 
 class RecordedFailure(FalError):

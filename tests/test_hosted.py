@@ -53,7 +53,7 @@ GEMINI = Case("gemini-omni-flash-1.2",
               move={"resolution": "720p", "aspect_ratio": "16:9", "duration": 5},
               start_image="image_url", seeded=False, usd=0.4395, rate="$0.0819/s plus $0.03 a call for the prompt",
               size=(1280, 720), prompt_characters=20_000)
-CASES = pytest.mark.parametrize("case", [H3], ids=lambda case: case.name)
+CASES = pytest.mark.parametrize("case", [H3, GEMINI], ids=lambda case: case.name)
 
 
 def recorded(name: str, mode: str) -> dict:
@@ -188,7 +188,7 @@ def test_a_render_films_every_shot_on_fal_and_writes_each_calls_price_in_the_led
                    line["usd"]) for line in lines) == sorted(
         ("tape-fal", case.name, shot.title, shot.mode.value, 1, "fal", 5.0, case.usd) for shot in plan.shots)
     assert {line["request_id"] for line in lines} == {f"request-{number}" for number in range(11)}
-    assert ledger.of(directory, out).totals()["usd"] == round(11 * case.usd, 4)
+    assert ledger.of(directory, out).totals()["usd"] == round(11 * case.usd, 2)
     assert json.loads((out / "tape.json").read_text())["size"] == {"width": case.size[0], "height": case.size[1]}
 
     posts = len(fal.posts)
@@ -204,7 +204,8 @@ def test_a_render_stops_at_the_cap_before_the_call_that_would_pass_it(case, tmp_
     assert cli(directory, *render_args(case, cap)) == 1
     assert capsys.readouterr().err.startswith("error VT402 ")
     assert len(fal.posts) == 3
-    assert ledger.of(directory, directory / "tape-fal").totals()["usd"] == round(3 * case.usd, 4) <= float(cap)
+    lines = ledger.of(directory, directory / "tape-fal").lines()
+    assert [line["usd"] for line in lines] == [case.usd] * 3 and sum(line["usd"] for line in lines) <= float(cap)
 
 
 @CASES

@@ -40,20 +40,29 @@ class Receipt:
 
 @dataclass(frozen=True)
 class Price:
-    """What a model that bills by the second of video charges, and how many seconds one call makes."""
+    """What a model that bills by the second of video charges, how many seconds one call makes, and what a call costs
+    beyond its seconds."""
 
     usd_per_second: float
     seconds: int
+    usd_per_call: float = 0.0
+    """For a model that also bills the tokens of its prompt, the most they can cost, which no answer of fal's counts."""
 
     @property
     def usd(self) -> float:
         """What one call costs."""
-        return self.seconds * self.usd_per_second
+        return self.billed(self.seconds)
+
+    def billed(self, seconds: float) -> float:
+        """What a call that filmed this many seconds costs."""
+        return round(seconds * self.usd_per_second + self.usd_per_call, 4)
 
     def span(self, least: int, most: int) -> str:
         """What this many calls cost, as a range when they differ."""
         prices = f"${least * self.usd:.2f} to ${most * self.usd:.2f}" if most > least else f"${least * self.usd:.2f}"
-        return f"{prices} at ${self.usd_per_second:.2f}/s"
+        rate = self.usd_per_second
+        prompt = f" plus ${self.usd_per_call:.2f} a call for the prompt" if self.usd_per_call else ""
+        return f"{prices} at ${rate:.2f}/s{prompt}" if round(rate, 2) == rate else f"{prices} at ${rate:g}/s{prompt}"
 
 
 def _urlopen(request: urllib.request.Request) -> bytes:
