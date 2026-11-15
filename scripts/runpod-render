@@ -6,7 +6,9 @@ Run it in the app's project, the folder whose pyproject.toml has [tool.videotape
     cd examples/contrail
     ../../scripts/runpod-render --story terminal --takes 3 --cap-usd 20 [--out tape-wan2] [--gpu "NVIDIA H100 80GB HBM3"] [--dry-run]
 
-Needs RUNPOD_API_KEY in the environment, except under --dry-run, which prints the plan and creates nothing.
+Needs RUNPOD_API_KEY and ANTHROPIC_API_KEY in the environment, except under --dry-run, which prints the plan and
+creates nothing. Claude reads each take of a key on the pod, so the pod gets ANTHROPIC_API_KEY and the render runs
+under the same cap for its reads, which the pod's own ledger starts counting from nothing.
 Only this script creates pods. Standard library only, on any Python from 3.9, so the system python3 can run it.
 
 Runpod REST API v2 (https://api.runpod.io/v2/openapi.json):
@@ -141,7 +143,9 @@ def start_command(built: Plan) -> str:
 
 def env(built: Plan) -> dict:
     # The image sets HF_HUB_ENABLE_HF_TRANSFER=1 for its own Python; our venv has no hf_transfer, so turn it off.
-    return {"PUBLIC_KEY": built.public_key, "HF_HUB_ENABLE_HF_TRANSFER": "0", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True"}
+    keys = {"ANTHROPIC_API_KEY": os.environ["ANTHROPIC_API_KEY"]} if os.environ.get("ANTHROPIC_API_KEY") else {}
+    return {"PUBLIC_KEY": built.public_key, "HF_HUB_ENABLE_HF_TRANSFER": "0", "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
+            **keys}
 
 
 def create_body(built: Plan) -> dict:
@@ -190,7 +194,7 @@ def render_command(built: Plan) -> str:
     """Run in the project on the pod. The repository's environment has the wan and qwen extras, so it runs videotape."""
     out = "" if built.tape == own_tape(built.story) else f" --out {shlex.quote(built.tape)}"
     return (f"uv run --project {REMOTE} videotape render --story {shlex.quote(built.story)} --model wan2.2-5b "
-            f"--takes {built.takes}{out}")
+            f"--takes {built.takes} --cap-usd {built.cap_usd:.2f}{out}")
 
 
 def render_script(built: Plan) -> str:
@@ -216,7 +220,7 @@ def describe(built: Plan) -> str:
         f"pod           {built.name}: {built.image}, host CUDA >= {built.min_cuda}, {built.disk_gb} GB container disk, port 22/tcp",
         f"ssh key       {KEY.with_suffix('.pub').relative_to(ROOT)} ({built.public_key[:40]}...)",
         f"env           {', '.join(env(built))}",
-        f"create body   {json.dumps({**create_body(built), 'env': {**env(built), 'PUBLIC_KEY': '<the key above>'}, 'args': '<below>'})}",
+        f"create body   {json.dumps({**create_body(built), 'env': {**env(built), 'PUBLIC_KEY': '<the key above>', **({'ANTHROPIC_API_KEY': '<the key, never printed>'} if 'ANTHROPIC_API_KEY' in env(built) else {})}, 'args': '<below>'})}",
         f"start         {start_command(built)}",
         "self-destruct " + self_destruct(built.deadline_seconds).strip().replace("\n", "\n              "),
         "setup         " + setup_script().strip().replace("\n", "\n              "),
@@ -472,6 +476,10 @@ def main(argv=None) -> int:
     key = os.environ.get("RUNPOD_API_KEY")
     if not key and not args.dry_run:
         print("error: RUNPOD_API_KEY is not set; export it, or pass --dry-run to see the plan", file=sys.stderr)
+        return 2
+    if not os.environ.get("ANTHROPIC_API_KEY") and not args.dry_run:
+        print("error: ANTHROPIC_API_KEY is not set, and the pod's render reads each key with Claude; export it, or pass "
+              "--dry-run to see the plan", file=sys.stderr)
         return 2
     api = Api(key) if key else None
     try:
