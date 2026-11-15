@@ -307,7 +307,7 @@ def diff_tapes(args) -> int:
     for row in rows:
         print("  ".join(f"{cell:<{width}}" for cell, width in zip(row, widths)))
     app, other = a["made"]["app"], b["made"]["app"]
-    print("same app" if (app["code"], app["data"]) == (other["code"], other["data"]) else "another app")
+    print("same app" if all(app[part] == other[part] for part in ("screenplay", "code", "data")) else "another app")
     print("same story" if a["made"]["story"]["hash"] == b["made"]["story"]["hash"] else "another story")
     for part, noun in (("scenes", "state"), ("moves", "move")):
         print(f"{_count(len(a[part].keys() & b[part].keys()), noun)} shared, of {len(a[part])} and {len(b[part])}")

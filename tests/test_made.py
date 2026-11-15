@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from conftest import CONTRAIL, copy_of, planned, told
-from videotape import ledger, project, wan3
+from videotape import ledger, new, project, wan3
 from videotape.errors import PACKAGE
 from videotape.fal import Fal
 from videotape.made import made
@@ -206,6 +206,22 @@ def test_diff_after_the_code_changes_is_another_app_and_counts_the_states_and_mo
     render_again("--story", "chalk", "--out", "tape-espresso")
     assert diff(cli, capsys, directory, "tapes/chalk", "tape-espresso")[2:] == [
         "another app", "same story", "3 states shared, of 5 and 3", "3 moves shared, of 6 and 3"]
+
+
+def test_diff_of_two_screenplays_of_one_package_is_another_app_though_their_code_and_data_are_one(tmp_path, cli,
+                                                                                                   capsys):
+    folder = new.project("shop", tmp_path)
+    package = folder / "shop"
+    (package / "other.py").write_text((package / "screenplay.py").read_text().replace("of two scenes", "of two pages"))
+    assert cli(folder, "render", "--story", "starter", "--model", "stand-in", "--out", "tape-screenplay") == 0
+    pyproject = folder / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"shop.screenplay:app"', '"shop.other:app"'))
+    assert cli(folder, "render", "--story", "starter", "--model", "stand-in", "--out", "tape-other") == 0
+    capsys.readouterr()
+    apps = [json.loads((folder / tape / "tape.json").read_text())["made"]["app"]
+            for tape in ("tape-screenplay", "tape-other")]
+    assert [(app["code"], app["data"]) for app in apps[1:]] == [(apps[0]["code"], apps[0]["data"])]
+    assert diff(cli, capsys, folder, "tape-screenplay", "tape-other")[2:3] == ["another app"]
 
 
 def test_diff_says_which_tape_has_no_tape_json_or_does_not_say_what_made_it(two, cli, capsys):

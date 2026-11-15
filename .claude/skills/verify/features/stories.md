@@ -95,7 +95,7 @@ Preconditions:
 ## Gotchas
 
 - A story's hash is of its file's bytes, so a comment or a blank line changes it, and `diff` then says `another story` though every prompt is the same.
-- `same app` compares the hash of the app's code and the hash of `data/`. The code is every `.py` file of the package that holds the screenplay, or the one module when there is no package. `vt.table` and `vt.one` load only files under `data/` (a path outside it is `VT205`), so the data hash covers every record the app loads.
+- `same app` compares the screenplay that each `made` block names, as `module:app`, and the hash of the app's code and the hash of `data/`, so two screenplays of one package are another app, as publish's `VT601` says. The code is every `.py` file of the package that holds the screenplay, or the one module when there is no package. `vt.table` and `vt.one` load only files under `data/` (a path outside it is `VT205`), so the data hash covers every record the app loads.
 - The `made` block is written with `tape.json` at the end of every render. Its engine hash is of the videotape code that wrote it, and takes that came from the cache may have been drawn by earlier code. After a change to videotape itself, a cached render changes `tape.json` and nothing else.
 - A file's hash covers its path from the project and its bytes. A rename changes it. The order the files are read in does not.
 - The ids differ between checkouts whenever videotape's own code differs, so never assert an id from this file. Assert the label and the story's hash.
