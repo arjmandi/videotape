@@ -254,6 +254,17 @@ CODES: dict[str, Code] = {
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
         "retake the move, change the story's move for that element type, or accept it with a reason",
     ),
+    "VT603": Code(
+        "TapePlayer did not build",
+        "play and publish build TapePlayer, the macOS app that plays a tape, from the Swift source videotape carries. "
+        "It builds in Release with xcodebuild, in a cache under ~/Library/Caches/videotape, or VIDEOTAPE_CACHE_DIR "
+        "when that is set, once for each version of the source. This build did not finish, so nothing was cached. The "
+        "error names the build's log, which holds everything xcodebuild printed, and quotes its first error.",
+        "error VT603 ~/Library/Caches/videotape/player/3f9a0c1d2e4b5a67/build.log: the build exited with 1: "
+        "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory "
+        "'/Library/Developer/CommandLineTools' is a command line tools instance",
+        "run videotape doctor, which checks for Xcode; when it passes, the log says what failed",
+    ),
 }
 
 
@@ -289,7 +300,7 @@ class RenderError(Exception):
 
 def explain(code: str) -> str:
     entry = CODES[code]
-    what = "Next" if code >= "VT400" else "Fix"
+    what = "Next" if "VT400" <= code < "VT600" else "Fix"
     return (f"{code}: {entry.title}\n\n{entry.long}\n\nExample:\n{_indented(entry.example)}\n\n"
             f"{what}:\n{_indented(entry.fix)}")
 

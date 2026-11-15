@@ -20,23 +20,23 @@ def made(found: Project, story: Story, model: Model) -> dict:
     code = top.rglob("*.py") if top.is_dir() else [top.with_suffix(".py")]
     data = (path for path in (found.root / "data").rglob("*") if path.is_file() and not path.name.startswith("."))
     block = {
-        "app": {"name": found.name, "version": found.version, "code": _hash(found.root, code),
-                "data": _hash(found.root, data)},
+        "app": {"name": found.name, "version": found.version, "code": digest(found.root, code),
+                "data": digest(found.root, data)},
         "story": {"name": story.name, "version": story.version, "hash": story.hash},
         "model": {"name": model.name, "settings": {mode.value: model.settings(mode) for mode in Mode}},
-        "engine": _hash(PACKAGE, PACKAGE.rglob("*.py")),
+        "engine": digest(PACKAGE, PACKAGE.rglob("*.py")),
     }
     app = " ".join(filter(None, (found.name, found.version)))
     return {"label": f"{app} + {story.name} {story.version}",
             "id": hashlib.sha256(json.dumps(block, sort_keys=True).encode()).hexdigest(), **block}
 
 
-def _hash(root: Path, files: Iterable[Path]) -> str:
+def digest(root: Path, files: Iterable[Path]) -> str:
     """One hash of many files, by each file's path from the root and its bytes. A rename changes it, and the order the
     files are found in does not."""
-    digest = hashlib.sha256()
+    hashed = hashlib.sha256()
     for name, path in sorted((path.relative_to(root).as_posix(), path) for path in files):
         content = path.read_bytes()
-        digest.update(f"{name}\0{len(content)}\0".encode())
-        digest.update(content)
-    return digest.hexdigest()
+        hashed.update(f"{name}\0{len(content)}\0".encode())
+        hashed.update(content)
+    return hashed.hexdigest()

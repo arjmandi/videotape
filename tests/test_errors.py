@@ -147,7 +147,7 @@ def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framewo
         assert title == f"{code}: {entry.title}"
         assert len(long.split()) > 15
         assert example.startswith("Example:\n    ") and len(example.splitlines()) > 1
-        what = "Next" if code >= "VT400" else "Fix"
+        what = "Next" if "VT400" <= code < "VT600" else "Fix"
         assert f"\n\n{what}:\n    " in f"\n\n{fix}" and len(fix.splitlines()) > 1
 
 

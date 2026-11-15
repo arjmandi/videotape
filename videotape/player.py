@@ -1,52 +1,81 @@
-"""Playing a tape in TapePlayer, the macOS app under clients/macos beside this package. The app is built when it is
-missing or older than any file it is built from, and then opened with the tape's path as its argument, which
-TapePlayer takes as it is when the path is absolute."""
+"""TapePlayer, the macOS app that plays a tape. Its source ships in the package as videotape/macos, and in a checkout
+it is clients/macos beside the package. It is built in Release into a cache, once for each version of its source, and
+never into the package. play opens a tape in the built app with the tape's path as its argument, which TapePlayer
+takes as it is when the path is absolute."""
 
+import os
+import shutil
 import subprocess
-from collections.abc import Callable
+import tempfile
+import time
 from pathlib import Path
 
-from videotape.errors import PACKAGE
-from videotape.project import ProjectError
+from videotape import errors
+from videotape.errors import PACKAGE, ScreenplayError
+from videotape.made import digest
 
-MACOS = PACKAGE.parent / "clients" / "macos"
-SKIPPED = {"build", ".build", ".swiftpm", "xcuserdata"}
-"""Folders under clients/macos that hold what a build leaves, not what it is built from."""
+SOURCE = next((folder for folder in (PACKAGE / "macos", PACKAGE.parent / "clients" / "macos")
+               if (folder / "build.sh").is_file()), PACKAGE / "macos")
+LEFT_OUT = {"build", ".build", ".swiftpm", "xcuserdata", "project.xcworkspace", "Tests", "TapePlayerUITests", "test.sh"}
+"""What under the source a Release build of TapePlayer does not read: what a build or Xcode leaves, and the tests."""
 
-Run = Callable[[list[str]], object]
+
+def sources(source: Path = SOURCE) -> list[Path]:
+    """Every file TapePlayer is built from: all of its source but what LEFT_OUT names and hidden files."""
+    return [path for path in source.rglob("*") if path.is_file()
+            and not any(part in LEFT_OUT or part.startswith(".") for part in path.relative_to(source).parts)]
 
 
-def _run(command: list[str]) -> None:
+def cache() -> Path:
+    return Path(os.environ.get("VIDEOTAPE_CACHE_DIR") or Path.home() / "Library" / "Caches" / "videotape")
+
+
+def _build(folder: Path) -> subprocess.CompletedProcess[str]:
+    """Run the source's build script, which leaves build/TapePlayer.app in the folder."""
+    return subprocess.run(["bash", str(folder / "build.sh")], capture_output=True, text=True)
+
+
+def built(source: Path | None = None) -> Path:
+    """TapePlayer.app, built from the source unless this version of it was built before. A build copies the source
+    into the cache, builds there, and moves the app into place only when the build succeeds, so a cached app is
+    always whole."""
+    source = source or SOURCE
+    if not (source / "build.sh").is_file():
+        raise ScreenplayError("VT603", errors.shown(source), "TapePlayer's source is not here, so it cannot build",
+                              "install videotape again, so that its package holds macos/build.sh")
+    home = cache() / "player" / digest(source, sources(source))[:16]
+    app = home / "TapePlayer.app"
+    if app.is_dir():
+        return app
+    print("building TapePlayer, once for this version of it", flush=True)
+    started = time.monotonic()
+    home.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=home) as scratch:
+        folder = Path(scratch)
+        for path in sources(source):
+            (folder / path.relative_to(source)).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(path, folder / path.relative_to(source))
+        ran = _build(folder)
+        if ran.returncode != 0:
+            said = (ran.stdout + ran.stderr).splitlines()
+            log = home / "build.log"
+            log.write_text("\n".join(said) + "\n")
+            line = next((line for line in said if "error:" in line),
+                        next((line for line in reversed(said) if line.strip()), "nothing"))
+            raise ScreenplayError("VT603", errors.shown(log), f"the build exited with {ran.returncode}: {line.strip()}",
+                                  "run videotape doctor, which checks for Xcode; when it passes, the log says "
+                                  "what failed")
+        (folder / "build" / "TapePlayer.app").rename(app)
+    print(f"built TapePlayer in {time.monotonic() - started:.1f} s", flush=True)
+    return app
+
+
+def _launch(command: list[str]) -> None:
     subprocess.run(command, check=True)
 
 
-def app(macos: Path = MACOS) -> Path:
-    return macos / "build" / "TapePlayer.app"
-
-
-def sources(macos: Path = MACOS) -> list[Path]:
-    """Every file the app is built from: all of clients/macos but what a build leaves and hidden files."""
-    return [path for path in macos.rglob("*") if path.is_file()
-            and not any(part in SKIPPED or part.startswith(".") for part in path.relative_to(macos).parts)]
-
-
-def stale(macos: Path = MACOS) -> bool:
-    """Whether the built app is missing or older than a file it is built from."""
-    built = app(macos)
-    return not built.exists() or built.stat().st_mtime < max(path.stat().st_mtime for path in sources(macos))
-
-
-def commands(tape: Path, macos: Path = MACOS) -> list[list[str]]:
-    """What play runs: the build when it is needed, then open with the tape's absolute path."""
-    if not (macos / "build.sh").is_file():
-        raise ProjectError(f"TapePlayer's source is not at {macos}; play needs videotape checked out beside clients/macos")
-    build = [[str(macos / "build.sh")]] if stale(macos) else []
-    return [*build, ["open", str(app(macos)), "--args", str(tape.resolve())]]
-
-
-def play(tape: Path, macos: Path | None = None, run: Run | None = None) -> list[list[str]]:
-    """Build TapePlayer if it needs to, open the tape in it, and return what was run."""
-    ran = commands(tape, macos or MACOS)
-    for command in ran:
-        (run or _run)(command)
-    return ran
+def play(tape: Path) -> list[str]:
+    """Open the tape in TapePlayer, built first when it has to be, and return the command that opened it."""
+    command = ["open", str(built()), "--args", str(tape.resolve())]
+    _launch(command)
+    return command

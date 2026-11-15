@@ -258,8 +258,7 @@ def play(args) -> int:
     tape = _tape(found, args.story, args.out)
     if not (tape / "tape.json").is_file():
         raise ChecksError(f"no tape.json in {errors.shown(tape)}; render the story first")
-    for command in player.play(tape):
-        print(shlex.join(command))
+    print(shlex.join(player.play(tape)))
     return 0
 
 
