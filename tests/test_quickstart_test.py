@@ -49,3 +49,4 @@ def test_the_steps_to_a_played_tape_are_within_the_budget(script):
         "uvx --from {repo} videotape new contrail", "cd contrail", DOCTOR,
         "uv run videotape render --story starter --model stand-in", script.PLAY]
     assert script.TO_A_PLAYED_TAPE <= script.MOST_STEPS
+    assert script.STEPS[script.TO_A_PLAYED_TAPE:] == ["uv run videotape publish --story starter"]
