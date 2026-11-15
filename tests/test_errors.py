@@ -158,7 +158,7 @@ def test_explain_rejects_a_code_that_does_not_exist(tmp_path):
     assert "invalid choice: 'VT999'" in result.stderr
 
 
-MODELS = "stand-in, wan2.2-5b, wan3.0"
+MODELS = "minimax-h3, stand-in, wan2.2-5b, wan3.0"
 
 
 @pytest.mark.parametrize("pyproject, error", [

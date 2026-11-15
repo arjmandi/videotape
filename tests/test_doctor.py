@@ -166,4 +166,4 @@ def test_a_project_with_a_wrong_value_fails_its_vt107_after_the_machine(tmp_path
     assert cli(directory, "doctor") == 1
     assert capsys.readouterr().out.splitlines()[3:] == [
         'fail VT107 pyproject.toml: [tool.videotape] model is "wan3", and videotape has no such model',
-        "  fix: set model to one of stand-in, wan2.2-5b, wan3.0"]
+        "  fix: set model to one of minimax-h3, stand-in, wan2.2-5b, wan3.0"]

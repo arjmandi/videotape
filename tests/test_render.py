@@ -517,7 +517,7 @@ def test_model_flag_renders_with_another_model_than_the_projects(tmp_path, cli, 
 @pytest.mark.parametrize("setting, error", [
     ("", "error: no model to render with; pass --model, or set model in [tool.videotape]\n"),
     ('model = "sora"\n', 'error VT107 pyproject.toml: [tool.videotape] model is "sora", and videotape has no such '
-     "model\nfix: set model to one of stand-in, wan2.2-5b, wan3.0\n"),
+     "model\nfix: set model to one of minimax-h3, stand-in, wan2.2-5b, wan3.0\n"),
 ])
 def test_a_project_without_a_model_it_can_render_with_says_so(tmp_path, cli, capsys, setting, error):
     directory = copy_of("cafe", tmp_path)

@@ -42,12 +42,14 @@ class FalModel:
         return FalRequest(endpoint, {"prompt": prompt, **settings, **({"seed": seed} if self.seeded else {}), **images})
 
     def bill(self, response: dict) -> tuple[str, Receipt]:
-        """The video's url and the receipt from fal's answers to one call, read without the network."""
+        """The video's url and the receipt from fal's answers to one call, read without the network. fal bills the
+        seconds it filmed. wan3.0 answers with them, and a model whose answer has none is billed for the seconds its
+        request asked for."""
         submitted, result = response["submitted"], response["result"]
         try:
-            url, duration = result["video"]["url"], float(result["duration"])
-        except (KeyError, TypeError, ValueError):
-            raise FalError(f"request {submitted['request_id']} answered without video.url and duration: {result}") from None
+            url, duration = result["video"]["url"], float(result.get("duration", self.price.seconds))
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise FalError(f"request {submitted['request_id']} answered without video.url: {result}") from None
         return url, Receipt(submitted["request_id"], duration, round(duration * self.price.usd_per_second, 4), response)
 
 
@@ -75,7 +77,25 @@ WAN3 = FalModel(
     price=Price(usd_per_second=0.10, seconds=5),
 )
 
-FAL_MODELS = (WAN3,)
+# fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-15: H3TextToVideoInput and
+# H3ImageToVideoInput. Its image-to-video takes the first frame in image_url and has no aspect_ratio, since "the
+# output canvas follows this image". 768P is a native size, 1344x768 at 16:9, where the default 2K upscales one, and
+# prompt expansion, on by default, rewrites the prompt. Its answer carries no duration.
+MINIMAX_H3 = FalModel(
+    "minimax-h3",
+    {Mode.TEXT_TO_VIDEO: "minimax/h3/text-to-video", Mode.FIRST_AND_LAST_FRAME: "minimax/h3/image-to-video"},
+    {Mode.TEXT_TO_VIDEO: {"resolution": "768P", "aspect_ratio": "16:9", "prompt_expansion_mode": "disabled"},
+     Mode.FIRST_AND_LAST_FRAME: {"resolution": "768P", "prompt_expansion_mode": "disabled"}},
+    "image_url",
+    seeded=True,
+    # The schemas allow 50,000 characters, and fal's "MiniMax H3 vs. MiniMax H3 Max" (2026-09-01) says H3 takes "full
+    # shot lists up to a 7,000-character prompt". The lower holds until a call shows otherwise.
+    prompt_characters=7_000,
+    # Both endpoints' model pages, read 2026-11-15: "$0.06 per second at 768p".
+    price=Price(usd_per_second=0.06, seconds=5),
+)
+
+FAL_MODELS = (WAN3, MINIMAX_H3)
 
 
 class RecordedFailure(FalError):
