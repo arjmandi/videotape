@@ -7,7 +7,7 @@ from collections import Counter
 from difflib import get_close_matches
 from pathlib import Path
 
-from videotape import dailies, doctor, errors, ledger, player, project, story
+from videotape import dailies, doctor, errors, ledger, new, player, project, story
 from videotape.checks import ChecksError
 from videotape.errors import CODES, RenderError, ScreenplayError
 from videotape.fal import FalError
@@ -104,6 +104,15 @@ def print_shots(args) -> int:
     width = max(len(str(clause.source)) for _, clauses in prompts for clause in clauses)
     print("\n\n".join("\n".join([shot.title, *(f"  {str(clause.source):<{width}}  {clause.text}" for clause in clauses)])
                       for shot, clauses in prompts))
+    return 0
+
+
+def new_project(args) -> int:
+    folder = new.project(args.name, Path.cwd())
+    print(f"made {errors.shown(folder)}: a screenplay of two scenes, a table of data, and the story starter\nnext:")
+    for step in (f"cd {shlex.quote(errors.shown(folder))}", "uv run videotape doctor",
+                 "uv run videotape render --story starter --model stand-in", "uv run videotape play --story starter"):
+        print(f"  {step}")
     return 0
 
 
@@ -319,6 +328,10 @@ def main(argv=None) -> int:
     showing.add_argument("--story", required=True, help="the story, which is stories/<story>.toml in the project")
     showing.add_argument("--state", help="only this state's key and the moves that leave it, as in \"home()\"")
     showing.set_defaults(run=print_shots)
+    starting = commands.add_parser("new", help="start an app's project in a new folder: a screenplay of two scenes, "
+                                   "a table of data, and a story")
+    starting.add_argument("name", help="the project's name, which is its folder's and its Python package's")
+    starting.set_defaults(run=new_project)
     doctoring = commands.add_parser("doctor", help="check that this machine has what videotape needs, and in a "
                                     "project, the key its model needs")
     doctoring.set_defaults(run=doctor_checks)
