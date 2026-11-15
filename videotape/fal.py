@@ -103,7 +103,7 @@ class Fal:
     def _queue(self, url: str, body: dict | None = None) -> urllib.request.Request:
         # The status and result urls come from fal's answer, so check where they point before the key goes there.
         if urllib.parse.urlsplit(url).netloc != urllib.parse.urlsplit(QUEUE).netloc:
-            raise FalError(f"fal answered with {url}, which is not on {QUEUE}; the key is only sent there")
+            raise FalError(f"fal answered with {url}, which is not on {QUEUE}; the API key is only sent there")
         if body is None:
             request = urllib.request.Request(url, headers={"Accept": "application/json"})
         else:

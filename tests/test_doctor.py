@@ -62,7 +62,7 @@ def test_outside_a_project_doctor_checks_the_machine_only(tmp_path, cli, capsys,
 def test_the_stand_in_needs_no_key_and_no_gpu(tmp_path, cli, capsys, machine, monkeypatch):
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     assert cli(copy_of("cafe", tmp_path), "doctor") == 0
-    assert capsys.readouterr().out.splitlines()[3:] == ["ok   VT104 stand-in needs no key",
+    assert capsys.readouterr().out.splitlines()[3:] == ["ok   VT104 stand-in needs no API key",
                                                         "ok   VT105 stand-in's checks need no GPU"]
 
 

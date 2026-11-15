@@ -344,7 +344,7 @@ def main(argv=None) -> int:
     starting.add_argument("name", help="the project's name, which is its folder's and its Python package's")
     starting.set_defaults(run=new_project)
     doctoring = commands.add_parser("doctor", help="check that this machine has what videotape needs, and in a "
-                                    "project, the key its model needs")
+                                    "project, the API key its model needs")
     doctoring.set_defaults(run=doctor_checks)
     explaining = commands.add_parser("explain", help="print an error code's long form, with an example and its fix")
     explaining.add_argument("code", choices=sorted(CODES))

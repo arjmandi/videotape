@@ -46,10 +46,11 @@ CODES: dict[str, Code] = {
         "sudo xcode-select --switch /Applications/Xcode.app",
     ),
     "VT104": Code(
-        "a key the project's model needs is not set",
-        "A model that runs as a service needs its key: wan3.0 runs on fal and needs FAL_KEY. A project command reads "
-        "keys from the environment and from the project's .env, one KEY=VALUE line each, and a key already in the "
-        "environment wins. No command prints a key's value. The stand-in and wan2.2-5b run here and need none.",
+        "an API key the project's model needs is not set",
+        "A model that runs as a service needs its API key: wan3.0 runs on fal and needs FAL_KEY. A project command "
+        "reads API keys from the environment and from the project's .env, one KEY=VALUE line each, and an API key "
+        "already in the environment wins. No command prints an API key's value. The stand-in and wan2.2-5b run here "
+        "and need none.",
         "fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env",
         "copy .env.example to .env and set FAL_KEY there, or export it",
     ),
@@ -256,7 +257,7 @@ CODES: dict[str, Code] = {
     "VT401": Code(
         "a model call failed",
         "A render asks the model for one take at a time, and this call did not come back with a clip. The error "
-        "prints the provider's message and the request id when there is one, and never a key. The takes already on "
+        "prints the provider's message and the request id when there is one, and never an API key. The takes already on "
         "disk and the requests already submitted are kept, so running the render again resumes from them, and a "
         "submitted request is polled and downloaded, never submitted again on its own. A request fal has recorded "
         "beside its take and refuses for good, as when its safety checker flags the output, fails the same way on "
