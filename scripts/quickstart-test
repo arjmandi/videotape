@@ -10,9 +10,10 @@ report gives each step's wall time, and TapePlayer's first build apart, read fro
 of the step that built it. The test fails when a step fails, when more than 5 steps lead to a played tape, or when
 they take more than 5 minutes without that build.
 
-doctor may fail VT104 when FAL_KEY is unset, since the starter renders with wan3.0 by default; any other fail fails
-the test. play opens TapePlayer on the screen, and the test quits it by its bundle id once it runs. --skip-play skips
-play, and publish builds TapePlayer instead. --keep keeps the folder and prints where it is. Standard library only.
+doctor may fail VT104 when FAL_KEY is unset, and VT105 for videotape's qwen extra, which the starter's project leaves
+out, since the starter renders with wan3.0 by default; any other fail fails the test. play opens TapePlayer on the
+screen, and the test quits it by its bundle id once it runs. --skip-play skips play, and publish builds TapePlayer
+instead. --keep keeps the folder and prints where it is. Standard library only.
 """
 
 from __future__ import annotations
@@ -54,9 +55,12 @@ class Ran:
 
 
 def passed(ran: Ran) -> bool:
-    """Whether a step did what the quickstart needs. doctor may fail only VT104, the key the starter's model needs."""
+    """Whether a step did what the quickstart needs. doctor may fail only VT104, the key the starter's model needs, and
+    VT105 for the qwen extra its eye needs, not for a GPU."""
     if ran.step == "uv run videotape doctor" and ran.code == 1:
-        return re.findall(r"^fail (VT\d{3})", ran.said, re.M) == ["VT104"]
+        failed = re.findall(r"^fail (VT\d{3}) (.*)$", ran.said, re.M)
+        return bool(failed) and all(code == "VT104" or (code == "VT105" and "videotape's qwen extra" in what)
+                                    for code, what in failed)
     return ran.code == 0
 
 

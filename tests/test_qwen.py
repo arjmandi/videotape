@@ -7,6 +7,7 @@ import videotape as vt
 from conftest import FIXTURES, copy_of
 from videotape import standin
 from videotape.checks import Reading, Spot, cer, find, read, score
+from videotape.errors import CODES
 from videotape.frames import Box, Frame
 from videotape.plan import plan
 from videotape.qwen import QwenEye, spots
@@ -64,7 +65,7 @@ def test_a_model_other_than_the_stand_in_is_checked_by_qwen_which_needs_its_extr
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
     assert capsys.readouterr() == ("", "error: qwen3-vl-8b, this model's eye, needs videotape's qwen extra, which is "
-                                       "not installed here; install videotape[qwen]\n")
+                                       f"not installed here; {CODES['VT105'].fix}\n")
     assert sent == [] and not (directory / "tape-wan3").exists()
 
 

@@ -82,10 +82,11 @@ ok   VT102 ffmpeg and ffprobe are on PATH
 ok   VT103 Xcode 27.0, at /Applications/Xcode.app/Contents/Developer, for TapePlayer
 fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env
   fix: copy .env.example to .env and set FAL_KEY there, or export it
-ok   VT105 Apple silicon, for wan3.0's checks
+fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here
+  fix: in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync
 ```
 
-The first `uv run` makes the project's Python environment. `VT104` fails because wan3.0 runs Wan 3.0 on fal, which needs the API key `FAL_KEY`. Leave it for now. The stand-in is a model that needs no API key and no GPU, and costs nothing. It films each key as a plain picture: a box for each line of the state's words. A render with the stand-in tests everything but the pictures.
+The first `uv run` makes the project's Python environment. `VT104` fails because wan3.0 runs Wan 3.0 on fal, which needs the API key `FAL_KEY`. `VT105` fails because wan3.0's eye, Qwen3-VL-8B, runs through videotape's `qwen` extra, which the project leaves out so that it installs fast. Leave both for now. [Render with a real model](#render-with-a-real-model) adds them. The stand-in is a model that needs no API key and no GPU, and costs nothing. It films each key as a plain picture: a box for each line of the state's words. A render with the stand-in tests everything but the pictures.
 
 Render the starter's story with the stand-in:
 
@@ -801,7 +802,7 @@ Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 s
 wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s
 ```
 
-To render with it, copy `.env.example` to `.env` and set `FAL_KEY` there, and set `model = "wan3.0"` in `pyproject.toml`. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`.
+To render with it, first add videotape's `qwen` extra, which runs the eye. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` there, and set `model = "wan3.0"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for `VT104` and `VT105`. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`.
 
 ### Publish
 

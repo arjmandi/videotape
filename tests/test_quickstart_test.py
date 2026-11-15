@@ -22,14 +22,22 @@ def script():
     return module
 
 
+EXTRA = ("fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here\n"
+         "  fix: in pyproject.toml, put [qwen] right after videotape in dependencies\n")
+
+
 @pytest.mark.parametrize("code, said, ok", [
     (0, "ok   VT101 Python 3.14.0, and videotape needs >=3.12\nok   VT104 FAL_KEY is set, for wan3.0\n", True),
     (1, "ok   VT103 Xcode 27.0\nfail VT104 wan3.0 needs FAL_KEY\n  fix: copy .env.example to .env\n", True),
+    (1, f"ok   VT103 Xcode 27.0\nfail VT104 wan3.0 needs FAL_KEY\n{EXTRA}", True),
+    (1, f"ok   VT104 FAL_KEY is set, for wan3.0\n{EXTRA}", True),
+    (1, "fail VT105 wan3.0's checks need Apple silicon or a CUDA GPU, and this machine is Linux on x86_64\n", False),
+    (1, f"fail VT102 ffprobe is not on PATH\n  fix: install ffmpeg\n{EXTRA}", False),
     (1, "fail VT102 ffprobe is not on PATH\n  fix: install ffmpeg\nfail VT104 wan3.0 needs FAL_KEY\n", False),
     (1, "fail VT103 xcode-select is not here, so TapePlayer cannot build\n", False),
     (1, "error VT107 pyproject.toml: [tool.videotape] model is 3, not a model's name\n", False),
 ])
-def test_doctor_passes_with_no_fail_but_the_key_the_starters_model_needs(script, code, said, ok):
+def test_doctor_passes_with_no_fail_but_the_key_and_the_extra_the_starters_model_needs(script, code, said, ok):
     assert script.passed(script.Ran(DOCTOR, 1.0, code, said)) is ok
 
 

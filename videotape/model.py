@@ -65,8 +65,6 @@ class Listing:
     key: str | None = None
     """The environment variable that holds the key a model run as a service needs. The environment or the project's
     .env sets it."""
-    eye_gpu: bool = False
-    """Whether the eye needs a GPU, Apple silicon or CUDA, as Qwen does."""
     kind: Kind = field(kw_only=True)
     """The model's class, whose name and settings a tape's made block reads. Building wan3.0 needs its key, and
     building wan2.2-5b a CUDA GPU."""
@@ -76,12 +74,12 @@ MODELS: dict[str, Listing] = {
     "stand-in": Listing(StandIn, lambda tape: StandInEye(), limit=8, kind=StandIn),
     # One GPU on one pod draws one take at a time.
     "wan2.2-5b": Listing(Wan, QwenEye, PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens), limit=1,
-                         eye_gpu=True, kind=Wan),
+                         kind=Wan),
     # fal.ai/docs/documentation/model-apis/concurrency-limits, read 2026-11-14: "Every new account starts with a
     # concurrency limit of 2 concurrent requests."
     "wan3.0": Listing(wan3.from_environment, QwenEye,
                       PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2,
-                      key="FAL_KEY", eye_gpu=True, kind=wan3.Wan3),
+                      key="FAL_KEY", kind=wan3.Wan3),
 }
 
 
