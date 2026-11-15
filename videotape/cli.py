@@ -7,7 +7,7 @@ from collections import Counter
 from difflib import get_close_matches
 from pathlib import Path
 
-from videotape import dailies, errors, ledger, player, project, story
+from videotape import dailies, doctor, errors, ledger, player, project, story
 from videotape.checks import ChecksError
 from videotape.errors import CODES, RenderError, ScreenplayError
 from videotape.fal import FalError
@@ -105,6 +105,13 @@ def print_shots(args) -> int:
     print("\n\n".join("\n".join([shot.title, *(f"  {str(clause.source):<{width}}  {clause.text}" for clause in clauses)])
                       for shot, clauses in prompts))
     return 0
+
+
+def doctor_checks(args) -> int:
+    results = doctor.checks(Path.cwd())
+    for check in results:
+        print(check)
+    return 0 if all(check.ok for check in results) else 1
 
 
 def explain(args) -> int:
@@ -312,6 +319,9 @@ def main(argv=None) -> int:
     showing.add_argument("--story", required=True, help="the story, which is stories/<story>.toml in the project")
     showing.add_argument("--state", help="only this state's key and the moves that leave it, as in \"home()\"")
     showing.set_defaults(run=print_shots)
+    doctoring = commands.add_parser("doctor", help="check that this machine has what videotape needs, and in a "
+                                    "project, the key its model needs")
+    doctoring.set_defaults(run=doctor_checks)
     explaining = commands.add_parser("explain", help="print an error code's long form, with an example and its fix")
     explaining.add_argument("code", choices=sorted(CODES))
     explaining.set_defaults(run=explain)

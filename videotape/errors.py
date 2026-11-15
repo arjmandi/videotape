@@ -20,6 +20,49 @@ class Code:
 
 
 CODES: dict[str, Code] = {
+    "VT101": Code(
+        "Python is older than videotape needs",
+        "videotape runs on the Python its package names in requires-python. doctor compares the Python it runs on "
+        "with that. uv picks a Python that fits when it makes a project's environment, so this happens to an "
+        "environment made by hand, or with an older Python named.",
+        "fail VT101 Python 3.11.4, and videotape needs >=3.12",
+        "make the project's environment with a newer Python, as in uv sync --python 3.12",
+    ),
+    "VT102": Code(
+        "ffmpeg or ffprobe is not on PATH",
+        "A render decodes takes, writes key images and copies clips with ffmpeg, and reads clips with ffprobe. doctor "
+        "looks for both on PATH. A render without them stops at its first take with VT404.",
+        "fail VT102 ffprobe is not on PATH",
+        "install ffmpeg, which brings ffprobe, as in brew install ffmpeg",
+    ),
+    "VT103": Code(
+        "Xcode is missing, so TapePlayer cannot build",
+        "play and publish build TapePlayer, the macOS app that plays a tape, from the Swift source videotape carries. "
+        "The build needs Xcode itself, with xcode-select pointing at it. The Command Line Tools alone have no "
+        "xcodebuild that builds an app, and play stops with VT603.",
+        "fail VT103 xcode-select points at /Library/Developer/CommandLineTools, the Command Line Tools without Xcode, "
+        "so TapePlayer cannot build",
+        "install Xcode from the App Store, then point xcode-select at it, as in "
+        "sudo xcode-select --switch /Applications/Xcode.app",
+    ),
+    "VT104": Code(
+        "a key the project's model needs is not set",
+        "A model that runs as a service needs its key: wan3.0 runs on fal and needs FAL_KEY. A project command reads "
+        "keys from the environment and from the project's .env, one KEY=VALUE line each, and a key already in the "
+        "environment wins. No command prints a key's value. The stand-in and wan2.2-5b run here and need none.",
+        "fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env",
+        "copy .env.example to .env and set FAL_KEY there, or export it",
+    ),
+    "VT105": Code(
+        "the checks need a GPU this machine does not have",
+        "After a render films a key, an eye reads it back to check every line and find every action. The eye of the "
+        "Wan models is Qwen3-VL-8B, which runs on Apple silicon or a CUDA GPU. The stand-in's eye reads its own boxes "
+        "and needs neither.",
+        "fail VT105 wan3.0's checks need Apple silicon or a CUDA GPU, and this machine is Linux on x86_64 without "
+        "nvidia-smi",
+        "render on a Mac with Apple silicon or a machine with a CUDA GPU, or with the stand-in, as in "
+        "videotape render --story starter --model stand-in",
+    ),
     "VT106": Code(
         "no project here",
         "A project is the folder that holds an app's pyproject.toml, with a [tool.videotape] table that names the "
