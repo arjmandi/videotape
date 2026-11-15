@@ -272,13 +272,12 @@ CODES: dict[str, Code] = {
     ),
     "VT402": Code(
         "the next call would pass the cap",
-        "A model that bills per call renders under a cap: cap_usd in [tool.videotape], or --cap-usd. What a tape has "
-        "spent is the sum of its lines in the project's ledger, so running the render again never resets it. Before "
-        "each paid call the render stops when the call would pass the cap, says what was spent, and lets the calls "
-        "in flight finish and reach the ledger. The render weighs each call against the cap at its listed price, and "
-        "the ledger holds what the call then billed, which can differ a little, so the spend can end a little past "
-        "the cap. "
-        "A paid model with no cap at all does not start.",
+        "A render with a model that bills per call spends under a cap: cap_usd in [tool.videotape], or --cap-usd. "
+        "What a tape has spent is the sum of its lines in the project's ledger, so running the render again never "
+        "resets it. Before each paid call the render stops when the call would pass the cap, says what was spent, and "
+        "lets the calls in flight finish and reach the ledger. The render weighs each call against the cap at its "
+        "listed price, and the ledger holds what the call then billed, which can differ a little, so the spend can "
+        "end a little past the cap. A render with a paid model and no cap does not start.",
         "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
         "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
         "next: run the render again with a higher cap, which resumes, as in:\n"
@@ -350,7 +349,7 @@ CODES: dict[str, Code] = {
     ),
     "VT602": Code(
         "the tape has failing checks nobody accepted",
-        "Every key and move of a tape is checked when it renders. A check its kept take fails stays failing until a "
+        "A render checks the takes of every key and move of a tape. A check its kept take fails stays failing until a "
         "retake passes it or a person accepts it with a reason, and an accept holds only for the take it was given "
         "on. Publish reads the tape's dailies.json, and while a failing check there is not accepted, it leaves dist/ "
         "and the lock as they were.",
