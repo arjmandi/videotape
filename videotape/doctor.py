@@ -78,8 +78,8 @@ def key(model: str) -> Check:
 
 
 def eye(model: str) -> Check:
-    """What the model's eye needs to read a take back. Qwen3-VL-8B, the Wan models' eye, runs on Apple silicon or a
-    CUDA GPU, through videotape's qwen extra."""
+    """What the model's eye needs to read a take back. Qwen3-VL-8B, every model's eye but the stand-in's, runs on Apple
+    silicon or a CUDA GPU, through videotape's qwen extra."""
     if MODELS[model].eye is not QwenEye:
         return Check("VT105", True, f"{model}'s checks need no GPU")
     gpu = ("Apple silicon" if platform.system() == "Darwin" and platform.machine() == "arm64"

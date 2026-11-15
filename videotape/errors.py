@@ -47,7 +47,8 @@ CODES: dict[str, Code] = {
     ),
     "VT104": Code(
         "an API key the project's model needs is not set",
-        "A model that runs as a service needs its API key: wan3.0 runs on fal and needs FAL_KEY. A project command "
+        "A model that runs as a service needs its API key: wan3.0, minimax-h3 and gemini-omni-flash-1.2 run on fal "
+        "and need FAL_KEY. A project command "
         "reads API keys from the environment and from the project's .env, one KEY=VALUE line each, and an API key "
         "already in the environment wins. No command prints an API key's value. The stand-in and wan2.2-5b run here "
         "and need none.",
@@ -57,11 +58,12 @@ CODES: dict[str, Code] = {
     "VT105": Code(
         "the eye the checks need cannot run here",
         "After a render films a take of a key, an eye reads it back to check every line and find every action. The eye "
-        "of the Wan models is Qwen3-VL-8B, which runs through videotape's qwen extra on Apple silicon or a CUDA GPU. "
-        "A project that videotape new writes depends on videotape without the extra, so that it installs fast and "
-        "renders with the stand-in, whose eye reads its own boxes and needs neither. Add the extra before a render "
-        "with a Wan model. On a machine with neither Apple silicon nor a CUDA GPU, doctor says so instead: render "
-        "on one that has either, or with the stand-in, as in videotape render --story starter --model stand-in.",
+        "of every model but the stand-in is Qwen3-VL-8B, which runs through videotape's qwen extra on Apple silicon "
+        "or a CUDA GPU. A project that videotape new writes depends on videotape without the extra, so that it "
+        "installs fast and renders with the stand-in, whose eye reads its own boxes and needs neither. Add the extra "
+        "before a render with any other model. On a machine with neither Apple silicon nor a CUDA GPU, doctor says so "
+        "instead: render on one that has either, or with the stand-in, as in videotape render --story starter "
+        "--model stand-in.",
         "fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here",
         'in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
         'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync',
@@ -238,8 +240,9 @@ CODES: dict[str, Code] = {
         "A warning. A model reads a prompt only up to a limit. Wan 2.2 reads 512 tokens and drops the rest without "
         "saying so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it "
         "would leave out. The plan has no tokenizer, so it counts high: one token for every four letters of a word, "
-        "one for every other character that is not a space, and one for the end. Wan 3.0 on fal allows 20,000 "
-        "characters. The stand-in has no limit. The plan goes on.",
+        "one for every other character that is not a space, and one for the end. On fal, wan3.0 and "
+        "gemini-omni-flash-1.2 allow 20,000 characters, and minimax-h3 7,000. The stand-in has no limit. The plan "
+        "goes on.",
         'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
         "Shorten the look, the scene's direction or the appearances in the story, or show fewer lines in the state.",
     ),

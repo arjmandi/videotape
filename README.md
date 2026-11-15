@@ -804,6 +804,8 @@ wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s
 
 To render with it, first add videotape's `qwen` extra, which runs the eye. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` there, and set `model = "wan3.0"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for `VT104` and `VT105`. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`.
 
+Two more models run on fal, with the same `FAL_KEY`, the same eye and a cap. Name one with `--model`, or set it as `model` in `pyproject.toml`. minimax-h3 runs MiniMax H3 at 1344x768, for $0.06 a second, so $0.30 a call, and allows prompts of up to 7,000 characters. gemini-omni-flash-1.2 runs Gemini Omni Flash 1.2 at 720p, for $0.0819 a second. fal also bills its prompt, by the token, and no answer says for how much, so the estimate and the cap count the most a prompt can cost, $0.03 a call. fal takes no seed for gemini-omni-flash-1.2, so there the seed only names a take, and a render run again reuses the take of each seed as it does for any model. A tape takes the size of its model's clips, and TapePlayer's window takes the tape's shape.
+
 ### Publish
 
 `publish` turns a tape into a Mac app that plays it:
@@ -829,7 +831,7 @@ Each word below has one meaning in this guide, and each meaning has one word.
 
 - **accept**. To mark a failing check of a shot's kept take as fine, with a reason. The accept holds while the shot keeps that take. `videotape accept`.
 - **action**. What pressing an element does. It leads to the state that the element's `to=` names, and a render films it as a move.
-- **API key**. A secret that a model run as a service needs, such as `FAL_KEY` for wan3.0. It comes from the environment or the project's `.env`.
+- **API key**. A secret that a model run as a service needs, such as `FAL_KEY` for wan3.0, minimax-h3 and gemini-omni-flash-1.2, which run on fal. It comes from the environment or the project's `.env`.
 - **appearance**. A story's words for how one type of element looks, under `[elements]`.
 - **cap**. The most a render may spend on a model that bills per call. `cap_usd` in `[tool.videotape]` sets it, and `--cap-usd` sets it for one render.
 - **check**. One test that a take must pass: each action's words are found on the key (`VT501`), each line reads back exactly (`VT502`), the key shows no control the state lacks (`VT503`), and a move starts and ends on its keys (`VT508`).
@@ -840,7 +842,7 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **element**. One thing that a state shows: `Heading`, `Text`, `Button`, `SearchBar`, `DatePicker`, `DateStrip`, `List`, `BarChart`, `LineChart`, or `Tabs`. An `Option` is a part of a search bar or a date picker, and a `Row` is a part of a list.
 - **error code**. `VT` and three digits, which name one kind of error. `videotape explain <code>` prints its long form.
 - **estimate**. The last line of `videotape plan`: the shots, the calls a render makes if every first take passes and if none passes before the last, and their price.
-- **eye**. What reads a take back for its checks: Qwen3-VL-8B for the Wan models, and the stand-in's own reader for the stand-in.
+- **eye**. What reads a take back for its checks: Qwen3-VL-8B for every model but the stand-in, and the stand-in's own reader for the stand-in.
 - **hotspot**. Where a person presses an action on a key: the box in which the eye found the action's words.
 - **key**. The shot of one state at rest, filmed from its own prompt. The last frame of its kept take is the state's picture in the tape, and the moves to and from the state start and end on that picture.
 - **kept take**. The take a shot keeps: the first that passes every check, or the best when none passes.
@@ -849,7 +851,7 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **lock**. `videotape.lock` in the project, with the label, the made id, and the file hashes of each tape published. A label is published with one made id only.
 - **look**. The sentence or two of a story that every key's prompt starts with.
 - **made id**. One hash of everything that made a tape: the screenplay that `[tool.videotape]` names, the app's Python files and data, the story, the model and its settings, and videotape itself. Two tapes with one made id were made from the same things.
-- **model**. The video model that films takes: `stand-in`, `wan3.0`, or `wan2.2-5b`.
+- **model**. The video model that films takes: `stand-in`, `wan3.0`, `minimax-h3`, `gemini-omni-flash-1.2`, or `wan2.2-5b`.
 - **move**. The shot of one action: the press, from the key of the state it leaves to the key of the state it lands on. A story's `[moves]` says what the camera does in it.
 - **plan**. Every state the app can reach, walked from the first scene, with the keys and moves to film. `videotape plan`.
 - **project**. The folder whose `pyproject.toml` has a `[tool.videotape]` section that names the screenplay.
@@ -860,7 +862,7 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **retake**. To film new takes of one shot, with seeds after the highest it has tried, and keep the best of all its takes. `videotape retake`.
 - **scene**. A function, marked with `@app.scene`, that returns the elements of one screen. Calling it names a state.
 - **screenplay**. The app written as scenes: a `vt.Screenplay` and its scenes. It holds every word on the screen and nothing of how the screen looks.
-- **seed**. The number a take is filmed with: 1, 2, 3, and on. A render run again reuses the take of each seed whose prompt has not changed.
+- **seed**. The number a take is filmed with: 1, 2, 3, and on. A render run again reuses the take of each seed whose prompt has not changed. fal is not given the seed of a take of gemini-omni-flash-1.2, so there the seed only names the take.
 - **shot**. What a render films for the plan: a key or a move.
 - **stand-in**. A model that films each key as a box for each line of the state's words, and reads the boxes back as its eye. It needs no API key and no GPU, and costs nothing.
 - **state**. A scene with the arguments of one call, as in `flight(CT 104, 2026-12-13)`.
