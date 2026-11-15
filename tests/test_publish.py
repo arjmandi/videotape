@@ -136,6 +136,33 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
     assert signed(app)
 
 
+
+class Wider(StandIn):
+    """Pads every key take to 1344x768 in the stand-in's background, the size minimax-h3 draws at, so the moves the
+    stand-in fades between two keys are 1344x768 too."""
+
+    def text_to_video(self, prompt, seed, out):
+        drawn = out.with_name(f"drawn-{out.name}")
+        super().text_to_video(prompt, seed, drawn)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(drawn), "-vf", "pad=1344:768:32:32:color=0x2f6f7e",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "24", "-f", "mp4", "-y", str(out)], check=True)
+        drawn.unlink()
+
+
+def test_a_1344x768_tape_is_published_at_its_own_size(contrail, cli, capsys, monkeypatch):
+    monkeypatch.setitem(MODELS, "stand-in", dataclasses.replace(
+        MODELS["stand-in"], model=lambda: Wider(flaw=lambda mode, prompt, seed: Flaw.NONE)))
+    shutil.rmtree(contrail / "tapes" / "starter")
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    assert manifest(contrail)["size"] == {"width": 1344, "height": 768}
+    capsys.readouterr()
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    assert capsys.readouterr().out.splitlines()[2].startswith("encoded 3 clips as HEVC; on each one's last frame")
+    inside = contrail / "dist" / "Contrail-starter.app" / "Contents" / "Resources" / "tape"
+    clips = [manifest(contrail)["opening"]["clip"], *(move["clip"] for move in manifest(contrail)["moves"].values())]
+    assert {(probe(inside / clip)[0], frames.shape(inside / clip)) for clip in clips} == {("hevc", frames.Shape(1344, 768, 24))}
+    assert json.loads((inside / "tape.json").read_text())["size"] == {"width": 1344, "height": 768}
+
 def shipped(folder: Path) -> tuple[list[str], str | None, str | None, str | None]:
     """What a publish leaves: the names in dist/, the made id of the tape in the app and in the zip, and the lock."""
     dist, lock = folder / "dist", folder / "videotape.lock"

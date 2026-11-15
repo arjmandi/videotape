@@ -261,3 +261,4 @@ def test_a_1344x768_tape_keeps_its_size_through_its_keys_its_seams_and_its_daili
     assert all(isinstance(take["start"], float) and isinstance(take["end"], float)
                for move in record["moves"] for take in move["takes"])
     assert record["failures"] and all((out / failure["crop"]).is_file() for failure in record["failures"])
+    assert "aspect-ratio: auto 1344 / 768" in (out / "dailies.html").read_text()

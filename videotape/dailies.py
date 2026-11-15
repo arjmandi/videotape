@@ -75,7 +75,7 @@ summary { cursor: pointer; }
 .takes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; }
 .take { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .take.kept { border: 2px solid var(--kept); padding: 9px; }
-video, img { display: block; width: 100%; height: auto; aspect-ratio: auto 1280 / 704; border-radius: 6px; background: #000; }
+video, img { display: block; width: 100%; height: auto; border-radius: 6px; background: #000; }
 figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .checks { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .checks li { display: grid; grid-template-columns: 1.2em 1fr; column-gap: 4px; padding: 2px 0;
@@ -153,16 +153,20 @@ def read(tape: Path) -> dict:
 
 def write(tape: Path, record: dict, totals: dict) -> None:
     """Write the record and its page into the tape, with the ledger's totals for this tape, the size of what plays,
-    and a crop for each failure. The crops of failures the record no longer holds are deleted."""
+    the size of its frames, and a crop for each failure. The crops of failures the record no longer holds are
+    deleted."""
     played = ["tape.json", "moves/opening.mp4", *(key["key"] for key in record["keys"]),
               *(move["move"] for move in record["moves"])]
     size = sum((tape / path).stat().st_size for path in played if (tape / path).is_file())
+    pictures = [tape / key["key"] for key in record["keys"] if (tape / key["key"]).is_file()]
+    shape = frames.shape(pictures[0]) if pictures else None
     failures = [{**failure, "crop": _crop(tape, number, failure)} for number, failure in enumerate(record["failures"], 1)]
     crops = {failure["crop"] for failure in failures}
     for png in (tape / "dailies").glob("*.png"):
         if png.relative_to(tape).as_posix() not in crops:
             png.unlink()
-    record = {**record, "failures": failures, "ledger": totals, "tape": {"bytes": size}}
+    record = {**record, "failures": failures, "ledger": totals, "tape": {"bytes": size},
+              "frame": {"width": shape.width, "height": shape.height} if shape else None}
     write_atomically(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
     write_atomically(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
 
@@ -282,6 +286,11 @@ def _cut(frame: Frame, box: Box) -> Frame:
     return Frame(x1 - x0, y1 - y0, b"".join(rows))
 
 
+def _frame(frame: dict | None) -> str:
+    """Room for each picture and clip at the tape's own shape before it loads, which then keeps its own."""
+    return f"video, img {{ aspect-ratio: auto {frame['width']} / {frame['height']}; }}\n" if frame else ""
+
+
 def page(record: dict) -> str:
     shots = [*record["keys"], *record["moves"]]
     rendered = sum(any(not take["cached"] for take in shot["takes"]) for shot in shots)
@@ -302,7 +311,7 @@ def page(record: dict) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} dailies</title>
-<style>{STYLE}</style>
+<style>{STYLE}{_frame(record["frame"])}</style>
 </head>
 <body>
 <header>
