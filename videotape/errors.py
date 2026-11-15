@@ -211,10 +211,10 @@ CODES: dict[str, Code] = {
     "VT305": Code(
         "the tape's label is published already, as another tape",
         "A tape's label names the app and the story, each by its version, as in contrail 0.1.0 + starter 1.0.0, and "
-        "its made id hashes everything that made it. Publish writes the label and made id of each app it ships to "
-        "videotape.lock, at the project's root, which the project commits. This tape's label is in the lock with "
-        "another made id: the code, the data, the story, the model or videotape changed, and neither version did, so two "
-        "different apps would ship under one name. Publish ships nothing.",
+        "its made id hashes everything that made it. For each tape it publishes, publish writes the label and made id "
+        "into videotape.lock, at the project's root, which the project commits. This tape's label is in the lock "
+        "with another made id: the code, the data, the story, the model or videotape changed, and neither version "
+        "did, so one label would name two different apps. Publish leaves dist/ and the lock as they were.",
         "error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published with made id 3f9a0c1d2e4b, and "
         "this tape under the same label has made id 7b2e9d4c1a0f: the data changed",
         "fix: give the tape a label of its own: bump version in pyproject.toml, or in stories/starter.toml for a "
@@ -340,9 +340,9 @@ CODES: dict[str, Code] = {
         "the tape is out of date",
         "tape.json names everything that made the tape: the app's code and data, the story, the model's settings and "
         "videotape itself, and the made id that hashes them all. Publish works these out again from the project as "
-        "it is now, for the tape's story and model, and compares the two made ids. They differ, so the app "
-        "would ship a tape drawn from sources the project no longer has. The error says what changed. A render that "
-        "stopped before its last shot also leaves its tape out of date. Publish ships nothing.",
+        "it is now, for the tape's story and model, and compares the two made ids. They differ, so the app would play "
+        "a tape filmed from what the project no longer holds. The error says what changed. A render that stopped "
+        "before its last shot also leaves its tape out of date. Publish leaves dist/ and the lock as they were.",
         "error VT601 tapes/starter: the app's code changed since the tape was rendered",
         "fix: render the tape again with the model that made it, then publish it:\n"
         "videotape render --story starter --model stand-in",
@@ -351,7 +351,8 @@ CODES: dict[str, Code] = {
         "the tape has failing checks nobody accepted",
         "Every key and move of a tape is checked when it renders. A check its kept take fails stays failing until a "
         "retake passes it or a person accepts it with a reason, and an accept holds only for the take it was given "
-        "on. Publish reads the tape's dailies.json and ships nothing while a failure there is not accepted.",
+        "on. Publish reads the tape's dailies.json, and while a failing check there is not accepted, it leaves dist/ "
+        "and the lock as they were.",
         "error VT602 tapes/starter: 1 check fails that nobody accepted: key todo() VT503",
         "fix: look at it with videotape dailies --story starter, then retake the shot or accept the failure with a "
         "reason; for the first:\nvideotape retake \"todo()\" --story starter\n"
@@ -374,7 +375,7 @@ CODES: dict[str, Code] = {
         " A clip's last frame is where the player rests until the next press, so publish reads each encoded "
         "clip's last frame, runs the tape's eye on it against the state the clip lands on, and compares it with that "
         "state's key image. A check that passed on the key and fails on this frame means the encoding lost what the "
-        "check needs. Publish ships nothing.",
+        "check needs. Publish leaves dist/ and the lock as they were.",
         "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where the player rests on todo(), fails 2 "
         "checks its key passed, the first VT501 Back: not found",
         "fix: retake the shot, whose next take may come through the encoding, then publish again:\n"
