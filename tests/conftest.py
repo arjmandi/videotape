@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -8,6 +9,7 @@ import pytest
 
 from videotape import project, story
 from videotape.cli import main
+from videotape.errors import CODES
 from videotape.plan import Plan, Shot, plan
 from videotape.story import Story
 
@@ -61,6 +63,25 @@ def videotape(directory: Path, *arguments: str) -> subprocess.CompletedProcess[s
     return subprocess.run([str(VIDEOTAPE), *arguments], cwd=directory, capture_output=True, text=True,
                           env={"PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "PYTHONDONTWRITEBYTECODE": "1",
                                "BROWSER": "true"})
+
+
+VARIES = re.compile(r"(?P<shot>(?<=^error VT\d{3} ).+?(?= take \d|: ))|(?P<ffmpeg>(?<=decode to one frame: ).+$)"
+                    r"|(?P<story>(?<=--story )\S+)|(?P<path>\S*/\S*)|(?P<number>(?<![\w.])\d+(?:\.\d+)?)", re.MULTILINE)
+WILDCARDS = {"shot": r"(?:(?! take \d).)+", "ffmpeg": r".+", "story": r"\S+", "path": r"\S+",
+             "number": r"\d+(?:\.\d+)?"}
+
+
+def as_explained(code: str) -> re.Pattern[str]:
+    """The lines a render prints for a code, as videotape explain shows them in its example and its next step, with
+    what differs from run to run left open: the shot, a path and the hash in it, a number, the story a command names,
+    and what ffmpeg said."""
+    entry = CODES[code]
+    example = f"{entry.example}\n{entry.fix}"
+    pattern, at = "", 0
+    for part in VARIES.finditer(example):
+        pattern += re.escape(example[at:part.start()]) + WILDCARDS[part.lastgroup or ""]
+        at = part.end()
+    return re.compile(f"^{pattern}{re.escape(example[at:])}$", re.MULTILINE)
 
 
 @pytest.fixture

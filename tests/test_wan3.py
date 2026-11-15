@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES, copy_of, planned, told, words
+from conftest import FIXTURES, as_explained, copy_of, planned, told, words
 from videotape import dailies, ledger, project, wan3
 from videotape.errors import RenderError
 from videotape.fal import Fal, FalError, Receipt
@@ -292,6 +292,7 @@ def test_a_corrupt_take_whose_record_is_gone_is_vt403_and_never_submitted_again(
     assert cli(directory, *render_args(takes=2)) == 1
     err = capsys.readouterr().err
     assert re.search(rf"error VT403 {re.escape(shot)} take 1: tape-wan3/takes/[0-9a-f]{{64}}\.mp4 did not decode to one frame: ", err)
+    assert as_explained("VT403").search(err)
     assert "next: nothing; seed 1 is skipped from now on" in err
     assert dailies.read(directory / "tape-wan3")["corrupt"] == {shot: [1]}
     assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 22

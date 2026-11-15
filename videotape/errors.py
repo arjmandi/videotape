@@ -200,8 +200,7 @@ CODES: dict[str, Code] = {
         "A paid model with no cap at all does not start.",
         "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
         "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
-        "next: raise the cap and run the render again, which resumes:\n"
-        "videotape render --story terminal --cap-usd 10.00\nor set it for good in [tool.videotape]:\ncap_usd = 10",
+        "next: raise the cap and run the render again, which resumes:\nvideotape render --story terminal --cap-usd 5.00",
     ),
     "VT403": Code(
         "a take's file is corrupt",
@@ -209,15 +208,16 @@ CODES: dict[str, Code] = {
         "beside the take, so the take is downloaded again first. When it is still corrupt, or when the model has "
         "nothing to download again, the seed is recorded in the tape's record as corrupt, reported, skipped, and "
         "never filmed again. The shot goes on with its next seed.",
-        "error VT403 key home() take 1: takes/3f9a....mp4 did not decode to one rgb24 frame",
-        "next: nothing; seed 1 is skipped from now on, and the shot goes on with seed 2",
+        "error VT403 key home() take 1: tapes/terminal/takes/3f9a....mp4 did not decode to one frame: Error opening "
+        "input files: Invalid data found when processing input",
+        "next: nothing; seed 1 is skipped from now on",
     ),
     "VT404": Code(
         "ffmpeg failed",
         "A render decodes frames, writes key images and copies clips with ffmpeg and ffprobe, and one of them "
         "failed or is not on PATH. The error prints the command and what ffmpeg said. This is about the machine, "
         "not the model or the screenplay.",
-        "error VT404 key home() take 1: ffmpeg is not on PATH",
+        "error VT404 key home(): ffmpeg is not on PATH",
         "next: install ffmpeg, as in brew install ffmpeg, and run the render again",
     ),
     "VT501": Code(

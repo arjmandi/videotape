@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import videotape as vt
-from conftest import CONTRAIL, copy_of, planned, told, words
+from conftest import CONTRAIL, as_explained, copy_of, planned, told, words
 from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
 from videotape.errors import RenderError
@@ -736,6 +736,7 @@ def test_a_corrupt_take_is_vt403_its_seed_is_skipped_from_then_on_and_the_shot_g
     assert re.fullmatch(r"error VT403 key menu\(\) take 1: tapes/chalk/takes/[0-9a-f]{64}\.mp4 did not decode to one frame: .+",
                         reported[0])
     assert err.count("error VT403 ") == 11 and err.count("next: nothing; seed 1 is skipped from now on") == 11
+    assert as_explained("VT403").search(err)
     assert [seed for _, _, seed, *_ in lines(out)] == [2] * 11
     record = dailies.read(directory / TAPE)
     assert record["corrupt"] == {title: [1] for title in TITLES}
@@ -841,6 +842,7 @@ def test_a_missing_ffmpeg_is_vt404(tmp_path, cli, capsys, monkeypatch):
     err = capsys.readouterr().err.splitlines()
     assert err[0].startswith("error VT404 key ") and err[0].endswith(": ffmpeg is not on PATH")
     assert err[1] == "next: install ffmpeg, as in brew install ffmpeg, and run the render again"
+    assert as_explained("VT404").fullmatch("\n".join(err))
 
 
 def test_the_stand_ins_extra_box_fails_vt503_on_the_kept_take_when_it_is_the_only_take(tmp_path, cli, capsys, monkeypatch):

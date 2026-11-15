@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import copy_of, videotape
+from conftest import as_explained, copy_of, videotape
 from videotape import dailies, ledger
 from videotape.fal import Price, Receipt
 from videotape.model import MODELS, Listing
@@ -88,6 +88,7 @@ def test_a_render_stops_at_the_cap_resumes_with_a_higher_one_and_pays_for_each_t
     assert stop[0].endswith(" reserved for the calls in flight, at the listed price of $0.50 a call")
     assert err.splitlines()[-2:] == ["next: raise the cap and run the render again, which resumes:",
                                      "videotape render --story chalk --cap-usd 3.00"]
+    assert as_explained("VT402").search(err)
     book = ledger.of(directory, directory / "tapes" / "chalk")
     stopped_lines = book.lines()
     assert len(stopped_lines) == model.submitted == len(model.calls) <= 6
