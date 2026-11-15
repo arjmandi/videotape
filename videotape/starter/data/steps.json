@@ -1,0 +1,17 @@
+[
+  {
+    "number": 1,
+    "title": "Write your scenes",
+    "where": "in screenplay.py"
+  },
+  {
+    "number": 2,
+    "title": "Add your data",
+    "where": "in the data folder"
+  },
+  {
+    "number": 3,
+    "title": "Tell your story",
+    "where": "in the stories folder"
+  }
+]

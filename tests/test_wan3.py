@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import io
 import json
 import re
@@ -10,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES, copy_of, planned, told, words
+from conftest import FIXTURES, as_explained, copy_of, planned, told, words
 from videotape import dailies, ledger, project, wan3
 from videotape.errors import RenderError
 from videotape.fal import Fal, FalError, Receipt
@@ -93,7 +94,7 @@ def test_a_recorded_response_reads_into_a_video_and_a_receipt_without_the_networ
 
 def test_a_response_without_a_video_is_an_error():
     response = recorded("text-to-video")
-    with pytest.raises(FalError, match="request 01a1c5fb-027e-7b70-857e-d4305eafbbdb answered without a video"):
+    with pytest.raises(FalError, match="request 01a1c5fb-027e-7b70-857e-d4305eafbbdb answered without video.url"):
         wan3.bill({**response, "result": {"detail": "the safety checker flagged the output"}})
 
 
@@ -169,7 +170,8 @@ def hosted_by(queue: type[Hosted], tmp_path: Path, monkeypatch) -> tuple[Path, H
     (tmp_path / "clips").mkdir()
     fal = queue(tmp_path / "clips")
     monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)),
-                                                  lambda tape: StandInEye(), price=wan3.PRICE, limit=2))
+                                                  lambda tape: StandInEye(), price=wan3.PRICE, limit=2,
+                                                  kind=wan3.Wan3))
     return directory, fal
 
 
@@ -292,6 +294,7 @@ def test_a_corrupt_take_whose_record_is_gone_is_vt403_and_never_submitted_again(
     assert cli(directory, *render_args(takes=2)) == 1
     err = capsys.readouterr().err
     assert re.search(rf"error VT403 {re.escape(shot)} take 1: tape-wan3/takes/[0-9a-f]{{64}}\.mp4 did not decode to one frame: ", err)
+    assert as_explained("VT403").search(err)
     assert "next: nothing; seed 1 is skipped from now on" in err
     assert dailies.read(directory / "tape-wan3")["corrupt"] == {shot: [1]}
     assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 22
@@ -482,9 +485,23 @@ def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, cli, capsys, m
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
-    assert capsys.readouterr() == ("", "error: wan3.0 needs FAL_KEY in the environment\n")
+    assert capsys.readouterr() == ("", "error: wan3.0 needs FAL_KEY in the environment or the project's .env\n")
     assert sent == []
     assert sorted(path.name for path in directory.iterdir()) == ["cafe.py", "data", "pyproject.toml", "stories"]
+
+
+def test_a_key_in_the_projects_env_file_goes_only_into_the_submits_authorization_header(tmp_path, cli, capsys,
+                                                                                       monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    (directory / ".env").write_text(f'# from fal.ai/dashboard/keys\nFAL_KEY="{KEY}"\n')
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], eye=lambda tape: StandInEye()))
+    sent = []
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda request, timeout: sent.append(request) or Answer(b'{"detail": "no request today"}'))
+    assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--cap-usd", "1", "--out", "tape-wan3") == 1
+    assert sent and {request.get_header("Authorization") for request in sent} == {f"Key {KEY}"}
+    assert KEY not in "".join(capsys.readouterr())
 
 
 def test_a_key_a_header_cannot_carry_is_refused_without_printing_it(tmp_path, cli, capsys, monkeypatch):

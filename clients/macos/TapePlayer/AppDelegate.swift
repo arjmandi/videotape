@@ -7,16 +7,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     /// The newest tape's window. It stays hidden until its first frame is ready.
     private var window: NSWindow?
 
+    /// The app's name as its bundle gives it: TapePlayer, or a published app's, such as `Contrail (Starter)`.
+    private let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
+        ?? ProcessInfo.processInfo.processName
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = mainMenu()
         NSApp.activate()
-        guard let path = Tape.path(inArguments: CommandLine.arguments.dropFirst()) else {
-            openDocument(nil)
-            return
-        }
+        let app = Bundle.main.bundleURL
         let cwd = URL(filePath: FileManager.default.currentDirectoryPath, directoryHint: .isDirectory)
         do {
-            try play(Tape.locate(path, cwd: cwd, app: Bundle.main.bundleURL))
+            if let path = Tape.path(inArguments: CommandLine.arguments.dropFirst()) {
+                try play(Tape.locate(path, cwd: cwd, app: app))
+            } else if let carried = Tape.carried(by: app) {
+                try play(carried)
+            } else {
+                openDocument(nil)
+            }
         } catch {
             show(error)
         }
@@ -94,10 +101,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func mainMenu() -> NSMenu {
         let app = NSMenu()
-        app.addItem(withTitle: "About TapePlayer", action: #selector(about(_:)), keyEquivalent: "")
+        app.addItem(withTitle: "About \(name)", action: #selector(about(_:)), keyEquivalent: "")
         app.addItem(.separator())
-        app.addItem(withTitle: "Hide TapePlayer", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        app.addItem(withTitle: "Quit TapePlayer", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        app.addItem(withTitle: "Hide \(name)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        app.addItem(withTitle: "Quit \(name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
 
         let file = NSMenu(title: "File")
         file.addItem(withTitle: "Open…", action: #selector(openDocument(_:)), keyEquivalent: "o")

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import copy_of, videotape
+from conftest import as_explained, copy_of, videotape
 from videotape import dailies, ledger
 from videotape.fal import Price, Receipt
 from videotape.model import MODELS, Listing
@@ -54,7 +54,7 @@ class Metered(StandIn):
 
 def metered(monkeypatch, **flaw) -> Metered:
     model = Metered(**flaw)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, lambda tape: StandInEye(), price=PRICE, limit=2))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, lambda tape: StandInEye(), price=PRICE, limit=2, kind=model))
     return model
 
 
@@ -86,8 +86,9 @@ def test_a_render_stops_at_the_cap_resumes_with_a_higher_one_and_pays_for_each_t
     stop = [line for line in err.splitlines() if line.startswith("error VT402 ")]
     assert len(stop) == 1 and " take " in stop[0] and ": the next call would pass the cap of $3.00, with $" in stop[0]
     assert stop[0].endswith(" reserved for the calls in flight, at the listed price of $0.50 a call")
-    assert err.splitlines()[-2:] == ["next: raise the cap and run the render again, which resumes:",
-                                     "videotape render --story chalk --cap-usd 3.00"]
+    assert err.splitlines()[-2:] == ["next: run the render again with a higher cap, which resumes, as in:",
+                                     "videotape render --story chalk --cap-usd 6.00"]
+    assert as_explained("VT402").search(err)
     book = ledger.of(directory, directory / "tapes" / "chalk")
     stopped_lines = book.lines()
     assert len(stopped_lines) == model.submitted == len(model.calls) <= 6
@@ -152,4 +153,5 @@ def test_a_cap_that_is_not_dollars_is_refused(tmp_path, cap, shown):
     pyproject.write_text(pyproject.read_text() + f"cap_usd = {cap}\n")
     result = videotape(directory, *RENDER)
     assert (result.stdout, result.returncode) == ("", 1)
-    assert result.stderr == f"error: pyproject.toml: [tool.videotape] cap_usd is {shown}, not a number of dollars\n"
+    assert result.stderr == (f"error VT107 pyproject.toml: [tool.videotape] cap_usd is {shown}, not a number of "
+                             "dollars\nfix: set it to the most a render may spend, in dollars, as in cap_usd = 20\n")

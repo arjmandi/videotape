@@ -14,7 +14,7 @@ from videotape import errors, frames
 from videotape.checks import Checks, Failure
 from videotape.frames import Box, Frame
 from videotape.plan import Key, Move, Shot
-from videotape.publish import publish
+from videotape.atomic import write_atomically
 from videotape.story import FromStory, Story, line_of, text
 
 if TYPE_CHECKING:
@@ -99,6 +99,7 @@ figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; marg
 .failure .about { margin: 0 0 4px; }
 .failure .evidence { color: var(--fail); font-size: 13px; margin: 0 0 8px; overflow-wrap: anywhere; }
 .failure .reason { color: var(--pass); font-size: 13px; margin: 0 0 8px; }
+.failure .again { color: var(--kept); font-size: 13px; margin: 0 0 8px; }
 .next { margin: 0; padding-left: 20px; font-size: 13px; }
 .next li { margin: 2px 0; overflow-wrap: anywhere; }
 code { background: var(--kept-soft); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
@@ -152,20 +153,32 @@ def read(tape: Path) -> dict:
 
 def write(tape: Path, record: dict, totals: dict) -> None:
     """Write the record and its page into the tape, with the ledger's totals for this tape, the size of what plays,
-    and a crop for each failure."""
+    and a crop for each failure. The crops of failures the record no longer holds are deleted."""
     played = ["tape.json", "moves/opening.mp4", *(key["key"] for key in record["keys"]),
               *(move["move"] for move in record["moves"])]
     size = sum((tape / path).stat().st_size for path in played if (tape / path).is_file())
     failures = [{**failure, "crop": _crop(tape, number, failure)} for number, failure in enumerate(record["failures"], 1)]
+    crops = {failure["crop"] for failure in failures}
+    for png in (tape / "dailies").glob("*.png"):
+        if png.relative_to(tape).as_posix() not in crops:
+            png.unlink()
     record = {**record, "failures": failures, "ledger": totals, "tape": {"bytes": size}}
-    publish(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
-    publish(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
+    write_atomically(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
+    write_atomically(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
 
 
-def accepted(record: dict, shot: str, code: str) -> dict | None:
-    """The accept that covers a failure of this code on this shot, if a person recorded one."""
-    return next((accept for accept in record.get("accepted", []) if (accept["shot"], accept["code"]) == (shot, code)),
-                None)
+def verdict(accepts: list[dict], shot: str, code: str, clip: str) -> dict:
+    """What a person said of a failure of this code on this take of the shot. An accept holds for the take it was
+    given on, by its clip, since a take filmed again from a changed prompt or key image keeps its seed and gets new
+    pixels. One given on another take, or before an accept named its take, is shown as accepted_before, and the
+    failure fails again until a person looks at the new take."""
+    accept = next((accept for accept in accepts if (accept["shot"], accept["code"]) == (shot, code)), None)
+    if accept is None:
+        return {"accepted": None, "accepted_before": None}
+    said = {"reason": accept["reason"], "at": accept["at"]}
+    if accept.get("clip") == clip:
+        return {"accepted": said, "accepted_before": None}
+    return {"accepted": None, "accepted_before": {**said, "seed": accept.get("seed")}}
 
 
 def _shot_record(filmed: Filmed, tape: Path) -> dict:
@@ -193,7 +206,6 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
     name, where = named(shot), f" --out {out}" if out else ""
     box = failure.box or _found_elsewhere(failure, filmed)
     frame = "first" if failure.code == "VT508" and failure.about == "start" else "last"
-    accept = next((a for a in carry.accepted if (a["shot"], a["code"]) == (shot.title, failure.code)), None)
     return {
         **asdict(failure),
         "take": kept.seed,
@@ -206,7 +218,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
             "screenplay": _screenplay_line(shot),
             "accept": f'videotape accept "{name}" {failure.code} --story {story.name}{where} --reason "..."',
         },
-        "accepted": {"reason": accept["reason"], "at": accept["at"]} if accept else None,
+        **verdict(carry.accepted, shot.title, failure.code, kept.path.relative_to(tape).as_posix()),
     }
 
 
@@ -259,7 +271,7 @@ def _crop(tape: Path, number: int, failure: dict) -> str:
     if box := failure.get("crop_box"):
         frame = _cut(frame, Box(**box))
     out = folder / f"{number}.png"
-    publish(out, lambda partial: frames.write_png(frame, partial))
+    write_atomically(out, lambda partial: frames.write_png(frame, partial))
     return out.relative_to(tape).as_posix()
 
 
@@ -345,6 +357,14 @@ def _failure_card(failure: dict) -> str:
     steps = failure["next"]
     badge = ' <span class="badge accepted">accepted</span>' if accepted else ""
     reason = f'<p class="reason">Accepted: {escape(accepted["reason"])}</p>' if accepted else ""
+    if before := failure.get("accepted_before"):
+        if before["seed"] is None:
+            on, now = "an earlier render", f'this is take {failure["take"]}'
+        elif before["seed"] == failure["take"]:
+            on, now = f'take {before["seed"]}', "the take was filmed again"
+        else:
+            on, now = f'take {before["seed"]}', f'this is take {failure["take"]}'
+        reason = f'<p class="again">Accepted on {on}: {escape(before["reason"])}; {now}, so look again</p>'
     return f"""<div class="failure{" accepted" if accepted else ""}">
 <img src="{escape(failure["crop"])}" alt="Where {escape(failure["about"])} should be on {escape(failure["shot"])}" loading="lazy">
 <div>

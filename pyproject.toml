@@ -44,6 +44,24 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["videotape"]
 
+# TapePlayer's source, which play and publish build: what a Release build reads, and none of its tests or build output.
+# player.LEFT_OUT says the same of clients/macos, and tests/test_package.py holds the two together.
+[tool.hatch.build.targets.wheel.force-include]
+"clients/macos/build.sh" = "videotape/macos/build.sh"
+"clients/macos/TapeKit/Package.swift" = "videotape/macos/TapeKit/Package.swift"
+"clients/macos/TapeKit/Sources" = "videotape/macos/TapeKit/Sources"
+"clients/macos/TapePlayer" = "videotape/macos/TapePlayer"
+"clients/macos/TapePlayer.xcodeproj/project.pbxproj" = "videotape/macos/TapePlayer.xcodeproj/project.pbxproj"
+"clients/macos/TapePlayer.xcodeproj/xcshareddata/xcschemes" = "videotape/macos/TapePlayer.xcodeproj/xcshareddata/xcschemes"
+
+# A project that depends on this checkout by path gets a new build of videotape whenever its code or TapePlayer's
+# source changes, not only its pyproject.toml.
+[tool.uv]
+cache-keys = [{ file = "pyproject.toml" }, { file = "videotape/**/*.py" }, { file = "videotape/starter/**/*" }, { file = "clients/macos/build.sh" },
+              { file = "clients/macos/TapeKit/Sources/**/*" }, { file = "clients/macos/TapePlayer/**/*" },
+              { file = "clients/macos/TapePlayer.xcodeproj/project.pbxproj" }]
+
 [tool.pytest.ini_options]
-markers = ["qwen: runs the real Qwen3-VL-8B model; needs the qwen extra, the weights, and a CUDA or MPS GPU"]
-addopts = "-m 'not qwen'"
+markers = ["qwen: runs the real Qwen3-VL-8B model; needs the qwen extra, the weights, and a CUDA or MPS GPU",
+           "player: launches TapePlayer on the screen and quits it; needs Xcode, and takes over the screen"]
+addopts = "-m 'not qwen and not player'"

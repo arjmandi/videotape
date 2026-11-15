@@ -1,0 +1,12 @@
+[project]
+name = "{{name}}"
+version = "0.1.0"
+description = "An app written as a Videotape screenplay."
+requires-python = ">=3.12"
+dependencies = ["{{dependency}}"]
+
+[tool.videotape]
+screenplay = "{{name}}.screenplay:app"
+model = "wan3.0"
+takes = 4
+cap_usd = 200

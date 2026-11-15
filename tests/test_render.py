@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 import videotape as vt
-from conftest import CONTRAIL, copy_of, planned, told, words
+from conftest import CONTRAIL, as_explained, copy_of, planned, told, words
 from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
 from videotape.errors import RenderError
@@ -59,7 +59,7 @@ def clean(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 
 def stand_in(model: StandIn, **listing) -> Listing:
-    return Listing(lambda: model, lambda tape: StandInEye(), **listing)
+    return Listing(lambda: model, lambda tape: StandInEye(), kind=model, **listing)
 
 
 class Witness(StandIn):
@@ -516,7 +516,8 @@ def test_model_flag_renders_with_another_model_than_the_projects(tmp_path, cli, 
 
 @pytest.mark.parametrize("setting, error", [
     ("", "error: no model to render with; pass --model, or set model in [tool.videotape]\n"),
-    ('model = "sora"\n', 'error: [tool.videotape] sets model = "sora", and the models are stand-in, wan2.2-5b, wan3.0\n'),
+    ('model = "sora"\n', 'error VT107 pyproject.toml: [tool.videotape] model is "sora", and videotape has no such '
+     "model\nfix: set model to one of stand-in, wan2.2-5b, wan3.0\n"),
 ])
 def test_a_project_without_a_model_it_can_render_with_says_so(tmp_path, cli, capsys, setting, error):
     directory = copy_of("cafe", tmp_path)
@@ -736,6 +737,7 @@ def test_a_corrupt_take_is_vt403_its_seed_is_skipped_from_then_on_and_the_shot_g
     assert re.fullmatch(r"error VT403 key menu\(\) take 1: tapes/chalk/takes/[0-9a-f]{64}\.mp4 did not decode to one frame: .+",
                         reported[0])
     assert err.count("error VT403 ") == 11 and err.count("next: nothing; seed 1 is skipped from now on") == 11
+    assert as_explained("VT403").search(err)
     assert [seed for _, _, seed, *_ in lines(out)] == [2] * 11
     record = dailies.read(directory / TAPE)
     assert record["corrupt"] == {title: [1] for title in TITLES}
@@ -841,6 +843,7 @@ def test_a_missing_ffmpeg_is_vt404(tmp_path, cli, capsys, monkeypatch):
     err = capsys.readouterr().err.splitlines()
     assert err[0].startswith("error VT404 key ") and err[0].endswith(": ffmpeg is not on PATH")
     assert err[1] == "next: install ffmpeg, as in brew install ffmpeg, and run the render again"
+    assert as_explained("VT404").fullmatch("\n".join(err))
 
 
 def test_the_stand_ins_extra_box_fails_vt503_on_the_kept_take_when_it_is_the_only_take(tmp_path, cli, capsys, monkeypatch):
@@ -865,6 +868,23 @@ def test_the_stand_ins_extra_box_fails_vt503_on_the_kept_take_when_it_is_the_onl
     crop = frames.read_png(directory / TAPE / "dailies/1.png")
     assert (crop.width, crop.height) == (315 + 48, 33 + 48)
     assert data_ok(directory / TAPE)
+
+
+def test_the_dailies_folder_holds_only_the_crops_of_the_failures_the_record_names(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    folder = directory / TAPE / "dailies"
+    latte_always_misspelt = lambda mode, prompt, seed: (
+        Flaw.MISSPELL if THANKS_LATTE in prompt else Flaw.WRONG_START if DONE in prompt and seed == 1 else Flaw.NONE)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=latte_always_misspelt)))
+    crops = lambda: sorted(failure["crop"] for failure in dailies.read(directory / TAPE)["failures"])
+    files = lambda: sorted(path.relative_to(directory / TAPE).as_posix() for path in folder.iterdir())
+    assert cli(directory, *RENDER, "--takes", "1") == 1
+    assert files() == crops() == ["dailies/1.png", "dailies/2.png", "dailies/3.png", "dailies/4.png"]
+    assert cli(directory, *RENDER, "--takes", "2") == 1
+    assert files() == crops() == ["dailies/1.png"]
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
+    assert cli(directory, "retake", "thanks(Latte)", "--story", "chalk") == 0
+    assert files() == crops() == []
 
 
 def data_ok(tape: Path) -> bool:

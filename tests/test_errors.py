@@ -30,10 +30,10 @@ ERRORS = {
     "VT206": ("data/drinks.json:3", 'record 2 field "price" is "six", not a whole number', "write a whole number"),
     "VT207": ("app.py:15", 'Drink has no field "cost", in state home()', "name one of its fields: name, price"),
     "VT208": ("app.py:15", "get(name='Mocha') matched no Drink from data/drinks.json, in state home()",
-              "ask for a row the data holds, or count the matches with where(...).count()"),
-    "VT209": ("home()", 'two actions have the label "Open"', "give each action its own label"),
+              "ask for a record the data holds, or count the matches with where(...).count()"),
+    "VT209": ("home()", 'two actions have the spoken name "Open"', "give each action words of its own"),
     "VT210": ("count(5)", "the plan reached more than 5 states",
-              "take a scene's arguments from the data, which ends, or raise max_states in [tool.videotape]"),
+              "let a scene's arguments come from the data, which ends, or raise max_states in [tool.videotape]"),
     "VT301": ("stories/neon.toml", "the story has no look",
               'write look = "...", the look of the whole app in a sentence or two, above the first [heading]'),
     "VT302": ("stories/neon.toml:6", "the story directs the scene detial, and the screenplay has no scene of that name",
@@ -44,7 +44,7 @@ ERRORS = {
     "VT306": ("stories/neon.toml:2", "the story is not TOML: Invalid value",
               'write each line as name = "words", under [scenes], [elements] or [moves], or above all three'),
     "VT308": ("stories/neon.toml:5", "home under [scenes] quotes '\u201cOpen\u201d.'",
-              "take the quotes out; the screenplay owns every word on screen, so describe their look"),
+              "remove the quotes; the screenplay owns every word on screen, so describe how they look"),
     "VT309": ("stories", 'no story "neon"', "name one of the stories there, glow"),
 }
 WARNINGS = {
@@ -53,7 +53,7 @@ WARNINGS = {
                "shorten it to 12 words or fewer")],
     "VT304": [("stories/neon.toml", "the scene detail has no direction, so its keys get only the look",
                'add detail = "..." under [scenes]')],
-    "VT307": [("key home()", "the prompt is about 778 tokens long, and wan2.2-5b takes no more than 512",
+    "VT307": [("key home()", "the prompt is about 778 tokens long, and wan2.2-5b allows no more than 512",
                "shorten the look, the scene's direction or the appearances in stories/neon.toml, or show fewer lines "
                "in this state")],
 }
@@ -69,9 +69,10 @@ def in_its_story(code: str) -> tuple[str, ...]:
     return ("--story", "neon") if code >= "VT300" else ()
 
 
-PLANNED = sorted(code for code in CODES if code < "VT400")
-"""The codes a plan can raise, each with a fixture. The render's and the checks' codes need a model and are covered
-by the render tests."""
+PLANNED = sorted(code for code in CODES if "VT200" <= code < "VT400" and code != "VT305")
+"""The codes a plan can raise from a screenplay or a story, each with a fixture. The project's codes and doctor's are
+covered by their own tests, the render's and the checks' codes need a model and are covered by the render tests, and
+VT305, a label published already, is publish's and covered by its tests."""
 
 
 def test_a_fixture_triggers_every_code_the_plan_can_raise():
@@ -147,7 +148,7 @@ def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framewo
         assert title == f"{code}: {entry.title}"
         assert len(long.split()) > 15
         assert example.startswith("Example:\n    ") and len(example.splitlines()) > 1
-        what = "Next" if code >= "VT400" else "Fix"
+        what = "Next" if "VT400" <= code < "VT600" else "Fix"
         assert f"\n\n{what}:\n    " in f"\n\n{fix}" and len(fix.splitlines()) > 1
 
 
@@ -157,23 +158,41 @@ def test_explain_rejects_a_code_that_does_not_exist(tmp_path):
     assert "invalid choice: 'VT999'" in result.stderr
 
 
+MODELS = "stand-in, wan2.2-5b, wan3.0"
+
+
 @pytest.mark.parametrize("pyproject, error", [
-    (None, "error: no pyproject.toml here or in any folder above; run videotape in an app's project\n"),
-    ('[project]\nname = "app"\n',
-     'error: pyproject.toml has no [tool.videotape] table; add one with screenplay = "module:app"\n'),
-    ('[tool.videotape]\nscreenplay = "app"\n',
-     'error: pyproject.toml: [tool.videotape] needs screenplay = "module:app", the module and the name of its '
-     "vt.Screenplay, and has 'app'\n"),
-    ('[tool.videotape]\nscreenplay = "shop:app"\n',
-     'error: [tool.videotape] names the screenplay "shop:app", and the project has no module shop\n'),
-    ('[tool.videotape]\nscreenplay = "app:shop"\n',
-     'error: [tool.videotape] names the screenplay "app:shop", and shop in app is missing\n'),
-    ('[tool.videotape]\nscreenplay = "app:app"\nmax_states = 0\n',
-     "error: pyproject.toml: [tool.videotape] max_states is 0, not a whole number of states\n"),
+    (None, "VT106 pyproject.toml: no pyproject.toml here or in any folder above\n"
+           "fix: run videotape in an app's project, or start one with videotape new <name>"),
+    ('[project]\nname = "app"\n', "VT106 pyproject.toml: has no [tool.videotape] section\nfix: add one that names the "
+     'screenplay, its module and the name of its vt.Screenplay: [tool.videotape] screenplay = "shop:app"'),
+    ("[tool.videotape\n", "VT107 pyproject.toml: is not TOML: Expected ']' at the end of a table declaration "
+     "(at line 1, column 16)\nfix: write it as TOML, at the line the error names"),
+    ('[tool.videotape]\nscreenplay = "app"\n', "VT107 pyproject.toml: [tool.videotape] screenplay is 'app', not "
+     '"module:app"\nfix: set it to the module and the name of its vt.Screenplay, as in '
+     'screenplay = "shop.screenplay:app"'),
+    ('[tool.videotape]\nscreenplay = "shop:app"\n', 'VT107 pyproject.toml: [tool.videotape] screenplay is "shop:app", '
+     "and the project has no module shop\nfix: name the module that holds the screenplay, from the project's folder, "
+     "as in shop.screenplay for shop/screenplay.py"),
+    ('[tool.videotape]\nscreenplay = "app:shop"\n', 'VT107 pyproject.toml: [tool.videotape] screenplay is "app:shop", '
+     'and shop in app is missing\nfix: name the vt.Screenplay that app makes, as in shop = vt.Screenplay("Shop")'),
+    ('[tool.videotape]\nscreenplay = "app:Path"\n', 'VT107 pyproject.toml: [tool.videotape] screenplay is "app:Path", '
+     'and Path in app is not a vt.Screenplay\nfix: name the vt.Screenplay that app makes, as in '
+     'Path = vt.Screenplay("Shop")'),
+    ('[tool.videotape]\nscreenplay = "app:app"\nmodel = 3\n', "VT107 pyproject.toml: [tool.videotape] model is 3, "
+     f"not a model's name\nfix: set model to one of {MODELS}"),
+    ('[tool.videotape]\nscreenplay = "app:app"\nmodel = "wan3"\n', 'VT107 pyproject.toml: [tool.videotape] model is '
+     f'"wan3", and videotape has no such model\nfix: set model to one of {MODELS}'),
+    ('[tool.videotape]\nscreenplay = "app:app"\nmax_states = 0\n', "VT107 pyproject.toml: [tool.videotape] max_states "
+     "is 0, not a whole number of states\nfix: set it to a whole number of at least 1, as in max_states = 500"),
+    ('[tool.videotape]\nscreenplay = "app:app"\ntakes = 2.5\n', "VT107 pyproject.toml: [tool.videotape] takes is 2.5, "
+     "not a whole number of takes\nfix: set it to a whole number of at least 1, as in takes = 4"),
+    ('[tool.videotape]\nscreenplay = "app:app"\ncap_usd = "20"\n', "VT107 pyproject.toml: [tool.videotape] cap_usd is "
+     "'20', not a number of dollars\nfix: set it to the most a render may spend, in dollars, as in cap_usd = 20"),
 ])
-def test_a_project_that_names_no_screenplay_says_what_to_set(tmp_path, pyproject, error):
+def test_a_project_that_is_not_one_or_sets_a_wrong_value_says_what_to_set(tmp_path, pyproject, error):
     if pyproject is not None:
         (tmp_path / "pyproject.toml").write_text(pyproject)
-    (tmp_path / "app.py").write_text('import videotape as vt\n\napp = vt.Screenplay("Shop")\n')
+    (tmp_path / "app.py").write_text('from pathlib import Path\n\nimport videotape as vt\n\napp = vt.Screenplay("Shop")\n')
     result = videotape(tmp_path, "plan")
-    assert (result.stdout, result.stderr, result.returncode) == ("", error, 1)
+    assert (result.stdout, result.stderr, result.returncode) == ("", f"error {error}\n", 1)

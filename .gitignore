@@ -4,6 +4,7 @@ __pycache__/
 .verify/
 tape/
 tapes/
+dist/
 ledger.jsonl
 clients/macos/build/
 clients/macos/TapeKit/.build/
@@ -16,3 +17,5 @@ probe-keyed/
 examples/**/tape-*/
 examples/**/compare.html
 examples/**/compare-frames/
+.DS_Store
+.env

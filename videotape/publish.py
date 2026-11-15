@@ -1,13 +1,263 @@
-from collections.abc import Callable
+"""videotape publish: a tape made into a Mac app that plays it on its own, dist/<Title>-<story>.app, zipped beside it.
+Publish refuses a tape that is out of date with its sources (VT601), that has a failing check nobody accepted (VT602),
+or whose label videotape.lock holds with another id (VT305). The app is TapePlayer named for the app and the story,
+with the tape inside it and each clip encoded as HEVC, which must keep every check its key passed (VT604). It is signed
+ad hoc, and videotape.lock records the label, the id and the hashes the id is made of."""
+
+import hashlib
+import itertools
+import json
+import plistlib
+import re
+import shutil
+import subprocess
+import tomllib
+from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
+from videotape import dailies, frames, player, story
+from videotape.checks import MAX_DIFFERENCE, ChecksError, Eye, Item, score
+from videotape.errors import ScreenplayError, shown
+from videotape.frames import Frame
+from videotape.made import made
+from videotape.model import MODELS
+from videotape.plan import Plan, plan
+from videotape.project import Project, ProjectError
 
-def partial(path: Path) -> Path:
-    """Where a file is written before it is published as path, so no reader sees it half written."""
-    return path.with_name(f"{path.stem}.partial{path.suffix}")
+LOCK = "videotape.lock"
+HEADER = ("# What videotape publish shipped: each label, with the id of the tape it holds and the hashes the id is made of.\n"
+          "# Commit it. A label ships once, so another tape under the same versions is refused with VT305.\n")
+WORDS = {"screenplay": "the app's screenplay", "code": "the app's code", "data": "the data", "story": "the story",
+         "model": "the model", "settings": "the model's settings", "engine": "videotape itself"}
+"""Each part of the made id the lock records, as a person names what changed."""
 
 
-def publish[T](path: Path, write: Callable[[Path], T]) -> T:
-    written = write(partial(path))
-    partial(path).replace(path)
-    return written
+@dataclass(frozen=True)
+class Published:
+    app: Path
+    zip: Path
+    label: str
+    id: str
+    locked: bool
+    """Whether this publish added the label to videotape.lock. Publishing the same tape again leaves the lock as it is."""
+
+    @property
+    def size(self) -> int:
+        return sum(path.stat().st_size for path in self.app.rglob("*") if path.is_file() and not path.is_symlink())
+
+
+def publish(found: Project, tape: Path) -> Published:
+    """Refuse the tape, or build its app into dist/, zip it, and record it in videotape.lock. The app, the zip and the
+    lock are made whole in dist/<app>.partial/ first, then swapped into place, so dist/ and the lock hold what the
+    last publish made or what this one made, never a part of each."""
+    manifest, record = _read(tape)
+    block = manifest["made"]
+    told = story.named(found.root, block["story"]["name"])
+    listing = MODELS[block["model"]["name"]]
+    _fresh(tape, block, made(found, told, listing.kind), record)
+    _accepted(tape, record)
+    lock = read_lock(found.root)
+    _unlocked(found.root, lock, block, told.path)
+    planned = plan(found.load(), found.max_states)
+    built = player.built()
+    app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
+    zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")
+    staged = staging / app.name
+    shutil.rmtree(staging, ignore_errors=True)
+    try:
+        shutil.copytree(built, staged, symlinks=True)
+        _name(staged / "Contents" / "Info.plist", planned.title, found.name, told.name)
+        inside = staged / "Contents" / "Resources" / "tape"
+        clips = _encode(tape, manifest, inside)
+        _rests(planned, record, listing.eye(tape), tape, inside, clips)
+        print(f"encoded {len(clips)} clips as HEVC; on each one's last frame, where TapePlayer rests, every check "
+              "its key passed still passes", flush=True)
+        _run("codesign", "--force", "--deep", "--sign", "-", str(staged))
+        print("signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app",
+              flush=True)
+        _run("ditto", "-c", "-k", "--keepParent", str(staged), str(staging / zipped.name))
+        locked = block["label"] not in lock
+        if locked:
+            write_lock(staging / LOCK, {**lock, block["label"]: entry(block)})
+        _swap(staging, [app, zipped, *([found.root / LOCK] if locked else [])])
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return Published(app, zipped, block["label"], block["id"], locked)
+
+
+def _swap(staging: Path, places: list[Path]) -> None:
+    """Move what staging holds under each place's name into that place, and what the place held aside into staging.
+    When a move fails or is interrupted, each place gets back what it held, so the places hold all the old files or all
+    the new ones."""
+    aside = staging / "aside"
+    aside.mkdir()
+    try:
+        for place in places:
+            if place.exists():
+                place.rename(aside / place.name)
+            (staging / place.name).rename(place)
+    except BaseException:
+        for place in places:
+            if not (staging / place.name).exists():
+                if place.is_dir():
+                    shutil.rmtree(place)
+                else:
+                    place.unlink(missing_ok=True)
+            if (aside / place.name).exists():
+                (aside / place.name).rename(place)
+        raise
+
+
+def entry(block: dict) -> dict[str, str]:
+    """What the lock records of a tape: its id, and what its id is made of, the screenplay by its module:app and the
+    model by its name."""
+    settings = hashlib.sha256(json.dumps(block["model"]["settings"], sort_keys=True).encode()).hexdigest()
+    return {"id": block["id"], "screenplay": block["app"]["screenplay"], "code": block["app"]["code"],
+            "data": block["app"]["data"], "story": block["story"]["hash"], "model": block["model"]["name"],
+            "settings": settings, "engine": block["engine"]}
+
+
+def read_lock(root: Path) -> dict[str, dict[str, str]]:
+    file = root / LOCK
+    if not file.is_file():
+        return {}
+    try:
+        return tomllib.loads(file.read_text())
+    except tomllib.TOMLDecodeError as error:
+        raise ProjectError(f"{shown(file)} is not TOML: {error}; mend it, or restore it from git") from None
+
+
+def write_lock(file: Path, lock: dict[str, dict[str, str]]) -> None:
+    """The lock as TOML, one table per label in order, so a new label is a few added lines in a diff."""
+    tables = (f"\n[{json.dumps(label, ensure_ascii=False)}]\n" +
+              "".join(f"{key} = {json.dumps(value, ensure_ascii=False)}\n" for key, value in lock[label].items())
+              for label in sorted(lock))
+    file.write_text(HEADER + "".join(tables))
+
+
+def _read(tape: Path) -> tuple[dict, dict]:
+    """tape.json, which says what made the tape, and dailies.json, its record."""
+    for name in ("tape.json", "dailies.json"):
+        if not (tape / name).is_file():
+            raise ChecksError(f"no {name} in {shown(tape)}; render the story first")
+    manifest = json.loads((tape / "tape.json").read_text())
+    if "made" not in manifest:
+        raise ChecksError(f"{shown(tape / 'tape.json')} does not say what made it; render the tape again")
+    return manifest, dailies.read(tape)
+
+
+def _fresh(tape: Path, block: dict, now: dict, record: dict) -> None:
+    """VT601 unless the tape was made from the sources the project has now, by a render that finished."""
+    if block["id"] == now["id"] and record["complete"]:
+        return
+    before, after = entry(block), entry(now)
+    changed = [f"the app's {part}" for part in ("name", "version") if block["app"][part] != now["app"][part]]
+    changed += [words for key, words in WORDS.items() if before[key] != after[key]]
+    render = f"videotape render --story {block['story']['name']} --model {block['model']['name']}{_out(record)}"
+    message = f"{_and(changed) or 'what made it'} changed since the tape was rendered" if block["id"] != now["id"] \
+        else "its last render stopped before its last shot"
+    raise ScreenplayError("VT601", shown(tape), message, "render the tape again with the model that made it, then "
+                          f"publish it:\n{render}")
+
+
+def _accepted(tape: Path, record: dict) -> None:
+    """VT602 when a kept take fails a check nobody accepted for it."""
+    failing = [failure for failure in record["failures"] if not failure["accepted"]]
+    if not failing:
+        return
+    one = len(failing) == 1
+    first = failing[0]["next"]
+    raise ScreenplayError(
+        "VT602", shown(tape), f"{len(failing)} check{'' if one else 's'} fail{'s' if one else ''} that nobody "
+        f"accepted: {', '.join(f'{failure["shot"]} {failure["code"]}' for failure in failing)}",
+        f"review {'it' if one else 'them'} with videotape dailies --story {record['story']}{_out(record)}, then "
+        f"retake the shot or accept the failure with a reason; for the first:\n{first['retake']}\n{first['accept']}")
+
+
+def _unlocked(root: Path, lock: dict[str, dict[str, str]], block: dict, story_file: Path) -> None:
+    """VT305 when the lock holds the tape's label with another id."""
+    held = lock.get(block["label"])
+    if held is None or held.get("id") == block["id"]:
+        return
+    now = entry(block)
+    changed = [words for key, words in WORDS.items() if held.get(key) != now[key]]
+    raise ScreenplayError("VT305", shown(root / LOCK), f"{block['label']} was published with made id "
+                          f"{held.get('id', '')[:12]}, and this tape under the same label has made id "
+                          f"{block['id'][:12]}"
+                          + (f": {_and(changed)} changed" if changed else ""),
+                          "give the tape a label of its own: bump version in pyproject.toml, or in "
+                          f"{shown(story_file)} for a change to the story, then render and publish again")
+
+
+def _name(plist: Path, title: str, app: str, name: str) -> None:
+    """Name the app for the screenplay and the story, as in Contrail (Starter), with a bundle id of its own."""
+    info = plistlib.loads(plist.read_bytes())
+    shown_as = f"{title} ({name[:1].upper()}{name[1:]})"
+    info |= {"CFBundleName": shown_as, "CFBundleDisplayName": shown_as,
+             "CFBundleIdentifier": ".".join(["dev.videotape", *(re.sub(r"[^A-Za-z0-9-]", "-", part) for part in (app, name))])}
+    plist.write_bytes(plistlib.dumps(info))
+
+
+def _encode(tape: Path, manifest: dict, inside: Path) -> dict[str, str]:
+    """Put tape.json and every clip it names into the app, each clip encoded as HEVC. The player reads nothing else.
+    Each clip by the state it lands on."""
+    clips = {manifest["opening"]["clip"]: manifest["opening"]["lands"],
+             **{move["clip"]: move["lands"] for move in manifest["moves"].values()}}
+    inside.mkdir(parents=True)
+    shutil.copyfile(tape / "tape.json", inside / "tape.json")
+    for clip in clips:
+        (inside / clip).parent.mkdir(parents=True, exist_ok=True)
+        frames.hevc(tape / clip, inside / clip)
+    return clips
+
+
+def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clips: dict[str, str]) -> None:
+    """VT604 when the last frame of an encoded clip, where TapePlayer rests, fails a check that passed in the record:
+    the eye's checks of the state it lands on, which its key passed, and the seam with that state's key image, which
+    the move's kept take passed."""
+    keys = {key.state.name: key for key in planned.keys}
+    recorded = {key["state"]: key for key in record["keys"]}
+    seams = {move["move"]: next(take for take in move["takes"] if take["kept"]) for move in record["moves"]}
+    images: dict[str, Frame] = {}
+    for clip, state in clips.items():
+        before = [*recorded[state]["items"], *seams.get(clip, {}).get("items", [])]
+        failed = {check for check, item in zip(_numbered((item["code"], item["about"]) for item in before), before)
+                  if not item["passed"]}
+        frame = frames.last_frame(inside / clip)
+        if state not in images:
+            images[state] = frames.read_png(tape / recorded[state]["key"])
+        end = frames.difference(frame, images[state])
+        items = [*score(frame, keys[state], eye).items(),
+                 Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)]
+        broken = [item for check, item in zip(_numbered((item.code, item.about) for item in items), items)
+                  if not item.passed and check not in failed]
+        if broken:
+            shot = next((move for move in planned.moves if move.clip == clip), planned.keys[0])
+            checks = "a check its key passed:" if len(broken) == 1 else f"{len(broken)} checks its key passed, the first"
+            raise ScreenplayError("VT604", clip, f"its HEVC last frame, where TapePlayer rests on {state}, fails "
+                                  f"{checks} {broken[0].code} {broken[0].about}: {broken[0].result}",
+                                  "retake the shot, whose next take may come through the encoding, then publish again:"
+                                  f'\nvideotape retake "{dailies.named(shot)}" --story {record["story"]}{_out(record)}')
+
+
+def _numbered(checks: Iterable[tuple[str, str]]) -> list[tuple[str, str, int]]:
+    """Each check by its code, what it is about, and how many checks before it share both, so a line a key shows twice
+    is two checks."""
+    seen: dict[tuple[str, str], itertools.count] = {}
+    return [(code, about, next(seen.setdefault((code, about), itertools.count()))) for code, about in checks]
+
+
+def _run(*command: str) -> None:
+    ran = subprocess.run(command, capture_output=True, text=True)
+    if ran.returncode != 0:
+        raise ProjectError(f"{command[0]} exited with {ran.returncode}: {(ran.stderr or ran.stdout).strip()}")
+
+
+def _out(record: dict) -> str:
+    """The --out a command names the tape with, for a tape that render --out wrote."""
+    return f" --out {record['out']}" if record["out"] else ""
+
+
+def _and(words: list[str]) -> str:
+    return " and ".join(filter(None, [", ".join(words[:-1]), *words[-1:]]))

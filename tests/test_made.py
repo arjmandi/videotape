@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from conftest import CONTRAIL, copy_of, planned, told
-from videotape import ledger, project
+from videotape import ledger, project, wan3
 from videotape.errors import PACKAGE
+from videotape.fal import Fal
 from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
@@ -31,7 +32,8 @@ def test_a_tapes_made_block_names_the_app_the_story_the_model_and_the_engine_and
     found = block(CONTRAIL)
     assert list(found) == ["label", "id", "app", "story", "model", "engine"]
     assert found["label"] == "contrail 0.1.0 + terminal 1.0.0"
-    assert {name: found["app"][name] for name in ("name", "version")} == {"name": "contrail", "version": "0.1.0"}
+    assert {name: found["app"][name] for name in ("name", "version", "screenplay")} == \
+        {"name": "contrail", "version": "0.1.0", "screenplay": "contrail.screenplay:app"}
     assert found["story"] == {"name": "terminal", "version": "1.0.0", "hash": hashlib.sha256(
         (CONTRAIL / "stories" / "terminal.toml").read_bytes()).hexdigest()}
     assert found["model"] == {"name": "stand-in", "settings": {"text-to-video": {}, "first-and-last-frame": {}}}
@@ -41,6 +43,15 @@ def test_a_tapes_made_block_names_the_app_the_story_the_model_and_the_engine_and
 
 def test_the_same_everything_has_one_id_wherever_the_project_is(tmp_path):
     assert block(contrail(tmp_path)) == block(CONTRAIL)
+
+
+def test_each_listed_models_class_gives_the_made_block_its_built_model_does_without_a_key(monkeypatch):
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    found, terminal = project.find(CONTRAIL), told(CONTRAIL, "terminal")
+    assert made(found, terminal, MODELS["wan3.0"].kind) == made(found, terminal, wan3.Wan3(Fal("a key")))
+    assert made(found, terminal, MODELS["stand-in"].kind) == made(found, terminal, StandIn())
+    assert {name: made(found, terminal, listing.kind)["model"]["name"] for name, listing in MODELS.items()} == \
+        {name: name for name in MODELS}
 
 
 class Tuned(StandIn):
@@ -81,6 +92,17 @@ def test_the_id_changes_with_the_code_the_data_the_story_and_the_models_settings
     assert changed(CONTRAIL, block(CONTRAIL, model=Tuned())) == {"model", "id"}
 
 
+def test_the_id_changes_with_the_screenplay_the_project_names_from_one_package(tmp_path):
+    directory = contrail(tmp_path)
+    (directory / "contrail" / "again.py").write_text("from contrail.screenplay import app\n")
+    before = block(directory)
+    pyproject = directory / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"contrail.screenplay:app"', '"contrail.again:app"'))
+    after = block(directory)
+    assert {name for name in before if before[name] != after[name]} == {"app", "id"}
+    assert {name for name in before["app"] if before["app"][name] != after["app"][name]} == {"screenplay"}
+
+
 def test_the_engines_hash_is_of_videotapes_own_python_files(tmp_path, monkeypatch):
     before = block(CONTRAIL)
     engine = Path(shutil.copytree(PACKAGE, tmp_path / "videotape", ignore=shutil.ignore_patterns("__pycache__")))
@@ -116,7 +138,7 @@ def test_tape_json_carries_the_made_block_beside_what_the_player_reads(cafe):
 def test_the_cli_writes_the_made_block_of_the_model_it_rendered_with(cafe, tmp_path, cli, monkeypatch):
     directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
     tuned = Tuned(flaw=clean)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: tuned, lambda tape: StandInEye()))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: tuned, lambda tape: StandInEye(), kind=tuned))
     assert cli(directory, "render", "--story", "chalk", "--takes", "1", "--out", "tape-tuned") == 0
     written = json.loads((directory / "tape-tuned" / "tape.json").read_text())["made"]
     assert written == block(directory, "chalk", tuned)
@@ -138,7 +160,7 @@ def test_an_app_without_a_project_name_is_named_by_its_folder(tmp_path):
 def two(cafe, tmp_path, cli, monkeypatch, capsys):
     """A copy of the rendered cafe, and a way to render it again after a change, with a stand-in that never flaws."""
     directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), lambda tape: StandInEye()))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), lambda tape: StandInEye(), kind=StandIn))
 
     def render_again(*arguments: str) -> None:
         assert cli(directory, "render", "--takes", "1", *arguments) == 0
@@ -189,7 +211,7 @@ def test_diff_after_the_code_changes_is_another_app_and_counts_the_states_and_mo
 def test_diff_says_which_tape_has_no_tape_json_or_does_not_say_what_made_it(two, cli, capsys):
     directory, _ = two
     assert cli(directory, "diff", "tapes/chalk", "tapes/neon") == 1
-    assert capsys.readouterr() == ("", "error: no tape.json in tapes/neon; render the screenplay first\n")
+    assert capsys.readouterr() == ("", "error: no tape.json in tapes/neon; render the story first\n")
     old = directory / "tape-old"
     old.mkdir()
     manifest = json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())

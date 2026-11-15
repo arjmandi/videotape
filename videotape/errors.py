@@ -20,6 +20,73 @@ class Code:
 
 
 CODES: dict[str, Code] = {
+    "VT101": Code(
+        "Python is older than videotape needs",
+        "videotape runs on the Python its package names in requires-python. doctor compares the Python it runs on "
+        "with that. uv picks a Python that fits when it makes a project's environment, so this happens to an "
+        "environment made by hand, or with an older Python named.",
+        "fail VT101 Python 3.11.4, and videotape needs >=3.12",
+        "make the project's environment with a newer Python, as in uv sync --python 3.12",
+    ),
+    "VT102": Code(
+        "ffmpeg or ffprobe is not on PATH",
+        "A render decodes takes and writes each key's picture with ffmpeg, and reads each kept take's size with "
+        "ffprobe. doctor searches PATH for both. A render without them stops at its first take with VT404.",
+        "fail VT102 ffprobe is not on PATH",
+        "install ffmpeg, which brings ffprobe, as in brew install ffmpeg",
+    ),
+    "VT103": Code(
+        "Xcode is missing, so TapePlayer cannot build",
+        "play and publish build TapePlayer, the Mac app that plays a tape, from the Swift source videotape carries. "
+        "The build needs Xcode itself, with xcode-select pointing at it. The Command Line Tools alone have no "
+        "xcodebuild that builds an app, and play stops with VT603.",
+        "fail VT103 xcode-select points at /Library/Developer/CommandLineTools, the Command Line Tools without Xcode, "
+        "so TapePlayer cannot build",
+        "install Xcode from the App Store, then point xcode-select at it, as in "
+        "sudo xcode-select --switch /Applications/Xcode.app",
+    ),
+    "VT104": Code(
+        "an API key the project's model needs is not set",
+        "A model that runs as a service needs its API key: wan3.0 runs on fal and needs FAL_KEY. A project command "
+        "reads API keys from the environment and from the project's .env, one KEY=VALUE line each, and an API key "
+        "already in the environment wins. No command prints an API key's value. The stand-in and wan2.2-5b run here "
+        "and need none.",
+        "fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env",
+        "copy .env.example to .env and set FAL_KEY there, or export it",
+    ),
+    "VT105": Code(
+        "the eye the checks need cannot run here",
+        "After a render films a take of a key, an eye reads it back to check every line and find every action. The eye "
+        "of the Wan models is Qwen3-VL-8B, which runs through videotape's qwen extra on Apple silicon or a CUDA GPU. "
+        "A project that videotape new writes depends on videotape without the extra, so that it installs fast and "
+        "renders with the stand-in, whose eye reads its own boxes and needs neither. Add the extra before a render "
+        "with a Wan model. On a machine with neither Apple silicon nor a CUDA GPU, doctor says so instead: render "
+        "on one that has either, or with the stand-in, as in videotape render --story starter --model stand-in.",
+        "fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here",
+        'in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
+        'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync',
+    ),
+    "VT106": Code(
+        "no project here",
+        "A project is the folder that holds an app's pyproject.toml, with a [tool.videotape] section that names the "
+        "app's screenplay. Every command but new, doctor, explain and diff runs in a project, and finds it from the "
+        "working folder upward. Neither this folder nor any above it holds a pyproject.toml, or the nearest one has "
+        "no [tool.videotape] section.",
+        "error VT106 pyproject.toml: no pyproject.toml here or in any folder above",
+        "run the command in the app's project, or start one:\nvideotape new shop\nor add the section to the project's "
+        'pyproject.toml:\n[tool.videotape]\nscreenplay = "shop.screenplay:app"',
+    ),
+    "VT107": Code(
+        "a value in [tool.videotape] is wrong",
+        "[tool.videotape] in the project's pyproject.toml names the screenplay as module:name, the module that holds "
+        "it and the name of its vt.Screenplay. It may set model, one of the models videotape has, max_states and "
+        "takes, whole numbers of at least 1, and cap_usd, a number of dollars. A value here is none of what its "
+        "setting allows, the screenplay it names is not a vt.Screenplay in the project, or the file is not TOML. The "
+        "error names the setting and what it holds.",
+        'error VT107 pyproject.toml: [tool.videotape] model is "wan3", and videotape has no such model',
+        "set each to what it allows:\n[tool.videotape]\n"
+        'screenplay = "shop.screenplay:app"\nmodel = "wan3.0"\ntakes = 4\ncap_usd = 20',
+    ),
     "VT201": Code(
         "the screenplay has no scenes",
         "The app opens on the state of the screenplay's first scene, called with no arguments. A screenplay with no "
@@ -37,15 +104,15 @@ CODES: dict[str, Code] = {
     "VT203": Code(
         "a scene raised",
         "The plan builds every state by calling its scene with the state's arguments. This scene raised an exception "
-        "for these arguments, or returned something other than a list of elements, so its state cannot be drawn. The "
-        "error names the state and the line.",
+        "for these arguments, or returned something other than a list of elements, so the plan cannot build its "
+        "state. The error names the state and the line.",
         '@app.scene\ndef receipt(order: Order):\n    return [vt.Text(f"${order.total // order.guests} each")]',
         "Handle every value the data holds, here an order with no guests, or keep that state out of every to=.",
     ),
     "VT204": Code(
         "no action reaches a scene",
         "Every state is reached by actions, starting from the first scene. No action in any reached state leads to "
-        "this scene, so nobody using the app could get to it and it would never be drawn.",
+        "this scene, so nobody using the app could get to it and no render would film it.",
         '@app.scene\ndef home():\n    return [vt.Heading("Shop")]\n\n\n@app.scene\ndef help():\n'
         '    return [vt.Text("Call us.")]',
         'Lead to it from a scene that is reached, as in vt.Button("Help", to=help()), or delete it.',
@@ -53,49 +120,52 @@ CODES: dict[str, Code] = {
     "VT205": Code(
         "a data file is missing, or is not under data/",
         "vt.table and vt.one load their file when the module is imported. A path is relative to the project, the "
-        "folder that holds pyproject.toml, and it is under data/, so that the data hash in a tape's made block covers "
-        "every record the app loads. Either no file is at this path, or the path leads outside data/.",
+        "folder that holds pyproject.toml, and it is under data/, so that a tape's made id covers every record the app "
+        "loads. Either no file is at this path, or the path leads outside data/.",
         'flights = vt.table(Flight, "flights.json")',
         'flights = vt.table(Flight, "data/flights.json")',
     ),
     "VT206": Code(
         "a record is not what its class says",
-        "A table's file holds a JSON array of objects, and vt.one's file holds one object. Each object has exactly "
-        'the fields of its record class, and each value has its field\'s type: a string, a whole number, a date '
-        'written like "2026-12-11", or a time written like "07:05". The fields that key= names identify a record, so '
-        "no two records in a table share them. The error names the file, the record's position, and the field.",
+        "A data table's file holds a JSON array of objects, and vt.one's file holds one object. Each object has "
+        'exactly the fields of its record class, and each value has its field\'s type: a string, a whole number, a '
+        'date written like "2026-12-11", or a time written like "07:05". The fields that key= names identify a '
+        "record, so no two records in a data table share them. The error names the file, the record's position, and "
+        "the field.",
         '{"number": "CT 100", "day": "12/11/2026", "fare": "219"}',
         '{"number": "CT 100", "day": "2026-12-11", "fare": 219}',
     ),
     "VT207": Code(
         "a query names a field its records don't have",
-        "where, order_by, get, distinct, min, and sum take the names of a record's fields, and so does key=. This "
+        "where, order_by, get, distinct, min, and sum name a record's fields, and so does key=. This "
         "name is not one of them. The error lists the fields the records do have.",
         'flights.where(dest="SEA")',
         'flights.where(destination="SEA")',
     ),
     "VT208": Code(
-        "first() or get() matched no row, or get() matched several",
-        "first() returns a table's first row, and get() returns the one row that matches. An empty table has no "
-        "first row, and get() needs exactly one match.",
+        "first() or get() matched no record, or get() matched several",
+        "first() returns a data table's first record, and get() returns the one record that matches. An empty data "
+        "table has no first record, and get() needs exactly one match.",
         'airports.get(code="XXX")',
-        "Ask for a row the data holds, or count the matches with where(...).count() and show something else when "
+        "Ask for a record the data holds, or count the matches with where(...).count() and show something else when "
         "there are none.",
     ),
     "VT209": Code(
-        "two actions in one state have one label",
-        "An action is found on its key by its words and pressed by its hotspot's label, so each action in a state "
-        "needs its own. Two here share one, and only the first could ever be pressed.",
+        "two actions in one state can't be told apart",
+        "An action is found on its key by its words, and pressed by its hotspot's spoken name, which VoiceOver "
+        "speaks. The spoken name is the action's words, or for a day of a date picker or a date strip, the whole date "
+        "and its option's words. Each action in a state needs words and a spoken name of its own. Two here share one, "
+        "and only the first could ever be pressed.",
         'vt.Button("Open", to=inbox()), vt.Button("Open", to=archive())',
         'vt.Button("Open inbox", to=inbox()), vt.Button("Open archive", to=archive())',
     ),
     "VT210": Code(
         "the plan reached more states than max_states",
-        "The plan walks every state the app can reach, and a render draws each one. It stopped when it passed "
-        "max_states, which is 500 unless [tool.videotape] sets it. Usually a scene's argument grows without end, "
-        "such as a counter that every state passes on plus one.",
+        "The plan walks every state the app can reach, and a render films the key of each one. It stopped when it "
+        "passed max_states, which is 500 unless [tool.videotape] sets it. Usually a scene's argument grows without "
+        "end, such as a counter that every state passes on plus one.",
         '@app.scene\ndef count(n: int):\n    return [vt.Button("More", to=count(n + 1))]',
-        "Take a scene's arguments from the data, which ends. If the app really has more states, raise the limit:\n"
+        "Let a scene's arguments come from the data, which ends. If the app really has more states, raise the limit:\n"
         "[tool.videotape]\nmax_states = 2000",
     ),
     "VT211": Code(
@@ -110,7 +180,7 @@ CODES: dict[str, Code] = {
         "a story has no version or no look",
         "A story is one file under stories/, and it opens with its version and its look. The look is the sentence or "
         "two that every key's prompt starts from, and a tape's label names the story by its version. Both are words "
-        "in quotes above the first [heading], because a line under a heading belongs to that heading's table.",
+        "in quotes above the first [heading], because a line under a heading belongs to that heading.",
         '[scenes]\nhome = "The main hall."\nlook = "A quiet airport terminal at first light."',
         'version = "1.0.0"\nlook = "A quiet airport terminal at first light."\n\n[scenes]\nhome = "The main hall."',
     ),
@@ -124,11 +194,11 @@ CODES: dict[str, Code] = {
     ),
     "VT303": Code(
         "a story names an element type the screenplay doesn't use",
-        "Under [elements] a story gives an element type its appearance, and under [moves] its camera move, by the "
-        "type's class name, such as Button or DateStrip. An Option takes those of its SearchBar, DatePicker or "
-        "DateStrip, and a Row those of its List. No state of this app shows an element of this type, so the words "
-        "would never be used. [moves] may also hold default, the move of every type without its own. The error names "
-        "the line, and the fix names the closest type the app does show.",
+        "Under [elements] a story gives an element type its appearance, and under [moves] what the camera does in "
+        "its moves, by the type's class name, such as Button or DateStrip. An Option uses those of its SearchBar, "
+        "DatePicker or DateStrip, and a Row those of its List. No state of this app shows an element of this type, so "
+        "the words would never be used. [moves] may also hold default, for every type without its own. The error "
+        "names the line, and the fix names the closest type the app does show.",
         '[elements]\nButon = "a lit amber panel with bold black letters"',
         '[elements]\nButton = "a lit amber panel with bold black letters"',
     ),
@@ -141,22 +211,35 @@ CODES: dict[str, Code] = {
         '[scenes]\nhome = "The main hall, facing the big departure board."\n'
         'search = "Up close at the departure board."',
     ),
+    "VT305": Code(
+        "the tape's label is published already, as another tape",
+        "A tape's label names the app and the story, each by its version, as in contrail 0.1.0 + starter 1.0.0, and "
+        "its made id hashes everything that made it. For each tape it publishes, publish writes the label and made id "
+        "into videotape.lock, at the project's root, which the project commits. This tape's label is in the lock "
+        "with another made id: the screenplay, the code, the data, the story, the model or videotape changed, and "
+        "neither version did, so one label would name two different tapes. Publish leaves dist/ and the lock as they "
+        "were.",
+        "error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published with made id 3f9a0c1d2e4b, and "
+        "this tape under the same label has made id 7b2e9d4c1a0f: the data changed",
+        "fix: give the tape a label of its own: bump version in pyproject.toml, or in stories/starter.toml for a "
+        "change to the story, then render and publish again",
+    ),
     "VT306": Code(
-        "a story is not TOML, or a table holds something other than words",
+        "a story is not TOML, or holds something other than words",
         'A story is a TOML file: lines of name = "words", above and under the headings [scenes], [elements] and '
         "[moves]. This file breaks TOML's rules, most often with words that are not in quotes or a quote that never "
-        "closes, or one of its tables holds a number, a list or another table where words belong. The error names "
-        "the line and says what is there.",
+        "closes, or it holds a number, a list or a section where words belong. The error names the line and says "
+        "what is there.",
         "look = A quiet airport terminal at first light.\n\n[scenes]\nhome = 3",
         'look = "A quiet airport terminal at first light."\n\n[scenes]\nhome = "The main hall."',
     ),
     "VT307": Code(
-        "a prompt is longer than the model takes",
-        "A warning. A model takes a prompt up to a limit. Wan 2.2 reads 512 tokens and drops the rest without saying "
-        "so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it would "
-        "never draw. The plan has no tokenizer, so it counts high: one token for every four letters of a word, one "
-        "for every other character that is not a space, and one for the end. Wan 3.0 on fal takes 20,000 characters. "
-        "The stand-in has no limit. The plan goes on.",
+        "a prompt is longer than the model allows",
+        "A warning. A model reads a prompt only up to a limit. Wan 2.2 reads 512 tokens and drops the rest without "
+        "saying so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it "
+        "would leave out. The plan has no tokenizer, so it counts high: one token for every four letters of a word, "
+        "one for every other character that is not a space, and one for the end. Wan 3.0 on fal allows 20,000 "
+        "characters. The stand-in has no limit. The plan goes on.",
         'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
         "Shorten the look, the scene's direction or the appearances in the story, or show fewer lines in the state.",
     ),
@@ -179,12 +262,13 @@ CODES: dict[str, Code] = {
     ),
     "VT401": Code(
         "a model call failed",
-        "A render asks the model for one take at a time, and this call did not come back with a clip. The error "
-        "prints the provider's message and the request id when there is one, and never a key. The takes already on "
-        "disk and the requests already submitted are kept, so running the render again resumes from them, and a "
-        "submitted request is polled and downloaded, never submitted again on its own. A request fal has recorded "
-        "beside its take and refuses for good, as when its safety checker flags the output, fails the same way on "
-        "every run, so the next step names its record: deleting that file lets the render submit a new, paid take.",
+        "A render asks the model for one take at a time, and this call did not come back with a take. The error "
+        "prints the provider's message and the request id when there is one, and never an API key. The takes already "
+        "on disk and the requests already submitted are kept, so running the render again resumes from them, and a "
+        "submitted request is polled and downloaded, never submitted again on its own. When fal refuses a submitted "
+        "request for good, as when its safety checker flags the output, polling it fails the same way on every run, "
+        "so the next step names the request's file beside its take: deleting it lets the render submit a new, paid "
+        "take.",
         "error VT401 key home() take 2: result of alibaba/wan-3.0/text-to-video request 01a1... failed with HTTP 422",
         "next: run the render again, which resumes; this request is polled, not submitted again:\n"
         "videotape render --story terminal --model wan3.0 --cap-usd 20.00\n"
@@ -192,32 +276,33 @@ CODES: dict[str, Code] = {
     ),
     "VT402": Code(
         "the next call would pass the cap",
-        "A model that bills per call renders under a cap: cap_usd in [tool.videotape], or --cap-usd. What a tape has "
-        "spent is the sum of its lines in the project's ledger, so running the render again never resets it. Before "
-        "each paid call the render stops when the call would pass the cap, says what was spent, and lets the calls "
-        "in flight finish and be recorded. The cap is checked against each call's listed price, and the ledger "
-        "records what the call then billed, which can differ a little, so the spend can end a little past the cap. "
-        "A paid model with no cap at all does not start.",
+        "A render with a model that bills per call spends under a cap: cap_usd in [tool.videotape], or --cap-usd. "
+        "What a tape has spent is the sum of its lines in the project's ledger, so running the render again never "
+        "resets it. Before each paid call the render stops when the call would pass the cap, says what was spent, and "
+        "lets the calls in flight finish and reach the ledger. The render weighs each call against the cap at its "
+        "listed price, and the ledger holds what the call then billed, which can differ a little, so the spend can "
+        "end a little past the cap. A render with a paid model and no cap does not start.",
         "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
         "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
-        "next: raise the cap and run the render again, which resumes:\n"
-        "videotape render --story terminal --cap-usd 10.00\nor set it for good in [tool.videotape]:\ncap_usd = 10",
+        "next: run the render again with a higher cap, which resumes, as in:\n"
+        "videotape render --story terminal --cap-usd 10.00",
     ),
     "VT403": Code(
         "a take's file is corrupt",
         "A take came back as a file that does not decode into a frame. A model that bills per call keeps its request "
         "beside the take, so the take is downloaded again first. When it is still corrupt, or when the model has "
-        "nothing to download again, the seed is recorded in the tape's record as corrupt, reported, skipped, and "
-        "never filmed again. The shot goes on with its next seed.",
-        "error VT403 key home() take 1: takes/3f9a....mp4 did not decode to one rgb24 frame",
-        "next: nothing; seed 1 is skipped from now on, and the shot goes on with seed 2",
+        "nothing to download again, the seed is marked corrupt in the tape's dailies.json, reported, skipped, "
+        "and never filmed again. The shot goes on with its next seed.",
+        "error VT403 key home() take 1: tapes/terminal/takes/3f9a....mp4 did not decode to one frame: Error opening "
+        "input files: Invalid data found when processing input",
+        "next: nothing; seed 1 is skipped from now on",
     ),
     "VT404": Code(
         "ffmpeg failed",
-        "A render decodes frames, writes key images and copies clips with ffmpeg and ffprobe, and one of them "
-        "failed or is not on PATH. The error prints the command and what ffmpeg said. This is about the machine, "
-        "not the model or the screenplay.",
-        "error VT404 key home() take 1: ffmpeg is not on PATH",
+        "A render decodes takes and writes each key's picture with ffmpeg, reads each kept take's size with ffprobe, "
+        "and one of them failed or is not on PATH. The error prints the command and what ffmpeg said. This is about "
+        "the machine, not the model or the screenplay.",
+        "error VT404 key home(): ffmpeg is not on PATH",
         "next: install ffmpeg, as in brew install ffmpeg, and run the render again",
     ),
     "VT501": Code(
@@ -227,11 +312,11 @@ CODES: dict[str, Code] = {
         "on the kept take, so the action has no hotspot in the tape and cannot be pressed. The dailies show where "
         "the box should be, from another take that found it when there is one.",
         'vt.Button("Book for $89", to=booked(f)), with no box reading "Book for $89" on the key',
-        "retake the shot, change the story line that draws the element, change the screenplay, or accept it with a "
-        "reason",
+        "retake the shot, change the story's appearance for the element's type, change the screenplay, or accept it "
+        "with a reason",
     ),
     "VT502": Code(
-        "a word was misread",
+        "a line was misread",
         "Every line of a state is read back from its key, and a line reads back exactly or the check fails. The "
         "character error rate says how far off it was, and the dailies show the line's box when the eye saw one.",
         'vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"',
@@ -240,19 +325,66 @@ CODES: dict[str, Code] = {
     "VT503": Code(
         "the model invented a control",
         "The kept take shows a control-like box whose words are none of the state's lines, so a person would try "
-        "to press something the app does not have. The eye lists every control-like box with its text, and one is "
-        "invented when its text matches no line within the character error the find allows.",
+        "to press something the app does not have. The eye lists every control-like box with its words, and one is "
+        "invented when its words match no line within the character error the find allows.",
         'a lit panel reading "Cancel" on a key whose state has no such line',
-        "retake the shot, change the story's appearance for the element type that drew it, or accept it with a "
+        "retake the shot, change the story's appearance for the element type it came from, or accept it with a "
         "reason, as in --reason \"a printed logo, not a control\"",
     ),
     "VT508": Code(
         "a seam between a move and its key is too wide",
-        "A move is drawn from the key it leaves to the key it lands on, and its first and last frames are compared "
-        "with those two keys. A difference over 0.05 at either end is a visible jump when the tape plays. The "
-        "dailies name which end and by how much.",
+        "A move is filmed from the key it leaves to the key it lands on, and its first and last frames are compared "
+        "with those two keys' pictures. A difference over 0.05 at either end is a visible jump when the tape plays. "
+        "The dailies name which end and by how much.",
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
-        "retake the move, change the story's move for that element type, or accept it with a reason",
+        "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
+        "with a reason",
+    ),
+    "VT601": Code(
+        "the tape is out of date",
+        "tape.json names everything that made the tape: the app's screenplay, code and data, the story, the model's "
+        "settings and videotape itself, and the made id that hashes them all. Publish works these out again from the "
+        "project as it is now, for the tape's story and model, and compares the two made ids. They differ, so the "
+        "app would play a tape filmed from what the project no longer holds. The error says what changed. A render "
+        "that stopped before its last shot also leaves its tape out of date. Publish leaves dist/ and the lock as they "
+        "were.",
+        "error VT601 tapes/starter: the app's code changed since the tape was rendered",
+        "fix: render the tape again with the model that made it, then publish it:\n"
+        "videotape render --story starter --model stand-in",
+    ),
+    "VT602": Code(
+        "the tape has failing checks nobody accepted",
+        "A render checks the takes of every key and move of a tape. A check its kept take fails stays failing until a "
+        "retake passes it or a person accepts it with a reason, and an accept holds only for the take it was given "
+        "on. Publish reads the tape's dailies.json, and while a failing check there is not accepted, it leaves dist/ "
+        "and the lock as they were.",
+        "error VT602 tapes/starter: 1 check fails that nobody accepted: key todo() VT503",
+        "fix: review it with videotape dailies --story starter, then retake the shot or accept the failure with a "
+        "reason; for the first:\nvideotape retake \"todo()\" --story starter\n"
+        "videotape accept \"todo()\" VT503 --story starter --reason \"...\"",
+    ),
+    "VT603": Code(
+        "TapePlayer did not build",
+        "play and publish build TapePlayer, the Mac app that plays a tape, from the Swift source videotape carries. "
+        "It builds in Release with xcodebuild, in a cache under ~/Library/Caches/videotape, or VIDEOTAPE_CACHE_DIR "
+        "when that is set, once for each version of the source. This build did not finish, so nothing was cached. The "
+        "error names the build's log, which holds everything xcodebuild printed, and quotes its first error.",
+        "error VT603 ~/Library/Caches/videotape/player/3f9a0c1d2e4b5a67/build.log: the build exited with 1: "
+        "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory "
+        "'/Library/Developer/CommandLineTools' is a command line tools instance",
+        "run videotape doctor, which searches for Xcode; when it finds Xcode, the log says what failed",
+    ),
+    "VT604": Code(
+        "a check fails on the HEVC frame TapePlayer rests on",
+        "Publish encodes each clip of the tape as HEVC, which makes a Wan tape's app smaller than the clips a render keeps."
+        " A clip's last frame is where TapePlayer rests until the next press, so publish reads each encoded "
+        "clip's last frame, runs the tape's eye on it against the state the clip lands on, and compares it with that "
+        "state's picture. A check that passed on the key and fails on this frame means the encoding lost what the "
+        "check needs. Publish leaves dist/ and the lock as they were.",
+        "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where TapePlayer rests on todo(), fails 2 "
+        "checks its key passed, the first VT501 Back: not found",
+        "fix: retake the shot, whose next take may come through the encoding, then publish again:\n"
+        "videotape retake \"home() -> todo()\" --story starter",
     ),
 }
 
@@ -289,7 +421,7 @@ class RenderError(Exception):
 
 def explain(code: str) -> str:
     entry = CODES[code]
-    what = "Next" if code >= "VT400" else "Fix"
+    what = "Next" if "VT400" <= code < "VT600" else "Fix"
     return (f"{code}: {entry.title}\n\n{entry.long}\n\nExample:\n{_indented(entry.example)}\n\n"
             f"{what}:\n{_indented(entry.fix)}")
 

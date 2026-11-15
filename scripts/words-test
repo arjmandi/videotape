@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""Ask Claude where videotape names a concept by another word than the README's words section gives it.
+
+    uv run scripts/words-test --cap-usd 1 [--record response.json]
+
+One call sends the words section of README.md, every help text of the videotape command, and every error message in
+the videotape package to claude-opus-5-5. It asks for each place that names a concept by another word than the
+section gives it, or gives a word of the section another meaning. The answer, the model, the tokens and the cost go
+to words-test.md at the repository's root, and the call's tokens and cost to one line of its ledger.jsonl.
+
+The call is paid. The script first counts the request's input tokens with the token counting endpoint, which is free,
+and calls only when --cap-usd is given and the estimate, those tokens and the most output the request allows, is under
+the cap. ANTHROPIC_API_KEY comes from the environment or the repository's .env, and is never printed. It runs in the
+repository's environment, since it reads videotape's command and errors.
+
+The Messages API over plain HTTP (platform.claude.com/docs/en/api/messages): POST https://api.anthropic.com/v1/messages
+and /v1/messages/count_tokens with the headers x-api-key and anthropic-version. This model always thinks, and its
+thinking is billed as output tokens. The model is pinned, so the request names no fallback model, and a refusal fails.
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+import os
+import re
+import sys
+import urllib.error
+import urllib.request
+from collections.abc import Callable, Iterator
+from dataclasses import dataclass
+from pathlib import Path
+from unittest import mock
+
+from videotape import cli, errors, ledger, project
+
+ROOT = Path(__file__).resolve().parent.parent
+README = ROOT / "README.md"
+PACKAGE = ROOT / "videotape"
+REPORT = ROOT / "words-test.md"
+LEDGER = ROOT / "ledger.jsonl"
+ENV = ROOT / ".env"
+WORDS = "## The words Videotape uses"
+
+API = "https://api.anthropic.com/v1/messages"
+COUNT = f"{API}/count_tokens"
+VERSION = "2026-10-21"
+MODEL = "claude-opus-5-5"
+MAX_TOKENS = 24000
+# This model's default, set so that a change of default does not change the test.
+EFFORT = "medium"
+# Dollars for a million tokens of claude-opus-5-5 on the Claude API, from Anthropic's model table as of 2026-10-06.
+# The request asks for no caching, so input and output tokens are the whole bill.
+USD_PER_MILLION = {"input_tokens": 4.00, "output_tokens": 20.00}
+WIDTH = 120
+
+ASK = """Below are three things from videotape, a framework for writing an app as a screenplay that a video model \
+renders into a tape. First, the words section of its guide, which gives each concept of the framework one word and \
+each word one meaning. Second, every help text of its videotape command. Third, every error message its package can \
+print or raise, each after the file and line it is at, with {{...}} where the message takes a value.
+
+List each place in the help texts and the error messages that names a concept of the words section by another word \
+than the section gives it, or that uses a word of the section with another meaning. For each, give the place, its \
+words, the word the section gives that concept, and the place's words rewritten with that word. Group the places by \
+the section's word. Leave out a name that the code defines, such as a flag, a setting, a field, or a file name. Say \
+nothing about style, and nothing about the words section itself. If no place does this, say so.
+
+<words>
+{words}
+</words>
+
+<help>
+{helps}
+</help>
+
+<errors>
+{messages}
+</errors>"""
+
+Send = Callable[[urllib.request.Request], bytes]
+
+
+class WordsTestError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Reply:
+    """What the call answered: its text, the model that wrote it, the tokens it billed, why it stopped, and the raw
+    response."""
+
+    text: str
+    model: str
+    tokens: dict[str, int]
+    stop: str
+    raw: dict
+
+    @property
+    def usd(self) -> float:
+        return price(self.tokens)
+
+    def spent(self) -> str:
+        return (f"{self.model}: {self.tokens['input_tokens']:,} input tokens, {self.tokens['output_tokens']:,} output "
+                f"tokens, ${self.usd:.4f}")
+
+
+def price(tokens: dict[str, int]) -> float:
+    return sum(tokens[kind] * usd for kind, usd in USD_PER_MILLION.items()) / 1_000_000
+
+
+def _urlopen(request: urllib.request.Request) -> bytes:
+    with urllib.request.urlopen(request, timeout=900) as response:
+        return response.read()
+
+
+def words(readme: str) -> str:
+    """The README's words section, from its heading to the next heading of its level or the end."""
+    section = re.search(rf"^{re.escape(WORDS)}\n(.*?)(?=^## |\Z)", readme, re.M | re.S)
+    if not section or not section.group(1).strip():
+        raise WordsTestError(f'{README} has no section under "{WORDS}"')
+    return section.group(1).strip()
+
+
+class _Built(Exception):
+    pass
+
+
+def parser() -> argparse.ArgumentParser:
+    """videotape's parser as its main builds it, caught where main would parse the command line."""
+    def caught(self: argparse.ArgumentParser, *args: object, **kwargs: object) -> None:
+        raise _Built(self)
+    with mock.patch.object(argparse.ArgumentParser, "parse_args", caught):
+        try:
+            cli.main([])
+        except _Built as built:
+            return built.args[0]
+    raise WordsTestError("videotape's main returned without parsing its command line")
+
+
+def helps() -> list[str]:
+    """The help text of the videotape command and of each of its commands, as --help prints them."""
+    top = parser()
+    commands = [action.choices for action in top._actions if isinstance(action, argparse._SubParsersAction)]
+    texts = []
+    for command in [top, *(choice for found in commands for choice in found.values())]:
+        command.formatter_class = lambda prog: argparse.HelpFormatter(prog, width=WIDTH)
+        texts.append(command.format_help().strip())
+    return texts
+
+
+def _messages(path: Path) -> Iterator[tuple[int, str]]:
+    """Each call in a file that is raised, or that makes an error or one of doctor's checks, with its line and the
+    arguments that hold words, as the source writes them."""
+    source = path.read_text()
+    tree = ast.parse(source)
+    raised = {id(node.exc) for node in ast.walk(tree) if isinstance(node, ast.Raise) and node.exc is not None}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = node.func.id if isinstance(node.func, ast.Name) else getattr(node.func, "attr", "")
+        if id(node) not in raised and not (name.endswith("Error") or name == "Check"):
+            continue
+        said = [ast.get_source_segment(source, argument) or "" for argument in
+                [*node.args, *(keyword.value for keyword in node.keywords)]
+                if any(isinstance(part, ast.Constant) and isinstance(part.value, str) and part.value.strip()
+                       for part in ast.walk(argument))]
+        if said:
+            yield node.lineno, f"{name}: {' / '.join(said)}"
+
+
+def messages() -> list[str]:
+    """Every code's long form as videotape explain prints it, then every message the package raises or makes as an
+    error, file by file in line order."""
+    raised = [f"{path.relative_to(ROOT).as_posix()}:{line} {said}" for path in sorted(PACKAGE.rglob("*.py"))
+              for line, said in sorted(_messages(path))]
+    return [*(errors.explain(code) for code in errors.CODES), *raised]
+
+
+def request() -> dict:
+    content = ASK.format(words=words(README.read_text()), helps="\n\n".join(helps()), messages="\n\n".join(messages()))
+    return {"model": MODEL, "max_tokens": MAX_TOKENS, "output_config": {"effort": EFFORT},
+            "messages": [{"role": "user", "content": content}]}
+
+
+def _post(url: str, body: dict, key: str, send: Send, what: str) -> dict:
+    """One request, sent once. The key goes only into the x-api-key header, and is scrubbed from any error."""
+    asked = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
+        "Content-Type": "application/json", "x-api-key": key, "anthropic-version": VERSION})
+    try:
+        answered = send(asked)
+    except urllib.error.HTTPError as error:
+        failure = f"{what} failed with HTTP {error.code}: {error.read().decode(errors='replace')[:500]}"
+        raise WordsTestError(failure.replace(key, "<ANTHROPIC_API_KEY>")) from None
+    except OSError as error:
+        raise WordsTestError(f"{what} failed: {error}".replace(key, "<ANTHROPIC_API_KEY>")) from None
+    try:
+        raw = json.loads(answered)
+    except ValueError:
+        raise WordsTestError(f"{what} answered with something other than JSON: {answered[:300]!r}") from None
+    if not isinstance(raw, dict):
+        raise WordsTestError(f"{what} answered with something other than an object: {answered[:300]!r}")
+    return raw
+
+
+def counted(body: dict, key: str, send: Send) -> int:
+    """The request's input tokens, from the token counting endpoint, which is free."""
+    raw = _post(COUNT, {"model": body["model"], "messages": body["messages"]}, key, send, "the count")
+    tokens = raw.get("input_tokens")
+    if isinstance(tokens, bool) or not isinstance(tokens, int):
+        raise WordsTestError(f"the count answered without input_tokens: {json.dumps(raw)[:300]}")
+    return tokens
+
+
+def call(body: dict, key: str, send: Send) -> Reply:
+    """The paid call. A reply that billed tokens is returned whole or not, so that its cost reaches the ledger."""
+    raw = _post(API, body, key, send, "the call")
+    try:
+        tokens = {kind: int(raw["usage"][kind]) for kind in USD_PER_MILLION}
+        text = "".join(block["text"] for block in raw["content"] if block["type"] == "text").strip()
+        return Reply(text, raw["model"], tokens, raw["stop_reason"], raw)
+    except (KeyError, TypeError, ValueError):
+        raise WordsTestError(f"the call answered with something other than a message: {json.dumps(raw)[:300]}") from None
+
+
+def report(reply: Reply) -> str:
+    return (f"# Words test\n\n`scripts/words-test` sent the words section of `README.md`, every help text of the "
+            f"`videotape` command, and every error message in the `videotape` package to {reply.model}. It asked for "
+            f"each place that names a concept by another word than the words section gives it, or gives a word of the "
+            f"section another meaning.\n\n## The places\n\n{reply.text}\n\n## Tokens and cost\n\n- {reply.spent()}\n")
+
+
+def main(argv: list[str] | None = None, send: Send = _urlopen) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--cap-usd", type=float, help="the most the call may spend; the script calls only when its "
+                        "estimate is under this")
+    parser.add_argument("--record", help="also write the raw response to this JSON file")
+    args = parser.parse_args(argv)
+    project.load_keys(ENV)
+    key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        print(f"error: ANTHROPIC_API_KEY is not set, in the environment or in {ENV}", file=sys.stderr)
+        return 1
+    # http.client rejects a header with a control character by quoting the whole header, key and all, in its error.
+    if not key.isprintable():
+        print("error: ANTHROPIC_API_KEY holds a character an HTTP header cannot carry, such as a line break", file=sys.stderr)
+        return 1
+    if args.cap_usd is None:
+        print("error: the words test makes a paid call; pass --cap-usd with the most it may spend", file=sys.stderr)
+        return 1
+    try:
+        body = request()
+        tokens = counted(body, key, send)
+        most = price({"input_tokens": tokens, "output_tokens": MAX_TOKENS})
+        print(f"estimate  {tokens:,} input tokens and at most {MAX_TOKENS:,} output tokens, at most ${most:.4f}, "
+              f"cap ${args.cap_usd:.2f}", flush=True)
+        if most >= args.cap_usd:
+            raise WordsTestError(f"the estimate of ${most:.4f} is not under the cap of ${args.cap_usd:.2f}, so nothing "
+                                 "was sent")
+        reply = call(body, key, send)
+        with LEDGER.open("a") as file:
+            file.write(json.dumps({"kind": "words-test", "model": reply.model, "tokens": reply.tokens,
+                                   "usd": round(reply.usd, 6), "at": ledger.now()}, sort_keys=True) + "\n")
+        if args.record:
+            Path(args.record).write_text(json.dumps(reply.raw, indent=2) + "\n")
+        if reply.stop != "end_turn" or not reply.text:
+            raise WordsTestError(f"the call stopped with {reply.stop!r} after {len(reply.text)} characters of text, not "
+                                 f"a whole answer; it cost ${reply.usd:.4f}")
+    except WordsTestError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
+    REPORT.write_text(report(reply))
+    shown = os.path.relpath(REPORT) if REPORT.is_relative_to(Path.cwd()) else REPORT
+    print(f"call      {reply.spent()} -> {shown}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

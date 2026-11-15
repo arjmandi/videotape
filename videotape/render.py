@@ -22,7 +22,7 @@ from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
-from videotape.publish import partial, publish
+from videotape.atomic import partial, write_atomically
 from videotape.screenplay import State
 from videotape.standin import StandInError
 from videotape.story import Prompt, Story, prompt, text
@@ -110,7 +110,8 @@ class Budget:
                 raise RenderError("VT402", place, f"the next call would pass the cap of ${self.cap:.2f}, with "
                                   f"${self.spent:.2f} spent on this tape and ${self.reserved:.2f} reserved for the "
                                   f"calls in flight, at the listed price of ${self.price.usd:.2f} a call",
-                                  f"raise the cap and run the render again, which resumes:\n{resume}")
+                                  f"run the render again with a higher cap, which resumes, as in:\n"
+                                  f"{_without_cap(resume)} --cap-usd {self.cap + max(self.cap, self.price.usd):.2f}")
             self.reserved += self.price.usd
 
     def settle(self, line: dict, reserved: bool) -> bool:
@@ -127,6 +128,11 @@ class Budget:
 
     def _holds(self, request_id: str | None) -> bool:
         return bool(request_id) and any(line.get("request_id") == request_id for line in self.ledger.lines())
+
+
+def _without_cap(command: str) -> str:
+    """The resume command without the cap it ran under, which the next step raises."""
+    return command.partition(" --cap-usd ")[0]
 
 
 @dataclass(frozen=True)
@@ -224,9 +230,9 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
                       ledger.totals())
         raise stopped
     opening = result.keys[0].kept
-    publish(tape / "moves" / "opening.mp4", lambda out: shutil.copyfile(opening.path, out))
+    write_atomically(tape / "moves" / "opening.mp4", lambda out: shutil.copyfile(opening.path, out))
     manifest = {**_manifest(plan, result), "made": made}
-    publish(tape / "tape.json", lambda out: out.write_text(json.dumps(manifest, indent=2) + "\n"))
+    write_atomically(tape / "tape.json", lambda out: out.write_text(json.dumps(manifest, indent=2) + "\n"))
     dailies.write(tape, dailies.record(plan.title, eye.name, result, story, ledger.tape, corrupt, takes), ledger.totals())
     return result
 
@@ -253,7 +259,7 @@ def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes
     filmed = _film_shot(shared, key, clauses, seeds, retakes, lambda seed, out: shared.model.text_to_video(words, seed, out),
                         (), lambda path: score(frames.last_frame(path), key, shared.eye))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
-    publish(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
+    write_atomically(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
     return filmed
 
 
@@ -264,7 +270,7 @@ def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], reta
     filmed = _film_shot(shared, move, clauses, seeds, retakes,
                         lambda seed, out: shared.model.first_last_frame(words, start, end, seed, out), (start, end),
                         lambda path: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
-    publish(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
+    write_atomically(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
     return filmed
 
 
@@ -380,7 +386,7 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
     if reserved:
         shared.budget.reserve(place, shared.resume)
         try:
-            receipt = publish(path, lambda out: film(seed, out))
+            receipt = write_atomically(path, lambda out: film(seed, out))
         except (FalError, WanError, StandInError) as error:
             raise _failed(error, place, shared.resume) from None
     filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": shared.model.device}
@@ -389,7 +395,7 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
     written = shared.budget.settle({"kind": "take", "at": now(), "model": shared.model.name, "shot": shot.title,
                                     "mode": shot.mode.value, "seed": seed, **filmed}, reserved)
     response = {"response": receipt.response} if receipt else {}
-    publish(timing, lambda out: out.write_text(json.dumps({**filmed, **response}) + "\n"))
+    write_atomically(timing, lambda out: out.write_text(json.dumps({**filmed, **response}) + "\n"))
     return not written, {**filmed, **response}
 
 
@@ -402,7 +408,7 @@ def _shape(result: Render) -> Shape:
     """The one size and frame rate every kept clip shares, which the player sizes its window to."""
     shapes = {filmed.kept.path: frames.shape(filmed.kept.path) for filmed in result.shots}
     if len(set(shapes.values())) > 1:
-        raise FfmpegError("the kept clips differ in size or frame rate, so no one window plays them: " +
+        raise FfmpegError("the kept takes differ in size or frame rate, so no one window plays them: " +
                           ", ".join(f"{path.name} {s.width}x{s.height} at {s.fps} fps" for path, s in shapes.items()))
     return next(iter(shapes.values()))
 

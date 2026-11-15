@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
@@ -12,15 +12,21 @@ from videotape.standin import StandIn, StandInEye
 from videotape.wan import Wan
 
 
-class Model(Protocol):
+class Kind(Protocol):
+    """A model's name and settings, which is all a tape's made block reads of it. A model's class gives both without
+    being built, so publish can say what made a tape without a model's key or GPU."""
+
     name: str
-    device: str
-    # Set for a model that bills per call, so a render can say what it will spend before it spends it.
-    price: Price | None
 
     def settings(self, mode: Mode) -> dict:
         """The generation settings a take depends on beyond its mode, prompt, images and seed. They go into the take's cache key."""
         ...
+
+
+class Model(Kind, Protocol):
+    device: str
+    # Set for a model that bills per call, so a render can say what it will spend before it spends it.
+    price: Price | None
 
     # A model that bills per call returns its receipt. A model on a GPU that bills by the hour returns None.
     def text_to_video(self, prompt: str, seed: int, out: Path) -> Receipt | None: ...
@@ -46,8 +52,8 @@ class PromptLimit:
 @dataclass(frozen=True)
 class Listing:
     """A model a render can name, and the eye that checks its keys. The eye is given the tape it may cache in. The
-    prompt limit, the price and the limit on calls at once are here, and not on the model, so a plan can read them
-    without building the model."""
+    model's class, the prompt limit, the price and the limit on calls at once are here, and not on the model, so a plan
+    or a publish can read them without building the model."""
 
     model: Callable[[], Model]
     eye: Callable[[Path], Eye]
@@ -56,16 +62,24 @@ class Listing:
     """What one call costs, for a model that bills per call."""
     limit: int = 1
     """How many shots the model films at once."""
+    key: str | None = None
+    """The environment variable that holds the key a model run as a service needs. The environment or the project's
+    .env sets it."""
+    kind: Kind = field(kw_only=True)
+    """The model's class, whose name and settings a tape's made block reads. Building wan3.0 needs its key, and
+    building wan2.2-5b a CUDA GPU."""
 
 
 MODELS: dict[str, Listing] = {
-    "stand-in": Listing(StandIn, lambda tape: StandInEye(), limit=8),
+    "stand-in": Listing(StandIn, lambda tape: StandInEye(), limit=8, kind=StandIn),
     # One GPU on one pod draws one take at a time.
-    "wan2.2-5b": Listing(Wan, QwenEye, PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens), limit=1),
+    "wan2.2-5b": Listing(Wan, QwenEye, PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens), limit=1,
+                         kind=Wan),
     # fal.ai/docs/documentation/model-apis/concurrency-limits, read 2026-11-14: "Every new account starts with a
     # concurrency limit of 2 concurrent requests."
     "wan3.0": Listing(wan3.from_environment, QwenEye,
-                      PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2),
+                      PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2,
+                      key="FAL_KEY", kind=wan3.Wan3),
 }
 
 

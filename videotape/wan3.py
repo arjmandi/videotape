@@ -9,7 +9,7 @@ from pathlib import Path
 
 from videotape.fal import Fal, FalError, Price, Receipt
 from videotape.plan import Mode
-from videotape.publish import publish
+from videotape.atomic import write_atomically
 
 # fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-10: Wan30TextToVideoInput and
 # Wan30ImageToVideoInput, whose start_image_url is the "First frame of the generated video" and end_image_url the
@@ -65,7 +65,7 @@ def bill(response: dict) -> tuple[str, Receipt]:
     try:
         url, duration = result["video"]["url"], float(result["duration"])
     except (KeyError, TypeError, ValueError):
-        raise FalError(f"request {submitted['request_id']} answered without a video and its duration: {result}") from None
+        raise FalError(f"request {submitted['request_id']} answered without video.url and duration: {result}") from None
     return url, Receipt(submitted["request_id"], duration, round(duration * PRICE.usd_per_second, 4), response)
 
 
@@ -101,7 +101,7 @@ class Wan3:
             return receipt
         record = request_record(out)
         submitted = {"endpoint": built.endpoint, **self.fal.submit(built.endpoint, built.arguments)}
-        publish(record, lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
+        write_atomically(record, lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
         return self._fetch(record, submitted, out)
 
     def _fetch(self, record: Path, submitted: dict, out: Path) -> Receipt:
@@ -115,13 +115,13 @@ class Wan3:
 
 def request_record(out: Path) -> Path:
     """Where a take's submitted request is recorded: beside the take, under the take's name. A render films a take
-    into <name>.partial.mp4 and publishes it as <name>.mp4, so the record goes by the name before the first dot."""
+    into <name>.partial.mp4 and moves it into place as <name>.mp4, so the record goes by the name before the first dot."""
     return out.with_name(f"{out.name.partition('.')[0]}.request.json")
 
 
 def from_environment() -> Wan3:
     if not (key := os.environ.get("FAL_KEY", "").strip()):
-        raise FalError("wan3.0 needs FAL_KEY in the environment")
+        raise FalError("wan3.0 needs FAL_KEY in the environment or the project's .env")
     # http.client rejects a header with a control character by quoting the whole header, key and all, in its error.
     if not key.isprintable():
         raise FalError("FAL_KEY holds a character an HTTP header cannot carry, such as a line break")

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from videotape.checks import ChecksError, Spot
 from videotape.frames import Box, Frame
-from videotape.publish import publish
+from videotape.atomic import write_atomically
 
 MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
 PROMPT = ('Find every piece of text in this image. Answer with a JSON array and nothing else. '
@@ -15,6 +15,15 @@ PROMPT = ('Find every piece of text in this image. Answer with a JSON array and 
           'Copy each text exactly, keeping its case and punctuation. Give each separate line or label its own element. '
           'For a button, bbox_2d covers the whole button, not only its text.')
 MAX_NEW_TOKENS = 1024
+ADD_EXTRA = ('in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
+             'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync')
+"""How a project adds videotape's qwen extra, whichever source its videotape dependency names: a folder, a git
+commit, or a version on an index."""
+
+
+def installed() -> bool:
+    """Whether videotape's qwen extra is installed: torch and transformers, which run Qwen3-VL-8B."""
+    return find_spec("torch") is not None and find_spec("transformers") is not None
 
 
 def spots(reply: str, width: int, height: int) -> tuple[Spot, ...]:
@@ -57,9 +66,9 @@ class QwenEye:
     name = "qwen3-vl-8b"
 
     def __init__(self, tape: Path):
-        if find_spec("torch") is None or find_spec("transformers") is None:
-            raise ChecksError("qwen3-vl-8b checks this model's keys and needs videotape's qwen extra, which is not "
-                              "installed here; install videotape[qwen]")
+        if not installed():
+            raise ChecksError("qwen3-vl-8b, this model's eye, needs videotape's qwen extra, which is not installed "
+                              f"here; {ADD_EXTRA}")
         self.looks = tape / "looks"
         self.qwen: _Qwen | None = None
 
@@ -70,7 +79,7 @@ class QwenEye:
             self.qwen = self.qwen or _Qwen()
             reply = self.qwen.ask(frame)
             self.looks.mkdir(parents=True, exist_ok=True)
-            publish(path, lambda partial: partial.write_text(json.dumps({"model": MODEL_ID, "reply": reply}, indent=2) + "\n"))
+            write_atomically(path, lambda partial: partial.write_text(json.dumps({"model": MODEL_ID, "reply": reply}, indent=2) + "\n"))
         return spots(json.loads(path.read_text())["reply"], frame.width, frame.height)
 
 

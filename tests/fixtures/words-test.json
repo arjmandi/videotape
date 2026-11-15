@@ -1,0 +1,30 @@
+{
+  "count": {
+    "input_tokens": 14210
+  },
+  "answer": {
+    "id": "msg_01WordsTestAnswer00000000",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-opus-5-5",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "",
+        "signature": "EqoBCkgIBxABGAIiQL0aZ2VuZXJpYy1zaWduYXR1cmU="
+      },
+      {
+        "type": "text",
+        "text": "## take\n\n- `videotape/cli.py` help of `render`: \"the most takes a shot gets\" uses take as the section does.\n\n## key\n\n- `videotape/errors.py` VT104: \"a key the project's model needs is not set\" names an API key by the word key. Rewrite: \"an API key the project's model needs is not set\".\n"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "stop_sequence": null,
+    "usage": {
+      "input_tokens": 14210,
+      "output_tokens": 6120,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0
+    }
+  }
+}

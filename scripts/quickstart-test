@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Run the quickstart from an empty folder, the way a developer on a new machine does, and time each step.
+
+    scripts/quickstart-test [--skip-play] [--keep]
+
+The steps run in a new temporary folder, with a uv cache and a videotape cache of their own, so nothing built before
+helps them: uvx builds videotape from this checkout, uv run builds it again for the project, and play builds
+TapePlayer. Then publish makes the tape into an app in dist/, which is not one of the steps to a played tape. The
+report gives each step's wall time, and TapePlayer's first build apart, read from the "built TapePlayer in <s> s" line
+of the step that built it. The test fails when a step fails, when more than 5 steps lead to a played tape, or when
+they take more than 5 minutes without that build.
+
+doctor may fail VT104 when FAL_KEY is unset, and VT105 for videotape's qwen extra, which the starter's project leaves
+out, since the starter renders with wan3.0 by default; any other fail fails the test. play opens TapePlayer on the
+screen, and the test quits it by its bundle id once it runs. --skip-play skips play, and publish builds TapePlayer
+instead. --keep keeps the folder and prints where it is. Standard library only.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import shlex
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from dataclasses import dataclass
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+PLAY = "uv run videotape play --story starter"
+STEPS = [
+    "uvx --from {repo} videotape new contrail",
+    "cd contrail",
+    "uv run videotape doctor",
+    "uv run videotape render --story starter --model stand-in",
+    PLAY,
+    "uv run videotape publish --story starter",
+]
+TO_A_PLAYED_TAPE = STEPS.index(PLAY) + 1
+MOST_STEPS = 5
+MOST_SECONDS = 300
+BUNDLE = "dev.videotape.TapePlayer"
+
+
+@dataclass(frozen=True)
+class Ran:
+    step: str
+    seconds: float
+    code: int
+    said: str
+
+
+def passed(ran: Ran) -> bool:
+    """Whether a step did what the quickstart needs. doctor may fail only VT104, the key the starter's model needs, and
+    VT105 for the qwen extra its eye needs, not for a GPU."""
+    if ran.step == "uv run videotape doctor" and ran.code == 1:
+        failed = re.findall(r"^fail (VT\d{3}) (.*)$", ran.said, re.M)
+        return bool(failed) and all(code == "VT104" or (code == "VT105" and "videotape's qwen extra" in what)
+                                    for code, what in failed)
+    return ran.code == 0
+
+
+def first_build(ran: Ran) -> float:
+    """How long TapePlayer's first build took, from the line play or publish prints after it, or 0 when it built nothing."""
+    built = re.search(r"^built TapePlayer in ([\d.]+) s$", ran.said, re.M)
+    return float(built.group(1)) if built else 0.0
+
+
+def command(step: str) -> str:
+    """The step as a shell would run it, with this checkout's path quoted, since it may hold a space."""
+    return step.format(repo=shlex.quote(str(ROOT)))
+
+
+def run(step: str, folder: Path, environment: dict[str, str]) -> Ran:
+    """Run one step in the folder, echoing what it prints as it prints it."""
+    print(f"$ {command(step)}", flush=True)
+    started, said = time.monotonic(), []
+    with subprocess.Popen(shlex.split(command(step)), cwd=folder, env=environment, text=True,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
+        assert process.stdout is not None
+        for line in process.stdout:
+            print(f"  {line}", end="", flush=True)
+            said.append(line)
+    return Ran(step, time.monotonic() - started, process.returncode, "".join(said))
+
+
+def quit_player() -> bool:
+    """Wait up to 30 s for TapePlayer to run, then quit it by its bundle id. False when it never ran."""
+    for _ in range(60):
+        asked = subprocess.run(["osascript", "-e", f'return application id "{BUNDLE}" is running'],
+                               capture_output=True, text=True)
+        if asked.stdout.strip() == "true":
+            subprocess.run(["osascript", "-e", f'tell application id "{BUNDLE}" to quit'], check=True)
+            return True
+        time.sleep(0.5)
+    return False
+
+
+def report(ran: list[Ran], seconds: float, skipped: bool) -> list[str]:
+    width = max(len(command(r.step)) for r in ran)
+    lines = [f"{'step':<{width}}  seconds"]
+    for r in ran:
+        built = f"  TapePlayer's first build {first_build(r):.1f} s" if first_build(r) else ""
+        lines.append(f"{command(r.step):<{width}}  {r.seconds:7.1f}{built}")
+    return [*lines, "", f"{TO_A_PLAYED_TAPE} steps to a played tape, at most {MOST_STEPS}",
+            f"{seconds:.1f} s to a {'rendered' if skipped else 'played'} tape without TapePlayer's first build, at "
+            f"most {MOST_SECONDS} s"]
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--skip-play", action="store_true", help="skip play, which opens TapePlayer on the screen")
+    parser.add_argument("--keep", action="store_true", help="keep the temporary folder, and print where it is")
+    args = parser.parse_args(argv)
+    scratch = Path(tempfile.mkdtemp(prefix="quickstart-"))
+    folder = scratch / "empty"
+    folder.mkdir()
+    environment = {key: value for key, value in os.environ.items()
+                   if key not in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")}
+    environment |= {"UV_CACHE_DIR": str(scratch / "uv-cache"), "VIDEOTAPE_CACHE_DIR": str(scratch / "videotape-cache")}
+    steps = [step for step in STEPS if not (args.skip_play and step == PLAY)]
+    ran: list[Ran] = []
+    try:
+        for step in steps:
+            if step.startswith("cd "):
+                folder = folder / step.removeprefix("cd ")
+                ran.append(Ran(step, 0.0, 0, ""))
+                continue
+            ran.append(run(step, folder, environment))
+            if not passed(ran[-1]):
+                print(f"FAIL {step} exited with {ran[-1].code}", file=sys.stderr)
+                return 1
+            if step == PLAY and not quit_player():
+                print(f"FAIL {step} exited, and TapePlayer ({BUNDLE}) did not run within 30 s", file=sys.stderr)
+                return 1
+    finally:
+        if args.keep:
+            print(f"kept {scratch}")
+        else:
+            shutil.rmtree(scratch, ignore_errors=True)
+    build = next((first_build(r) for r in ran if r.step == PLAY), 0.0)
+    seconds = sum(r.seconds for r in ran if STEPS.index(r.step) < TO_A_PLAYED_TAPE) - build
+    print("\n" + "\n".join(report(ran, seconds, args.skip_play)))
+    if TO_A_PLAYED_TAPE > MOST_STEPS or seconds > MOST_SECONDS:
+        print(f"FAIL the quickstart is over its budget of {MOST_STEPS} steps and {MOST_SECONDS} s", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

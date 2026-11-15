@@ -223,7 +223,7 @@ def test_shots_without_a_state_prints_every_shot_of_the_plan():
     (("render", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--model", "wan3.0"), 1,
-     "error: --model checks a story's prompts against that model, so pass --story with it\n"),
+     "error: --model sets the prompt limit for a story's prompts, so pass --story with it\n"),
 ])
 def test_a_story_or_a_state_the_project_does_not_have_is_named_with_the_ones_it_has(arguments, code, error):
     result = videotape(CONTRAIL, *arguments)
@@ -273,7 +273,7 @@ def test_a_table_that_holds_something_other_than_words_is_vt306_at_its_line(tmp_
     with pytest.raises(vt.ScreenplayError) as error:
         story.load(file)
     assert (error.value.code, error.value.place.rpartition(":")[2]) == ("VT306", "3")
-    assert error.value.message == "scenes is ['home'], not a [scenes] table"
+    assert error.value.message == "scenes is ['home'], not a [scenes] section"
     file.write_text('version = 1.0\nlook = "A plain room."\n')
     with pytest.raises(vt.ScreenplayError) as error:
         story.load(file)
@@ -292,7 +292,7 @@ def test_a_story_that_quotes_words_is_vt308_at_the_line_that_quotes_them(tmp_pat
         story.load(file)
     assert (error.value.code, error.value.place.rpartition(":")[2]) == ("VT308", str(line + 1))
     assert error.value.message.endswith(f"quotes {quoted}")
-    assert error.value.fix == "take the quotes out; the screenplay owns every word on screen, so describe their look"
+    assert error.value.fix == "remove the quotes; the screenplay owns every word on screen, so describe how they look"
 
 
 def test_contrails_stories_and_the_cafes_quote_nothing():

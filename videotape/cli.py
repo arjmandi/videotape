@@ -7,7 +7,7 @@ from collections import Counter
 from difflib import get_close_matches
 from pathlib import Path
 
-from videotape import dailies, errors, ledger, player, project, story
+from videotape import dailies, doctor, errors, ledger, new, player, project, publish, story
 from videotape.checks import ChecksError
 from videotape.errors import CODES, RenderError, ScreenplayError
 from videotape.fal import FalError
@@ -29,8 +29,6 @@ def _planned(found: Project) -> Plan:
 def _listing(found: Project, named: str | None) -> Listing | None:
     """The model a command names, or else the project's, or none when neither names one."""
     name = named or found.model
-    if name is not None and name not in MODELS:
-        raise ProjectError(f'[tool.videotape] sets model = "{name}", and the models are {", ".join(sorted(MODELS))}')
     return MODELS[name] if name else None
 
 
@@ -53,7 +51,7 @@ def _warn(warnings: tuple[ScreenplayError, ...]) -> None:
 def plan_app(args) -> int:
     found = project.find(Path.cwd())
     if args.model and not args.story:
-        raise ProjectError("--model checks a story's prompts against that model, so pass --story with it")
+        raise ProjectError("--model sets the prompt limit for a story's prompts, so pass --story with it")
     planned, listing = _planned(found), _listing(found, args.model)
     warnings, in_story = planned.warnings, ""
     if args.story:
@@ -107,6 +105,22 @@ def print_shots(args) -> int:
     print("\n\n".join("\n".join([shot.title, *(f"  {str(clause.source):<{width}}  {clause.text}" for clause in clauses)])
                       for shot, clauses in prompts))
     return 0
+
+
+def new_project(args) -> int:
+    folder = new.project(args.name, Path.cwd())
+    print(f"made {errors.shown(folder)}: a screenplay of two scenes, a data table, and the story starter\nnext:")
+    for step in (f"cd {shlex.quote(errors.shown(folder))}", "uv run videotape doctor",
+                 "uv run videotape render --story starter --model stand-in", "uv run videotape play --story starter"):
+        print(f"  {step}")
+    return 0
+
+
+def doctor_checks(args) -> int:
+    results = doctor.checks(Path.cwd())
+    for check in results:
+        print(check)
+    return 0 if all(check.ok for check in results) else 1
 
 
 def explain(args) -> int:
@@ -212,7 +226,8 @@ def retake(args) -> int:
 
 
 def accept(args) -> int:
-    """Record an accepted failure in the tape's record, when the shot fails with that code."""
+    """Record an accepted failure in the tape's record, when the shot fails with that code. The accept holds for the
+    shot's kept take, the one the person looked at."""
     found = project.find(Path.cwd())
     planned = _planned(found)
     shots = _shots_named(planned, args.shot, "state or move")
@@ -230,12 +245,12 @@ def accept(args) -> int:
         print(f"{shot.title} does not fail {args.code}" + (f"; it fails {', '.join(codes)}" if codes else "; it passes")
               + ", so nothing is recorded")
         return 1
-    accepted = {"shot": shot.title, "code": args.code, "reason": args.reason, "at": ledger.now()}
+    accepted = {"shot": shot.title, "code": args.code, "reason": args.reason, "at": ledger.now(),
+                "seed": failing[0]["take"], "clip": failing[0]["clip"]}
     others = [a for a in record.get("accepted", []) if (a["shot"], a["code"]) != (shot.title, args.code)]
     record["accepted"] = [*others, accepted]
-    for failure in record["failures"]:
-        if (failure["shot"], failure["code"]) == (shot.title, args.code):
-            failure["accepted"] = {"reason": args.reason, "at": accepted["at"]}
+    for failure in failing:
+        failure.update(dailies.verdict(record["accepted"], shot.title, args.code, failure["clip"]))
     dailies.write(tape, record, ledger.of(found.root, tape).totals())
     print(f"accepted {args.code} on {shot.title}: {args.reason}")
     return 0
@@ -245,7 +260,7 @@ def rewrite_dailies(args) -> int:
     found = project.find(Path.cwd())
     tape = _tape(found, args.story, args.out)
     if not (tape / "dailies.json").is_file():
-        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the screenplay first")
+        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the story first")
     dailies.write(tape, dailies.read(tape), ledger.of(found.root, tape).totals())
     page = tape / "dailies.html"
     print(f"wrote {errors.shown(page)} with {json.dumps(dailies.read(tape)['ledger'])}")
@@ -258,8 +273,17 @@ def play(args) -> int:
     tape = _tape(found, args.story, args.out)
     if not (tape / "tape.json").is_file():
         raise ChecksError(f"no tape.json in {errors.shown(tape)}; render the story first")
-    for command in player.play(tape):
-        print(shlex.join(command))
+    print(shlex.join(player.play(tape)))
+    return 0
+
+
+def publish_app(args) -> int:
+    found = project.find(Path.cwd())
+    done = publish.publish(found, _tape(found, args.story, args.out))
+    print(f"published {errors.shown(done.app)}, {done.size / 1e6:.1f} MB, zipped to {errors.shown(done.zip)}, "
+          f"{done.zip.stat().st_size / 1e6:.1f} MB")
+    print(f"label {done.label}\nid {done.id}")
+    print(f"{publish.LOCK} holds the label now; commit it" if done.locked else f"{publish.LOCK} held the label already")
     return 0
 
 
@@ -267,7 +291,7 @@ def _manifest(tape: str) -> dict:
     """A tape's tape.json, which says what made it."""
     file = Path(tape) / "tape.json"
     if not file.is_file():
-        raise ChecksError(f"no tape.json in {tape}; render the screenplay first")
+        raise ChecksError(f"no tape.json in {tape}; render the story first")
     manifest = json.loads(file.read_text())
     if "made" not in manifest:
         raise ChecksError(f"{file} does not say what made it; render the tape again")
@@ -291,30 +315,38 @@ def diff_tapes(args) -> int:
 def _tape_flags(command: argparse.ArgumentParser, required: bool = True) -> None:
     which = command.add_mutually_exclusive_group(required=required)
     which.add_argument("--story", help="the story whose tape it is, tapes/<story> in the project")
-    which.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
+    which.add_argument("--out", help="the tape's folder, for a tape that render wrote with --out")
 
 
 def _render_flags(command: argparse.ArgumentParser) -> None:
-    command.add_argument("--model", choices=sorted(MODELS), help="the model to render with (default: model in "
-                         "[tool.videotape])")
-    command.add_argument("--cap-usd", type=float, help="the most this render may spend on a model that bills per "
+    command.add_argument("--model", choices=sorted(MODELS), help="the model that films the takes (default: model "
+                         "in [tool.videotape])")
+    command.add_argument("--cap-usd", type=float, help="the most a render may spend on a model that bills per "
                          "call (default: cap_usd in [tool.videotape])")
-    command.add_argument("--out", help="the tape directory to write (default: tapes/<story> in the project)")
+    command.add_argument("--out", help="the folder to write the tape to (default: tapes/<story> in the project)")
 
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="videotape", description="Run in an app's project, the folder whose "
                                      "pyproject.toml names its screenplay in [tool.videotape].")
     commands = parser.add_subparsers(dest="command", required=True)
-    planning = commands.add_parser("plan", help="walk every state the app can reach, before anything renders")
-    planning.add_argument("--story", help="also check this story, which is stories/<story>.toml in the project")
-    planning.add_argument("--model", choices=sorted(MODELS), help="the model whose prompt limit the story is checked "
-                          "against (default: model in [tool.videotape])")
+    planning = commands.add_parser("plan", help="walk every state the app can reach, with the keys and moves a render "
+                                   "films")
+    planning.add_argument("--story", help="also read this story, which is stories/<story>.toml in the project")
+    planning.add_argument("--model", choices=sorted(MODELS), help="the model whose prompt limit the story's prompts "
+                          "must fit (default: model in [tool.videotape])")
     planning.set_defaults(run=plan_app)
     showing = commands.add_parser("shots", help="print every shot's prompt in a story, with the source of each clause")
     showing.add_argument("--story", required=True, help="the story, which is stories/<story>.toml in the project")
     showing.add_argument("--state", help="only this state's key and the moves that leave it, as in \"home()\"")
     showing.set_defaults(run=print_shots)
+    starting = commands.add_parser("new", help="start an app's project in a new folder: a screenplay of two scenes, "
+                                   "a data table, and a story")
+    starting.add_argument("name", help="the project's name, which is its folder's and its Python package's")
+    starting.set_defaults(run=new_project)
+    doctoring = commands.add_parser("doctor", help="say whether this machine has what videotape needs, and in a "
+                                    "project, the API key its model needs and what its eye needs")
+    doctoring.set_defaults(run=doctor_checks)
     explaining = commands.add_parser("explain", help="print an error code's long form, with an example and its fix")
     explaining.add_argument("code", choices=sorted(CODES))
     explaining.set_defaults(run=explain)
@@ -326,29 +358,35 @@ def main(argv=None) -> int:
     _render_flags(rendering)
     rendering.set_defaults(run=render_tape)
     retaking = commands.add_parser("retake", help="film new takes of one shot and keep the best of all its takes")
-    retaking.add_argument("shot", help='a state, as in "home()", or a move, as in "home() -> search()"')
+    retaking.add_argument("shot", help='a key, named by its state as in "home()", or a move, as in '
+                          '"home() -> search()"')
     retaking.add_argument("--story", required=True, help="the story whose tape it is")
     retaking.add_argument("--takes", type=positive, default=1, help="how many new takes to film (default 1)")
     _render_flags(retaking)
     retaking.set_defaults(run=retake)
-    accepting = commands.add_parser("accept", help="record a failing check as accepted, with a reason")
-    accepting.add_argument("shot", help='a state, as in "home()", or a move, as in "home() -> search()"')
+    accepting = commands.add_parser("accept", help="mark a failing check as fine, with a reason")
+    accepting.add_argument("shot", help='a key, named by its state as in "home()", or a move, as in '
+                           '"home() -> search()"')
     accepting.add_argument("code", choices=sorted(code for code in CODES if code[:3] == "VT5"))
     accepting.add_argument("--story", required=True, help="the story whose tape it is")
-    accepting.add_argument("--reason", required=True, help="why this failure is fine")
-    accepting.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
+    accepting.add_argument("--reason", required=True, help="why this failing check is fine")
+    accepting.add_argument("--out", help="the tape's folder, for a tape that render wrote with --out")
     accepting.set_defaults(run=accept)
-    rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies page from its record and the ledger, "
-                                    "and open it")
+    rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies.html from its dailies.json and the "
+                                    "ledger, and open it")
     _tape_flags(rewriting)
     rewriting.set_defaults(run=rewrite_dailies)
     playing = commands.add_parser("play", help="open a tape in TapePlayer, building it first when it needs to")
     _tape_flags(playing)
     playing.set_defaults(run=play)
+    publishing = commands.add_parser("publish", help="make a tape into a Mac app in dist/ that plays it, signed ad hoc "
+                                     "and zipped, and add it to videotape.lock")
+    _tape_flags(publishing)
+    publishing.set_defaults(run=publish_app)
     diffing = commands.add_parser("diff", help="say whether two tapes are of the same app and the same story, and how "
                                   "many states and moves they share")
-    diffing.add_argument("a", help="a tape directory")
-    diffing.add_argument("b", help="another tape directory")
+    diffing.add_argument("a", help="a tape's folder")
+    diffing.add_argument("b", help="another tape's folder")
     diffing.set_defaults(run=diff_tapes)
     args = parser.parse_args(argv)
     try:
