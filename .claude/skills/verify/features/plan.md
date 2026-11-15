@@ -1,12 +1,12 @@
 # Plan
 
-`videotape plan`, run in an app's project, walks every state the app can reach, breadth first from the first scene, before anything renders. It prints one line with the app's title, its version and its counts, then a table with each scene's states and the moves out of them, then `0 errors, N warnings`, then the estimate for the project's model: its name, the shots, the calls from one take each up to `takes` in `[tool.videotape]` (4 unless set), and their price, `free` for a model that bills per call nothing, or a range at the model's price per second. A state is a scene with its arguments. A render draws one key for each state and one move for each action, so the shots are the states plus the moves. With `--story <name>` it checks that story as well, and the first line names the story and its version after the app's. With `--model <name>` it checks the story's prompts against that model's limit and not the project's model's, and the estimate is that model's. A project that names no model gets no estimate line. The plan writes no file.
+`videotape plan`, run in an app's project, walks every state the app can reach, breadth first from the first scene, before anything renders. It prints one line with the app's title, its version and its counts, then a table with each scene's states and the moves out of them, then `0 errors, N warnings`, then the estimate for the project's model: its name, the shots, the calls from one take each up to `takes` in `[tool.videotape]` (4 unless set), and their price, `free` for a model that bills per call nothing, or a range at the model's price per second, one price when `takes` is 1. A state is a scene with its arguments. A render draws one key for each state and one move for each action, so the shots are the states plus the moves. With `--story <name>` it checks that story as well, and the first line names the story and its version after the app's. With `--model <name>` it checks the story's prompts against that model's limit and not the project's model's, and the estimate is that model's. A project that names no model gets no estimate line. The plan writes no file.
 
 ## Sub-features
 
 - `plan-contrail` prints Contrail's 11 scenes, 58 states, 58 keys, 102 moves and 160 shots, then the stand-in's estimate, and exits 0.
 - `plan-story` prints the same table for each of Contrail's stories, under a first line that names the story, with `0 errors, 0 warnings` against every model, and each model's estimate.
-- `plan-readme` prints the same through the README's own command, `uv run videotape plan --story terminal` in `examples/contrail`.
+- `plan-readme` prints the same through the README's own command, `uv run videotape plan` in `examples/contrail`.
 - `plan-subfolder` finds the project from a folder inside it and prints the same.
 - `plan-types` checks the example in pyright's strict mode with `uv run pyright contrail`, with 0 errors.
 - `plan-cafe` prints the cafe fixture's 3 scenes, 5 states and 6 moves in its story, `chalk`.
@@ -14,7 +14,7 @@
 
 ## How to get to it (user POV)
 
-- In `examples/contrail`, run `uv run videotape plan --story terminal`.
+- In `examples/contrail`, run `uv run videotape plan`, or `uv run videotape plan --story terminal` to check a story too.
 - In any project, or a folder inside one, run `videotape plan`, with `--story <name>` to check a story too.
 - In `examples/contrail`, run `uv run pyright contrail` to type-check the screenplay against videotape's types.
 
@@ -45,9 +45,9 @@ Preconditions:
   stand-in: 160 shots, 160 to 640 calls, free
   ```
 - **Story.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-story examples/contrail -- plan --story terminal`. `.exit` is `0`, `.stderr` is empty, the first `.stdout` line is `Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots`, and every other line is as in `plan-contrail`, ending `0 errors, 0 warnings` and `stand-in: 160 shots, 160 to 640 calls, free`. With `--story posters` the first line is `Contrail 0.1.0 + posters 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots`. Each story also prints `0 errors, 0 warnings` with `--model wan2.2-5b` added, then `wan2.2-5b: 160 shots, 160 to 640 calls, free`, and with `--model wan3.0`, then `wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s`. With `--model wan3.0` and no `--story`, `.exit` is `1` and `.stderr` is `error: --model checks a story's prompts against that model, so pass --story with it`.
-- **README command.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" plan-readme -C examples/contrail -- uv run videotape plan --story terminal`. `.exit` is `0`, and `cmp "$RUN/plan-story.stdout" "$RUN/plan-readme.stdout"` prints nothing.
+- **README command.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" plan-readme -C examples/contrail -- uv run videotape plan`. `.exit` is `0`, and `cmp "$RUN/plan-contrail.stdout" "$RUN/plan-readme.stdout"` prints nothing.
 - **Subfolder.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-subfolder examples/contrail/data -- plan`. `.exit` is `0`, and `cmp "$RUN/plan-contrail.stdout" "$RUN/plan-subfolder.stdout"` prints nothing.
-- **Types.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" plan-types -C examples/contrail -- uv run pyright contrail`. `.exit` is `0` and `.stdout` is `0 errors, 0 warnings, 0 informations`. `examples/contrail/pyproject.toml` sets `typeCheckingMode = "strict"` under `[tool.pyright]`, so this is the strict check.
+- **Types.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" plan-types -C examples/contrail -- uv run pyright contrail`. `.exit` is `0` and the last `.stdout` line is `0 errors, 0 warnings, 0 informations`. pyright's wrapper prints a line above it when PyPI has a newer pyright. `examples/contrail/pyproject.toml` sets `typeCheckingMode = "strict"` under `[tool.pyright]`, so this is the strict check.
 - **Cafe.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-cafe tests/fixtures/cafe -- plan --story chalk`. `.exit` is `0` and `.stdout` is exactly:
   ```
   Corner Cafe 0.3.0 + chalk 1.0.0: 3 scenes, 5 states, 5 keys, 6 moves, 11 shots
@@ -77,6 +77,6 @@ Preconditions:
 - When the plan finds an error it prints nothing to stdout and exits 1. [errors.md](./errors.md) covers each one.
 - A state's name appears in a render's shot lines, in `videotape shots` and in `tape.json`, not in the plan's table. It reads as the call that names the state, so the state of a scene without arguments is `home()`. [render.md](./render.md) and [stories.md](./stories.md) show them.
 - A plan without `--story` checks no story, so a broken story passes it. `render` and `shots` always check theirs first.
-- The plan reads a model's prompt limit, its price and its limit on calls at once without building the model, so `--model wan2.2-5b` needs neither the wan extra nor a GPU, and `--model wan3.0` needs no `FAL_KEY`.
+- The plan reads a model's prompt limit and its price without building the model, so `--model wan2.2-5b` needs neither the wan extra nor a GPU, and `--model wan3.0` needs no `FAL_KEY`.
 - The estimate's calls are the shots times one to `takes`, since a shot stops at the first take that passes. `wan2.2-5b` reads `free` because its calls cost nothing per call; the GPU it needs is billed by the hour through `scripts/runpod-render`, whose pod lines the ledger holds.
 - `takes = 2` in `[tool.videotape]` changes the estimate to `160 to 320 calls`. `--takes` is a render flag, not a plan flag.
