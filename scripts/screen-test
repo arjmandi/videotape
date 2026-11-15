@@ -146,6 +146,10 @@ def _listed(names: Sequence[str]) -> str:
     return " and ".join(filter(None, (", ".join(names[:-1]), names[-1])))
 
 
+def _upper_first(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
 def _cents_up(usd: float) -> float:
     return math.ceil(round(usd * 100, 6)) / 100
 
@@ -512,7 +516,7 @@ def _pick(screen: Screen) -> str:
         lines.append(f"<p>The checks are not yet held to a person's marks: mark {model}'s {told} takes under "
                      "Calibration, download marks.json, and run the screen test again with --marks marks.json.</p>")
     elif not agreed.held:
-        lines.append(f'<p class="pick withheld">{escape(agreed.said()).capitalize()}, below {AGREEMENT:.0%}: fix the '
+        lines.append(f'<p class="pick withheld">{escape(_upper_first(agreed.said()))}, below {AGREEMENT:.0%}: fix the '
                      "checks before the pick. The pick is withheld.</p>")
     if chosen is not None:
         others = []
@@ -665,7 +669,7 @@ def _calibration(screen: Screen) -> str:
             + "</li>" for mark, take, element in agreement.disagreed)
         stale = (f"<p class=\"note\">{_count(agreement.stale, 'mark')} of takes no longer on disk "
                  f"{'is' if agreement.stale == 1 else 'are'} left out.</p>" if agreement.stale else "")
-        agreed = (f"<p>{escape(agreement.said()).capitalize()}.</p><ul>{kinds}</ul>{stale}"
+        agreed = (f"<p>{escape(_upper_first(agreement.said()))}.</p><ul>{kinds}</ul>{stale}"
                   + (f"<h3>Where they disagree</h3><ul>{wrong}</ul>" if wrong else ""))
     return f"""<section class="shot" id="calibration" data-model="{escape(model)}" data-story="{escape(told)}">
 <h2>Calibration</h2>
