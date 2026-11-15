@@ -23,7 +23,7 @@ TapePlayer is the macOS app a person uses to click through a rendered tape as if
 
 ## How to get to it (user POV)
 
-- In `examples/contrail`, run `uv run videotape render --story terminal`, then `uv run videotape play --story terminal`, which builds TapePlayer when it is missing or older than its sources and opens the tape in it.
+- In `examples/contrail`, run `uv run videotape render --story terminal`, then `uv run videotape play --story terminal`, which builds TapePlayer into `~/Library/Caches/videotape/player/<hash>/` when this version of its source has not been built, printing `built TapePlayer in <s> s`, and opens the tape in it.
 - Or build with `clients/macos/build.sh` and run `open clients/macos/build/TapePlayer.app --args examples/contrail/tapes/terminal` from the repo root.
 - Open `clients/macos/build/TapePlayer.app` with no arguments and pick a tape in the Open panel.
 - In a running TapePlayer, click a hotspot, type into a search bar, or choose Playback > Back (⌘[), Playback > Start Over (⌘R), File > Open… (⌘O) or TapePlayer > About TapePlayer.
