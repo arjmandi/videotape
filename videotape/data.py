@@ -172,7 +172,7 @@ def table[R: Record](record: type[R], path: str) -> Table[R]:
     """Load a table of records from a JSON array. The path is relative to the project."""
     file, raw = _open(path)
     if not isinstance(raw, list):
-        raise file.error(file.line(), "a table's file holds an array of records, and this one does not",
+        raise file.error(file.line(), "a data table's file holds an array of records, and this one does not",
                          "wrap the records in [ ], or load a single record with vt.one")
     rows, numbers = list[R](), dict[tuple[object, ...], int]()
     for number, item in enumerate(cast(list[object], raw), 1):
@@ -185,7 +185,8 @@ def table[R: Record](record: type[R], path: str) -> Table[R]:
             if key in numbers:
                 shared = ", ".join(f"{name} {json.dumps(cast(dict[str, object], item)[name])}"
                                    for name in record.__key__)
-                raise file.error(file.line(number), f"record {number} has the key of record {numbers[key]}: {shared}",
+                raise file.error(file.line(number), f"record {number} has the same "
+                                 f"{' and '.join(record.__key__)} as record {numbers[key]}: {shared}",
                                  f"change one of them; key= says no two records of {record.__name__} share "
                                  f"{' and '.join(record.__key__)}")
             numbers[key] = number
@@ -231,7 +232,7 @@ class Table[R: Record]:
         if not self._rows:
             raise ScreenplayError("VT208", errors.here(),
                                   f"first() found no {self._record.__name__} from {self._source} to return",
-                                  "count the rows with count() before asking for the first, or widen the query")
+                                  "count the records with count() before asking for the first, or widen the query")
         return self._rows[0]
 
     def get(self, **equals: object) -> R:
@@ -242,13 +243,13 @@ class Table[R: Record]:
         if not matches:
             raise ScreenplayError("VT208", errors.here(),
                                   f"{asked} matched no {self._record.__name__} from {self._source}",
-                                  "ask for a row the data holds, or count the matches with where(...).count()")
+                                  "ask for a record the data holds, or count the matches with where(...).count()")
         key = self._record.__key__
         raise ScreenplayError("VT208", errors.here(),
-                              f"{asked} matched {len(matches)} rows of {self._record.__name__} from {self._source}, "
+                              f"{asked} matched {len(matches)} {self._record.__name__} records from {self._source}, "
                               "and get() returns the only match",
-                              (f"name the fields of its key, {' and '.join(key)}, or " if key else "")
-                              + "use where(...) for several rows")
+                              (f"name every field that key= names, {' and '.join(key)}, or " if key else "")
+                              + "use where(...) for several records")
 
     def count(self) -> int:
         return len(self._rows)

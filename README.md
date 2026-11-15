@@ -34,7 +34,7 @@ uvx --from git+https://github.com/arjmandi/videotape-p1p videotape new contrail
 ```
 
 ```text
-made contrail: a screenplay of two scenes, a table of data, and the story starter
+made contrail: a screenplay of two scenes, a data table, and the story starter
 next:
   cd contrail
   uv run videotape doctor
@@ -50,7 +50,7 @@ next:
 contrail/
   pyproject.toml          the app's name and version, its dependency on videotape, and [tool.videotape]
   contrail/__init__.py
-  contrail/screenplay.py  the starter's screenplay: two scenes and a table of steps
+  contrail/screenplay.py  the starter's screenplay: two scenes and a data table of steps
   data/steps.json         the starter's three steps
   stories/starter.toml    the starter's story: a notebook on a desk
   .env.example            the names of the API keys, without values

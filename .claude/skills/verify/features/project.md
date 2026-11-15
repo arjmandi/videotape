@@ -31,7 +31,7 @@ Preconditions:
 - **New.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" project-new "$P" -- new shop`. `.exit` is `0`, `.stderr` is empty, and `.stdout` is exactly:
 
   ```
-  made shop: a screenplay of two scenes, a table of data, and the story starter
+  made shop: a screenplay of two scenes, a data table, and the story starter
   next:
     cd shop
     uv run videotape doctor

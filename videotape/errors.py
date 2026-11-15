@@ -125,10 +125,10 @@ CODES: dict[str, Code] = {
     ),
     "VT206": Code(
         "a record is not what its class says",
-        "A table's file holds a JSON array of objects, and vt.one's file holds one object. Each object has exactly "
+        "A data table's file holds a JSON array of objects, and vt.one's file holds one object. Each object has exactly "
         'the fields of its record class, and each value has its field\'s type: a string, a whole number, a date '
         'written like "2026-12-11", or a time written like "07:05". The fields that key= names identify a record, so '
-        "no two records in a table share them. The error names the file, the record's position, and the field.",
+        "no two records in a data table share them. The error names the file, the record's position, and the field.",
         '{"number": "CT 100", "day": "12/11/2026", "fare": "219"}',
         '{"number": "CT 100", "day": "2026-12-11", "fare": 219}',
     ),
@@ -140,11 +140,11 @@ CODES: dict[str, Code] = {
         'flights.where(destination="SEA")',
     ),
     "VT208": Code(
-        "first() or get() matched no row, or get() matched several",
-        "first() returns a table's first row, and get() returns the one row that matches. An empty table has no "
-        "first row, and get() needs exactly one match.",
+        "first() or get() matched no record, or get() matched several",
+        "first() returns a data table's first record, and get() returns the one record that matches. An empty data "
+        "table has no first record, and get() needs exactly one match.",
         'airports.get(code="XXX")',
-        "Ask for a row the data holds, or count the matches with where(...).count() and show something else when "
+        "Ask for a record the data holds, or count the matches with where(...).count() and show something else when "
         "there are none.",
     ),
     "VT209": Code(

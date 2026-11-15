@@ -109,7 +109,7 @@ def print_shots(args) -> int:
 
 def new_project(args) -> int:
     folder = new.project(args.name, Path.cwd())
-    print(f"made {errors.shown(folder)}: a screenplay of two scenes, a table of data, and the story starter\nnext:")
+    print(f"made {errors.shown(folder)}: a screenplay of two scenes, a data table, and the story starter\nnext:")
     for step in (f"cd {shlex.quote(errors.shown(folder))}", "uv run videotape doctor",
                  "uv run videotape render --story starter --model stand-in", "uv run videotape play --story starter"):
         print(f"  {step}")
@@ -340,7 +340,7 @@ def main(argv=None) -> int:
     showing.add_argument("--state", help="only this state's key and the moves that leave it, as in \"home()\"")
     showing.set_defaults(run=print_shots)
     starting = commands.add_parser("new", help="start an app's project in a new folder: a screenplay of two scenes, "
-                                   "a table of data, and a story")
+                                   "a data table, and a story")
     starting.add_argument("name", help="the project's name, which is its folder's and its Python package's")
     starting.set_defaults(run=new_project)
     doctoring = commands.add_parser("doctor", help="check that this machine has what videotape needs, and in a "
