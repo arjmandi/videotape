@@ -60,21 +60,25 @@ final class TapePlayerUITests: XCTestCase {
         try walk(app, tape) { _ in typed }
     }
 
-    /// Copies the app that TEST_RUNNER_PUBLISHED_APP names into a new folder outside the checkout, clears what macOS
-    /// keeps for its bundle id, launches the copy with no argument, and walks the tape it carries, typing each option's
-    /// label and then text that picks none into the first search bar it reaches. Skipped when the variable is unset.
+    /// Takes the copy of a published app that test.sh --published made in a new folder outside the checkout, after it
+    /// cleared what macOS keeps for the app's bundle id, checks both, launches the copy with no argument, and walks the
+    /// tape it carries, typing each option's label and then text that picks none into the first search bar it reaches.
+    /// Skipped without --published.
     @MainActor
     func testWalksEveryJourneyOfAPublishedApp() throws {
         let published = ProcessInfo.processInfo.environment["PUBLISHED_APP"] ?? ""
-        try XCTSkipIf(published.isEmpty, "Set TEST_RUNNER_PUBLISHED_APP to the path of an app videotape publish made.")
-        let folder = FileManager.default.temporaryDirectory.appending(path: "published-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: folder) }
-        let copy = folder.appending(path: URL(filePath: published).lastPathComponent)
-        try FileManager.default.copyItem(at: URL(filePath: published), to: copy)
+        try XCTSkipIf(published.isEmpty, "Run test.sh --published <app> with an app videotape publish made.")
+        let copy = URL(filePath: published)
+        let checkout = URL(filePath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        XCTAssertFalse(copy.path(percentEncoded: false).hasPrefix(checkout.path(percentEncoded: false)),
+                       "test.sh copied the app outside the checkout")
         let bundle = try XCTUnwrap(Bundle(url: copy), "\(published) is an app bundle")
         let name = try XCTUnwrap(bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
-        try forget(XCTUnwrap(bundle.bundleIdentifier))
+        let id = try XCTUnwrap(bundle.bundleIdentifier)
+        for kept in Self.kept(id) {
+            XCTAssertFalse(FileManager.default.fileExists(atPath: kept), "test.sh cleared \(kept)")
+        }
         let tape = try JSONDecoder().decode(
             Manifest.self, from: Data(contentsOf: copy.appending(path: "Contents/Resources/tape/tape.json"))
         )
@@ -175,21 +179,12 @@ final class TapePlayerUITests: XCTestCase {
     }
 
     /// Removes what macOS keeps for an app by its bundle id, so a launch is like the first on another Mac.
-    private func forget(_ id: String) throws {
-        let library = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library")
-        for kept in ["Caches/\(id)", "Saved Application State/\(id).savedState", "HTTPStorages/\(id)",
-                     "HTTPStorages/\(id).binarycookies", "WebKit/\(id)", "Application Support/\(id)"] {
-            let url = library.appending(path: kept)
-            if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
-                try FileManager.default.removeItem(at: url)
-            }
-        }
-        let defaults = Process()
-        defaults.executableURL = URL(filePath: "/usr/bin/defaults")
-        defaults.arguments = ["delete", id]
-        defaults.standardError = FileHandle.nullDevice
-        try defaults.run()
-        defaults.waitUntilExit()
+    /// What the player keeps between launches, in the user's own Library. The runner is sandboxed, so its home is its
+    /// container: it reads these paths but cannot clear them, which test.sh does before the run.
+    private static func kept(_ id: String) -> [String] {
+        let library = String(cString: getpwuid(getuid()).pointee.pw_dir) + "/Library/"
+        return ["Caches/\(id)", "Saved Application State/\(id).savedState", "HTTPStorages/\(id)",
+                "HTTPStorages/\(id).binarycookies", "WebKit/\(id)", "Application Support/\(id)"].map { library + $0 }
     }
 
     /// Clicks a hotspot as soon as its state rests and offers it.
