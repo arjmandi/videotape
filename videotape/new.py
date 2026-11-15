@@ -9,8 +9,7 @@ from importlib import metadata
 from pathlib import Path
 
 from videotape import errors
-from videotape.errors import PACKAGE
-from videotape.project import ProjectError
+from videotape.errors import PACKAGE, ScreenplayError
 
 STARTER = PACKAGE / "starter"
 RENAMED = {"gitignore": ".gitignore", "env.example": ".env.example"}
@@ -37,16 +36,16 @@ def dependency(direct_url: str | None, version: str) -> str:
 def project(name: str, where: Path) -> Path:
     """Write the starter as a project named name in a new or empty folder of that name, and return the folder."""
     if not NAME.fullmatch(name) or keyword.iskeyword(name):
-        raise ProjectError(f'"{name}" cannot name a project: it names the project in pyproject.toml and its Python '
-                           "package, so it starts with a letter, ends with a letter or digit, holds only ASCII letters, "
-                           "digits and _, and is not a Python keyword, as in my_app")
+        raise ScreenplayError("VT108", name, "is not a name a project can have", "name the project with ASCII "
+                              "letters, digits and _, starting with a letter and ending with a letter or digit, as in "
+                              "videotape new my_shop")
     if name in sys.stdlib_module_names or name == "videotape":
-        raise ProjectError(f'"{name}" cannot name a project: its package would hide the module {name} that '
-                           "videotape needs; pick another name")
+        raise ScreenplayError("VT108", name, f"would name a package that hides the module {name}, which videotape "
+                              f"needs", f"name the project another way, as in videotape new {name}_app")
     folder = where / name
     if folder.exists() and (not folder.is_dir() or any(folder.iterdir())):
-        raise ProjectError(f"{errors.shown(folder)} is not an empty folder; new writes a project only into a new or "
-                           "empty one")
+        raise ScreenplayError("VT109", errors.shown(folder), "is not an empty folder", "name the project another way, "
+                              "run new in another folder, or empty this one")
     installed = metadata.distribution("videotape")
     words = {"{{name}}": name, "{{title}}": name.replace("_", " ").title(),
              "{{dependency}}": dependency(installed.read_text("direct_url.json"), installed.version)}

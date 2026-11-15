@@ -64,8 +64,8 @@ def test_a_model_other_than_the_stand_in_is_checked_by_qwen_which_needs_its_extr
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
-    assert capsys.readouterr() == ("", "error: qwen3-vl-8b, this model's eye, needs videotape's qwen extra, which is "
-                                       f"not installed here; {CODES['VT105'].fix}\n")
+    assert capsys.readouterr() == ("", "error VT105 qwen3-vl-8b: this model's eye runs through videotape's qwen "
+                                       f"extra, which is not installed here\nfix: {CODES['VT105'].fix}\n")
     assert sent == [] and not (directory / "tape-wan3").exists()
 
 

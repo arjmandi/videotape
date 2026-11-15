@@ -126,8 +126,8 @@ def test_under_the_cap_it_counts_then_sends_the_words_every_help_text_and_every_
     assert "show this help message and exit" in content
     for code_, entry in errors.CODES.items():
         assert f"{code_}: {entry.title}" in content and entry.long in content
-    assert re.search(r'^videotape/cli\.py:\d+ ChecksError: f"no dailies.json in \{errors\.shown\(tape\)\}; render the '
-                     r'story first"$', content, re.M)
+    assert re.search(r'^videotape/dailies\.py:\d+ ScreenplayError: "VT405" / "has no dailies.json, which every render '
+                     r'writes" / f"render the story first, as in:\\n\{render\}"$', content, re.M)
     assert re.search(r'^videotape/doctor\.py:\d+ Check: "VT102" / ', content, re.M)
     assert re.search(r'^videotape/project\.py:\d+ wrong: f.screenplay is \{screenplay!r\}, not "module:app"', content,
                      re.M)

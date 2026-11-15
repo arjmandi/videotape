@@ -13,10 +13,6 @@ MAX_DIFFERENCE = 0.05
 FIND_MAX_CER = 0.2
 
 
-class ChecksError(RuntimeError):
-    pass
-
-
 @dataclass(frozen=True)
 class Spot:
     """One piece of text the eye saw, where it saw it, and whether it sat in something that looks pressable."""

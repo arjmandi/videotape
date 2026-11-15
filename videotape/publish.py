@@ -17,13 +17,13 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotape import dailies, frames, player, story
-from videotape.checks import MAX_DIFFERENCE, ChecksError, Eye, Item, score
+from videotape.checks import MAX_DIFFERENCE, Eye, Item, score
 from videotape.errors import ScreenplayError, shown
 from videotape.frames import Frame
-from videotape.made import made
+from videotape.made import made, manifest
 from videotape.model import MODELS
 from videotape.plan import Plan, plan
-from videotape.project import Project, ProjectError
+from videotape.project import Project
 
 LOCK = "videotape.lock"
 HEADER = ("# What videotape publish shipped: each label, with the id of the tape it holds and the hashes the id is made of.\n"
@@ -47,11 +47,11 @@ class Published:
         return sum(path.stat().st_size for path in self.app.rglob("*") if path.is_file() and not path.is_symlink())
 
 
-def publish(found: Project, tape: Path) -> Published:
+def publish(found: Project, tape: Path, render: str) -> Published:
     """Refuse the tape, or build its app into dist/, zip it, and record it in videotape.lock. The app, the zip and the
     lock are made whole in dist/<app>.partial/ first, then swapped into place, so dist/ and the lock hold what the
-    last publish made or what this one made, never a part of each."""
-    manifest, record = _read(tape)
+    last publish made or what this one made, never a part of each. render is the command that renders the tape."""
+    manifest, record = _read(tape, render)
     block = manifest["made"]
     told = story.named(found.root, block["story"]["name"])
     listing = MODELS[block["model"]["name"]]
@@ -125,7 +125,8 @@ def read_lock(root: Path) -> dict[str, dict[str, str]]:
     try:
         return tomllib.loads(file.read_text())
     except tomllib.TOMLDecodeError as error:
-        raise ProjectError(f"{shown(file)} is not TOML: {error}; mend it, or restore it from git") from None
+        raise ScreenplayError("VT605", shown(file), f"is not TOML: {error}", "mend it, keeping one section for each "
+                              f"label, or restore it from git, as in git checkout {LOCK}") from None
 
 
 def write_lock(file: Path, lock: dict[str, dict[str, str]]) -> None:
@@ -136,15 +137,10 @@ def write_lock(file: Path, lock: dict[str, dict[str, str]]) -> None:
     file.write_text(HEADER + "".join(tables))
 
 
-def _read(tape: Path) -> tuple[dict, dict]:
-    """tape.json, which says what made the tape, and dailies.json, its record."""
-    for name in ("tape.json", "dailies.json"):
-        if not (tape / name).is_file():
-            raise ChecksError(f"no {name} in {shown(tape)}; render the story first")
-    manifest = json.loads((tape / "tape.json").read_text())
-    if "made" not in manifest:
-        raise ChecksError(f"{shown(tape / 'tape.json')} does not say what made it; render the tape again")
-    return manifest, dailies.read(tape)
+def _read(tape: Path, render: str) -> tuple[dict, dict]:
+    """tape.json, which says what made the tape, and dailies.json, its record: VT405 without either. render is the
+    command that renders the tape."""
+    return manifest(tape, render), dailies.recorded(tape, render)
 
 
 def _fresh(tape: Path, block: dict, now: dict, record: dict) -> None:
@@ -251,7 +247,8 @@ def _numbered(checks: Iterable[tuple[str, str]]) -> list[tuple[str, str, int]]:
 def _run(*command: str) -> None:
     ran = subprocess.run(command, capture_output=True, text=True)
     if ran.returncode != 0:
-        raise ProjectError(f"{command[0]} exited with {ran.returncode}: {(ran.stderr or ran.stdout).strip()}")
+        raise ScreenplayError("VT606", command[0], f"exited with {ran.returncode}: {(ran.stderr or ran.stdout).strip()}",
+                              "do what the quoted error asks, then publish again")
 
 
 def _out(record: dict) -> str:

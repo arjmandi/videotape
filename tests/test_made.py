@@ -227,10 +227,13 @@ def test_diff_of_two_screenplays_of_one_package_is_another_app_though_their_code
 def test_diff_says_which_tape_has_no_tape_json_or_does_not_say_what_made_it(two, cli, capsys):
     directory, _ = two
     assert cli(directory, "diff", "tapes/chalk", "tapes/neon") == 1
-    assert capsys.readouterr() == ("", "error: no tape.json in tapes/neon; render the story first\n")
+    assert capsys.readouterr() == ("", "error VT405 tapes/neon: has no tape.json, which a render writes when it "
+                                       "finishes\nnext: render the story first, or run a render that stopped again as "
+                                       "it ran, which resumes, as in:\nvideotape render --story <story>\n")
     old = directory / "tape-old"
     old.mkdir()
     manifest = json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())
     (old / "tape.json").write_text(json.dumps({name: part for name, part in manifest.items() if name != "made"}))
     assert cli(directory, "diff", "tape-old", "tapes/chalk") == 1
-    assert capsys.readouterr() == ("", "error: tape-old/tape.json does not say what made it; render the tape again\n")
+    assert capsys.readouterr() == ("", "error VT405 tape-old/tape.json: does not say what made the tape\n"
+                                       "next: render the story again, as in:\nvideotape render --story <story>\n")

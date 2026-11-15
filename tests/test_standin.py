@@ -4,6 +4,7 @@ import videotape as vt
 from conftest import CONTRAIL, a_story, planned, told, words
 from videotape import frames, standin
 from videotape.checks import KeyChecks, Reading, Spot, find, read, readings, score
+from videotape.errors import ModelError
 from videotape.frames import Box
 from videotape.plan import Key, Mode, plan
 from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
@@ -154,9 +155,9 @@ def test_a_missing_hotspot_costs_a_take_more_than_any_misread_line_and_the_seed_
 
 
 def test_the_stand_in_says_which_line_it_has_no_room_or_no_letters_for(tmp_path):
-    with pytest.raises(standin.StandInError, match='no room to draw "' + "x" * 80):
+    with pytest.raises(ModelError, match='VT406 the model.s call: the stand-in has no room to draw "' + "x" * 80):
         standin.draw([["x" * 80]])
-    with pytest.raises(standin.StandInError, match=r'no room to draw "row \d+"'):
+    with pytest.raises(ModelError, match=r'VT406 the model.s call: the stand-in has no room to draw "row \d+"'):
         standin.draw([[f"row {number}"] for number in range(1, 30)])
-    with pytest.raises(standin.StandInError, match="cannot draw 'é'"):
+    with pytest.raises(ModelError, match="VT406 the model.s call: the stand-in cannot draw 'é'"):
         standin.draw([["Café"]])

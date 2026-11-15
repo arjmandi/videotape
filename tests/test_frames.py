@@ -3,6 +3,7 @@ import subprocess
 import pytest
 
 from videotape import frames
+from videotape.errors import ScreenplayError
 from videotape.frames import HEIGHT, WIDTH, DecodeError, FfmpegError, Frame
 
 
@@ -24,7 +25,7 @@ def test_write_video_encodes_frames_like_every_other_clip(tmp_path):
 
 
 def test_write_video_rejects_a_frame_of_the_wrong_size(tmp_path):
-    with pytest.raises(FfmpegError, match="frame 1 has 3 bytes"):
+    with pytest.raises(ScreenplayError, match="VT407 frames: frame 1 has 3 bytes"):
         frames.write_video([solid(0, 0, 0).rgb, b"abc"], tmp_path / "clip.mp4")
 
 
@@ -36,7 +37,7 @@ def test_a_clip_of_another_size_decodes_at_its_own_size_and_rate(tmp_path):
     assert (first.width, first.height, len(first.rgb)) == (1280, 720, 1280 * 720 * 3)
     assert frames.difference(first, last) > 0.01
     assert frames.shape(clip) == frames.Shape(1280, 720, 29.97)
-    with pytest.raises(FfmpegError, match="cannot compare a 1280x720 frame with a 1280x704 one"):
+    with pytest.raises(ScreenplayError, match="VT407 frames: cannot compare a 1280x720 frame with a 1280x704 one"):
         frames.difference(first, solid(0, 0, 0))
 
 
@@ -48,6 +49,6 @@ def test_a_file_that_does_not_decode_is_a_decode_error_and_a_missing_ffmpeg_is_n
     with pytest.raises(DecodeError):
         frames.first_frame(tmp_path / "missing.mp4")
     monkeypatch.setenv("PATH", str(tmp_path))
-    with pytest.raises(FfmpegError, match="ffmpeg is not on PATH") as error:
+    with pytest.raises(FfmpegError, match="VT102 PATH: ffmpeg is not on PATH") as error:
         frames.last_frame(corrupt)
     assert not isinstance(error.value, DecodeError)

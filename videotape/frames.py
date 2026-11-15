@@ -6,22 +6,44 @@ from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
 
+from videotape.errors import ScreenplayError
+
 # The size and rate of the clips videotape encodes itself, which are the stand-in's and Wan 2.2 5B's. A clip from any other
 # model keeps its own, which decoding reads from the clip.
 WIDTH, HEIGHT, FPS = 1280, 704, 24
 SMALL = (160, 88)
 
 
-class FfmpegError(RuntimeError):
-    pass
+class FfmpegError(ScreenplayError):
+    """ffmpeg or ffprobe failed: VT404. A render reports it at the shot, with the next step it needs."""
+
+    def __init__(self, tool: str, message: str, code: str = "VT404",
+                 fix: str = "run videotape doctor, which checks ffmpeg and ffprobe, then run the command again; when "
+                            "ffmpeg names a file of the tape, render the story again first") -> None:
+        super().__init__(code, tool, message, fix)
 
 
 class NoTool(FfmpegError):
-    """ffmpeg or ffprobe is not on PATH."""
+    """ffmpeg or ffprobe is not on PATH: doctor's VT102."""
+
+    def __init__(self, tool: str) -> None:
+        super().__init__("PATH", f"{tool} is not on PATH", "VT102",
+                         "install ffmpeg, which brings ffprobe, as in brew install ffmpeg")
 
 
 class DecodeError(FfmpegError):
     """A file that did not decode into one frame, which a take's file is when it is corrupt."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("ffmpeg", message, fix="delete the file it names, render the story again, which writes it "
+                         "again, then run the command again")
+
+
+def two_sizes(place: str, message: str) -> ScreenplayError:
+    """VT407: frames of two sizes, where one tape needs one."""
+    return ScreenplayError("VT407", place, message, "render the story again, which writes every key's picture again; "
+                           "when it stops here too, the model films takes of two sizes, so render with another model, "
+                           "as in:\nvideotape render --story <story> --model stand-in")
 
 
 @dataclass(frozen=True)
@@ -54,9 +76,9 @@ def _tool(tool: str, *args: str, feed: bytes | None = None) -> bytes:
     try:
         run = subprocess.run(command, capture_output=True, **stdin)
     except FileNotFoundError:
-        raise NoTool(f"{tool} is not on PATH") from None
+        raise NoTool(tool) from None
     if run.returncode != 0:
-        raise FfmpegError(f"{' '.join(command)}\n{run.stderr.decode(errors='replace').strip()}")
+        raise FfmpegError(tool, f"{' '.join(command)}\n{run.stderr.decode(errors='replace').strip()}")
     return run.stdout
 
 
@@ -83,7 +105,7 @@ def _decode(source: Path, *filters: str) -> Frame:
     except NoTool:
         raise
     except FfmpegError as error:
-        said = str(error).partition("\n")[2].strip().splitlines()
+        said = error.message.partition("\n")[2].strip().splitlines()
         raise DecodeError(f"{_shown(source)} did not decode to one frame: {said[-1] if said else 'ffmpeg failed'}") from None
     header = re.match(rb"P6\s(\d+)\s(\d+)\s255\s", ppm)
     width, height = (int(header[1]), int(header[2])) if header else (0, 0)
@@ -115,7 +137,7 @@ def last_frame(clip: Path) -> Frame:
 
 def difference(a: Frame, b: Frame) -> float:
     if (a.width, a.height) != (b.width, b.height):
-        raise FfmpegError(f"cannot compare a {a.width}x{a.height} frame with a {b.width}x{b.height} one")
+        raise two_sizes("frames", f"cannot compare a {a.width}x{a.height} frame with a {b.width}x{b.height} one")
     w, h = SMALL
     grey = _ffmpeg(*_raw(a), "-vf", f"scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-", feed=a.rgb + b.rgb)
     n = w * h
@@ -146,6 +168,7 @@ def write_video(rgb_frames: list[bytes], out: Path) -> None:
     """Encode rgb24 frames of WIDTH x HEIGHT into a clip with the same codec settings as every other clip in a tape."""
     for number, frame in enumerate(rgb_frames):
         if len(frame) != WIDTH * HEIGHT * 3:
-            raise FfmpegError(f"frame {number} has {len(frame)} bytes, not the {WIDTH * HEIGHT * 3} of a {WIDTH}x{HEIGHT} rgb24 frame")
+            raise two_sizes("frames", f"frame {number} has {len(frame)} bytes, not the {WIDTH * HEIGHT * 3} of a "
+                            f"{WIDTH}x{HEIGHT} rgb24 frame")
     _ffmpeg("-framerate", str(FPS), *_raw(Frame(WIDTH, HEIGHT, b"")), "-vf", "format=yuv420p", *ENCODE, str(out),
             feed=b"".join(rgb_frames))

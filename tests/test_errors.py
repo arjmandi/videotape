@@ -1,10 +1,13 @@
+import ast
+import builtins
+import importlib
 import re
 from pathlib import Path
 
 import pytest
 
 from conftest import FIXTURES, videotape
-from videotape.errors import CODES
+from videotape.errors import CODES, PACKAGE, RenderError, ScreenplayError
 
 PLAIN = "plain ASCII letters, digits, spaces, and . , ' ? ! $ % ( ) : -"
 
@@ -34,6 +37,8 @@ ERRORS = {
     "VT209": ("home()", 'two actions have the spoken name "Open"', "give each action words of its own"),
     "VT210": ("count(5)", "the plan reached more than 5 states",
               "let a scene's arguments come from the data, which ends, or raise max_states in [tool.videotape]"),
+    "VT213": ("app.py:9", "Drink.price is <class 'float'>, and a record's field is a str, an int, a date or a time",
+              "make price one of those, as in price: int"),
     "VT301": ("stories/neon.toml", "the story has no look",
               'write look = "...", the look of the whole app in a sentence or two, above the first [heading]'),
     "VT302": ("stories/neon.toml:6", "the story directs the scene detial, and the screenplay has no scene of that name",
@@ -69,10 +74,11 @@ def in_its_story(code: str) -> tuple[str, ...]:
     return ("--story", "neon") if code >= "VT300" else ()
 
 
-PLANNED = sorted(code for code in CODES if "VT200" <= code < "VT400" and code != "VT305")
+PLANNED = sorted(code for code in CODES if "VT200" <= code < "VT400" and code not in ("VT212", "VT305", "VT310"))
 """The codes a plan can raise from a screenplay or a story, each with a fixture. The project's codes and doctor's are
-covered by their own tests, the render's and the checks' codes need a model and are covered by the render tests, and
-VT305, a label published already, is publish's and covered by its tests."""
+covered by their own tests, the render's and the checks' codes need a model and are covered by the render tests,
+VT305, a label published already, is publish's and covered by its tests, VT212, a shot's name no shot has, is
+retake's, accept's and shots' and covered by theirs, and VT310, --model without --story, is covered below."""
 
 
 def test_a_fixture_triggers_every_code_the_plan_can_raise():
@@ -196,3 +202,52 @@ def test_a_project_that_is_not_one_or_sets_a_wrong_value_says_what_to_set(tmp_pa
     (tmp_path / "app.py").write_text('from pathlib import Path\n\nimport videotape as vt\n\napp = vt.Screenplay("Shop")\n')
     result = videotape(tmp_path, "plan")
     assert (result.stdout, result.stderr, result.returncode) == ("", f"error {error}\n", 1)
+
+
+UNCODED = {
+    ("cli", "ArgumentTypeError"): "argparse prints a value it rejects in its usage line and exits 2, as it does for "
+                                  "every argument it rejects",
+    ("errors", "KeyError"): "a code without an entry in CODES is a fault in videotape, which this file's tests catch",
+    ("data", "ValueError"): "_record catches it and raises VT206 for the field",
+    ("plan", "TypeError"): "a scene that returns something other than an element raises it, and the plan reports VT203",
+    ("screenplay", "TypeError"): "a scene's code calls it wrongly, and the plan reports VT203 for the scene",
+    ("screenplay", "ValueError"): "a scene's code calls it wrongly, and the plan reports VT203 for the scene",
+    ("standin", "ValueError"): "a flaw that does not fit a take is a fault in the test that gives the stand-in it",
+}
+"""The exceptions videotape makes without a code, each with what reports it instead."""
+
+
+def _exception(node: ast.expr, module: object) -> type[BaseException] | None:
+    """The exception class a call's function names, from the module's names or Python's, or None."""
+    if isinstance(node, ast.Name):
+        found = getattr(module, node.id, getattr(builtins, node.id, None))
+    elif isinstance(node, ast.Attribute) and (owner := _exception_owner(node.value, module)) is not None:
+        found = getattr(owner, node.attr, None)
+    else:
+        return None
+    return found if isinstance(found, type) and issubclass(found, BaseException) else None
+
+
+def _exception_owner(node: ast.expr, module: object) -> object | None:
+    if isinstance(node, ast.Name):
+        return getattr(module, node.id, None)
+    if isinstance(node, ast.Attribute) and (owner := _exception_owner(node.value, module)) is not None:
+        return getattr(owner, node.attr, None)
+    return None
+
+
+def test_every_error_videotape_makes_carries_a_code_a_place_and_a_fix():
+    uncoded = []
+    for path in sorted(PACKAGE.glob("*.py")):
+        module = importlib.import_module(f"videotape.{path.stem}")
+        tree = ast.parse(path.read_text())
+        caught = {name.id for handler in ast.walk(tree) if isinstance(handler, ast.ExceptHandler) and handler.type
+                  for name in ast.walk(handler.type) if isinstance(name, ast.Name)}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or (made := _exception(node.func, module)) is None:
+                continue
+            private = made.__name__.startswith("_") and made.__name__ in caught
+            if not (issubclass(made, (ScreenplayError, RenderError)) or private
+                    or (path.stem, made.__name__) in UNCODED):
+                uncoded.append(f"{path.name}:{node.lineno} makes a {made.__name__}")
+    assert uncoded == []

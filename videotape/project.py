@@ -17,10 +17,6 @@ TAKES = 4
 """How many takes a shot gets at most, unless [tool.videotape] sets takes. A shot stops at the first take that passes."""
 
 
-class ProjectError(RuntimeError):
-    pass
-
-
 @dataclass(frozen=True)
 class Project:
     root: Path

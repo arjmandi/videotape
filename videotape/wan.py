@@ -12,12 +12,13 @@ from importlib.util import find_spec
 from pathlib import Path
 
 from videotape import frames
+from videotape.errors import ModelError, ScreenplayError
 from videotape.frames import FPS, HEIGHT, WIDTH
 from videotape.plan import Mode
 
-
-class WanError(RuntimeError):
-    pass
+NEEDS = ("render with wan2.2-5b on a CUDA GPU with about 80 GB, as scripts/runpod-render does, or with another model, "
+         "as in videotape render --story starter --model stand-in")
+"""What a machine that cannot run wan2.2-5b does instead: VT111's fix."""
 
 
 @dataclass(frozen=True)
@@ -125,13 +126,13 @@ class Wan:
 
     def __init__(self):
         if find_spec("torch") is None or find_spec("diffusers") is None:
-            raise WanError("wan2.2-5b needs videotape's wan extra, which is not installed here; install videotape[wan]")
+            raise ScreenplayError("VT111", self.name, "needs videotape's wan extra, which is not installed here", NEEDS)
         import torch
 
         if not torch.cuda.is_available():
             have = "Apple silicon (MPS)" if torch.backends.mps.is_available() else "a CPU"
-            raise WanError(f"wan2.2-5b needs a CUDA GPU with about 80 GB, and this machine has {have} only; "
-                           "rent one with scripts/runpod-render")
+            raise ScreenplayError("VT111", self.name, f"needs a CUDA GPU with about 80 GB, and this machine has {have} "
+                                  "only", NEEDS)
         self.device = torch.cuda.get_device_name(0)
         self.offload = bool(os.environ.get("VIDEOTAPE_WAN_OFFLOAD"))
         self.loaded: Checkpoint | None = None
@@ -244,5 +245,6 @@ def _rgb_frames(video, req: Request) -> list[bytes]:
     if isinstance(video, torch.Tensor):
         video = video[0].permute(1, 2, 3, 0).float().cpu().numpy()
     if video.shape != (req.frames, req.height, req.width, 3):
-        raise WanError(f"{req.checkpoint} returned frames of shape {video.shape}, not {(req.frames, req.height, req.width, 3)}")
+        raise ModelError(f"{req.checkpoint} returned frames of shape {video.shape}, not "
+                         f"{(req.frames, req.height, req.width, 3)}")
     return [frame.tobytes() for frame in (np.clip(video, 0, 1) * 255).round().astype(np.uint8)]

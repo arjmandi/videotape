@@ -16,17 +16,15 @@ from pathlib import Path
 from videotape import dailies, frames
 from videotape.checks import Checks, Eye, Failure, score, seams
 from videotape.dailies import Carried
-from videotape.errors import RenderError, shown
-from videotape.fal import FalError, Price, Receipt
+from videotape.errors import ModelError, RenderError, shown
+from videotape.fal import Price, Receipt
 from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
 from videotape.atomic import partial, write_atomically
 from videotape.screenplay import State
-from videotape.standin import StandInError
 from videotape.story import Prompt, Story, prompt, text
-from videotape.wan import WanError
 from videotape.wan3 import RecordedFailure
 
 
@@ -300,10 +298,10 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
             if passed and not retakes:
                 break
     except DecodeError as error:
-        raise RenderError("VT404", f"{shot.title}", str(error), "delete the file it names and run the render again") \
+        raise RenderError("VT404", f"{shot.title}", error.message, "delete the file it names and run the render again") \
             from None
     except FfmpegError as error:
-        raise RenderError("VT404", f"{shot.title}", str(error),
+        raise RenderError("VT404", f"{shot.title}", error.message,
                           "install ffmpeg, as in brew install ffmpeg, and run the render again") from None
     if not takes:
         raise RenderError("VT403", shot.title, "every take of the shot is corrupt",
@@ -325,11 +323,11 @@ def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: 
             checks = check(path)
         except DecodeError as corrupt:
             if _downloaded_again(shared, path, place) is None:
-                return RenderError("VT403", place, str(corrupt), f"nothing; seed {seed} is skipped from now on")
+                return RenderError("VT403", place, corrupt.message, f"nothing; seed {seed} is skipped from now on")
             try:
                 checks = check(path)
             except DecodeError as again:
-                return RenderError("VT403", place, f"downloaded again, and still: {again}",
+                return RenderError("VT403", place, f"downloaded again, and still: {again.message}",
                                    f"nothing; seed {seed} is skipped from now on")
     return Take(seed, path, cached, checks, timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
 
@@ -339,21 +337,24 @@ def _downloaded_again(shared: _Set, path: Path, place: str) -> Receipt | None:
     nothing, or None when the model recorded none."""
     try:
         receipt = shared.model.download_again(partial(path))
-    except (FalError, WanError, StandInError) as error:
+    except ModelError as error:
         raise _failed(error, place, shared.resume) from None
     if receipt is not None:
         partial(path).replace(path)
     return receipt
 
 
-def _failed(error: Exception, place: str, resume: str) -> RenderError:
-    """VT401: a model call failed. A submitted request is recorded beside its take, so the next render polls it and
-    never submits it again on its own; only deleting the record lets a render submit a new, paid take."""
+def _failed(error: ModelError, place: str, resume: str) -> RenderError:
+    """A model call failed, with the model's code and fix, or VT401. A submitted request is recorded beside its take,
+    so the next render polls it and never submits it again on its own; only deleting the record lets a render submit a
+    new, paid take."""
+    if error.code != "VT401":
+        return RenderError(error.code, place, error.message, error.fix)
     if isinstance(error, RecordedFailure):
-        return RenderError("VT401", place, str(error), f"run the render again, which resumes; this request is "
+        return RenderError("VT401", place, error.message, f"run the render again, which resumes; this request is "
                            f"polled, not submitted again:\n{resume}\nor delete {shown(error.record)} first, and the "
                            "render submits a new, paid take")
-    return RenderError("VT401", place, str(error), f"run the render again, which resumes; a request that was "
+    return RenderError("VT401", place, error.message, f"run the render again, which resumes; a request that was "
                        f"submitted is polled, not submitted again:\n{resume}")
 
 
@@ -387,7 +388,7 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
         shared.budget.reserve(place, shared.resume)
         try:
             receipt = write_atomically(path, lambda out: film(seed, out))
-        except (FalError, WanError, StandInError) as error:
+        except ModelError as error:
             raise _failed(error, place, shared.resume) from None
     filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": shared.model.device}
     if receipt:
@@ -408,8 +409,9 @@ def _shape(result: Render) -> Shape:
     """The one size and frame rate every kept clip shares, which the player sizes its window to."""
     shapes = {filmed.kept.path: frames.shape(filmed.kept.path) for filmed in result.shots}
     if len(set(shapes.values())) > 1:
-        raise FfmpegError("the kept takes differ in size or frame rate, so no one window plays them: " +
-                          ", ".join(f"{path.name} {s.width}x{s.height} at {s.fps} fps" for path, s in shapes.items()))
+        raise frames.two_sizes(shown(result.tape), "the kept takes differ in size or frame rate, so no one window "
+                               "plays them: " + ", ".join(f"{path.name} {s.width}x{s.height} at {s.fps} fps"
+                                                          for path, s in shapes.items()))
     return next(iter(shapes.values()))
 
 

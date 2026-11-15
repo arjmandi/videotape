@@ -125,6 +125,14 @@ def test_a_key_in_neither_the_environment_nor_env_fails_vt104_and_a_blank_one_is
         "ok   VT105 Apple silicon and videotape's qwen extra, for wan3.0's checks"]
 
 
+def test_a_key_with_a_line_break_fails_vt104_as_a_render_with_it_would(tmp_path, cli, capsys, machine, monkeypatch):
+    monkeypatch.setenv("FAL_KEY", "fal-not-a\nreal-key")
+    assert cli(on_wan3(tmp_path, key=False), "doctor") == 1
+    assert capsys.readouterr().out.splitlines()[3:5] == [
+        "fail VT104 FAL_KEY holds a character an HTTP header cannot carry, such as a line break",
+        "  fix: set FAL_KEY to the API key alone, in .env or the environment"]
+
+
 def test_a_key_in_the_environment_is_enough(tmp_path, cli, capsys, machine, monkeypatch):
     monkeypatch.setenv("FAL_KEY", "fal-not-a-real-key")
     assert cli(on_wan3(tmp_path, key=False), "doctor") == 0

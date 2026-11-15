@@ -71,10 +71,14 @@ def key(model: str) -> Check:
     needed = MODELS[model].key
     if needed is None:
         return Check("VT104", True, f"{model} needs no API key")
-    if os.environ.get(needed, "").strip():
-        return Check("VT104", True, f"{needed} is set, for {model}")
-    return Check("VT104", False, f"{model} needs {needed}, and it is not in the environment or .env",
-                 f"copy .env.example to .env and set {needed} there, or export it")
+    value = os.environ.get(needed, "").strip()
+    if not value:
+        return Check("VT104", False, f"{model} needs {needed}, and it is not in the environment or .env",
+                     f"copy .env.example to .env and set {needed} there, or export it")
+    if not value.isprintable():
+        return Check("VT104", False, f"{needed} holds a character an HTTP header cannot carry, such as a line break",
+                     f"set {needed} to the API key alone, in .env or the environment")
+    return Check("VT104", True, f"{needed} is set, for {model}")
 
 
 def eye(model: str) -> Check:

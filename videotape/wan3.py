@@ -7,7 +7,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-from videotape.fal import Fal, FalError, Price, Receipt
+from videotape.errors import ModelError, ScreenplayError
+from videotape.fal import Fal, Price, Receipt
 from videotape.plan import Mode
 from videotape.atomic import write_atomically
 
@@ -33,7 +34,7 @@ class Wan3Request:
     arguments: dict
 
 
-class RecordedFailure(FalError):
+class RecordedFailure(ModelError):
     """A recorded request's poll or download failed. A render never submits it again on its own, so the error names
     the record, which deleting lets a render submit a new, paid take."""
 
@@ -65,7 +66,7 @@ def bill(response: dict) -> tuple[str, Receipt]:
     try:
         url, duration = result["video"]["url"], float(result["duration"])
     except (KeyError, TypeError, ValueError):
-        raise FalError(f"request {submitted['request_id']} answered without video.url and duration: {result}") from None
+        raise ModelError(f"request {submitted['request_id']} answered without video.url and duration: {result}") from None
     return url, Receipt(submitted["request_id"], duration, round(duration * PRICE.usd_per_second, 4), response)
 
 
@@ -108,8 +109,8 @@ class Wan3:
         try:
             url, receipt = bill(self.fal.wait(submitted["endpoint"], submitted))
             self.fal.download(url, out)
-        except FalError as error:
-            raise RecordedFailure(str(error), record) from None
+        except ModelError as error:
+            raise RecordedFailure(error.message, record) from None
         return receipt
 
 
@@ -121,8 +122,10 @@ def request_record(out: Path) -> Path:
 
 def from_environment() -> Wan3:
     if not (key := os.environ.get("FAL_KEY", "").strip()):
-        raise FalError("wan3.0 needs FAL_KEY in the environment or the project's .env")
+        raise ScreenplayError("VT104", ".env", "wan3.0 needs FAL_KEY, and it is not in the environment or .env",
+                              "copy .env.example to .env and set FAL_KEY there, or export it")
     # http.client rejects a header with a control character by quoting the whole header, key and all, in its error.
     if not key.isprintable():
-        raise FalError("FAL_KEY holds a character an HTTP header cannot carry, such as a line break")
+        raise ScreenplayError("VT104", ".env", "FAL_KEY holds a character an HTTP header cannot carry, such as a line "
+                              "break", "set FAL_KEY to the API key alone, in .env or the environment")
     return Wan3(Fal(key))

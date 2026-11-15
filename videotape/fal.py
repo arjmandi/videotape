@@ -15,6 +15,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from videotape.errors import ModelError
+
 QUEUE = "https://queue.fal.run"
 POLL_SECONDS = 5
 WAIT_SECONDS = 1800
@@ -22,10 +24,6 @@ WAIT_SECONDS = 1800
 TRIES = 5
 
 Send = Callable[[urllib.request.Request], bytes]
-
-
-class FalError(RuntimeError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -80,7 +78,7 @@ class Fal:
         try:
             submitted["request_id"], submitted["status_url"], submitted["response_url"]
         except (KeyError, TypeError):
-            raise FalError(self._scrub(f"submit to {endpoint} answered without a request: {submitted}")) from None
+            raise ModelError(self._scrub(f"submit to {endpoint} answered without a request: {submitted}")) from None
         return submitted
 
     def wait(self, endpoint: str, submitted: dict) -> dict:
@@ -92,7 +90,7 @@ class Fal:
                 break
             self._sleep(POLL_SECONDS)
         else:
-            raise FalError(f"{endpoint} request {request_id} is not done after {WAIT_SECONDS} s; "
+            raise ModelError(f"{endpoint} request {request_id} is not done after {WAIT_SECONDS} s; "
                            f"its result will be at {response_url}")
         result = self._json(self._queue(response_url), TRIES, f"result of {endpoint} request {request_id}")
         return {"submitted": submitted, "status": status, "result": result}
@@ -103,7 +101,7 @@ class Fal:
     def _queue(self, url: str, body: dict | None = None) -> urllib.request.Request:
         # The status and result urls come from fal's answer, so check where they point before the key goes there.
         if urllib.parse.urlsplit(url).netloc != urllib.parse.urlsplit(QUEUE).netloc:
-            raise FalError(f"fal answered with {url}, which is not on {QUEUE}; the API key is only sent there")
+            raise ModelError(f"fal answered with {url}, which is not on {QUEUE}; the API key is only sent there")
         if body is None:
             request = urllib.request.Request(url, headers={"Accept": "application/json"})
         else:
@@ -121,7 +119,7 @@ class Fal:
             answer = None
         if not isinstance(answer, dict):
             shown = self._scrub(body.decode(errors="replace"))[:300]
-            raise FalError(f"{what} answered with something other than a JSON object: {shown!r}")
+            raise ModelError(f"{what} answered with something other than a JSON object: {shown!r}")
         return answer
 
     def _call(self, request: urllib.request.Request, tries: int, what: str) -> bytes:
@@ -135,7 +133,7 @@ class Fal:
             except (OSError, http.client.HTTPException) as error:
                 retry, failure = True, f"{what} failed: {error}"
             if not retry or attempt == tries:
-                raise FalError(self._scrub(failure))
+                raise ModelError(self._scrub(failure))
             self._sleep(2 ** attempt)
 
     def _scrub(self, message: str) -> str:

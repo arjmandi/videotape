@@ -131,10 +131,15 @@ def test_retake_of_a_move_films_its_next_seeds_and_a_wrong_name_names_the_closes
     assert capsys.readouterr().out.splitlines()[0] == 'retaking thanks(Latte) -> menu() "Done" with seed 5'
     assert [(call.mode, call.seed) for call in model.calls] == [(Mode.FIRST_AND_LAST_FRAME, 5)]
     assert cli(directory, "retake", "thanks(Late) -> menu()", "--story", "chalk") == 1
-    assert capsys.readouterr().err == ('error: the app has no state or move "thanks(Late) -> menu()"; the closest are '
-                                       'thanks(Latte) -> menu(), thanks(Latte) -> menu() "Done", thanks(Espresso) -> menu()\n')
+    assert capsys.readouterr().err == ('error VT212 "thanks(Late) -> menu()": the app has no state or move of this name\n'
+                                       'fix: name one of the closest: thanks(Latte) -> menu(), thanks(Latte) -> menu() '
+                                       '"Done", thanks(Espresso) -> menu()\n')
+    assert cli(directory, "retake", "thanks(Late)", "--story", "chalk") == 1
+    assert as_explained("VT212").fullmatch(capsys.readouterr().err.rstrip("\n"))
     assert cli(directory, "retake", "order(Latte)", "--story", "chalk", "--out", "tape-none") == 1
-    assert capsys.readouterr().err == "error: no dailies.json in tape-none; render the story first\n"
+    assert capsys.readouterr().err == ("error VT405 tape-none: has no dailies.json, which every render writes\n"
+                                       "next: render the story first, as in:\n"
+                                       "videotape render --story chalk --out tape-none\n")
 
 
 def test_a_move_name_shared_by_two_moves_is_ambiguous_until_given_its_label(tmp_path, cli, capsys, monkeypatch):
@@ -149,8 +154,8 @@ def test_a_move_name_shared_by_two_moves_is_ambiguous_until_given_its_label(tmp_
     model = stand_in(monkeypatch, lambda mode, prompt, seed: Flaw.NONE)
     assert cli(tmp_path, "render", "--story", "bare") == 0
     assert cli(tmp_path, "retake", "hall() -> room()", "--story", "bare") == 1
-    assert capsys.readouterr().err == ('error: "hall() -> room()" names 2 moves; name one by its full title: '
-                                       'hall() -> room() "Front door"; hall() -> room() "Side door"\n')
+    assert capsys.readouterr().err == ('error VT212 "hall() -> room()": names 2 moves\nfix: name one by its full '
+                                       'title: hall() -> room() "Front door"; hall() -> room() "Side door"\n')
     model.calls.clear()
     assert cli(tmp_path, "retake", 'hall() -> room() "Side door"', "--story", "bare") == 0
     assert [(call.mode, call.seed, call.prompt.split('"')[1]) for call in model.calls] == [

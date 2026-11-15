@@ -13,14 +13,14 @@ import videotape as vt
 from conftest import CONTRAIL, as_explained, copy_of, planned, told, words
 from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
-from videotape.errors import RenderError
+from videotape.errors import ModelError, RenderError
 from videotape.fal import Receipt
 from videotape.ledger import Ledger
 from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode, plan
 from videotape.render import render
-from videotape.standin import EXTRA, Flaw, StandIn, StandInEye, StandInError
+from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 
 STATES = ("menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)")
 KEYS = {"menu()": "menu", "order(Espresso)": "order-espresso", "order(Latte)": "order-latte",
@@ -515,7 +515,9 @@ def test_model_flag_renders_with_another_model_than_the_projects(tmp_path, cli, 
 
 
 @pytest.mark.parametrize("setting, error", [
-    ("", "error: no model to render with; pass --model, or set model in [tool.videotape]\n"),
+    ("", "error VT110 pyproject.toml: [tool.videotape] names no model, and neither does --model\nfix: set it in "
+         '[tool.videotape], as in model = "stand-in", or name one for this render, as in videotape render --story '
+         "chalk --model stand-in\n"),
     ('model = "sora"\n', 'error VT107 pyproject.toml: [tool.videotape] model is "sora", and videotape has no such '
      "model\nfix: set model to one of stand-in, wan2.2-5b, wan3.0\n"),
 ])
@@ -526,6 +528,14 @@ def test_a_project_without_a_model_it_can_render_with_says_so(tmp_path, cli, cap
     assert cli(directory, *RENDER) == 1
     assert capsys.readouterr() == ("", error)
     assert not (directory / "tapes").exists()
+
+
+def test_a_render_with_no_model_named_is_vt110_as_explain_says(tmp_path, cli, capsys):
+    directory = copy_of("cafe", tmp_path)
+    pyproject = directory / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('model = "stand-in"\n', ""))
+    assert cli(directory, *RENDER) == 1
+    assert as_explained("VT110").fullmatch(capsys.readouterr().err.rstrip("\n"))
 
 
 class Tuned(StandIn):
@@ -778,7 +788,7 @@ class Failing(StandIn):
 
     def _film(self, mode, prompt, seed, start, end, out):
         if self.on in prompt:
-            raise StandInError(f"the stand-in refused seed {seed}; request r-{seed}")
+            raise ModelError(f"the stand-in refused seed {seed}; request r-{seed}")
         super()._film(mode, prompt, seed, start, end, out)
 
 
@@ -833,6 +843,16 @@ def test_an_interrupt_stops_the_render_before_the_queued_shots_start(tmp_path):
         rendered(directory, model, takes=1, limit=1, report=interrupted)
     assert 1 <= len(model.calls) <= 2
     assert len(ledger.of(directory, directory / TAPE).lines()) == len(model.calls)
+
+
+def test_a_state_with_more_lines_than_the_stand_in_has_room_for_is_vt406_and_stops_the_render(tmp_path, cli, capsys,
+                                                                                               monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
+    (directory / "data" / "drinks.json").write_text(json.dumps([{"name": f"Drink {n}", "price": n} for n in range(1, 21)]))
+    assert cli(directory, *RENDER, "--takes", "1") == 1
+    assert as_explained("VT406").search(capsys.readouterr().err)
+    assert not (directory / TAPE / "tape.json").exists() and dailies.read(directory / TAPE)["complete"] is False
 
 
 def test_a_missing_ffmpeg_is_vt404(tmp_path, cli, capsys, monkeypatch):
