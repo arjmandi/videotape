@@ -869,5 +869,22 @@ def test_the_stand_ins_extra_box_fails_vt503_on_the_kept_take_when_it_is_the_onl
     assert data_ok(directory / TAPE)
 
 
+def test_the_dailies_folder_holds_only_the_crops_of_the_failures_the_record_names(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    folder = directory / TAPE / "dailies"
+    latte_always_misspelt = lambda mode, prompt, seed: (
+        Flaw.MISSPELL if THANKS_LATTE in prompt else Flaw.WRONG_START if DONE in prompt and seed == 1 else Flaw.NONE)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=latte_always_misspelt)))
+    crops = lambda: sorted(failure["crop"] for failure in dailies.read(directory / TAPE)["failures"])
+    files = lambda: sorted(path.relative_to(directory / TAPE).as_posix() for path in folder.iterdir())
+    assert cli(directory, *RENDER, "--takes", "1") == 1
+    assert files() == crops() == ["dailies/1.png", "dailies/2.png", "dailies/3.png", "dailies/4.png"]
+    assert cli(directory, *RENDER, "--takes", "2") == 1
+    assert files() == crops() == ["dailies/1.png"]
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
+    assert cli(directory, "retake", "thanks(Latte)", "--story", "chalk") == 0
+    assert files() == crops() == []
+
+
 def data_ok(tape: Path) -> bool:
     return json.loads((tape / "tape.json").read_text())["opening"]["lands"] == "menu()"

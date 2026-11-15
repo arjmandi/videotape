@@ -152,11 +152,15 @@ def read(tape: Path) -> dict:
 
 def write(tape: Path, record: dict, totals: dict) -> None:
     """Write the record and its page into the tape, with the ledger's totals for this tape, the size of what plays,
-    and a crop for each failure."""
+    and a crop for each failure. The crops of failures the record no longer holds are deleted."""
     played = ["tape.json", "moves/opening.mp4", *(key["key"] for key in record["keys"]),
               *(move["move"] for move in record["moves"])]
     size = sum((tape / path).stat().st_size for path in played if (tape / path).is_file())
     failures = [{**failure, "crop": _crop(tape, number, failure)} for number, failure in enumerate(record["failures"], 1)]
+    crops = {failure["crop"] for failure in failures}
+    for png in (tape / "dailies").glob("*.png"):
+        if png.relative_to(tape).as_posix() not in crops:
+            png.unlink()
     record = {**record, "failures": failures, "ledger": totals, "tape": {"bytes": size}}
     write_atomically(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
     write_atomically(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
