@@ -812,7 +812,7 @@ uv run videotape publish --story terminal
 ```
 
 ```text
-encoded 103 clips as HEVC; on each one's last frame, where the player rests, every check its key passed still passes
+encoded 103 clips as HEVC; on each one's last frame, where TapePlayer rests, every check its key passed still passes
 signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app
 published dist/Contrail-terminal.app, 8.1 MB, zipped to dist/Contrail-terminal.zip, 7.3 MB
 label contrail 0.1.0 + terminal 1.0.0

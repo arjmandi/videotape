@@ -88,7 +88,7 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
     lines = out.splitlines()
     assert lines[0] == "building TapePlayer, once for this version of it" and lines[1].startswith("built TapePlayer in ")
     assert lines[2:] == [
-        "encoded 3 clips as HEVC; on each one's last frame, where the player rests, every check its key passed still "
+        "encoded 3 clips as HEVC; on each one's last frame, where TapePlayer rests, every check its key passed still "
         "passes",
         "signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app",
         f"published dist/Contrail-starter.app, {megabytes(size)}, zipped to dist/Contrail-starter.zip, "

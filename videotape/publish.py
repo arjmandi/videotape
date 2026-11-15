@@ -68,8 +68,8 @@ def publish(found: Project, tape: Path) -> Published:
         inside = staged / "Contents" / "Resources" / "tape"
         clips = _encode(tape, manifest, inside)
         _rests(planned, record, listing.eye(tape), tape, inside, clips)
-        print(f"encoded {len(clips)} clips as HEVC; on each one's last frame, where the player rests, every check its "
-              "key passed still passes", flush=True)
+        print(f"encoded {len(clips)} clips as HEVC; on each one's last frame, where TapePlayer rests, every check "
+              "its key passed still passes", flush=True)
         _run("codesign", "--force", "--deep", "--sign", "-", str(staged))
         print("signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app",
               flush=True)
@@ -207,7 +207,7 @@ def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clip
         if broken:
             shot = next((move for move in planned.moves if move.clip == clip), planned.keys[0])
             checks = "a check its key passed:" if len(broken) == 1 else f"{len(broken)} checks its key passed, the first"
-            raise ScreenplayError("VT604", clip, f"its HEVC last frame, where the player rests on {state}, fails "
+            raise ScreenplayError("VT604", clip, f"its HEVC last frame, where TapePlayer rests on {state}, fails "
                                   f"{checks} {broken[0].code} {broken[0].about}: {broken[0].result}",
                                   "retake the shot, whose next take may come through the encoding, then publish again:"
                                   f'\nvideotape retake "{dailies.named(shot)}" --story {record["story"]}{_out(record)}')

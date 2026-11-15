@@ -37,7 +37,7 @@ CODES: dict[str, Code] = {
     ),
     "VT103": Code(
         "Xcode is missing, so TapePlayer cannot build",
-        "play and publish build TapePlayer, the macOS app that plays a tape, from the Swift source videotape carries. "
+        "play and publish build TapePlayer, the Mac app that plays a tape, from the Swift source videotape carries. "
         "The build needs Xcode itself, with xcode-select pointing at it. The Command Line Tools alone have no "
         "xcodebuild that builds an app, and play stops with VT603.",
         "fail VT103 xcode-select points at /Library/Developer/CommandLineTools, the Command Line Tools without Xcode, "
@@ -361,7 +361,7 @@ CODES: dict[str, Code] = {
     ),
     "VT603": Code(
         "TapePlayer did not build",
-        "play and publish build TapePlayer, the macOS app that plays a tape, from the Swift source videotape carries. "
+        "play and publish build TapePlayer, the Mac app that plays a tape, from the Swift source videotape carries. "
         "It builds in Release with xcodebuild, in a cache under ~/Library/Caches/videotape, or VIDEOTAPE_CACHE_DIR "
         "when that is set, once for each version of the source. This build did not finish, so nothing was cached. The "
         "error names the build's log, which holds everything xcodebuild printed, and quotes its first error.",
@@ -371,13 +371,13 @@ CODES: dict[str, Code] = {
         "run videotape doctor, which looks for Xcode; when it finds Xcode, the log says what failed",
     ),
     "VT604": Code(
-        "a check fails on the HEVC frame the player rests on",
+        "a check fails on the HEVC frame TapePlayer rests on",
         "Publish encodes each clip of the tape as HEVC, which makes a Wan tape's app smaller than the clips a render keeps."
-        " A clip's last frame is where the player rests until the next press, so publish reads each encoded "
+        " A clip's last frame is where TapePlayer rests until the next press, so publish reads each encoded "
         "clip's last frame, runs the tape's eye on it against the state the clip lands on, and compares it with that "
         "state's picture. A check that passed on the key and fails on this frame means the encoding lost what the "
         "check needs. Publish leaves dist/ and the lock as they were.",
-        "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where the player rests on todo(), fails 2 "
+        "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where TapePlayer rests on todo(), fails 2 "
         "checks its key passed, the first VT501 Back: not found",
         "fix: retake the shot, whose next take may come through the encoding, then publish again:\n"
         "videotape retake \"home() -> todo()\" --story starter",
