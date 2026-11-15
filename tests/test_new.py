@@ -27,7 +27,7 @@ def test_new_writes_the_starter_and_says_what_to_run_next(tmp_path, cli, capsys)
     assert (project / ".env.example").read_text() == "FAL_KEY=\nANTHROPIC_API_KEY=\n"
     assert (project / ".gitignore").read_text() == "tapes/\ndist/\n.env\nledger.jsonl\n.DS_Store\n"
     assert capsys.readouterr() == (
-        "made corner_shop: a screenplay of two scenes, a table of data, and the story starter\nnext:\n"
+        "made corner_shop: a screenplay of two scenes, a data table, and the story starter\nnext:\n"
         "  cd corner_shop\n  uv run videotape doctor\n  uv run videotape render --story starter --model stand-in\n"
         "  uv run videotape play --story starter\n", "")
 

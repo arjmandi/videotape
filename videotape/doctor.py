@@ -1,5 +1,5 @@
 """What videotape needs of this machine, checked one line at a time: the Python, ffmpeg, and Xcode for TapePlayer, and
-in a project, the key its model needs and the GPU its checks need."""
+in a project, the API key its model needs and the GPU its checks need."""
 
 import importlib.metadata
 import os
@@ -69,7 +69,7 @@ def xcode() -> Check:
 def key(model: str) -> Check:
     needed = MODELS[model].key
     if needed is None:
-        return Check("VT104", True, f"{model} needs no key")
+        return Check("VT104", True, f"{model} needs no API key")
     if os.environ.get(needed, "").strip():
         return Check("VT104", True, f"{needed} is set, for {model}")
     return Check("VT104", False, f"{model} needs {needed}, and it is not in the environment or .env",

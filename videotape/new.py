@@ -1,5 +1,5 @@
 """videotape new: a project to start an app from, written from the starter under videotape/starter. The starter is
-a screenplay of two scenes, a table of data, and a story, and it renders with the stand-in as it is."""
+a screenplay of two scenes, a data table, and a story, and it renders with the stand-in as it is."""
 
 import json
 import keyword

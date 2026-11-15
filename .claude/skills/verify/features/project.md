@@ -31,7 +31,7 @@ Preconditions:
 - **New.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" project-new "$P" -- new shop`. `.exit` is `0`, `.stderr` is empty, and `.stdout` is exactly:
 
   ```
-  made shop: a screenplay of two scenes, a table of data, and the story starter
+  made shop: a screenplay of two scenes, a data table, and the story starter
   next:
     cd shop
     uv run videotape doctor
@@ -53,7 +53,7 @@ Preconditions:
   ok   VT105 Apple silicon, for wan3.0's checks
   ```
 
-  The Python and Xcode versions are this machine's. With `examples/contrail` as the folder, as `project-doctor-contrail`, `.exit` is `0` and the last two lines are `ok   VT104 stand-in needs no key` and `ok   VT105 stand-in's checks need no GPU`.
+  The Python and Xcode versions are this machine's. With `examples/contrail` as the folder, as `project-doctor-contrail`, `.exit` is `0` and the last two lines are `ok   VT104 stand-in needs no API key` and `ok   VT105 stand-in's checks need no GPU`.
 - **Doctor outside a project.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" project-doctor-machine "$M" -- doctor`. `.exit` is `0` and `.stdout` is the first three lines above.
 - **Fails.** Run `uv run pytest tests/test_doctor.py -v`. Each of `VT101` to `VT105` fails on a machine made up of scripts on PATH and a monkeypatched platform, each failing line is that code's `explain` example, a blank `FAL_KEY=` in `.env` counts as no key, and a wrong `model` fails `VT107` after the machine's lines.
 - **Quickstart.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" project-quickstart -- env -u FAL_KEY scripts/quickstart-test --skip-play`. `.exit` is `0`. `.stdout` echoes each step after `$ `, with the output of `new`, of `doctor` with only `VT104` failing, and of the render and the publish, which builds TapePlayer and ends `videotape.lock holds the label now; commit it`, then a table of the five steps run with their seconds, the publish line naming `TapePlayer's first build <s> s`, then `5 steps to a played tape, at most 5` and `<s> s to a rendered tape without TapePlayer's first build, at most 300 s`. Without `--skip-play` it also runs play before publish, which builds TapePlayer, opens it on the screen and quits it; the play line then names the first build, and publish uses the cached player.

@@ -130,4 +130,4 @@ def test_play_says_when_the_player_did_not_build(tmp_path, cli, cache, capsys, m
     log = cache / "player" / next((cache / "player").iterdir()).name / "build.log"
     assert out == "building TapePlayer, once for this version of it\n"
     assert err == (f"error VT603 {log}: the build exited with 1: xcode-select: error: tool 'xcodebuild' requires Xcode\n"
-                   "fix: run videotape doctor, which checks for Xcode; when it passes, the log says what failed\n")
+                   "fix: run videotape doctor, which searches for Xcode; when it finds Xcode, the log says what failed\n")

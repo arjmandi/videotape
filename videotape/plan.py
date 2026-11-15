@@ -113,7 +113,7 @@ def plan(screenplay: Screenplay, max_states: int = MAX_STATES) -> Plan:
             if action.to not in reached:
                 if len(reached) == max_states:
                     raise ScreenplayError("VT210", action.to.name, f"the plan reached more than {max_states} states",
-                                          "take a scene's arguments from the data, which ends, or raise max_states "
+                                          "let a scene's arguments come from the data, which ends, or raise max_states "
                                           "in [tool.videotape]")
                 reached.add(action.to)
                 queue.append(action.to)
@@ -140,7 +140,7 @@ def _entry(screenplay: Screenplay) -> State:
     if needed:
         raise ScreenplayError("VT201", f"{errors.shown(first.defined[0])}:{first.defined[1]}",
                               f"the first scene, {first.name}, needs {' and '.join(needed)}, so the app has no state "
-                              "to open on", "put a scene that takes no arguments first")
+                              "to open on", "put a scene with no arguments first")
     return first()
 
 
@@ -163,7 +163,7 @@ def _show(state: State) -> tuple[Shown, ...]:
 
 def _told_apart(state: State, actions: tuple[Action, ...]) -> None:
     for what, values, fix in (
-            ("have the label", [action.label for action in actions], "give each action its own label"),
+            ("have the spoken name", [action.label for action in actions], "give each action words of its own"),
             ("are found by the words", [action.words for action in actions],
              "make the words differ, such as each row's title")):
         shared = [value for value, count in Counter(values).items() if count > 1]

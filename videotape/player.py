@@ -1,4 +1,4 @@
-"""TapePlayer, the macOS app that plays a tape. Its source ships in the package as videotape/macos, and in a checkout
+"""TapePlayer, the Mac app that plays a tape. Its source ships in the package as videotape/macos, and in a checkout
 it is clients/macos beside the package. It is built in Release into a cache, once for each version of its source, and
 never into the package. play opens a tape in the built app with the tape's path as its argument, which TapePlayer
 takes as it is when the path is absolute."""
@@ -63,8 +63,8 @@ def built(source: Path | None = None) -> Path:
             line = next((line for line in said if "error:" in line),
                         next((line for line in reversed(said) if line.strip()), "nothing"))
             raise ScreenplayError("VT603", errors.shown(log), f"the build exited with {ran.returncode}: {line.strip()}",
-                                  "run videotape doctor, which checks for Xcode; when it passes, the log says "
-                                  "what failed")
+                                  "run videotape doctor, which searches for Xcode; when it finds Xcode, the log "
+                                  "says what failed")
         (folder / "build" / "TapePlayer.app").rename(app)
     log.unlink(missing_ok=True)
     print(f"built TapePlayer in {time.monotonic() - started:.1f} s", flush=True)

@@ -68,8 +68,8 @@ def publish(found: Project, tape: Path) -> Published:
         inside = staged / "Contents" / "Resources" / "tape"
         clips = _encode(tape, manifest, inside)
         _rests(planned, record, listing.eye(tape), tape, inside, clips)
-        print(f"encoded {len(clips)} clips as HEVC; on each one's last frame, where the player rests, every check its "
-              "key passed still passes", flush=True)
+        print(f"encoded {len(clips)} clips as HEVC; on each one's last frame, where TapePlayer rests, every check "
+              "its key passed still passes", flush=True)
         _run("codesign", "--force", "--deep", "--sign", "-", str(staged))
         print("signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app",
               flush=True)
@@ -100,7 +100,7 @@ def read_lock(root: Path) -> dict[str, dict[str, str]]:
     try:
         return tomllib.loads(file.read_text())
     except tomllib.TOMLDecodeError as error:
-        raise ProjectError(f"{shown(file)} is not TOML: {error}; mend it, or take it back from git") from None
+        raise ProjectError(f"{shown(file)} is not TOML: {error}; mend it, or restore it from git") from None
 
 
 def write_lock(root: Path, lock: dict[str, dict[str, str]]) -> None:
@@ -146,7 +146,7 @@ def _accepted(tape: Path, record: dict) -> None:
     raise ScreenplayError(
         "VT602", shown(tape), f"{len(failing)} check{'' if one else 's'} fail{'s' if one else ''} that nobody "
         f"accepted: {', '.join(f'{failure["shot"]} {failure["code"]}' for failure in failing)}",
-        f"look at {'it' if one else 'them'} with videotape dailies --story {record['story']}{_out(record)}, then "
+        f"review {'it' if one else 'them'} with videotape dailies --story {record['story']}{_out(record)}, then "
         f"retake the shot or accept the failure with a reason; for the first:\n{first['retake']}\n{first['accept']}")
 
 
@@ -157,8 +157,9 @@ def _unlocked(root: Path, lock: dict[str, dict[str, str]], block: dict, story_fi
         return
     now = entry(block)
     changed = [words for key, words in WORDS.items() if held.get(key) != now[key]]
-    raise ScreenplayError("VT305", shown(root / LOCK), f"{block['label']} was published as {held.get('id', '')[:12]}, "
-                          f"and this tape under the same label is {block['id'][:12]}"
+    raise ScreenplayError("VT305", shown(root / LOCK), f"{block['label']} was published with made id "
+                          f"{held.get('id', '')[:12]}, and this tape under the same label has made id "
+                          f"{block['id'][:12]}"
                           + (f": {_and(changed)} changed" if changed else ""),
                           "give the tape a label of its own: bump version in pyproject.toml, or in "
                           f"{shown(story_file)} for a change to the story, then render and publish again")
@@ -187,7 +188,7 @@ def _encode(tape: Path, manifest: dict, inside: Path) -> dict[str, str]:
 
 
 def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clips: dict[str, str]) -> None:
-    """VT604 when the last frame of an encoded clip, where the player rests, fails a check that passed in the record:
+    """VT604 when the last frame of an encoded clip, where TapePlayer rests, fails a check that passed in the record:
     the eye's checks of the state it lands on, which its key passed, and the seam with that state's key image, which
     the move's kept take passed."""
     keys = {key.state.name: key for key in planned.keys}
@@ -207,7 +208,7 @@ def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clip
         if broken:
             shot = next((move for move in planned.moves if move.clip == clip), planned.keys[0])
             checks = "a check its key passed:" if len(broken) == 1 else f"{len(broken)} checks its key passed, the first"
-            raise ScreenplayError("VT604", clip, f"its HEVC last frame, where the player rests on {state}, fails "
+            raise ScreenplayError("VT604", clip, f"its HEVC last frame, where TapePlayer rests on {state}, fails "
                                   f"{checks} {broken[0].code} {broken[0].about}: {broken[0].result}",
                                   "retake the shot, whose next take may come through the encoding, then publish again:"
                                   f'\nvideotape retake "{dailies.named(shot)}" --story {record["story"]}{_out(record)}')

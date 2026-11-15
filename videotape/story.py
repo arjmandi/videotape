@@ -164,7 +164,7 @@ def load(path: Path) -> Story:
     for table in ("scenes", "elements", "moves"):
         held = told.get(table, {})
         if not isinstance(held, dict):
-            raise ScreenplayError("VT306", _line_with(path, f"{table} ="), f"{table} is {held!r}, not a [{table}] table",
+            raise ScreenplayError("VT306", _line_with(path, f"{table} ="), f"{table} is {held!r}, not a [{table}] section",
                                   f'write [{table}] on a line of its own, with name = "words" lines under it')
         for name, words in held.items():
             if not isinstance(words, str):
@@ -185,7 +185,7 @@ def _unquoted(path: Path, words: str, what: str) -> None:
     # The line is found by the words beside the quote, since a straight quote is escaped in the file.
     beside = re.match(r"[^\\\"\u201c\u201d]{1,8}", words[at + 1:]) or re.search(r"[^\\\"\u201c\u201d]{1,8}$", words[:at])
     raise ScreenplayError("VT308", _line_with(path, beside[0] if beside else ""), f"{what} quotes {quoted!r}",
-                          "take the quotes out; the screenplay owns every word on screen, so describe their look")
+                          "remove the quotes; the screenplay owns every word on screen, so describe how they look")
 
 
 def _line_with(path: Path, needle: str) -> str:
@@ -217,11 +217,11 @@ def check(story: Story, plan: Plan, limit: PromptLimit | None) -> tuple[Screenpl
                                   f"the story directs the scene {name}, and the screenplay has no scene of that name",
                                   _closest(name, plan.scenes, "scenes"))
     used = sorted({element.type for key in plan.keys for element in key.shown})
-    for table, gives in (("elements", "an appearance"), ("moves", "a move")):
+    for table, gives in (("elements", "gives an appearance to"), ("moves", "says what the camera does for")):
         for name in getattr(story, table):
             if name not in used and (table, name) != ("moves", DEFAULT):
                 raise ScreenplayError("VT303", _at(story.path, table, name),
-                                      f"the story gives {gives} to the element type {name}, which the screenplay "
+                                      f"the story {gives} the element type {name}, which the screenplay "
                                       "does not use", _closest(name, used, "element types"))
     warnings = [ScreenplayError("VT304", place, f"the scene {name} has no direction, so its keys get only the look",
                                 f'add {name} = "..." under [scenes]')
@@ -229,7 +229,7 @@ def check(story: Story, plan: Plan, limit: PromptLimit | None) -> tuple[Screenpl
     if limit:
         lengths = {shot: limit.count(text(prompt(shot, story))) for shot in plan.shots}
         warnings += [ScreenplayError("VT307", shot.title, f"the prompt is {limit.says.format(length)} long, and "
-                                     f"{limit.model} takes no more than {limit.most:,}",
+                                     f"{limit.model} allows no more than {limit.most:,}",
                                      f"shorten the look, the scene's direction or the appearances in {place}, or show "
                                      "fewer lines in this state")
                      for shot, length in lengths.items() if length > limit.most]

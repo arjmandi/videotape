@@ -408,7 +408,7 @@ def _shape(result: Render) -> Shape:
     """The one size and frame rate every kept clip shares, which the player sizes its window to."""
     shapes = {filmed.kept.path: frames.shape(filmed.kept.path) for filmed in result.shots}
     if len(set(shapes.values())) > 1:
-        raise FfmpegError("the kept clips differ in size or frame rate, so no one window plays them: " +
+        raise FfmpegError("the kept takes differ in size or frame rate, so no one window plays them: " +
                           ", ".join(f"{path.name} {s.width}x{s.height} at {s.fps} fps" for path, s in shapes.items()))
     return next(iter(shapes.values()))
 

@@ -65,7 +65,7 @@ def bill(response: dict) -> tuple[str, Receipt]:
     try:
         url, duration = result["video"]["url"], float(result["duration"])
     except (KeyError, TypeError, ValueError):
-        raise FalError(f"request {submitted['request_id']} answered without a video and its duration: {result}") from None
+        raise FalError(f"request {submitted['request_id']} answered without video.url and duration: {result}") from None
     return url, Receipt(submitted["request_id"], duration, round(duration * PRICE.usd_per_second, 4), response)
 
 

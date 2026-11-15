@@ -159,10 +159,11 @@ def test_a_path_outside_data_is_vt205_at_the_line_that_loads_it(tmp_path, monkey
     (ROWS.replace('"CT 100", "day": "2026-12-12"', '100, "day": "2026-12-12"'), "data/flights.json:3",
      'record 2 field "number" is 100, not a string'),
     (ROWS.replace("2026-12-12", "2026-12-11"), "data/flights.json:3",
-     'record 2 has the key of record 1: number "CT 100", day "2026-12-11"'),
+     'record 2 has the same number and day as record 1: number "CT 100", day "2026-12-11"'),
     ('[\n  {"number": "CT 100", "day": "2026-12-11", "departs": "07:05", "fare": 219},\n\n  "CT 104"\n]',
      "data/flights.json:4", 'record 2 is "CT 104", not an object'),
-    ('\n{"number": "CT 100"}', "data/flights.json:2", "a table's file holds an array of records, and this one does not"),
+    ('\n{"number": "CT 100"}', "data/flights.json:2",
+     "a data table's file holds an array of records, and this one does not"),
 ])
 def test_a_record_that_is_not_what_its_class_says_is_vt206_naming_the_file_the_record_and_the_field(
         tmp_path, monkeypatch, rows, place, message):
@@ -224,6 +225,6 @@ def test_get_needs_exactly_one_match_or_is_vt208():
     with pytest.raises(vt.ScreenplayError) as several:
         DRINKS.get(size="tall")
     assert several.value.code == "VT208"
-    assert several.value.message == ("get(size='tall') matched 2 rows of Drink from drinks.json, and get() returns "
+    assert several.value.message == ("get(size='tall') matched 2 Drink records from drinks.json, and get() returns "
                                      "the only match")
-    assert several.value.fix == "name the fields of its key, name, or use where(...) for several rows"
+    assert several.value.fix == "name every field that key= names, name, or use where(...) for several records"

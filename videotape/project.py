@@ -1,4 +1,4 @@
-"""A project is the folder that holds an app's pyproject.toml, whose [tool.videotape] table names its screenplay."""
+"""A project is the folder that holds an app's pyproject.toml, whose [tool.videotape] section names its screenplay."""
 
 import importlib
 import os
@@ -73,7 +73,7 @@ def find(start: Path) -> Project:
                               "names") from None
     table = settings.get("tool", {}).get("videotape")
     if not isinstance(table, dict):
-        raise ScreenplayError("VT106", file, "has no [tool.videotape] table", "add one that names the screenplay, "
+        raise ScreenplayError("VT106", file, "has no [tool.videotape] section", "add one that names the screenplay, "
                               'its module and the name of its vt.Screenplay: [tool.videotape] screenplay = "shop:app"')
     screenplay, model = table.get("screenplay"), table.get("model")
     max_states, takes, cap = table.get("max_states", MAX_STATES), table.get("takes", TAKES), table.get("cap_usd")

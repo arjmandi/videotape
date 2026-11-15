@@ -34,7 +34,7 @@ uvx --from git+https://github.com/arjmandi/videotape-p1p videotape new contrail
 ```
 
 ```text
-made contrail: a screenplay of two scenes, a table of data, and the story starter
+made contrail: a screenplay of two scenes, a data table, and the story starter
 next:
   cd contrail
   uv run videotape doctor
@@ -50,7 +50,7 @@ next:
 contrail/
   pyproject.toml          the app's name and version, its dependency on videotape, and [tool.videotape]
   contrail/__init__.py
-  contrail/screenplay.py  the starter's screenplay: two scenes and a table of steps
+  contrail/screenplay.py  the starter's screenplay: two scenes and a data table of steps
   data/steps.json         the starter's three steps
   stories/starter.toml    the starter's story: a notebook on a desk
   .env.example            the names of the API keys, without values
@@ -132,7 +132,7 @@ A scene is a function that returns the elements of one screen, from top to botto
 
 An element with `to=` holds an action. Pressing it leads to the state that `to=` names. The screenplay holds every word on the screen and nothing of how the screen looks. A story says how it looks.
 
-`plan` walks every state the app can reach, from the first scene, before anything renders:
+`plan` walks every state the app can reach, from the first scene, before a render films anything:
 
 ```sh
 uv run videotape plan
@@ -625,7 +625,7 @@ home() -> search() "Where to?"
 ...
 ```
 
-A key's prompt is the look, then the scene's direction, then each element, as its appearance from the story and its words from the screenplay. The move's prompt is the press, from the screenplay, and then the move from the story. When a shot comes out wrong, its sources say which line to change.
+A key's prompt is the look, then the scene's direction, then each element, as its appearance from the story and its words from the screenplay. The move's prompt is the press, from the screenplay, and then what the story says the camera does. When a shot comes out wrong, its sources say which line to change.
 
 Write Contrail's second story, a wall of travel posters:
 
@@ -732,7 +732,7 @@ uv run videotape explain VT502
 ```
 
 ```text
-VT502: a word was misread
+VT502: a line was misread
 
 Every line of a state is read back from its key, and a line reads back exactly or the check fails. The character error rate says how far off it was, and the dailies show the line's box when the eye saw one.
 
@@ -812,7 +812,7 @@ uv run videotape publish --story terminal
 ```
 
 ```text
-encoded 103 clips as HEVC; on each one's last frame, where the player rests, every check its key passed still passes
+encoded 103 clips as HEVC; on each one's last frame, where TapePlayer rests, every check its key passed still passes
 signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app
 published dist/Contrail-terminal.app, 8.1 MB, zipped to dist/Contrail-terminal.zip, 7.3 MB
 label contrail 0.1.0 + terminal 1.0.0

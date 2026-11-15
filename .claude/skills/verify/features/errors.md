@@ -11,15 +11,15 @@ Every mistake in a screenplay, its data or a story, and everything that goes wro
 - `errors-vt205` rejects a data file that is missing, or a path outside `data/`.
 - `errors-vt206` rejects a record with a value of the wrong type, naming the file, the record's position and the field.
 - `errors-vt207` rejects a query that names a field its records lack, and lists the fields they have.
-- `errors-vt208` rejects a `get()` that matched no row.
-- `errors-vt209` rejects two actions in one state with one label.
+- `errors-vt208` rejects a `get()` that matched no record.
+- `errors-vt209` rejects two actions in one state with one spoken name.
 - `errors-vt210` stops a plan that reaches more states than `max_states`.
 - `errors-vt301` rejects a story with no version or no look.
 - `errors-vt302` rejects a story that directs a scene the screenplay doesn't have, naming the line and the closest real scene.
 - `errors-vt303` rejects a story that names an element type the screenplay doesn't use, naming the line and the closest real type.
 - `errors-vt304` warns that a scene has no direction, so its keys get only the look.
 - `errors-vt306` rejects a story that is not TOML, or a table entry that is not words, naming the line.
-- `errors-vt307` warns that a prompt is longer than the model takes.
+- `errors-vt307` warns that a prompt is longer than the model allows.
 - `errors-vt308` rejects a story that quotes words, with a straight or a curly double quote, naming the line.
 - `errors-vt309` rejects a `--story` with no file under `stories/`, listing the stories there.
 - `errors-render` and `errors-checks` are the render's `VT401` to `VT404` and the checks' `VT501`, `VT502`, `VT503` and `VT508`, proven by `uv run pytest tests/test_render.py tests/test_resume.py tests/test_retake.py`.
@@ -51,9 +51,9 @@ Preconditions:
   | `vt205` | `error VT205 app.py:9: no data file at data/drinks.json`<br>`fix: create it, or correct the path; "data/drinks.json" is relative to the folder of pyproject.toml` |
   | `vt206` | `error VT206 data/drinks.json:3: record 2 field "price" is "six", not a whole number`<br>`fix: write a whole number` |
   | `vt207` | `error VT207 app.py:15: Drink has no field "cost", in state home()`<br>`fix: name one of its fields: name, price` |
-  | `vt208` | `error VT208 app.py:15: get(name='Mocha') matched no Drink from data/drinks.json, in state home()`<br>`fix: ask for a row the data holds, or count the matches with where(...).count()` |
-  | `vt209` | `error VT209 home(): two actions have the label "Open"`<br>`fix: give each action its own label` |
-  | `vt210` | `error VT210 count(5): the plan reached more than 5 states`<br>`fix: take a scene's arguments from the data, which ends, or raise max_states in [tool.videotape]` |
+  | `vt208` | `error VT208 app.py:15: get(name='Mocha') matched no Drink from data/drinks.json, in state home()`<br>`fix: ask for a record the data holds, or count the matches with where(...).count()` |
+  | `vt209` | `error VT209 home(): two actions have the spoken name "Open"`<br>`fix: give each action words of its own` |
+  | `vt210` | `error VT210 count(5): the plan reached more than 5 states`<br>`fix: let a scene's arguments come from the data, which ends, or raise max_states in [tool.videotape]` |
 - **Each story code.** For `vt301`, `vt302`, `vt303`, `vt306`, `vt308` and `vt309`, run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-<code> tests/fixtures/errors/<code> -- plan --story neon`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is exactly these two lines:
 
   | Fixture | `.stderr` |
@@ -62,7 +62,7 @@ Preconditions:
   | `vt302` | `error VT302 stories/neon.toml:6: the story directs the scene detial, and the screenplay has no scene of that name`<br>`fix: write detail, the closest of the screenplay's scenes` |
   | `vt303` | `error VT303 stories/neon.toml:10: the story gives an appearance to the element type Buton, which the screenplay does not use`<br>`fix: write Button, the closest of the screenplay's element types` |
   | `vt306` | `error VT306 stories/neon.toml:2: the story is not TOML: Invalid value`<br>`fix: write each line as name = "words", under [scenes], [elements] or [moves], or above all three` |
-  | `vt308` | `error VT308 stories/neon.toml:5: home under [scenes] quotes '“Open”.'`<br>`fix: take the quotes out; the screenplay owns every word on screen, so describe their look` |
+  | `vt308` | `error VT308 stories/neon.toml:5: home under [scenes] quotes '“Open”.'`<br>`fix: remove the quotes; the screenplay owns every word on screen, so describe how they look` |
   | `vt309` | `error VT309 stories: no story "neon"`<br>`fix: name one of the stories there, glow` |
 
   `vt309`'s only story is `stories/glow.toml`, so `--story neon` names one it does not have. A project with no `stories/` folder at all says `fix: add stories/neon.toml` instead, as `tests/fixtures/errors/vt211` does with `-- shots --story neon`.
@@ -71,18 +71,18 @@ Preconditions:
   | Fixture | First `.stdout` line | `.stderr` |
   | --- | --- | --- |
   | `vt304` | `Shop 0.1.0 + neon 1.0.0: 2 scenes, 2 states, 2 keys, 1 move, 3 shots` | `warning VT304 stories/neon.toml: the scene detail has no direction, so its keys get only the look`<br>`fix: add detail = "..." under [scenes]` |
-  | `vt307` | `Shop 0.1.0 + neon 1.0.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot` | `warning VT307 key home(): the prompt is about 778 tokens long, and wan2.2-5b takes no more than 512`<br>`fix: shorten the look, the scene's direction or the appearances in stories/neon.toml, or show fewer lines in this state` |
+  | `vt307` | `Shop 0.1.0 + neon 1.0.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot` | `warning VT307 key home(): the prompt is about 778 tokens long, and wan2.2-5b allows no more than 512`<br>`fix: shorten the look, the scene's direction or the appearances in stories/neon.toml, or show fewer lines in this state` |
 
   With `-- plan --story neon --model stand-in` in `vt307`, `.stderr` is empty and the last two lines are `0 errors, 0 warnings` and `stand-in: 1 shot, 1 to 4 calls, free`. With `--model wan3.0` the last line is `wan3.0: 1 shot, 1 to 4 calls, $0.50 to $2.00 at $0.10/s`; the plan prices the calls without making one, so it needs no `FAL_KEY`.
 - **Render.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-render tests/fixtures/errors/vt204 -- render --story neon --model stand-in`. `.exit` is `1`, `.stdout` is empty, `.stderr` is the two `vt204` lines above, and `command ls tests/fixtures/errors/vt204` lists only `app.py` and `pyproject.toml`. The screenplay's error comes before the story is looked for, so it does not matter that `vt204` has no story. Run the same in `tests/fixtures/errors/vt302` as `errors-render-story`. `.stderr` is the two `vt302` lines, and `command ls tests/fixtures/errors/vt302` lists only `app.py`, `pyproject.toml` and `stories`.
 - **A path outside data/.** Write a scratch project `P="${TMPDIR:-/tmp}"/videotape-verify-outside` with `pyproject.toml` holding `[tool.videotape]` and `screenplay = "app:app"`, an `app.py` that defines `class Drink(vt.Record, key="name")` with `name: str` and `price: int`, then `drinks = vt.table(Drink, "drinks.json")` and a `home` scene, and a `drinks.json` beside it. Run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-outside-data "$P" -- plan`. `.exit` is `1` and `.stderr` is `error VT205 app.py:<line>: "drinks.json" is not under data/` over `fix: keep every data file under data/ in the project, as in data/drinks.json`.
-- **Render codes.** `uv run pytest tests/test_render.py -k "vt401 or vt403 or vt404 or corrupt" -v` proves `VT401` (a model call failed: the provider's message and request, never a key, then `next: run the render again, which resumes; a request that was submitted is polled, not submitted again:` and the command), `VT403` (a corrupt take: downloaded again for a model that bills per call, else `error VT403 <shot> take <seed>: <file> did not decode to one frame: <ffmpeg's words>` over `next: nothing; seed <seed> is skipped from now on`, and the seed in the record's `corrupt`) and `VT404` (`ffmpeg is not on PATH` over `next: install ffmpeg, as in brew install ffmpeg, and run the render again`). `uv run pytest tests/test_resume.py -v` proves `VT402`: a paid model with no cap stops before the first call with `error VT402 before the first call: <model> bills per call, and no cap is set`, and a render under a cap stops with `error VT402 <shot> take <seed>: the next call would pass the cap of $<cap>, with $<spent> spent on this tape and $<reserved> reserved for the calls in flight, at the listed price of $<price> a call`, then `next: run the render again with a higher cap, which resumes, as in:` and the command with `--cap-usd` at twice the cap. The tests that raise `VT402`, `VT403` and `VT404` also match what render printed against the code's `explain` example and next step, with the shot, paths, hashes, numbers, the story and ffmpeg's words left open, so the two cannot drift.
+- **Render codes.** `uv run pytest tests/test_render.py -k "vt401 or vt403 or vt404 or corrupt" -v` proves `VT401` (a model call failed: the provider's message and request, never an API key, then `next: run the render again, which resumes; a request that was submitted is polled, not submitted again:` and the command), `VT403` (a corrupt take: downloaded again for a model that bills per call, else `error VT403 <shot> take <seed>: <file> did not decode to one frame: <ffmpeg's words>` over `next: nothing; seed <seed> is skipped from now on`, and the seed in the record's `corrupt`) and `VT404` (`ffmpeg is not on PATH` over `next: install ffmpeg, as in brew install ffmpeg, and run the render again`). `uv run pytest tests/test_resume.py -v` proves `VT402`: a paid model with no cap stops before the first call with `error VT402 before the first call: <model> bills per call, and no cap is set`, and a render under a cap stops with `error VT402 <shot> take <seed>: the next call would pass the cap of $<cap>, with $<spent> spent on this tape and $<reserved> reserved for the calls in flight, at the listed price of $<price> a call`, then `next: run the render again with a higher cap, which resumes, as in:` and the command with `--cap-usd` at twice the cap. The tests that raise `VT402`, `VT403` and `VT404` also match what render printed against the code's `explain` example and next step, with the shot, paths, hashes, numbers, the story and ffmpeg's words left open, so the two cannot drift.
 - **Check codes.** `VT501` is an action not found, `VT502` a word misread, `VT503` an invented control and `VT508` a seam over 0.05. [render.md](./render.md) drives `VT502`, `VT503` and `VT508` on the cafe with one take per shot. The stand-in finds every action, so `uv run pytest tests/test_render.py -k do_not_find` proves `VT501`. Each `fail:` line reads `fail: <n>. <shot>  <code> <about>: <evidence>` with `  next: videotape retake "<state>" --story <story>` under it.
 - **Explain.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-explain . -- explain VT207`. `.exit` is `0` and `.stdout` is exactly:
   ```
   VT207: a query names a field its records don't have
 
-  where, order_by, get, distinct, min, and sum take the names of a record's fields, and so does key=. This name is not one of them. The error lists the fields the records do have.
+  where, order_by, get, distinct, min, and sum name a record's fields, and so does key=. This name is not one of them. The error lists the fields the records do have.
 
   Example:
       flights.where(dest="SEA")
@@ -91,7 +91,7 @@ Preconditions:
       flights.where(destination="SEA")
   ```
   With `explain VT303` instead, `.stdout` starts `VT303: a story names an element type the screenplay doesn't use` and its `Fix:` is `[elements]` over `Button = "a lit amber panel with bold black letters"`. With `explain VT402`, `.stdout` starts `VT402: the next call would pass the cap` and its last section is headed `Next:`, as every `VT4xx` and `VT5xx` entry's is, since those name what to run next rather than what to write. With `explain VT999`, a code that does not exist, `.exit` is `2` and `.stderr` ends with `videotape explain: error: argument code: invalid choice: 'VT999' (choose from VT101, VT102, VT103, VT104, VT105, VT106, VT107, VT201, VT202, VT203, VT204, VT205, VT206, VT207, VT208, VT209, VT210, VT211, VT301, VT302, VT303, VT304, VT305, VT306, VT307, VT308, VT309, VT401, VT402, VT403, VT404, VT501, VT502, VT503, VT508, VT601, VT602, VT603, VT604)`. `VT1xx` and `VT6xx` entries end with `Fix:`, as the plan's do.
-- **No project.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-no-project . -- plan`, which runs in the repo root. `.exit` is `1`, `.stdout` is empty, and `.stderr` is `error VT106 pyproject.toml: has no [tool.videotape] table` over `fix: add one that names the screenplay, its module and the name of its vt.Screenplay: [tool.videotape] screenplay = "shop:app"`.
+- **No project.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-no-project . -- plan`, which runs in the repo root. `.exit` is `1`, `.stdout` is empty, and `.stderr` is `error VT106 pyproject.toml: has no [tool.videotape] section` over `fix: add one that names the screenplay, its module and the name of its vt.Screenplay: [tool.videotape] screenplay = "shop:app"`.
 - **Proof.** For each journey cite `.cmd`, `.exit` and `.stderr`. `uv run pytest tests/test_errors.py tests/test_data.py tests/test_story.py` proves the rest: every code has an `explain` entry, every code a plan can raise has a fixture, `VT206` names a missing field, an unknown field, each wrong type and a repeated key, `VT301` names a version that is not in quotes, `VT306` names a table entry that is not words, and `VT308` finds a straight quote escaped in TOML, one in a literal string, and a curly one in a multi-line look.
 
 ## Gotchas

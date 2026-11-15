@@ -58,8 +58,8 @@ class QwenEye:
 
     def __init__(self, tape: Path):
         if find_spec("torch") is None or find_spec("transformers") is None:
-            raise ChecksError("qwen3-vl-8b checks this model's keys and needs videotape's qwen extra, which is not "
-                              "installed here; install videotape[qwen]")
+            raise ChecksError("qwen3-vl-8b, this model's eye, needs videotape's qwen extra, which is not installed "
+                              "here; install videotape[qwen]")
         self.looks = tape / "looks"
         self.qwen: _Qwen | None = None
 
