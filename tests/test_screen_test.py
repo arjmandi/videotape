@@ -125,7 +125,7 @@ def test_an_estimate_past_the_cap_stops_before_any_call_and_says_the_cap_the_run
     needed = f"{math.ceil(most() * 100) / 100:.2f}"
     assert err == (
         f"error VT402 before the first call: the screen test may cost ${most():.2f}, which passes the cap of $50.00\n"
-        f"next: run it with a cap of at least ${needed}, as in:\nscripts/screen-test {directory} --models {THREE} "
+        f"next: run it with a cap of at least ${needed}, as in:\nuv run scripts/screen-test {directory} --models {THREE} "
         f"--stories {BOTH} --cap-usd {needed}\n")
     assert not (directory / "tapes").exists() and not (directory / "ledger.jsonl").exists()
 
@@ -135,7 +135,7 @@ def test_a_paid_run_without_a_cap_does_not_start(run, tmp_path):
     code, _, err = run(directory, "--models", "minimax-h3", "--stories", "terminal")
     assert code == 1 and err.startswith(
         "error VT402 before the first call: minimax-h3 and claude-opus-5-5 bill per call, and no cap is set\nnext: set "
-        "the most the screen test may spend, as in:\nscripts/screen-test ")
+        "the most the screen test may spend, as in:\nuv run scripts/screen-test ")
     assert not (directory / "tapes").exists()
 
 
@@ -310,8 +310,8 @@ def test_one_cap_holds_for_the_whole_screen_test_and_counts_what_its_other_tapes
     code, out, err = screen(script, directory, "--models", "wan3.0", "--stories", BOTH, "--cap-usd", "22")
     assert code == 1
     assert err.startswith("error VT402 key ") and "the next call would pass the screen test's cap of $22.00, with $" in err
-    assert err.endswith(f"next: run the screen test again with a higher cap, which resumes, as in:\nscripts/screen-test "
-                        f"{directory} --models wan3.0 --stories {BOTH} --cap-usd 44.00\n")
+    assert err.endswith(f"next: run the screen test again with a higher cap, which resumes, as in:\nuv run "
+                        f"scripts/screen-test {directory} --models wan3.0 --stories {BOTH} --cap-usd 44.00\n")
     spent = sum(line.get("usd", 0.0) for line in ledger_lines(directory))
     assert 15 + 5 < spent <= 22
     assert {line["tape"] for line in ledger_lines(directory)} == {"tapes/screen-test/wan3.0/posters",

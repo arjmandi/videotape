@@ -759,8 +759,9 @@ def _marks(path: str) -> tuple[Mark, ...]:
 
 
 def command(args: argparse.Namespace, cap: float | None) -> str:
-    """The command that runs this screen test again, with the cap last."""
-    words = [errors.shown(Path(__file__)), args.project, "--models", ",".join(args.models), "--stories",
+    """The command that runs this screen test again, with the cap last. uv runs it in the repository's environment,
+    where videotape is installed."""
+    words = ["uv", "run", errors.shown(Path(__file__)), args.project, "--models", ",".join(args.models), "--stories",
              ",".join(args.stories)]
     if args.marks:
         words += ["--marks", args.marks]
