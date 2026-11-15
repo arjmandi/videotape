@@ -275,8 +275,9 @@ CODES: dict[str, Code] = {
         "A model that bills per call renders under a cap: cap_usd in [tool.videotape], or --cap-usd. What a tape has "
         "spent is the sum of its lines in the project's ledger, so running the render again never resets it. Before "
         "each paid call the render stops when the call would pass the cap, says what was spent, and lets the calls "
-        "in flight finish and reach the ledger. The cap is checked against each call's listed price, and the "
-        "ledger holds what the call then billed, which can differ a little, so the spend can end a little past the cap. "
+        "in flight finish and reach the ledger. The render weighs each call against the cap at its listed price, and "
+        "the ledger holds what the call then billed, which can differ a little, so the spend can end a little past "
+        "the cap. "
         "A paid model with no cap at all does not start.",
         "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
         "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
@@ -367,7 +368,7 @@ CODES: dict[str, Code] = {
         "error VT603 ~/Library/Caches/videotape/player/3f9a0c1d2e4b5a67/build.log: the build exited with 1: "
         "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory "
         "'/Library/Developer/CommandLineTools' is a command line tools instance",
-        "run videotape doctor, which checks for Xcode; when it passes, the log says what failed",
+        "run videotape doctor, which looks for Xcode; when it finds Xcode, the log says what failed",
     ),
     "VT604": Code(
         "a check fails on the HEVC frame the player rests on",

@@ -223,7 +223,7 @@ def test_shots_without_a_state_prints_every_shot_of_the_plan():
     (("render", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--model", "wan3.0"), 1,
-     "error: --model checks a story's prompts against that model, so pass --story with it\n"),
+     "error: --model sets the prompt limit for a story's prompts, so pass --story with it\n"),
 ])
 def test_a_story_or_a_state_the_project_does_not_have_is_named_with_the_ones_it_has(arguments, code, error):
     result = videotape(CONTRAIL, *arguments)

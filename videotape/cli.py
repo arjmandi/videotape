@@ -51,7 +51,7 @@ def _warn(warnings: tuple[ScreenplayError, ...]) -> None:
 def plan_app(args) -> int:
     found = project.find(Path.cwd())
     if args.model and not args.story:
-        raise ProjectError("--model checks a story's prompts against that model, so pass --story with it")
+        raise ProjectError("--model sets the prompt limit for a story's prompts, so pass --story with it")
     planned, listing = _planned(found), _listing(found, args.model)
     warnings, in_story = planned.warnings, ""
     if args.story:
@@ -331,9 +331,9 @@ def main(argv=None) -> int:
                                      "pyproject.toml names its screenplay in [tool.videotape].")
     commands = parser.add_subparsers(dest="command", required=True)
     planning = commands.add_parser("plan", help="walk every state the app can reach, before anything renders")
-    planning.add_argument("--story", help="also check this story, which is stories/<story>.toml in the project")
-    planning.add_argument("--model", choices=sorted(MODELS), help="the model whose prompt limit the story is checked "
-                          "against (default: model in [tool.videotape])")
+    planning.add_argument("--story", help="also read this story, which is stories/<story>.toml in the project")
+    planning.add_argument("--model", choices=sorted(MODELS), help="the model whose prompt limit the story's prompts "
+                          "must fit (default: model in [tool.videotape])")
     planning.set_defaults(run=plan_app)
     showing = commands.add_parser("shots", help="print every shot's prompt in a story, with the source of each clause")
     showing.add_argument("--story", required=True, help="the story, which is stories/<story>.toml in the project")
@@ -343,8 +343,8 @@ def main(argv=None) -> int:
                                    "a data table, and a story")
     starting.add_argument("name", help="the project's name, which is its folder's and its Python package's")
     starting.set_defaults(run=new_project)
-    doctoring = commands.add_parser("doctor", help="check that this machine has what videotape needs, and in a "
-                                    "project, the API key its model needs")
+    doctoring = commands.add_parser("doctor", help="say whether this machine has what videotape needs, and in a "
+                                    "project, the API key its model needs and the GPU its eye needs")
     doctoring.set_defaults(run=doctor_checks)
     explaining = commands.add_parser("explain", help="print an error code's long form, with an example and its fix")
     explaining.add_argument("code", choices=sorted(CODES))
