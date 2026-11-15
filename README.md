@@ -94,14 +94,14 @@ uv run videotape render --story starter --model stand-in
 ```
 
 ```text
-1. key home()  kept take 1, passed, 1 take filmed, $0.00, 0.4 s
-2. key todo()  kept take 1, passed, 1 take filmed, $0.00, 0.4 s
-3. home() -> todo() "See the steps"  kept take 1, passed, 1 take filmed, $0.00, 0.1 s
-4. todo() -> home() "Back"  kept take 1, passed, 1 take filmed, $0.00, 0.1 s
-4 shots, 4 takes filmed, $0.00, 1.5 s, tape 0.2 MB -> tapes/starter
+1. key home()  kept take 1, passed, 1 take filmed, $0.00, 0.3 s
+2. key todo()  kept take 3, passed, 3 takes filmed, $0.00, 0.8 s
+4. todo() -> home() "Back"  kept take 2, passed, 2 takes filmed, $0.00, 0.4 s
+3. home() -> todo() "See the steps"  kept take 3, passed, 3 takes filmed, $0.00, 0.6 s
+4 shots, 9 takes filmed, $0.00, 2.8 s, tape 0.2 MB -> tapes/starter
 ```
 
-The render wrote a tape to `tapes/starter/`. Play it:
+Each line is a shot. A shot films takes until one passes its checks, so the key of `todo()` kept its third take. The render wrote a tape to `tapes/starter/`. Play it:
 
 ```sh
 uv run videotape play --story starter
@@ -692,7 +692,7 @@ home() -> search() "Where to?"
 
 A render films every key first, then each move as soon as both of its keys are done, several shots at once. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, and each move starts and ends on its keys. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
 
-The render prints a line for each shot as it finishes, then the totals, then each failing shot with the command to run next. It writes the tape to `tapes/terminal/`, and a line for each take to `ledger.jsonl`. The stand-in passes every shot within four takes. A real model does not, so the output here comes from a render in which two keys failed every take, as `tests/test_guide.py` makes the stand-in do:
+The render prints a line for each shot as it finishes, then the totals, then each failing shot with the command to run next. It writes the tape to `tapes/terminal/`, and a line for each take to `ledger.jsonl`. The stand-in passes every shot within four takes, and a real model does not. So the output here comes from `tests/test_guide.py`, whose stand-in films every other shot clean on its first take, and fails two keys on every take:
 
 ```sh
 uv run videotape render --story terminal

@@ -3,9 +3,11 @@ its commands run in order, each printing what the guide shows of it.
 
 The commands start in the project videotape new writes. From the guide's first whole file on, they run in that project
 with examples/contrail copied over it, since the guide has the reader write Contrail's files there. The stand-in is
-made to fail the state the guide retakes and the state it accepts, so that both commands act on a real failure."""
+made to fail the key of the state the guide retakes and of the state it accepts, so that both commands act on a real
+failure."""
 
 import dataclasses
+import hashlib
 import os
 import re
 import shlex
@@ -19,11 +21,10 @@ from pathlib import Path
 import pytest
 
 from conftest import CONTRAIL, planned, told
-from videotape import dailies, player, project, story
+from videotape import dailies, player, project, standin, story
 from videotape.cli import main
-from videotape.model import MODELS, Listing
-from videotape.plan import Mode
-from videotape.standin import Flaw, StandIn, StandInEye
+from videotape.plan import Shot
+from videotape.standin import Flaw
 
 ROOT = CONTRAIL.parent.parent
 GUIDE = ROOT / "README.md"
@@ -139,26 +140,38 @@ def failing(shown: str | None) -> bool:
     return bool(shown and re.search(r"^fail\b", shown, re.M))
 
 
-def flawed(guide: list[Step]) -> Callable[[Mode, str, int], Flaw]:
-    """The stand-in's flaws for the guide's render: the key of the state the guide retakes is misspelt on the render's
-    takes and clean on the retake's, and the key of the state it accepts fails the accepted code on every take. Each
-    is found by its prompt in its story, from Contrail's plan."""
-    plan, takes = planned(CONTRAIL), project.find(CONTRAIL).takes
+def flawed(guide: list[Step]) -> Callable[[bytes, int, list[Flaw]], Flaw]:
+    """The stand-in's flaws for the guide. The key of the state the guide retakes is misspelt on the render's takes and
+    clean on the retake's, and the key of the state it accepts fails the accepted code on every take. Every other take
+    of Contrail in a story the guide renders is clean, so that its render films each shot once, and every take of the
+    starter has the stand-in's own flaw, as a reader's has. Each prompt comes from Contrail's plan and story."""
+    plan, takes, default = planned(CONTRAIL), project.find(CONTRAIL).takes, standin._default_flaw
 
-    def prompt(arguments: list[str]) -> str:
-        key = next(key for key in plan.keys if key.state.name == arguments[1])
-        return story.text(story.prompt(key, told(CONTRAIL, arguments[arguments.index("--story") + 1])))
+    def prompt(shot: Shot, name: str) -> str:
+        return story.text(story.prompt(shot, told(CONTRAIL, name)))
 
-    [retaken] = [prompt(arguments) for step in guide if (arguments := videotape_command(step, "retake"))]
-    [(accepted, code)] = [(prompt(arguments), arguments[2]) for step in guide
+    def key(arguments: list[str]) -> str:
+        state = next(key for key in plan.keys if key.state.name == arguments[1])
+        return prompt(state, arguments[arguments.index("--story") + 1])
+
+    [retaken] = [key(arguments) for step in guide if (arguments := videotape_command(step, "retake"))]
+    [(accepted, code)] = [(key(arguments), arguments[2]) for step in guide
                           if (arguments := videotape_command(step, "accept"))]
+    stories = {arguments[arguments.index("--story") + 1] for step in guide
+               if (arguments := videotape_command(step, "render"))} - {"starter"}
 
-    def flaw(mode: Mode, words: str, seed: int) -> Flaw:
-        if mode is Mode.TEXT_TO_VIDEO and words == retaken and seed <= takes:
+    # The stand-in gives its default flaw only the hash of a take's seed and prompt, so a take is told by that hash.
+    def hashed(seed: int, words: str) -> bytes:
+        return hashlib.sha256(f"{seed}\n{words}".encode()).digest()
+
+    contrail = {hashed(seed, prompt(shot, name)) for name in stories for shot in plan.shots for seed in range(1, takes + 1)}
+
+    def flaw(digest: bytes, seed: int, kinds: list[Flaw]) -> Flaw:
+        if digest == hashed(seed, retaken) and seed <= takes:
             return Flaw.MISSPELL
-        if mode is Mode.TEXT_TO_VIDEO and words == accepted:
+        if digest == hashed(seed, accepted):
             return FLAWS[code]
-        return Flaw.NONE
+        return Flaw.NONE if digest in contrail else default(digest, seed, kinds)
     return flaw
 
 
@@ -209,8 +222,7 @@ def test_the_guide_runs_from_new_and_leaves_publish_for_last():
                          ids=["player-faked", "player-real"])
 def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, tmp_path, cli, capsys, monkeypatch):
     guide = steps()
-    model = StandIn(flaw=flawed(guide))
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, lambda tape: StandInEye(), limit=8))
+    monkeypatch.setattr(standin, "_default_flaw", flawed(guide))
     monkeypatch.delenv("FAL_KEY", raising=False)
     opened = list[list[str]]()
     if not real_player:
