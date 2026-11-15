@@ -455,7 +455,8 @@ td.missed { box-shadow: inset 3px 0 0 var(--fail); }
 td .by { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .models { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 10px; }
 .model h4 { margin: 0 0 6px; font-size: 14px; }
-.model .takes { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 0; }
+.model .takes { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-top: 0; }
+#takes > h2 { margin: 28px 0 0; }
 .marks { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
 .marks li { padding: 3px 0; border-top: 1px dashed var(--line); }
 .marks label { display: flex; gap: 8px; align-items: baseline; overflow-wrap: anywhere; }
@@ -527,8 +528,8 @@ def _pick(screen: Screen) -> str:
                          f"{_money(chosen.usd)}")
             others.append(f"{said}.")
         lines.append(f'<p class="pick">The pick is {escape(chosen.model)}: {len(chosen.met)} of {len(screen.kinds)} '
-                     f"element types at the bar in every story, {_count(chosen.invented, 'control')} invented. "
-                     f"{escape(' '.join(others))}</p>")
+                     f"element types at the bar in every story, {_count(chosen.invented, 'control')} invented.</p>"
+                     f"<p>{escape(' '.join(others))}</p>")
         lines.append(f'<p>To render with it, set model = "{escape(chosen.model)}" in [tool.videotape] in the '
                      "project's pyproject.toml. The screen test leaves it as it is.</p>")
     missed = [kind for kind in screen.kinds if not any(kind in standing.met for standing in screen.standings)]
@@ -601,9 +602,14 @@ them, take by take. Then the first takes that pass every check, and the time and
 
 
 def _take(take: Take) -> str:
-    verdict = "passed" if take.passed else "fails " + " ".join(sorted({i["code"] for i in take.items if not i["passed"]}))
+    # A failing check stays in view, so the models compare at a glance, and the passing ones fold away.
+    failing = [item for item in take.items if not item["passed"]]
+    passing = [item for item in take.items if item["passed"]]
+    verdict = "fails " + " ".join(sorted({item["code"] for item in failing})) if failing else "passed"
     seconds = f"{take.seconds:.1f} s" if take.seconds is not None else "time unknown"
     timed = f' data-seconds="{take.seconds:.1f}"' if take.seconds is not None else ""
+    passed = (f"<details><summary>{_count(len(passing), 'check')} passed</summary><ul class=\"checks\">"
+              f"{dailies.checklist(passing)}</ul></details>" if passing else "")
     return (f'<figure class="take" data-model="{escape(take.model)}" data-story="{escape(take.story)}" '
             f'data-key="{escape(take.state)}" data-seed="{take.seed}" data-usd="{take.usd:.2f}"{timed}>'
             f'<img src="{escape(take.tape)}/{escape(take.picture)}" alt="The last frame of take {take.seed} of '
@@ -611,7 +617,7 @@ def _take(take: Take) -> str:
             f'<figcaption><strong>Take {take.seed}</strong><span class="badge{"" if take.passed else " failing"}">'
             f'{verdict}</span><span class="badge">{seconds}</span><span class="badge">{_money(take.usd)}</span>'
             f'<a href="{escape(take.tape)}/{escape(take.clip)}">clip</a></figcaption>'
-            f'<ul class="checks">{dailies.checklist(list(take.items))}</ul></figure>')
+            f'<ul class="checks">{dailies.checklist(failing)}</ul>{passed}</figure>')
 
 
 def _takes(screen: Screen) -> str:
@@ -622,7 +628,7 @@ def _takes(screen: Screen) -> str:
                 f'<div class="model"><h4>{escape(model)}</h4><div class="takes">'
                 + "".join(_take(take) for take in screen.of(model, told) if take.state == key.state.name)
                 + "</div></div>" for model in screen.models)
-            sections.append(f'<section class="shot key" data-story="{escape(told)}" data-key="{escape(key.state.name)}">'
+            sections.append(f'<section class="shot sampled" data-story="{escape(told)}" data-key="{escape(key.state.name)}">'
                             f'<h3>{escape(key.state.name)} in {escape(told)}</h3><div class="models">{columns}</div>'
                             "</section>")
     return f'<section id="takes"><h2>Every take</h2>\n{"".join(sections)}\n</section>'

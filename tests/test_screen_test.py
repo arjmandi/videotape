@@ -399,7 +399,10 @@ def test_the_report_shows_every_take_with_its_picture_and_its_checks_the_models_
     assert len(pictures) == 96
     assert all((directory / "tapes" / "screen-test" / picture).is_file() for picture in pictures)
     assert all(picture.endswith(".png") and not picture.startswith("/") for picture in pictures)
-    assert text.count('<ul class="checks">') == 96
+    records = [json.loads((directory / tape / "dailies.json").read_text()) for tape in TAPES]
+    items = [item for record in records for key in record["keys"] for take in key["takes"] for item in take["items"]]
+    assert text.count('<li class="pass">') == sum(item["passed"] for item in items)
+    assert text.count('<li class="fail">') == sum(not item["passed"] for item in items) > 0
     assert "VT503 Not in the script" in page.text
     assert "color-scheme: light dark" in text and "prefers-color-scheme: dark" in text
     assert "http://" not in text.replace("http://www.w3.org", "") and "<script src" not in text
