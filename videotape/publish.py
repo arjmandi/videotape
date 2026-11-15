@@ -53,9 +53,8 @@ def publish(found: Project, tape: Path) -> Published:
     block = manifest["made"]
     told = story.named(found.root, block["story"]["name"])
     listing = MODELS[block["model"]["name"]]
-    out = record.get("out")
-    _fresh(tape, block, made(found, told, listing.kind), record["complete"], out)
-    _accepted(tape, record, told.name, out)
+    _fresh(tape, block, made(found, told, listing.kind), record)
+    _accepted(tape, record)
     lock = read_lock(found.root)
     _unlocked(found.root, lock, block, told.path)
     planned = plan(found.load(), found.max_states)
@@ -68,7 +67,7 @@ def publish(found: Project, tape: Path) -> Published:
         _name(staged / "Contents" / "Info.plist", planned.title, found.name, told.name)
         inside = staged / "Contents" / "Resources" / "tape"
         clips = _encode(tape, manifest, inside)
-        _rests(planned, record, listing.eye(tape), tape, inside, clips, told.name, out)
+        _rests(planned, record, listing.eye(tape), tape, inside, clips)
         print(f"encoded {len(clips)} clips as HEVC; on each one's last frame, where the player rests, every check its "
               "key passed still passes", flush=True)
         _run("codesign", "--force", "--deep", "--sign", "-", str(staged))
@@ -123,22 +122,21 @@ def _read(tape: Path) -> tuple[dict, dict]:
     return manifest, dailies.read(tape)
 
 
-def _fresh(tape: Path, block: dict, now: dict, complete: bool, out: str | None) -> None:
+def _fresh(tape: Path, block: dict, now: dict, record: dict) -> None:
     """VT601 unless the tape was made from the sources the project has now, by a render that finished."""
-    if block["id"] == now["id"] and complete:
+    if block["id"] == now["id"] and record["complete"]:
         return
     before, after = entry(block), entry(now)
     changed = [f"the app's {part}" for part in ("name", "version") if block["app"][part] != now["app"][part]]
     changed += [words for key, words in WORDS.items() if before[key] != after[key]]
-    render = ["videotape", "render", "--story", block["story"]["name"], "--model", block["model"]["name"],
-              *(["--out", out] if out else [])]
+    render = f"videotape render --story {block['story']['name']} --model {block['model']['name']}{_out(record)}"
     message = f"{_and(changed) or 'what made it'} changed since the tape was rendered" if block["id"] != now["id"] \
         else "its last render stopped before its last shot"
     raise ScreenplayError("VT601", shown(tape), message, "render the tape again with the model that made it, then "
-                          f"publish it:\n{' '.join(render)}")
+                          f"publish it:\n{render}")
 
 
-def _accepted(tape: Path, record: dict, name: str, out: str | None) -> None:
+def _accepted(tape: Path, record: dict) -> None:
     """VT602 when a kept take fails a check nobody accepted for it."""
     failing = [failure for failure in record["failures"] if not failure["accepted"]]
     if not failing:
@@ -148,7 +146,7 @@ def _accepted(tape: Path, record: dict, name: str, out: str | None) -> None:
     raise ScreenplayError(
         "VT602", shown(tape), f"{len(failing)} check{'' if one else 's'} fail{'s' if one else ''} that nobody "
         f"accepted: {', '.join(f'{failure["shot"]} {failure["code"]}' for failure in failing)}",
-        f"look at {'it' if one else 'them'} with videotape dailies --story {name}{f' --out {out}' if out else ''}, then "
+        f"look at {'it' if one else 'them'} with videotape dailies --story {record['story']}{_out(record)}, then "
         f"retake the shot or accept the failure with a reason; for the first:\n{first['retake']}\n{first['accept']}")
 
 
@@ -188,8 +186,7 @@ def _encode(tape: Path, manifest: dict, inside: Path) -> dict[str, str]:
     return clips
 
 
-def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clips: dict[str, str], name: str,
-           out: str | None) -> None:
+def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clips: dict[str, str]) -> None:
     """VT604 when the last frame of an encoded clip, where the player rests, fails a check that passed in the record:
     the eye's checks of the state it lands on, which its key passed, and the seam with that state's key image, which
     the move's kept take passed."""
@@ -201,8 +198,9 @@ def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clip
         failed = {(item["code"], item["about"]) for item in [*recorded[state]["items"], *seams.get(clip, {}).get("items", [])]
                   if not item["passed"]}
         frame = frames.last_frame(inside / clip)
-        image = images.setdefault(state, frames.read_png(tape / recorded[state]["key"]))
-        end = frames.difference(frame, image)
+        if state not in images:
+            images[state] = frames.read_png(tape / recorded[state]["key"])
+        end = frames.difference(frame, images[state])
         items = [*score(frame, keys[state], eye).items(),
                  Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)]
         broken = [item for item in items if not item.passed and (item.code, item.about) not in failed]
@@ -212,14 +210,18 @@ def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clip
             raise ScreenplayError("VT604", clip, f"its HEVC last frame, where the player rests on {state}, fails "
                                   f"{checks} {broken[0].code} {broken[0].about}: {broken[0].result}",
                                   "retake the shot, whose next take may come through the encoding, then publish again:"
-                                  f'\nvideotape retake "{dailies.named(shot)}" --story {name}'
-                                  f"{f' --out {out}' if out else ''}")
+                                  f'\nvideotape retake "{dailies.named(shot)}" --story {record["story"]}{_out(record)}')
 
 
 def _run(*command: str) -> None:
     ran = subprocess.run(command, capture_output=True, text=True)
     if ran.returncode != 0:
         raise ProjectError(f"{command[0]} exited with {ran.returncode}: {(ran.stderr or ran.stdout).strip()}")
+
+
+def _out(record: dict) -> str:
+    """The --out a command names the tape with, for a tape that render --out wrote."""
+    return f" --out {record['out']}" if record["out"] else ""
 
 
 def _and(words: list[str]) -> str:
