@@ -22,7 +22,7 @@ from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
-from videotape.publish import partial, publish
+from videotape.atomic import partial, write_atomically
 from videotape.screenplay import State
 from videotape.standin import StandInError
 from videotape.story import Prompt, Story, prompt, text
@@ -224,9 +224,9 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
                       ledger.totals())
         raise stopped
     opening = result.keys[0].kept
-    publish(tape / "moves" / "opening.mp4", lambda out: shutil.copyfile(opening.path, out))
+    write_atomically(tape / "moves" / "opening.mp4", lambda out: shutil.copyfile(opening.path, out))
     manifest = {**_manifest(plan, result), "made": made}
-    publish(tape / "tape.json", lambda out: out.write_text(json.dumps(manifest, indent=2) + "\n"))
+    write_atomically(tape / "tape.json", lambda out: out.write_text(json.dumps(manifest, indent=2) + "\n"))
     dailies.write(tape, dailies.record(plan.title, eye.name, result, story, ledger.tape, corrupt, takes), ledger.totals())
     return result
 
@@ -253,7 +253,7 @@ def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes
     filmed = _film_shot(shared, key, clauses, seeds, retakes, lambda seed, out: shared.model.text_to_video(words, seed, out),
                         (), lambda path: score(frames.last_frame(path), key, shared.eye))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
-    publish(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
+    write_atomically(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
     return filmed
 
 
@@ -264,7 +264,7 @@ def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], reta
     filmed = _film_shot(shared, move, clauses, seeds, retakes,
                         lambda seed, out: shared.model.first_last_frame(words, start, end, seed, out), (start, end),
                         lambda path: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
-    publish(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
+    write_atomically(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
     return filmed
 
 
@@ -380,7 +380,7 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
     if reserved:
         shared.budget.reserve(place, shared.resume)
         try:
-            receipt = publish(path, lambda out: film(seed, out))
+            receipt = write_atomically(path, lambda out: film(seed, out))
         except (FalError, WanError, StandInError) as error:
             raise _failed(error, place, shared.resume) from None
     filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": shared.model.device}
@@ -389,7 +389,7 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
     written = shared.budget.settle({"kind": "take", "at": now(), "model": shared.model.name, "shot": shot.title,
                                     "mode": shot.mode.value, "seed": seed, **filmed}, reserved)
     response = {"response": receipt.response} if receipt else {}
-    publish(timing, lambda out: out.write_text(json.dumps({**filmed, **response}) + "\n"))
+    write_atomically(timing, lambda out: out.write_text(json.dumps({**filmed, **response}) + "\n"))
     return not written, {**filmed, **response}
 
 

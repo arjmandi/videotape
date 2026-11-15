@@ -9,7 +9,7 @@ from pathlib import Path
 
 from videotape.fal import Fal, FalError, Price, Receipt
 from videotape.plan import Mode
-from videotape.publish import publish
+from videotape.atomic import write_atomically
 
 # fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-10: Wan30TextToVideoInput and
 # Wan30ImageToVideoInput, whose start_image_url is the "First frame of the generated video" and end_image_url the
@@ -101,7 +101,7 @@ class Wan3:
             return receipt
         record = request_record(out)
         submitted = {"endpoint": built.endpoint, **self.fal.submit(built.endpoint, built.arguments)}
-        publish(record, lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
+        write_atomically(record, lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
         return self._fetch(record, submitted, out)
 
     def _fetch(self, record: Path, submitted: dict, out: Path) -> Receipt:
@@ -115,7 +115,7 @@ class Wan3:
 
 def request_record(out: Path) -> Path:
     """Where a take's submitted request is recorded: beside the take, under the take's name. A render films a take
-    into <name>.partial.mp4 and publishes it as <name>.mp4, so the record goes by the name before the first dot."""
+    into <name>.partial.mp4 and moves it into place as <name>.mp4, so the record goes by the name before the first dot."""
     return out.with_name(f"{out.name.partition('.')[0]}.request.json")
 
 

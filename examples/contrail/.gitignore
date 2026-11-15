@@ -1,2 +1,5 @@
 ledger.jsonl
 tapes/
+dist/
+.env
+.DS_Store

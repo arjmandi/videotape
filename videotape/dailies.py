@@ -14,7 +14,7 @@ from videotape import errors, frames
 from videotape.checks import Checks, Failure
 from videotape.frames import Box, Frame
 from videotape.plan import Key, Move, Shot
-from videotape.publish import publish
+from videotape.atomic import write_atomically
 from videotape.story import FromStory, Story, line_of, text
 
 if TYPE_CHECKING:
@@ -158,8 +158,8 @@ def write(tape: Path, record: dict, totals: dict) -> None:
     size = sum((tape / path).stat().st_size for path in played if (tape / path).is_file())
     failures = [{**failure, "crop": _crop(tape, number, failure)} for number, failure in enumerate(record["failures"], 1)]
     record = {**record, "failures": failures, "ledger": totals, "tape": {"bytes": size}}
-    publish(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
-    publish(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
+    write_atomically(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
+    write_atomically(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
 
 
 def accepted(record: dict, shot: str, code: str) -> dict | None:
@@ -259,7 +259,7 @@ def _crop(tape: Path, number: int, failure: dict) -> str:
     if box := failure.get("crop_box"):
         frame = _cut(frame, Box(**box))
     out = folder / f"{number}.png"
-    publish(out, lambda partial: frames.write_png(frame, partial))
+    write_atomically(out, lambda partial: frames.write_png(frame, partial))
     return out.relative_to(tape).as_posix()
 
 

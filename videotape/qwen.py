@@ -7,7 +7,7 @@ from pathlib import Path
 
 from videotape.checks import ChecksError, Spot
 from videotape.frames import Box, Frame
-from videotape.publish import publish
+from videotape.atomic import write_atomically
 
 MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
 PROMPT = ('Find every piece of text in this image. Answer with a JSON array and nothing else. '
@@ -70,7 +70,7 @@ class QwenEye:
             self.qwen = self.qwen or _Qwen()
             reply = self.qwen.ask(frame)
             self.looks.mkdir(parents=True, exist_ok=True)
-            publish(path, lambda partial: partial.write_text(json.dumps({"model": MODEL_ID, "reply": reply}, indent=2) + "\n"))
+            write_atomically(path, lambda partial: partial.write_text(json.dumps({"model": MODEL_ID, "reply": reply}, indent=2) + "\n"))
         return spots(json.loads(path.read_text())["reply"], frame.width, frame.height)
 
 
