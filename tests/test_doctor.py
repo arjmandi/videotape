@@ -147,16 +147,31 @@ def test_a_wan_model_without_apple_silicon_or_cuda_fails_vt105_and_with_cuda_pas
     assert capsys.readouterr().out.splitlines()[4] == "ok   VT105 a CUDA GPU and videotape's qwen extra, for wan3.0's checks"
 
 
-def test_a_wan_model_without_the_qwen_extra_fails_vt105_and_says_to_add_it_to_the_videotape_dependency(
-        tmp_path, cli, capsys, machine, monkeypatch):
+def without(monkeypatch, missing: str) -> None:
+    """Every distribution installed but the one named missing, as videotape's metadata reads them."""
+    def distribution(name: str):
+        if name == missing:
+            raise qwen.PackageNotFoundError(name)
+        return None
     monkeypatch.setattr(qwen, "installed", INSTALLED)
-    monkeypatch.setitem(sys.modules, "torch", None)
+    monkeypatch.setattr(qwen, "distribution", distribution)
+
+
+@pytest.mark.parametrize("missing", ["torch", "accelerate"])
+def test_a_wan_model_without_the_qwen_extra_fails_vt105_and_says_to_add_it_to_the_videotape_dependency(
+        missing, tmp_path, cli, capsys, machine, monkeypatch):
+    without(monkeypatch, missing)
     assert cli(on_wan3(tmp_path), "doctor") == 1
     assert capsys.readouterr().out.splitlines()[3:] == [
         "ok   VT104 FAL_KEY is set, for wan3.0", CODES["VT105"].example, f"  fix: {CODES['VT105'].fix}"]
     assert CODES["VT105"].fix == (
         'in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
         'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync')
+
+
+def test_the_qwen_extra_counts_as_installed_when_every_distribution_it_names_is(monkeypatch):
+    without(monkeypatch, "none of them")
+    assert qwen.installed()
 
 
 def test_a_project_with_a_wrong_value_fails_its_vt107_after_the_machine(tmp_path, cli, capsys, machine):

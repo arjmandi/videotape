@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from importlib.util import find_spec
+from importlib.metadata import PackageNotFoundError, distribution, requires
 from pathlib import Path
 
 from videotape.checks import ChecksError, Spot
@@ -22,8 +22,16 @@ commit, or a version on an index."""
 
 
 def installed() -> bool:
-    """Whether videotape's qwen extra is installed: torch and transformers, which run Qwen3-VL-8B."""
-    return find_spec("torch") is not None and find_spec("transformers") is not None
+    """Whether videotape's qwen extra is installed: every distribution the extra names in videotape's own metadata,
+    since Qwen3-VL-8B needs all of them, accelerate for its device_map among them."""
+    try:
+        named = [re.match(r"[A-Za-z0-9._-]+", line)[0] for line in requires("videotape") or []
+                 if re.search(r"""extra\s*==\s*["']qwen["']""", line)]
+        for name in named:
+            distribution(name)
+    except PackageNotFoundError:
+        return False
+    return bool(named)
 
 
 def spots(reply: str, width: int, height: int) -> tuple[Spot, ...]:
