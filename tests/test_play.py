@@ -91,6 +91,7 @@ def test_a_build_that_fails_is_vt603_naming_its_log_and_caches_nothing(tmp_path,
     assert [path.name for path in log.parent.iterdir()] == ["build.log"]
     monkeypatch.setattr(player, "_build", Builds())
     assert player.built(macos).is_dir()
+    assert [path.name for path in log.parent.iterdir()] == ["TapePlayer.app"]
 
 
 def test_a_source_without_its_build_script_is_vt603(tmp_path, cache):

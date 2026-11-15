@@ -43,8 +43,9 @@ def built(source: Path | None = None) -> Path:
     if not (source / "build.sh").is_file():
         raise ScreenplayError("VT603", errors.shown(source), "TapePlayer's source is not here, so it cannot build",
                               "install videotape again, so that its package holds macos/build.sh")
-    home = cache() / "player" / digest(source, sources(source))[:16]
-    app = home / "TapePlayer.app"
+    files = sources(source)
+    home = cache() / "player" / digest(source, files)[:16]
+    app, log = home / "TapePlayer.app", home / "build.log"
     if app.is_dir():
         return app
     print("building TapePlayer, once for this version of it", flush=True)
@@ -52,13 +53,12 @@ def built(source: Path | None = None) -> Path:
     home.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=home) as scratch:
         folder = Path(scratch)
-        for path in sources(source):
+        for path in files:
             (folder / path.relative_to(source)).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(path, folder / path.relative_to(source))
         ran = _build(folder)
         if ran.returncode != 0:
             said = (ran.stdout + ran.stderr).splitlines()
-            log = home / "build.log"
             log.write_text("\n".join(said) + "\n")
             line = next((line for line in said if "error:" in line),
                         next((line for line in reversed(said) if line.strip()), "nothing"))
@@ -66,6 +66,7 @@ def built(source: Path | None = None) -> Path:
                                   "run videotape doctor, which checks for Xcode; when it passes, the log says "
                                   "what failed")
         (folder / "build" / "TapePlayer.app").rename(app)
+    log.unlink(missing_ok=True)
     print(f"built TapePlayer in {time.monotonic() - started:.1f} s", flush=True)
     return app
 
