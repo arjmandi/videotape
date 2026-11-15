@@ -193,10 +193,13 @@ def eye(readers: Sequence[Reader]) -> str:
 
 def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], tape: Path, ledger: Ledger, made: dict,
            takes: int = 4, limit: int = 1, price: Price | None = None, cap: float | None = None,
-           resume: str = "videotape render", report: Callable[[Filmed], None] = lambda filmed: None) -> Render:
+           resume: str = "videotape render", report: Callable[[Filmed], None] = lambda filmed: None,
+           every: bool = False) -> Render:
     """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
     and write them into the tape. The readers are the model's eye, which reads each take of a key. made is the block
-    that says what made the tape, which tape.json carries. report is told each shot as it finishes."""
+    that says what made the tape, which tape.json carries. report is told each shot as it finishes. every films each
+    seed up to takes whatever passed before, as a retake's seeds are, so a screen test sees every take; a plan of
+    some keys alone, as a screen test films, gives a tape whose scenes have no hotspots."""
     started = time.perf_counter()
     billed = [*([model.name] if price else []), *(reader.name for reader in readers if reader.paid)]
     if billed and cap is None:
@@ -211,7 +214,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     retake = f" --story {story.name}" + (f" --out {words[words.index('--out') + 1]}" if "--out" in words else "")
     shared = _Set(model, tuple(readers), tape, {key.state: tape / key.image for key in plan.keys},
                   Budget(ledger, price, cap), resume, retake, threading.Event(), {}, threading.Lock())
-    seeds = {shot.title: _seeds(shot, takes, carried) for shot in plan.shots}
+    seeds = {shot.title: _seeds(shot, takes, carried, every) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
     stopped: RenderError | None = None
     # Every key is submitted first. A move is submitted when both of its keys are done, since it is pinned to their
@@ -270,11 +273,13 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     return result
 
 
-def _seeds(shot: Shot, takes: int, carried: Carried) -> tuple[list[int], list[int]]:
-    """The seeds a shot tries: 1 up to the limit, minus the seeds its record marks corrupt, and then the seeds a
-    retake added."""
+def _seeds(shot: Shot, takes: int, carried: Carried, every: bool) -> tuple[list[int], list[int]]:
+    """The seeds a shot tries until one passes, 1 up to the limit, and the seeds it films whatever passed, the ones a
+    retake added, each without the seeds its record marks corrupt. With every, each seed is filmed whatever passed."""
     corrupt, retakes = carried.corrupt.get(shot.title, []), carried.retakes.get(shot.title, [])
-    return [seed for seed in range(1, takes + 1) if seed not in corrupt], [seed for seed in retakes if seed not in corrupt]
+    first = [seed for seed in range(1, takes + 1) if seed not in corrupt]
+    again = [seed for seed in retakes if seed not in corrupt]
+    return ([], [*first, *again]) if every else (first, again)
 
 
 def _corrupt(carried: Carried, result: Render) -> Carried:
@@ -479,7 +484,8 @@ def _manifest(plan: Plan, result: Render) -> dict:
             "words": list(key.lines),
             # A hotspot needs a box, and a box is never invented, so an action the checks did not find has none.
             "hotspots": [{"label": action.label, "box": _fraction(box, size), "move": moves[(key.state, action.label)].id}
-                         for action in key.actions if (box := found[key.state][action.label])],
+                         for action in key.actions
+                         if (box := found[key.state][action.label]) and (key.state, action.label) in moves],
         }
         if search := _search(key, moves):
             scene["search"] = search
@@ -500,9 +506,9 @@ def _search(key: Key, moves: dict[tuple[State, str], Move]) -> dict | None:
         if element.type != "SearchBar" or len(element.rows) < 2:
             continue
         bar, options = element.rows[0][0][0], [row[0][0] for row in element.rows[1:]]
-        if bar.action is None:
+        # A plan of keys alone has no move for the bar to play, so its tape offers no search.
+        if bar.action is None or (no_match := moves.get((key.state, bar.action.label))) is None:
             continue
-        no_match = moves[(key.state, bar.action.label)]
         return {
             "bar": bar.words,
             "options": [{"label": option.words, "move": moves[(key.state, option.action.label)].id}

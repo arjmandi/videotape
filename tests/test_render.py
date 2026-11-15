@@ -18,7 +18,7 @@ from videotape.fal import Receipt
 from videotape.ledger import Ledger
 from videotape.made import made
 from videotape.model import MODELS, Listing
-from videotape.plan import Mode, plan
+from videotape.plan import Mode, Plan, plan
 from videotape.render import render
 from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 
@@ -293,6 +293,49 @@ def test_a_key_keeps_the_take_whose_checks_pass_over_a_misspelt_one_and_one_with
     assert ("VT502", misspelt) in [(item.code, item.about) for item in misspelt_take.checks.failures]
     assert ("VT502", dropped) in [(item.code, item.about) for item in dropped_take.checks.failures]
     assert clean_take.checks.rank(3) < min(misspelt_take.checks.rank(1), dropped_take.checks.rank(2))
+
+
+def test_every_films_each_seed_up_to_the_limit_whatever_passed_before_and_keeps_the_best(tmp_path):
+    """A screen test films both takes of a key even when the first passes, so it can count how many first takes do."""
+    def latte_misspelt_first(mode: Mode, prompt: str, seed: int) -> Flaw:
+        return Flaw.MISSPELL if THANKS_LATTE in prompt and seed == 1 else Flaw.NONE
+
+    directory = copy_of("cafe", tmp_path)
+    model = StandIn(flaw=latte_misspelt_first)
+    result = rendered(directory, model, takes=2, every=True)
+    assert [[take.seed for take in filmed.takes] for filmed in result.shots] == [[1, 2]] * 11
+    assert sorted((call.prompt, call.seed) for call in model.calls) == sorted(
+        (words(filmed.shot, told(directory)), seed) for filmed in result.shots for seed in (1, 2))
+    assert {filmed.shot.title: filmed.kept.seed for filmed in result.shots} == {
+        title: 2 if title == "key thanks(Latte)" else 1 for title in TITLES}
+    record = dailies.read(directory / TAPE)
+    assert record["yield"] == {"first_take": 10, "shots": 11} and record["failures"] == []
+
+
+def test_a_plan_of_keys_alone_films_only_them_and_its_tape_has_their_words_without_hotspots_or_search(tmp_path):
+    """A screen test films a few of an app's keys and none of its moves."""
+    directory = Path(shutil.copytree(CONTRAIL, tmp_path / "contrail", ignore=shutil.ignore_patterns(
+        ".venv", "tape*", "ledger.jsonl", "__pycache__")))
+    full = planned(directory)
+    keys = Plan(full.title, full.scenes, tuple(key for key in full.keys if key.state.name in ("home()", "search()")),
+                (), full.warnings)
+    terminal, model, tape = told(directory, "terminal"), StandIn(flaw=clean), directory / "tapes" / "sample"
+    result = render(keys, terminal, model, [StandInEye()], tape, ledger.of(directory, tape),
+                    made(project.find(directory), terminal, model), takes=1)
+    assert [filmed.shot.title for filmed in result.shots] == ["key home()", "key search()"]
+    assert [call.mode for call in model.calls] == [Mode.TEXT_TO_VIDEO] * 2
+    assert all(filmed.passed for filmed in result.shots)
+    data = json.loads((tape / "tape.json").read_text())
+    assert {name: scene for name, scene in data["scenes"].items()} == {
+        "home()": {"key": "keys/home.png", "words": ["Good morning, Alex", "Where to?", "Your next trip",
+                                                     "San Francisco to New York", "Friday, December 18",
+                                                     "48,250 Contrail Miles", "Home", "Trips", "Profile"],
+                   "hotspots": []},
+        "search()": {"key": "keys/search.png", "words": ["Where to?", "Boston (BOS)", "Chicago (ORD)", "Honolulu (HNL)",
+                                                         "Los Angeles (LAX)", "New York (JFK)", "Seattle (SEA)"],
+                     "hotspots": []},
+    }
+    assert data["moves"] == {} and dailies.read(tape)["moves"] == []
 
 
 def test_a_move_keeps_the_take_whose_frames_sit_closest_to_its_keys(first):
