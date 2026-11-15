@@ -101,6 +101,12 @@ class Reader(Protocol):
 
     def __init__(self, tape: Path) -> None: ...
 
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        """The most one read of a picture this size costs, which a render reserves under its cap before the read is
+        sent. 0 for a reader that runs here."""
+        ...
+
     def see(self, frame: Frame, purse: Purse = Free()) -> Read: ...
 
 

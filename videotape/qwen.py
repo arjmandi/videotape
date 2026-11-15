@@ -70,6 +70,10 @@ class QwenEye:
     key = None
     paid = False
 
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        return 0.0
+
     def __init__(self, tape: Path):
         if not installed():
             raise ChecksError("qwen3-vl-8b, a reader of this model's eye, needs videotape's qwen extra, which is not "

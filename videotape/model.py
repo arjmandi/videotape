@@ -5,7 +5,9 @@ from typing import Protocol
 
 from videotape import wan, wan3
 from videotape.checks import Reader
+from videotape.claude import ClaudeReader
 from videotape.fal import Price, Receipt
+from videotape.frames import HEIGHT, WIDTH
 from videotape.plan import Mode
 from videotape.qwen import QwenEye
 from videotape.standin import StandIn, StandInEye
@@ -78,19 +80,27 @@ class Listing:
 MODELS: dict[str, Listing] = {
     "stand-in": Listing(StandIn, (StandInEye,), limit=8, kind=StandIn),
     # One GPU on one pod draws one take at a time.
-    "wan2.2-5b": Listing(Wan, (QwenEye,), PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens),
-                         limit=1, kind=Wan),
+    "wan2.2-5b": Listing(Wan, (QwenEye, ClaudeReader), PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens",
+                                                                    wan.tokens), limit=1, kind=Wan),
     # fal.ai/docs/documentation/model-apis/concurrency-limits, read 2026-11-14: "Every new account starts with a
     # concurrency limit of 2 concurrent requests."
-    "wan3.0": Listing(wan3.from_environment, (QwenEye,),
+    "wan3.0": Listing(wan3.from_environment, (QwenEye, ClaudeReader),
                       PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2,
                       key="FAL_KEY", kind=wan3.Wan3),
 }
 
 
-def estimate(name: str, listing: Listing, shots: int, takes: int) -> str:
-    """What a render of these shots will cost at most, from one take each up to the limit."""
+def estimate(name: str, listing: Listing, shots: int, keys: int, takes: int) -> str:
+    """What a render of these shots will cost at most, from one take each up to the limit, and what the paid readers
+    of its eye will cost at most for one read of each key's take."""
     least, most = shots, shots * takes
     calls = f"{least} to {most} calls" if most > least else f"{least} call{'' if least == 1 else 's'}"
     cost = listing.price.span(least, most) if listing.price else "free"
-    return f"{name}: {shots} shot{'' if shots == 1 else 's'}, {calls}, {cost}"
+    line = f"{name}: {shots} shot{'' if shots == 1 else 's'}, {calls}, {cost}"
+    paid = [reader for reader in listing.readers if reader.paid]
+    if paid:
+        each = sum(reader.most(WIDTH, HEIGHT) for reader in paid)
+        reads = f"{keys} to {keys * takes} reads" if takes > 1 else f"{keys} read{'' if keys == 1 else 's'}"
+        prices = f"${keys * each:.2f} to ${keys * takes * each:.2f}" if takes > 1 else f"${keys * each:.2f}"
+        line += f", and {reads} by {' and '.join(reader.name for reader in paid)}, at most {prices}"
+    return line

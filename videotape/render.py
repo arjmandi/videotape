@@ -163,20 +163,22 @@ class _Stopped(Exception):
     """A shot that did not film because the render had stopped."""
 
 
-@dataclass(frozen=True)
+@dataclass
 class _Purse:
-    """What a paid reader reserves and settles for one take's read: the reservation goes under the render's cap at
-    the take's place, and the read's ledger line names the shot and the seed."""
+    """What a paid reader reserves and settles for one take's reads: the reservation goes under the render's cap at
+    the take's place, the read's ledger line names the shot and the seed, and spent adds up what the reads billed."""
 
     shared: _Set
     shot: Shot
     seed: int
+    spent: float = 0.0
 
     def reserve(self, usd: float) -> None:
         self.shared.budget.reserve(usd, f"{self.shot.title} take {self.seed}", self.shared.resume)
 
     def settle(self, line: dict | None, reserved: float) -> None:
         self.shared.budget.settle({**line, "shot": self.shot.title, "seed": self.seed} if line else None, reserved)
+        self.spent += (line or {}).get("usd") or 0.0
 
 
 def eye(readers: Sequence[Reader]) -> str:
@@ -281,17 +283,16 @@ def _corrupt(carried: Carried, result: Render) -> Carried:
 def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int]) -> Filmed:
     words = text(clauses)
     filmed = _film_shot(shared, key, clauses, seeds, retakes, lambda seed, out: shared.model.text_to_video(words, seed, out),
-                        (), lambda path, seed: _read(shared, key, path, seed))
+                        (), lambda path, purse: _read(shared, key, path, purse))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
     write_atomically(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
     return filmed
 
 
-def _read(shared: _Set, key: Key, path: Path, seed: int) -> KeyChecks:
+def _read(shared: _Set, key: Key, path: Path, purse: _Purse) -> KeyChecks:
     """Every reader's read of the take's picture, then the key's checks on them. A paid read is reserved under the
     cap before it is sent and reaches the ledger after."""
     frame = frames.last_frame(path)
-    purse = _Purse(shared, key, seed)
     return score(key, [reader.see(frame, purse) for reader in shared.readers])
 
 
@@ -301,14 +302,14 @@ def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], reta
     pinned = frames.read_png(start), frames.read_png(end)
     filmed = _film_shot(shared, move, clauses, seeds, retakes,
                         lambda seed, out: shared.model.first_last_frame(words, start, end, seed, out), (start, end),
-                        lambda path, seed: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
+                        lambda path, purse: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
     write_atomically(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
     return filmed
 
 
 def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], retakes: list[int],
                film: Callable[[int, Path], Receipt | None], images: tuple[Path, ...],
-               check: Callable[[Path, int], Checks]) -> Filmed:
+               check: Callable[[Path, _Purse], Checks]) -> Filmed:
     """Film the shot's takes seed by seed. Each take comes from the cache or the model, then its checks. The seeds up
     to the limit are filmed until one passes, and a take on disk is always read. The retake seeds are filmed whatever
     passed before, and with them the shot keeps the best of all its takes."""
@@ -346,24 +347,28 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
 
 
 def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
-          film: Callable[[int, Path], Receipt | None], check: Callable[[Path, int], Checks]) -> Take | RenderError:
+          film: Callable[[int, Path], Receipt | None], check: Callable[[Path, _Purse], Checks]) -> Take | RenderError:
     """One take and its checks, one shot at a time per take name, so two shots that share a take film it once. A
     take whose file does not decode is downloaded again from the request the model recorded beside it, and is VT403
-    when it is still corrupt, or when the model recorded nothing to download again."""
+    when it is still corrupt, or when the model recorded nothing to download again. The take's price is the model's
+    and what its reads billed this run."""
     path = _take_path(shared.model, shot, words, images, seed, shared.tape)
+    purse = _Purse(shared, shot, seed)
     with shared.one_at_a_time(path):
         cached, timing = _film(shared, shot, path, seed, place, film)
         try:
-            checks = check(path, seed)
+            checks = check(path, purse)
         except DecodeError as corrupt:
             if _downloaded_again(shared, path, place) is None:
                 return RenderError("VT403", place, str(corrupt), f"nothing; seed {seed} is skipped from now on")
             try:
-                checks = check(path, seed)
+                checks = check(path, purse)
             except DecodeError as again:
                 return RenderError("VT403", place, f"downloaded again, and still: {again}",
                                    f"nothing; seed {seed} is skipped from now on")
-    return Take(seed, path, cached, checks, timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
+    usd = timing.get("usd")
+    paid = (usd or 0.0) + purse.spent if usd is not None or purse.spent else None
+    return Take(seed, path, cached, checks, timing.get("seconds"), timing.get("gpu"), paid)
 
 
 def _downloaded_again(shared: _Set, path: Path, place: str) -> Receipt | None:

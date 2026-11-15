@@ -147,6 +147,10 @@ class StandInEye:
     key = None
     paid = False
 
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        return 0.0
+
     def __init__(self, tape: Path | None = None) -> None:
         pass
 

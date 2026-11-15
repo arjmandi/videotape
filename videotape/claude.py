@@ -1,4 +1,6 @@
-"""Claude as a service: the Messages API over plain HTTP, which scripts/words-test and the reader share.
+"""Claude as a service: the Messages API over plain HTTP, which scripts/words-test and the reader share, and the
+reader, which sees a key's picture and reports every line of text on it, which look like controls, which are drawn
+marked, and each chart.
 
 The API (platform.claude.com/docs/en/api/messages): POST https://api.anthropic.com/v1/messages, and
 /v1/messages/count_tokens, which is free, with the headers x-api-key and anthropic-version. The model is pinned, so a
@@ -7,14 +9,24 @@ tokens. The key goes only into the x-api-key header, and is scrubbed from any er
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 import urllib.error
 import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
+from videotape import frames
+from videotape.atomic import write_atomically
+from videotape.checks import ChecksError, Free, Purse, Read, Spot
+from videotape.errors import ScreenplayError
+from videotape.frames import Box, Frame
 from videotape.ledger import now
+from videotape.screenplay import Chart
+from videotape.wan import tokens
 
 API = "https://api.anthropic.com/v1/messages"
 COUNT = f"{API}/count_tokens"
@@ -64,14 +76,6 @@ def bill(kind: str, reply: Reply) -> dict:
             "usd": round(reply.usd, 6), "at": now()}
 
 
-def api_key() -> str | None:
-    """The API key from the environment, or None when it is not set or an HTTP header cannot carry it. A project
-    command loads the project's .env into the environment first."""
-    key = os.environ.get(KEY, "").strip()
-    # http.client rejects a header with a control character by quoting the whole header, key and all, in its error.
-    return key if key and key.isprintable() else None
-
-
 def _urlopen(request: urllib.request.Request) -> bytes:
     with urllib.request.urlopen(request, timeout=900) as response:
         return response.read()
@@ -115,3 +119,135 @@ def call(body: dict, key: str, send: Send, what: str = "the call") -> Reply:
         return Reply(text, raw["model"], tokens, raw["stop_reason"], raw)
     except (KeyError, TypeError, ValueError):
         raise ClaudeError(f"{what} answered with something other than a message: {json.dumps(raw)[:300]}") from None
+
+
+# The reader.
+
+MAX_TOKENS = 8192
+"""The most output a read may take, thinking included, which the estimate charges in full."""
+PROMPT = """This is the last frame of a short video of one screen of an app, {width} by {height} pixels. Report every \
+piece of text you can see on it, each separate line or label as its own entry, in reading order: top to bottom, then \
+left to right. Copy its text exactly as it is lettered, keeping its case, its punctuation and any misspelling, and do \
+not correct it to what it ought to say. Give its box in pixels of this image: x and y of its top left corner, then its \
+width and height. When the text sits on a button, a tile, a tab, a slot or a row that looks pressable, the box covers \
+the whole of that control and control is true. marked is true when the entry is drawn as the selected or current one \
+among its neighbours: lit, highlighted, inverted, underlined or filled where the others are not. Then, for each chart \
+on the screen, give its title, its labels in order from left to right, and the value at each label as a number: the \
+number lettered at the bar or point, or else the bar's height or the point's position read against the axis. A screen \
+with no chart has an empty list of charts."""
+_BOX = {"type": "object", "properties": {axis: {"type": "integer"} for axis in "xywh"}, "required": ["x", "y", "w", "h"],
+        "additionalProperties": False}
+_LINE = {"type": "object", "properties": {"text": {"type": "string"}, "box": _BOX, "control": {"type": "boolean"},
+                                          "marked": {"type": "boolean"}},
+         "required": ["text", "box", "control", "marked"], "additionalProperties": False}
+_POINT = {"type": "object", "properties": {"label": {"type": "string"}, "value": {"type": "number"}},
+          "required": ["label", "value"], "additionalProperties": False}
+_CHART = {"type": "object", "properties": {"title": {"type": "string"}, "points": {"type": "array", "items": _POINT}},
+          "required": ["title", "points"], "additionalProperties": False}
+SCHEMA = {"type": "object", "properties": {"lines": {"type": "array", "items": _LINE},
+                                           "charts": {"type": "array", "items": _CHART}},
+          "required": ["lines", "charts"], "additionalProperties": False}
+"""What a read answers with, which the API holds the reply to: structured output over output_config.format."""
+PATCH = 28
+"""platform.claude.com/docs/en/build-with-claude/vision, read 2026-11-15: an image costs ceil(width / 28) times
+ceil(height / 28) tokens, and claude-opus-5-5 downscales nothing under 2,576 pixels on the long edge, which a key's
+picture is well under."""
+
+
+def estimate(width: int, height: int) -> float:
+    """The most one read of a picture this size costs: its image tokens, the prompt's and the schema's at the input
+    price, and every output token the read may take at the output price."""
+    image = -(-width // PATCH) * -(-height // PATCH)
+    words = tokens(PROMPT.format(width=width, height=height)) + tokens(json.dumps(SCHEMA))
+    return price({"input_tokens": image + words, "output_tokens": MAX_TOKENS})
+
+
+def request(frame: Frame) -> dict:
+    """One read: the picture as a PNG, then the prompt, answered in the schema's shape."""
+    picture = {"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                           "data": base64.b64encode(frames.png(frame)).decode()}}
+    return {"model": MODEL, "max_tokens": MAX_TOKENS,
+            "output_config": {"effort": EFFORT, "format": {"type": "json_schema", "schema": SCHEMA}},
+            "messages": [{"role": "user", "content": [picture, {"type": "text", "text": PROMPT.format(
+                width=frame.width, height=frame.height)}]}]}
+
+
+def read(reply: str, width: int, height: int) -> Read:
+    """What a reply reports, as a Read: a spot per line with a box kept within the picture, the boxes of the lines
+    drawn marked, and each chart. A line with no words is left out."""
+    try:
+        told = json.loads(reply)
+        spots, marked = [], []
+        for line in told["lines"]:
+            box = line["box"]
+            x, y = min(max(int(box["x"]), 0), width), min(max(int(box["y"]), 0), height)
+            kept = Box(x, y, min(max(int(box["w"]), 0), width - x), min(max(int(box["h"]), 0), height - y))
+            if not isinstance(line["text"], str) or not line["text"].strip():
+                continue
+            spots.append(Spot(line["text"].strip(), kept, line["control"] is True))
+            if line["marked"] is True:
+                marked.append(kept)
+        charts = tuple(Chart(chart["title"], tuple(point["label"] for point in chart["points"]),
+                             tuple(float(point["value"]) for point in chart["points"])) for chart in told["charts"])
+    except (ValueError, KeyError, TypeError):
+        raise ChecksError(f"{MODEL} answered with something other than a read: {reply[:300]!r}") from None
+    return Read(MODEL, tuple(spots), tuple(marked), charts)
+
+
+class ClaudeReader:
+    """Claude, run as a service, which reads every line of a picture with its box, says which look like controls and
+    which are drawn marked, and reports each chart. A read is paid, so the tape caches each reply in looks/, by the
+    model, the prompt and the picture's hash, and a render run again pays for none of them."""
+
+    name = MODEL
+    key = KEY
+    paid = True
+
+    def __init__(self, tape: Path, send: Send | None = None) -> None:
+        key = os.environ.get(KEY, "").strip()
+        if not key:
+            raise ScreenplayError("VT104", "before the first call", f"{self.name}, a reader of this model's eye, needs "
+                                  f"{KEY}, and it is not in the environment or .env",
+                                  f"copy .env.example to .env and set {KEY} there, or export it")
+        if not key.isprintable():
+            raise ScreenplayError("VT104", "before the first call", f"{KEY} holds a character an HTTP header cannot "
+                                  "carry, such as a line break", f"set {KEY} to the key alone")
+        # The sender is looked up when the reader is built, so a test that stands in for the network stands in here.
+        self._key, self._send = key, send or _urlopen
+        self.looks = tape / "looks"
+
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        return estimate(width, height)
+
+    def see(self, frame: Frame, purse: Purse = Free()) -> Read:
+        fields = [MODEL, PROMPT, SCHEMA, MAX_TOKENS, EFFORT, frame.width, frame.height, hashlib.sha256(frame.rgb).hexdigest()]
+        path = self.looks / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.json"
+        if not path.exists():
+            reply = self._ask(frame, purse)
+            seen = read(reply.text, frame.width, frame.height)
+            self.looks.mkdir(parents=True, exist_ok=True)
+            write_atomically(path, lambda partial: partial.write_text(json.dumps(
+                {"model": reply.model, "reply": reply.text, "tokens": reply.tokens, "usd": round(reply.usd, 6)},
+                indent=2) + "\n"))
+            return seen
+        return read(json.loads(path.read_text())["reply"], frame.width, frame.height)
+
+    def _ask(self, frame: Frame, purse: Purse) -> Reply:
+        """One paid read: its most cost is reserved before it is sent, and its bill, when it was billed, settles it
+        after, whole reply or not."""
+        most = estimate(frame.width, frame.height)
+        purse.reserve(most)
+        line = None
+        try:
+            try:
+                reply = call(request(frame), self._key, self._send, f"{self.name}'s read")
+            except ClaudeError as error:
+                raise ChecksError(str(error)) from None
+            line = bill("read", reply)
+            if reply.stop != "end_turn" or not reply.text:
+                raise ChecksError(f"{self.name}'s read stopped with {reply.stop!r} after {len(reply.text)} characters, "
+                                  f"not a whole read; it cost ${reply.usd:.4f}")
+        finally:
+            purse.settle(line, most)
+        return reply
