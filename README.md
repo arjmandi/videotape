@@ -2,7 +2,7 @@
 
 # Videotape
 
-Videotape is a framework for writing an app as a screenplay. You write the app's scenes in Python, its data in JSON, and its looks in stories. A video model renders the screenplay in a story into a tape: a clip of each state of the app at rest, and a clip of each press that leads from one state to the next. People click through the tape in TapePlayer, a Mac app, as if it were the app.
+Videotape is a framework for writing an app as a screenplay. You write the app's scenes in Python, its data in JSON, and how it looks in stories. A video model renders the screenplay in a story into a tape: a clip of each state of the app at rest, and a clip of each press that leads from one state to the next. People click through the tape in TapePlayer, a Mac app, as if it were the app.
 
 This guide builds Contrail, an app that books flights, from an empty folder. It has six parts:
 
@@ -130,7 +130,7 @@ A screenplay is the app written as scenes. `vt.Screenplay("Contrail")` makes one
 
 A scene is a function that returns the elements of one screen, from top to bottom. `vt.Heading`, `vt.Text`, and `vt.Button` are elements. Calling a scene names a state, which is the scene with the arguments of that call. `todo()` names the one state of the scene `todo`. Contrail's `flight(f)` names a different state for each flight `f`.
 
-An element with `to=` holds an action. Pressing it leads to the state that `to=` names. The screenplay holds every word on the screen and nothing of how the screen looks. A story holds the look.
+An element with `to=` holds an action. Pressing it leads to the state that `to=` names. The screenplay holds every word on the screen and nothing of how the screen looks. A story says how it looks.
 
 `plan` walks every state the app can reach, from the first scene, before anything renders:
 
@@ -506,7 +506,7 @@ profile           1           2
 stand-in: 160 shots, 160 to 640 calls, free
 ```
 
-The data gives every number in the table. Three cities have flights, on three days each, so `results` has 9 states. There are 18 flights, so `flight` and `booked` have 18 states each. The estimate is for the stand-in, the project's model since part 2.
+The data gives every number that `plan` prints. Three cities have flights, on three days each, so `results` has 9 states. There are 18 flights, so `flight` and `booked` have 18 states each. The estimate is for the stand-in, the project's model since part 2.
 
 A mistake in the screenplay stops the plan with an error code from `VT201` to `VT211` and the file and line it is at. A scene that raises for one state's arguments, an action that leads to a scene instead of a state, and a scene no action reaches are such mistakes. `uv run videotape explain <code>` prints a code's long form, with an example and its fix.
 
@@ -530,7 +530,7 @@ uv run pyright contrail
 
 ## 5. Write the stories
 
-A story is one look of the app, in a TOML file under `stories/`. One screenplay can have many stories, and each renders into its own tape. A story has these parts:
+A story says how the whole app looks, in a TOML file under `stories/`. One screenplay can have many stories, and each renders into its own tape. A story has these parts:
 
 - `version`, which the tape's label names.
 - `look`, the sentence or two that each key's prompt starts with.
@@ -668,7 +668,7 @@ Tabs = "three printed tabs along the poster's bottom edge, the current one in co
 default = "The camera slides along the wall to the next poster and settles straight on."
 ```
 
-The same state in this story has the same words and another look:
+The same state in this story has the same words, and looks different:
 
 ```sh
 uv run videotape shots --story posters --state "home()"
@@ -851,12 +851,12 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **render**. To film every shot of the plan in one story into a tape. `videotape render`.
 - **retake**. To film new takes of one shot, with seeds after the highest it has tried, and keep the best of all its takes. `videotape retake`.
 - **scene**. A function, marked with `@app.scene`, that returns the elements of one screen. Calling it names a state.
-- **screenplay**. The app written as scenes: a `vt.Screenplay` and its scenes. It holds every word on the screen and nothing of the look.
+- **screenplay**. The app written as scenes: a `vt.Screenplay` and its scenes. It holds every word on the screen and nothing of how the screen looks.
 - **seed**. The number a take is filmed with: 1, 2, 3, and on. A render run again reuses the take of each seed whose prompt has not changed.
 - **shot**. What a render films for the plan: a key or a move.
 - **stand-in**. A model that films each key as a box for each line of the state's words, and reads the boxes back as its eye. It needs no API key and no GPU, and costs nothing.
 - **state**. A scene with the arguments of one call, as in `flight(CT 104, 2026-12-13)`.
-- **story**. One look of the app: `stories/<name>.toml`, with a version, a look, directions, appearances, and what the camera does in each move.
+- **story**. How the app looks, in one file, `stories/<name>.toml`: a version, a look, directions, appearances, and what the camera does in each move. Each story renders into its own tape.
 - **take**. One filming of a shot, with one seed.
 - **tape**. What a render writes in `tapes/<story>/`: each key's picture, each move's clip, every take, `tape.json`, and the dailies. `tape.json` holds each state's words and hotspots, and the label and made id. TapePlayer plays the tape.
 - **TapePlayer**. The Mac app that plays a tape. `videotape play` builds it and opens a tape in it.
