@@ -62,7 +62,7 @@ Preconditions:
   | `vt302` | `error VT302 stories/neon.toml:6: the story directs the scene detial, and the screenplay has no scene of that name`<br>`fix: write detail, the closest of the screenplay's scenes` |
   | `vt303` | `error VT303 stories/neon.toml:10: the story gives an appearance to the element type Buton, which the screenplay does not use`<br>`fix: write Button, the closest of the screenplay's element types` |
   | `vt306` | `error VT306 stories/neon.toml:2: the story is not TOML: Invalid value`<br>`fix: write each line as name = "words", under [scenes], [elements] or [moves], or above all three` |
-  | `vt308` | `error VT308 stories/neon.toml:5: home under [scenes] quotes '“Open”.'`<br>`fix: take the quotes out; the screenplay owns every word on screen, so describe their look` |
+  | `vt308` | `error VT308 stories/neon.toml:5: home under [scenes] quotes '“Open”.'`<br>`fix: take the quotes out; the screenplay owns every word on screen, so describe how they look` |
   | `vt309` | `error VT309 stories: no story "neon"`<br>`fix: name one of the stories there, glow` |
 
   `vt309`'s only story is `stories/glow.toml`, so `--story neon` names one it does not have. A project with no `stories/` folder at all says `fix: add stories/neon.toml` instead, as `tests/fixtures/errors/vt211` does with `-- shots --story neon`.

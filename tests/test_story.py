@@ -292,7 +292,7 @@ def test_a_story_that_quotes_words_is_vt308_at_the_line_that_quotes_them(tmp_pat
         story.load(file)
     assert (error.value.code, error.value.place.rpartition(":")[2]) == ("VT308", str(line + 1))
     assert error.value.message.endswith(f"quotes {quoted}")
-    assert error.value.fix == "take the quotes out; the screenplay owns every word on screen, so describe their look"
+    assert error.value.fix == "take the quotes out; the screenplay owns every word on screen, so describe how they look"
 
 
 def test_contrails_stories_and_the_cafes_quote_nothing():

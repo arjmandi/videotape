@@ -44,7 +44,7 @@ ERRORS = {
     "VT306": ("stories/neon.toml:2", "the story is not TOML: Invalid value",
               'write each line as name = "words", under [scenes], [elements] or [moves], or above all three'),
     "VT308": ("stories/neon.toml:5", "home under [scenes] quotes '\u201cOpen\u201d.'",
-              "take the quotes out; the screenplay owns every word on screen, so describe their look"),
+              "take the quotes out; the screenplay owns every word on screen, so describe how they look"),
     "VT309": ("stories", 'no story "neon"', "name one of the stories there, glow"),
 }
 WARNINGS = {
