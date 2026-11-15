@@ -128,6 +128,14 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
     assert signed(app)
 
 
+def test_publish_needs_a_rendered_tape(tmp_path, cli, capsys):
+    cli(tmp_path, "new", "shop")
+    capsys.readouterr()
+    assert cli(tmp_path / "shop", "publish", "--story", "starter") == 1
+    assert capsys.readouterr() == ("", "error: no tape.json in tapes/starter; render the story first\n")
+    assert not (tmp_path / "shop" / "dist").exists()
+
+
 def refused(contrail: Path, capsys) -> str:
     """What publish printed when it refused, having shipped and recorded nothing."""
     out, err = capsys.readouterr()

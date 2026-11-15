@@ -11,7 +11,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
         ?? ProcessInfo.processInfo.processName
 
-    /// Plays the tape the launch arguments name, else the tape a published app carries, else asks with the Open panel.
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = mainMenu()
         NSApp.activate()
