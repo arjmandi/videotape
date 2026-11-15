@@ -64,7 +64,9 @@ def publish(found: Project, tape: Path) -> Published:
     app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
     zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")
     staged = staging / app.name
+    _put_back(staging, [app, zipped, found.root / LOCK])
     shutil.rmtree(staging, ignore_errors=True)
+    swapped = False
     try:
         shutil.copytree(built, staged, symlinks=True)
         _name(staged / "Contents" / "Info.plist", planned.title, found.name, told.name)
@@ -81,8 +83,11 @@ def publish(found: Project, tape: Path) -> Published:
         if locked:
             write_lock(staging / LOCK, {**lock, block["label"]: entry(block)})
         _swap(staging, [app, zipped, *([found.root / LOCK] if locked else [])])
+        swapped = True
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        aside = staging / "aside"
+        if swapped or not (aside.is_dir() and any(aside.iterdir())):
+            shutil.rmtree(staging, ignore_errors=True)
     return Published(app, zipped, block["label"], block["id"], locked)
 
 
@@ -107,6 +112,21 @@ def _swap(staging: Path, places: list[Path]) -> None:
             if (aside / place.name).exists():
                 (aside / place.name).rename(place)
         raise
+
+
+def _put_back(staging: Path, places: list[Path]) -> None:
+    """After a publish stopped while it put the earlier app, zip or lock back, move each one still aside back to its
+    place when the place is empty. Refuse when a place holds another file, so no earlier file is deleted."""
+    aside = staging / "aside"
+    if not aside.is_dir():
+        return
+    for place in places:
+        if (aside / place.name).exists() and not place.exists():
+            (aside / place.name).rename(place)
+    if left := sorted(path.name for path in aside.iterdir()):
+        raise ProjectError(f"{shown(aside)} holds {', '.join(left)}, which an earlier publish moved aside and was "
+                           "stopped before it put back; move back the ones to keep, delete the folder, and publish "
+                           "again")
 
 
 def entry(block: dict) -> dict[str, str]:
