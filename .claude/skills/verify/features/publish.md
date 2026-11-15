@@ -72,7 +72,7 @@ Preconditions:
 - **Label published already.** Put `stories/starter.toml` and `contrail/screenplay.py` back as `new` wrote them, run `sed -i '' 's/Add your data/Connect your data/' "$D/contrail/data/steps.json"`, render with the stand-in again as `publish-render-data`, which exits `0`, then publish as `publish-vt305`. `.exit` is `1`, `$D/contrail/videotape.lock` is unchanged, and `.stderr` is:
 
   ```
-  error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published as 14a9d5e9249c, and this tape under the same label is 2a692c068e7c: the data changed
+  error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published with made id 14a9d5e9249c, and this tape under the same label has made id 2a692c068e7c: the data changed
   fix: give the tape a label of its own: bump version in pyproject.toml, or in stories/starter.toml for a change to the story, then render and publish again
   ```
 

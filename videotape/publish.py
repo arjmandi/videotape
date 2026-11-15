@@ -157,8 +157,8 @@ def _unlocked(root: Path, lock: dict[str, dict[str, str]], block: dict, story_fi
         return
     now = entry(block)
     changed = [words for key, words in WORDS.items() if held.get(key) != now[key]]
-    raise ScreenplayError("VT305", shown(root / LOCK), f"{block['label']} was published as {held.get('id', '')[:12]}, "
-                          f"and this tape under the same label is {block['id'][:12]}"
+    raise ScreenplayError("VT305", shown(root / LOCK), f"{block['label']} was published with made id "
+                          f"{held.get('id', '')[:12]}, and this tape under the same label has made id {block['id'][:12]}"
                           + (f": {_and(changed)} changed" if changed else ""),
                           "give the tape a label of its own: bump version in pyproject.toml, or in "
                           f"{shown(story_file)} for a change to the story, then render and publish again")

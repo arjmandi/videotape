@@ -118,8 +118,8 @@ CODES: dict[str, Code] = {
     "VT205": Code(
         "a data file is missing, or is not under data/",
         "vt.table and vt.one load their file when the module is imported. A path is relative to the project, the "
-        "folder that holds pyproject.toml, and it is under data/, so that the data hash in a tape's made block covers "
-        "every record the app loads. Either no file is at this path, or the path leads outside data/.",
+        "folder that holds pyproject.toml, and it is under data/, so that a tape's made id covers every record the app "
+        "loads. Either no file is at this path, or the path leads outside data/.",
         'flights = vt.table(Flight, "flights.json")',
         'flights = vt.table(Flight, "data/flights.json")',
     ),
@@ -211,12 +211,12 @@ CODES: dict[str, Code] = {
     "VT305": Code(
         "the tape's label is published already, as another tape",
         "A tape's label names the app and the story, each by its version, as in contrail 0.1.0 + starter 1.0.0, and "
-        "its id hashes everything that made it. Publish writes the label and id of each app it ships to "
+        "its made id hashes everything that made it. Publish writes the label and made id of each app it ships to "
         "videotape.lock, at the project's root, which the project commits. This tape's label is in the lock with "
-        "another id: the code, the data, the story, the model or videotape changed, and neither version did, so two "
+        "another made id: the code, the data, the story, the model or videotape changed, and neither version did, so two "
         "different apps would ship under one name. Publish ships nothing.",
-        "error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published as 3f9a0c1d2e4b, and this tape "
-        "under the same label is 7b2e9d4c1a0f: the data changed",
+        "error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published with made id 3f9a0c1d2e4b, and "
+        "this tape under the same label has made id 7b2e9d4c1a0f: the data changed",
         "fix: give the tape a label of its own: bump version in pyproject.toml, or in stories/starter.toml for a "
         "change to the story, then render and publish again",
     ),
@@ -337,10 +337,10 @@ CODES: dict[str, Code] = {
         "with a reason",
     ),
     "VT601": Code(
-        "the tape is out of date with its sources",
-        "tape.json's made block hashes everything that made the tape: the app's code and data, the story, the model's "
-        "settings and videotape itself, with an id that hashes them all. Publish makes the block again from the "
-        "project as it is now, for the tape's story and model, and compares the two ids. They differ, so the app "
+        "the tape is out of date",
+        "tape.json names everything that made the tape: the app's code and data, the story, the model's settings and "
+        "videotape itself, and the made id that hashes them all. Publish works these out again from the project as "
+        "it is now, for the tape's story and model, and compares the two made ids. They differ, so the app "
         "would ship a tape drawn from sources the project no longer has. The error says what changed. A render that "
         "stopped before its last shot also leaves its tape out of date. Publish ships nothing.",
         "error VT601 tapes/starter: the app's code changed since the tape was rendered",
