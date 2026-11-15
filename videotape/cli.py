@@ -315,7 +315,7 @@ def diff_tapes(args) -> int:
 def _tape_flags(command: argparse.ArgumentParser, required: bool = True) -> None:
     which = command.add_mutually_exclusive_group(required=required)
     which.add_argument("--story", help="the story whose tape it is, tapes/<story> in the project")
-    which.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
+    which.add_argument("--out", help="the tape's folder, for a tape that render wrote with --out")
 
 
 def _render_flags(command: argparse.ArgumentParser) -> None:
@@ -323,7 +323,7 @@ def _render_flags(command: argparse.ArgumentParser) -> None:
                          "[tool.videotape])")
     command.add_argument("--cap-usd", type=float, help="the most this render may spend on a model that bills per "
                          "call (default: cap_usd in [tool.videotape])")
-    command.add_argument("--out", help="the tape directory to write (default: tapes/<story> in the project)")
+    command.add_argument("--out", help="the folder to write the tape to (default: tapes/<story> in the project)")
 
 
 def main(argv=None) -> int:
@@ -367,7 +367,7 @@ def main(argv=None) -> int:
     accepting.add_argument("code", choices=sorted(code for code in CODES if code[:3] == "VT5"))
     accepting.add_argument("--story", required=True, help="the story whose tape it is")
     accepting.add_argument("--reason", required=True, help="why this failure is fine")
-    accepting.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
+    accepting.add_argument("--out", help="the tape's folder, for a tape that render wrote with --out")
     accepting.set_defaults(run=accept)
     rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies.html from its dailies.json and the "
                                     "ledger, and open it")
@@ -382,8 +382,8 @@ def main(argv=None) -> int:
     publishing.set_defaults(run=publish_app)
     diffing = commands.add_parser("diff", help="say whether two tapes are of the same app and the same story, and how "
                                   "many states and moves they share")
-    diffing.add_argument("a", help="a tape directory")
-    diffing.add_argument("b", help="another tape directory")
+    diffing.add_argument("a", help="a tape's folder")
+    diffing.add_argument("b", help="another tape's folder")
     diffing.set_defaults(run=diff_tapes)
     args = parser.parse_args(argv)
     try:
