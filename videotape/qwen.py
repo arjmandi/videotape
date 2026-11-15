@@ -15,6 +15,15 @@ PROMPT = ('Find every piece of text in this image. Answer with a JSON array and 
           'Copy each text exactly, keeping its case and punctuation. Give each separate line or label its own element. '
           'For a button, bbox_2d covers the whole button, not only its text.')
 MAX_NEW_TOKENS = 1024
+ADD_EXTRA = ('in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
+             'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync')
+"""How a project adds videotape's qwen extra, whichever source its videotape dependency names: a folder, a git
+commit, or a version on an index."""
+
+
+def installed() -> bool:
+    """Whether videotape's qwen extra is installed: torch and transformers, which run Qwen3-VL-8B."""
+    return find_spec("torch") is not None and find_spec("transformers") is not None
 
 
 def spots(reply: str, width: int, height: int) -> tuple[Spot, ...]:
@@ -57,9 +66,9 @@ class QwenEye:
     name = "qwen3-vl-8b"
 
     def __init__(self, tape: Path):
-        if find_spec("torch") is None or find_spec("transformers") is None:
+        if not installed():
             raise ChecksError("qwen3-vl-8b, this model's eye, needs videotape's qwen extra, which is not installed "
-                              "here; install videotape[qwen]")
+                              f"here; {ADD_EXTRA}")
         self.looks = tape / "looks"
         self.qwen: _Qwen | None = None
 

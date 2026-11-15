@@ -1,5 +1,6 @@
-"""doctor checks the machine and, in a project, its model's key and GPU. The machine here is made up: a PATH of
-scripts that answer as ffmpeg, ffprobe, xcode-select and xcodebuild do, and a platform said to be Apple silicon."""
+"""doctor checks the machine and, in a project, its model's key and what its eye needs. The machine here is made up:
+a PATH of scripts that answer as ffmpeg, ffprobe, xcode-select and xcodebuild do, a platform said to be Apple silicon,
+and the qwen extra said to be installed."""
 
 import platform
 import sys
@@ -8,12 +9,14 @@ from pathlib import Path
 import pytest
 
 from conftest import copy_of
+from videotape import qwen
 from videotape.errors import CODES
 
 XCODE = "/Applications/Xcode.app/Contents/Developer"
 PYTHON = f"Python {'.'.join(map(str, sys.version_info[:3]))}, and videotape needs >=3.12"
 FINE = [f"ok   VT101 {PYTHON}", "ok   VT102 ffmpeg and ffprobe are on PATH",
         f"ok   VT103 Xcode 27.0, at {XCODE}, for TapePlayer"]
+INSTALLED = qwen.installed
 
 
 def tool(bin: Path, name: str, says: str = "", exits: int = 0) -> None:
@@ -23,7 +26,8 @@ def tool(bin: Path, name: str, says: str = "", exits: int = 0) -> None:
 
 @pytest.fixture
 def machine(tmp_path, monkeypatch) -> Path:
-    """Apple silicon with ffmpeg, ffprobe and Xcode, and no FAL_KEY. A test takes away what it checks."""
+    """Apple silicon with ffmpeg, ffprobe, Xcode and the qwen extra, and no FAL_KEY. A test takes away what it
+    checks."""
     bin = tmp_path / "bin"
     bin.mkdir()
     for name in ("ffmpeg", "ffprobe"):
@@ -34,6 +38,7 @@ def machine(tmp_path, monkeypatch) -> Path:
     monkeypatch.delenv("FAL_KEY", raising=False)
     monkeypatch.setattr(platform, "system", lambda: "Darwin")
     monkeypatch.setattr(platform, "machine", lambda: "arm64")
+    monkeypatch.setattr(qwen, "installed", lambda: True)
     return bin
 
 
@@ -50,7 +55,8 @@ def on_wan3(tmp_path: Path, key: bool = True) -> Path:
 def test_in_a_project_on_a_machine_with_everything_every_check_is_ok(tmp_path, cli, capsys, machine):
     assert cli(on_wan3(tmp_path), "doctor") == 0
     assert capsys.readouterr() == ("\n".join([*FINE, "ok   VT104 FAL_KEY is set, for wan3.0",
-                                              "ok   VT105 Apple silicon, for wan3.0's checks"]) + "\n", "")
+                                              "ok   VT105 Apple silicon and videotape's qwen extra, for wan3.0's "
+                                              "checks"]) + "\n", "")
 
 
 def test_outside_a_project_doctor_checks_the_machine_only(tmp_path, cli, capsys, machine):
@@ -116,7 +122,7 @@ def test_a_key_in_neither_the_environment_nor_env_fails_vt104_and_a_blank_one_is
     assert capsys.readouterr().out.splitlines()[3:] == [
         CODES["VT104"].example,
         "  fix: copy .env.example to .env and set FAL_KEY there, or export it",
-        "ok   VT105 Apple silicon, for wan3.0's checks"]
+        "ok   VT105 Apple silicon and videotape's qwen extra, for wan3.0's checks"]
 
 
 def test_a_key_in_the_environment_is_enough(tmp_path, cli, capsys, machine, monkeypatch):
@@ -132,12 +138,25 @@ def test_a_wan_model_without_apple_silicon_or_cuda_fails_vt105_and_with_cuda_pas
     directory = on_wan3(tmp_path)
     assert cli(directory, "doctor") == 1
     assert capsys.readouterr().out.splitlines()[4:] == [
-        CODES["VT105"].example,
+        "fail VT105 wan3.0's checks need Apple silicon or a CUDA GPU, and this machine is Linux on x86_64 without "
+        "nvidia-smi",
         "  fix: render on a Mac with Apple silicon or a machine with a CUDA GPU, or with the stand-in, as in "
         "videotape render --story starter --model stand-in"]
     tool(machine, "nvidia-smi")
     assert cli(directory, "doctor") == 0
-    assert capsys.readouterr().out.splitlines()[4] == "ok   VT105 a CUDA GPU, for wan3.0's checks"
+    assert capsys.readouterr().out.splitlines()[4] == "ok   VT105 a CUDA GPU and videotape's qwen extra, for wan3.0's checks"
+
+
+def test_a_wan_model_without_the_qwen_extra_fails_vt105_and_says_to_add_it_to_the_videotape_dependency(
+        tmp_path, cli, capsys, machine, monkeypatch):
+    monkeypatch.setattr(qwen, "installed", INSTALLED)
+    monkeypatch.setitem(sys.modules, "torch", None)
+    assert cli(on_wan3(tmp_path), "doctor") == 1
+    assert capsys.readouterr().out.splitlines()[3:] == [
+        "ok   VT104 FAL_KEY is set, for wan3.0", CODES["VT105"].example, f"  fix: {CODES['VT105'].fix}"]
+    assert CODES["VT105"].fix == (
+        'in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
+        'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync')
 
 
 def test_a_project_with_a_wrong_value_fails_its_vt107_after_the_machine(tmp_path, cli, capsys, machine):

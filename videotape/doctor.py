@@ -1,5 +1,5 @@
 """What videotape needs of this machine, checked one line at a time: the Python, ffmpeg, and Xcode for TapePlayer, and
-in a project, the API key its model needs and the GPU its checks need."""
+in a project, the API key its model needs and what its eye needs."""
 
 import importlib.metadata
 import os
@@ -11,9 +11,10 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from videotape import project
+from videotape import project, qwen
 from videotape.errors import ScreenplayError
 from videotape.model import MODELS
+from videotape.qwen import QwenEye
 
 
 @dataclass(frozen=True)
@@ -76,17 +77,22 @@ def key(model: str) -> Check:
                  f"copy .env.example to .env and set {needed} there, or export it")
 
 
-def gpu(model: str) -> Check:
-    if not MODELS[model].eye_gpu:
+def eye(model: str) -> Check:
+    """What the model's eye needs to read a take back. Qwen3-VL-8B, the Wan models' eye, runs on Apple silicon or a
+    CUDA GPU, through videotape's qwen extra."""
+    if MODELS[model].eye is not QwenEye:
         return Check("VT105", True, f"{model}'s checks need no GPU")
-    if platform.system() == "Darwin" and platform.machine() == "arm64":
-        return Check("VT105", True, f"Apple silicon, for {model}'s checks")
-    if shutil.which("nvidia-smi"):
-        return Check("VT105", True, f"a CUDA GPU, for {model}'s checks")
-    return Check("VT105", False, f"{model}'s checks need Apple silicon or a CUDA GPU, and this machine is "
-                 f"{platform.system()} on {platform.machine()} without nvidia-smi",
-                 "render on a Mac with Apple silicon or a machine with a CUDA GPU, or with the stand-in, as in "
-                 "videotape render --story starter --model stand-in")
+    gpu = ("Apple silicon" if platform.system() == "Darwin" and platform.machine() == "arm64"
+           else "a CUDA GPU" if shutil.which("nvidia-smi") else None)
+    if gpu is None:
+        return Check("VT105", False, f"{model}'s checks need Apple silicon or a CUDA GPU, and this machine is "
+                     f"{platform.system()} on {platform.machine()} without nvidia-smi",
+                     "render on a Mac with Apple silicon or a machine with a CUDA GPU, or with the stand-in, as in "
+                     "videotape render --story starter --model stand-in")
+    if not qwen.installed():
+        return Check("VT105", False, f"{model}'s checks run Qwen3-VL-8B through videotape's qwen extra, which is not "
+                     "installed here", qwen.ADD_EXTRA)
+    return Check("VT105", True, f"{gpu} and videotape's qwen extra, for {model}'s checks")
 
 
 def checks(start: Path) -> list[Check]:
@@ -99,4 +105,4 @@ def checks(start: Path) -> list[Check]:
         if error.code == "VT106":
             return machine
         return [*machine, Check(error.code, False, f"{error.place}: {error.message}", error.fix)]
-    return [*machine, key(found.model), gpu(found.model)] if found.model else machine
+    return [*machine, key(found.model), eye(found.model)] if found.model else machine

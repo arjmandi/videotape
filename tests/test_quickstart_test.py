@@ -3,6 +3,7 @@ screen, so it is run by hand."""
 
 import importlib.machinery
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -22,14 +23,22 @@ def script():
     return module
 
 
+EXTRA = ("fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here\n"
+         "  fix: in pyproject.toml, put [qwen] right after videotape in dependencies\n")
+
+
 @pytest.mark.parametrize("code, said, ok", [
     (0, "ok   VT101 Python 3.14.0, and videotape needs >=3.12\nok   VT104 FAL_KEY is set, for wan3.0\n", True),
     (1, "ok   VT103 Xcode 27.0\nfail VT104 wan3.0 needs FAL_KEY\n  fix: copy .env.example to .env\n", True),
+    (1, f"ok   VT103 Xcode 27.0\nfail VT104 wan3.0 needs FAL_KEY\n{EXTRA}", True),
+    (1, f"ok   VT104 FAL_KEY is set, for wan3.0\n{EXTRA}", True),
+    (1, "fail VT105 wan3.0's checks need Apple silicon or a CUDA GPU, and this machine is Linux on x86_64\n", False),
+    (1, f"fail VT102 ffprobe is not on PATH\n  fix: install ffmpeg\n{EXTRA}", False),
     (1, "fail VT102 ffprobe is not on PATH\n  fix: install ffmpeg\nfail VT104 wan3.0 needs FAL_KEY\n", False),
     (1, "fail VT103 xcode-select is not here, so TapePlayer cannot build\n", False),
     (1, "error VT107 pyproject.toml: [tool.videotape] model is 3, not a model's name\n", False),
 ])
-def test_doctor_passes_with_no_fail_but_the_key_the_starters_model_needs(script, code, said, ok):
+def test_doctor_passes_with_no_fail_but_the_key_and_the_extra_the_starters_model_needs(script, code, said, ok):
     assert script.passed(script.Ran(DOCTOR, 1.0, code, said)) is ok
 
 
@@ -50,3 +59,11 @@ def test_the_steps_to_a_played_tape_are_within_the_budget(script):
         "uv run videotape render --story starter --model stand-in", script.PLAY]
     assert script.TO_A_PLAYED_TAPE <= script.MOST_STEPS
     assert script.STEPS[script.TO_A_PLAYED_TAPE:] == ["uv run videotape publish --story starter"]
+
+
+def test_a_checkout_whose_path_has_a_space_is_one_argument_of_the_step(script, tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "my checkout"
+    checkout.mkdir()
+    monkeypatch.setattr(script, "ROOT", checkout)
+    ran = script.run("ls -d {repo}", tmp_path, dict(os.environ))
+    assert (ran.code, ran.said) == (0, f"{checkout}\n")

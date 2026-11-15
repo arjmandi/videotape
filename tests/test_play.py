@@ -2,6 +2,8 @@
 xcodebuild or opens a window: the build is a stand-in that leaves an app, and the launcher records what would run."""
 
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -76,6 +78,21 @@ def test_tapeplayer_builds_once_per_version_of_its_source_into_the_cache(tmp_pat
     (macos / "TapePlayer" / "main.swift").write_text("the app changed")
     again = player.built(macos)
     assert again != app and again.parent.parent == cache / "player" and len(build.given) == 2
+
+
+
+def test_two_first_builds_at_once_both_get_the_app_the_first_one_moved_into_the_cache(tmp_path, cache, monkeypatch):
+    macos, build, both = a_source(tmp_path), Builds(), threading.Barrier(2, timeout=10)
+
+    def at_once(folder: Path) -> subprocess.CompletedProcess[str]:
+        both.wait()
+        return build(folder)
+    monkeypatch.setattr(player, "_build", at_once)
+    with ThreadPoolExecutor(2) as pool:
+        apps = list(pool.map(lambda _: player.built(macos), range(2)))
+    assert apps[0] == apps[1] and len(build.given) == 2
+    assert (apps[0] / "Contents" / "Info.plist").read_text() == "built"
+    assert [path.name for path in apps[0].parent.iterdir()] == ["TapePlayer.app"]
 
 
 def test_a_build_that_fails_is_vt603_naming_its_log_and_caches_nothing(tmp_path, cache, monkeypatch):

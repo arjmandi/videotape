@@ -1,4 +1,4 @@
-"""What made a tape: the app's code and data, the story, the model and the engine, each by a hash, and an id that
+"""What made a tape: the app's screenplay, its code and data, the story, the model and the engine, and an id that
 hashes them all. Two tapes with one id were drawn from the same everything."""
 
 import hashlib
@@ -14,14 +14,15 @@ from videotape.story import Story
 
 
 def made(found: Project, story: Story, model: Kind) -> dict:
-    """tape.json's made block. The app's code is every .py file of the package that holds its screenplay, or the one
-    module when there is no package. Its data is every file under data/."""
+    """tape.json's made block. The app's screenplay is the module:app that [tool.videotape] names, so two screenplays
+    of one package are two apps. Its code is every .py file of the package that holds its screenplay, or the one module
+    when there is no package. Its data is every file under data/."""
     top = found.root / found.screenplay.partition(":")[0].partition(".")[0]
     code = top.rglob("*.py") if top.is_dir() else [top.with_suffix(".py")]
     data = (path for path in (found.root / "data").rglob("*") if path.is_file() and not path.name.startswith("."))
     block = {
-        "app": {"name": found.name, "version": found.version, "code": digest(found.root, code),
-                "data": digest(found.root, data)},
+        "app": {"name": found.name, "version": found.version, "screenplay": found.screenplay,
+                "code": digest(found.root, code), "data": digest(found.root, data)},
         "story": {"name": story.name, "version": story.version, "hash": story.hash},
         "model": {"name": model.name, "settings": {mode.value: model.settings(mode) for mode in Mode}},
         "engine": digest(PACKAGE, PACKAGE.rglob("*.py")),

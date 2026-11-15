@@ -3,6 +3,7 @@ a screenplay of two scenes, a data table, and a story, and it renders with the s
 
 import json
 import keyword
+import re
 import sys
 from importlib import metadata
 from pathlib import Path
@@ -14,6 +15,9 @@ from videotape.project import ProjectError
 STARTER = PACKAGE / "starter"
 RENAMED = {"gitignore": ".gitignore", "env.example": ".env.example"}
 """The starter's files that a project names with a dot. The starter's folder app is the project's package."""
+NAME = re.compile(r"[A-Za-z](?:[A-Za-z0-9_]*[A-Za-z0-9])?")
+"""A name that is both a Python package's and a project's in pyproject.toml, which must start and end with an ASCII
+letter or digit."""
 
 
 def dependency(direct_url: str | None, version: str) -> str:
@@ -32,9 +36,10 @@ def dependency(direct_url: str | None, version: str) -> str:
 
 def project(name: str, where: Path) -> Path:
     """Write the starter as a project named name in a new or empty folder of that name, and return the folder."""
-    if not name.isidentifier() or keyword.iskeyword(name):
-        raise ProjectError(f'"{name}" cannot name a project: it names the project\'s Python package too, so it is '
-                           "letters, digits and _, as in my_app")
+    if not NAME.fullmatch(name) or keyword.iskeyword(name):
+        raise ProjectError(f'"{name}" cannot name a project: it names the project in pyproject.toml and its Python '
+                           "package, so it starts with a letter, ends with a letter or digit, holds only ASCII letters, "
+                           "digits and _, and is not a Python keyword, as in my_app")
     if name in sys.stdlib_module_names or name == "videotape":
         raise ProjectError(f'"{name}" cannot name a project: its package would hide the module {name} that '
                            "videotape needs; pick another name")

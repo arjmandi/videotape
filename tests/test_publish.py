@@ -7,19 +7,22 @@ app bundle around /usr/bin/true, so codesign has a real executable to sign and n
 import contextlib
 import dataclasses
 import hashlib
+import itertools
 import json
 import plistlib
 import shutil
 import subprocess
 import tomllib
+import zipfile
 from pathlib import Path
 
 import pytest
 
 from conftest import as_explained, forget, told
-from videotape import frames, made, new, player, project
+from videotape import frames, made, new, player, project, publish
 from videotape.cli import main
 from videotape.model import MODELS, Listing
+from videotape.checks import Spot
 from videotape.standin import Flaw, StandIn, StandInEye
 from videotape.plan import Mode
 from videotape.wan3 import Wan3
@@ -120,7 +123,8 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
     lock = (contrail / "videotape.lock").read_text()
     assert lock.startswith("# What videotape publish shipped")
     assert tomllib.loads(lock) == {LABEL: {
-        "id": made_by["id"], "code": made_by["app"]["code"], "data": made_by["app"]["data"],
+        "id": made_by["id"], "screenplay": "contrail.screenplay:app", "code": made_by["app"]["code"],
+        "data": made_by["app"]["data"],
         "story": made_by["story"]["hash"], "model": "stand-in", "settings": settings, "engine": made_by["engine"]}}
 
     assert cli(contrail, "publish", "--story", "starter") == 0
@@ -130,6 +134,65 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
     assert (contrail / "videotape.lock").read_text() == lock
     assert sorted(path.name for path in (contrail / "dist").iterdir()) == ["Contrail-starter.app", "Contrail-starter.zip"]
     assert signed(app)
+
+
+def shipped(folder: Path) -> tuple[list[str], str | None, str | None, str | None]:
+    """What a publish leaves: the names in dist/, the made id of the tape in the app and in the zip, and the lock."""
+    dist, lock = folder / "dist", folder / "videotape.lock"
+    in_app = dist / "Contrail-starter.app" / "Contents" / "Resources" / "tape" / "tape.json"
+    in_zip = None
+    if (dist / "Contrail-starter.zip").is_file():
+        with zipfile.ZipFile(dist / "Contrail-starter.zip") as zipped:
+            in_zip = json.loads(zipped.read("Contrail-starter.app/Contents/Resources/tape/tape.json"))["made"]["id"]
+    return (sorted(path.name for path in dist.iterdir()) if dist.is_dir() else [],
+            json.loads(in_app.read_text())["made"]["id"] if in_app.is_file() else None, in_zip,
+            lock.read_text() if lock.is_file() else None)
+
+
+def stopped(cli, folder: Path, at: int) -> bool:
+    """Publish in the folder, stopped as by Ctrl-C at its at-th step that writes, counted from 0: codesign, the zip,
+    and each rename or replace. False when the publish finished before that step."""
+    steps = itertools.count()
+    with pytest.MonkeyPatch.context() as patch:
+        for owner, name in ((publish, "_run"), (Path, "rename"), (Path, "replace")):
+            def step(*arguments, real=getattr(owner, name)):
+                if next(steps) == at:
+                    raise KeyboardInterrupt
+                return real(*arguments)
+            patch.setattr(owner, name, step)
+        try:
+            assert cli(folder, "publish", "--story", "starter") == 0
+        except KeyboardInterrupt:
+            return True
+    return False
+
+
+def test_a_publish_stopped_or_failing_at_any_step_leaves_the_old_app_zip_and_lock_whole_or_the_new_ones(
+        contrail, cli, capsys, monkeypatch, tmp_path):
+    """The clips are copied into the app, not encoded, which the swap does not need."""
+    monkeypatch.setattr(frames, "hevc", shutil.copyfile)
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    old = shipped(contrail)
+    pyproject = contrail / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('version = "0.1.0"', 'version = "0.1.1"'))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    left = []
+    for at in itertools.count():
+        folder = Path(shutil.copytree(contrail, tmp_path / f"stopped-at-{at}"))
+        if not stopped(cli, folder, at):
+            break
+        left.append(shipped(folder))
+    new = shipped(folder)
+    assert old != new and new[1] == new[2] == manifest(contrail)["made"]["id"]
+    assert len(left) >= 5 and all(state in (old, new) for state in left), left
+
+    folder, run = Path(shutil.copytree(contrail, tmp_path / "zip-fails")), publish._run
+    monkeypatch.setattr(publish, "_run", lambda *command: run(*command) if command[0] != "ditto" else
+                        run("ditto", "-c", "-k", str(tmp_path / "nothing"), str(tmp_path / "nothing.zip")))
+    capsys.readouterr()
+    assert cli(folder, "publish", "--story", "starter") == 1
+    assert capsys.readouterr().err.startswith("error: ditto exited with 1: ")
+    assert shipped(folder) == old
 
 
 def test_publish_needs_a_rendered_tape(tmp_path, cli, capsys):
@@ -162,6 +225,18 @@ def test_a_tape_older_than_its_sources_is_vt601_naming_what_changed(contrail, cl
     assert cli(contrail, "publish", "--story", "starter") == 1
     assert refused(contrail, capsys).startswith("error VT601 tapes/starter: the app's version, the app's code and the "
                                                 "data changed since the tape was rendered\n")
+
+
+def test_a_tape_of_another_screenplay_of_the_same_package_is_vt601(contrail, cli, capsys):
+    package = contrail / "contrail"
+    (package / "other.py").write_text((package / "screenplay.py").read_text().replace("of two scenes", "of two pages"))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    capsys.readouterr()
+    pyproject = contrail / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"contrail.screenplay:app"', '"contrail.other:app"'))
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert refused(contrail, capsys).startswith("error VT601 tapes/starter: the app's screenplay changed since the "
+                                                "tape was rendered\n")
 
 
 def as_wan3(folder: Path) -> dict:
@@ -227,6 +302,43 @@ def test_a_label_the_lock_holds_with_another_id_is_vt305_until_a_version_is_bump
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
     assert cli(contrail, "publish", "--story", "starter") == 0
     assert list(tomllib.loads((contrail / "videotape.lock").read_text())) == [LABEL, "contrail 0.1.1 + starter 1.0.0"]
+
+
+TWICE = "in the data folder"
+
+
+@dataclasses.dataclass(frozen=True)
+class Smudging:
+    """The stand-in's eye, which reads every time TWICE shows on a frame after the first clear times as smudged."""
+
+    clear: int
+    name = "stand-in"
+
+    def see(self, frame: frames.Frame) -> tuple[Spot, ...]:
+        shown = itertools.count(1)
+        return tuple(dataclasses.replace(spot, text="in the dark folder")
+                     if spot.text == TWICE and next(shown) > self.clear else spot for spot in StandInEye().see(frame))
+
+
+def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_after_encoding_is_vt604(
+        contrail, cli, capsys, monkeypatch):
+    steps = contrail / "data" / "steps.json"
+    steps.write_text(steps.read_text().replace("in the stories folder", TWICE))
+    eye = lambda clear: Listing(lambda: StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE),
+                                lambda tape: Smudging(clear), limit=8, kind=StandIn)
+    monkeypatch.setitem(MODELS, "stand-in", eye(1))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
+    assert [(failure["shot"], failure["code"], failure["about"]) for failure in
+            json.loads((contrail / "tapes" / "starter" / "dailies.json").read_text())["failures"]] == \
+        [("key todo()", "VT502", TWICE)]
+    assert cli(contrail, "accept", "todo()", "VT502", "--story", "starter", "--reason", "the second line, smudged") == 0
+    capsys.readouterr()
+
+    monkeypatch.setitem(MODELS, "stand-in", eye(0))
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert refused(contrail, capsys).startswith(
+        "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where TapePlayer rests on todo(), fails a "
+        f'check its key passed: VT502 {TWICE}: read "in the dark folder", CER ')
 
 
 def test_a_player_that_does_not_build_is_vt603(contrail, cli, capsys, monkeypatch):

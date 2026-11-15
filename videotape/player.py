@@ -37,8 +37,9 @@ def _build(folder: Path) -> subprocess.CompletedProcess[str]:
 
 def built(source: Path | None = None) -> Path:
     """TapePlayer.app, built from the source unless this version of it was built before. A build copies the source
-    into the cache, builds there, and moves the app into place only when the build succeeds, so a cached app is
-    always whole."""
+    into a folder of its own in the cache, builds there, and moves the app into place only when the build succeeds, so
+    a cached app is always whole. Of two builds at once, the second to finish uses the app the first moved into
+    place."""
     source = source or SOURCE
     if not (source / "build.sh").is_file():
         raise ScreenplayError("VT603", errors.shown(source), "TapePlayer's source is not here, so it cannot build",
@@ -65,7 +66,11 @@ def built(source: Path | None = None) -> Path:
             raise ScreenplayError("VT603", errors.shown(log), f"the build exited with {ran.returncode}: {line.strip()}",
                                   "run videotape doctor, which searches for Xcode; when it finds Xcode, the log "
                                   "says what failed")
-        (folder / "build" / "TapePlayer.app").rename(app)
+        try:
+            (folder / "build" / "TapePlayer.app").rename(app)
+        except OSError:
+            if not app.is_dir():
+                raise
     log.unlink(missing_ok=True)
     print(f"built TapePlayer in {time.monotonic() - started:.1f} s", flush=True)
     return app

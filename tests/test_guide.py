@@ -4,7 +4,7 @@ its commands run in order, each printing what the guide shows of it.
 The commands start in the project videotape new writes. From the guide's first whole file on, they run in that project
 with examples/contrail copied over it, since the guide has the reader write Contrail's files there. The stand-in is
 made to fail the key of the state the guide retakes and of the state it accepts, so that both commands act on a real
-failure."""
+failure. torch cannot be imported, as in a project new wrote, which leaves out videotape's qwen extra."""
 
 import dataclasses
 import hashlib
@@ -13,6 +13,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -222,6 +223,7 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
     guide = steps()
     monkeypatch.setattr(standin, "_default_flaw", flawed(guide))
     monkeypatch.delenv("FAL_KEY", raising=False)
+    monkeypatch.setitem(sys.modules, "torch", None)
     opened = list[list[str]]()
     if not real_player:
         monkeypatch.setattr(player, "_launch", opened.append)
