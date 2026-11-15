@@ -209,7 +209,7 @@ CODES: dict[str, Code] = {
     "VT305": Code(
         "the tape's label is published already, as another tape",
         "A tape's label names the app and the story, each by its version, as in contrail 0.1.0 + starter 1.0.0, and "
-        "its id hashes everything that made it. Publish records the label and id of each app it ships in "
+        "its id hashes everything that made it. Publish writes the label and id of each app it ships to "
         "videotape.lock, at the project's root, which the project commits. This tape's label is in the lock with "
         "another id: the code, the data, the story, the model or videotape changed, and neither version did, so two "
         "different apps would ship under one name. Publish ships nothing.",
@@ -259,9 +259,10 @@ CODES: dict[str, Code] = {
         "A render asks the model for one take at a time, and this call did not come back with a clip. The error "
         "prints the provider's message and the request id when there is one, and never an API key. The takes already on "
         "disk and the requests already submitted are kept, so running the render again resumes from them, and a "
-        "submitted request is polled and downloaded, never submitted again on its own. A request fal has recorded "
-        "beside its take and refuses for good, as when its safety checker flags the output, fails the same way on "
-        "every run, so the next step names its record: deleting that file lets the render submit a new, paid take.",
+        "submitted request is polled and downloaded, never submitted again on its own. When fal refuses a submitted "
+        "request for good, as when its safety checker flags the output, polling it fails the same way on every run, "
+        "so the next step names the request's file beside its take: deleting it lets the render submit a new, paid "
+        "take.",
         "error VT401 key home() take 2: result of alibaba/wan-3.0/text-to-video request 01a1... failed with HTTP 422",
         "next: run the render again, which resumes; this request is polled, not submitted again:\n"
         "videotape render --story terminal --model wan3.0 --cap-usd 20.00\n"
@@ -272,8 +273,8 @@ CODES: dict[str, Code] = {
         "A model that bills per call renders under a cap: cap_usd in [tool.videotape], or --cap-usd. What a tape has "
         "spent is the sum of its lines in the project's ledger, so running the render again never resets it. Before "
         "each paid call the render stops when the call would pass the cap, says what was spent, and lets the calls "
-        "in flight finish and be recorded. The cap is checked against each call's listed price, and the ledger "
-        "records what the call then billed, which can differ a little, so the spend can end a little past the cap. "
+        "in flight finish and reach the ledger. The cap is checked against each call's listed price, and the "
+        "ledger holds what the call then billed, which can differ a little, so the spend can end a little past the cap. "
         "A paid model with no cap at all does not start.",
         "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
         "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
@@ -284,8 +285,8 @@ CODES: dict[str, Code] = {
         "a take's file is corrupt",
         "A take came back as a file that does not decode into a frame. A model that bills per call keeps its request "
         "beside the take, so the take is downloaded again first. When it is still corrupt, or when the model has "
-        "nothing to download again, the seed is recorded in the tape's record as corrupt, reported, skipped, and "
-        "never filmed again. The shot goes on with its next seed.",
+        "nothing to download again, the seed is marked corrupt in the tape's dailies.json, reported, skipped, "
+        "and never filmed again. The shot goes on with its next seed.",
         "error VT403 key home() take 1: tapes/terminal/takes/3f9a....mp4 did not decode to one frame: Error opening "
         "input files: Invalid data found when processing input",
         "next: nothing; seed 1 is skipped from now on",

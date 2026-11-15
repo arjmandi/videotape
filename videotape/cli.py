@@ -362,22 +362,22 @@ def main(argv=None) -> int:
     retaking.add_argument("--takes", type=positive, default=1, help="how many new takes to film (default 1)")
     _render_flags(retaking)
     retaking.set_defaults(run=retake)
-    accepting = commands.add_parser("accept", help="record a failing check as accepted, with a reason")
+    accepting = commands.add_parser("accept", help="mark a failing check as fine, with a reason")
     accepting.add_argument("shot", help='a state, as in "home()", or a move, as in "home() -> search()"')
     accepting.add_argument("code", choices=sorted(code for code in CODES if code[:3] == "VT5"))
     accepting.add_argument("--story", required=True, help="the story whose tape it is")
     accepting.add_argument("--reason", required=True, help="why this failure is fine")
     accepting.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
     accepting.set_defaults(run=accept)
-    rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies page from its record and the ledger, "
-                                    "and open it")
+    rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies.html from its dailies.json and the "
+                                    "ledger, and open it")
     _tape_flags(rewriting)
     rewriting.set_defaults(run=rewrite_dailies)
     playing = commands.add_parser("play", help="open a tape in TapePlayer, building it first when it needs to")
     _tape_flags(playing)
     playing.set_defaults(run=play)
     publishing = commands.add_parser("publish", help="make a tape into a Mac app in dist/ that plays it, signed ad hoc "
-                                     "and zipped, and record it in videotape.lock")
+                                     "and zipped, and add it to videotape.lock")
     _tape_flags(publishing)
     publishing.set_defaults(run=publish_app)
     diffing = commands.add_parser("diff", help="say whether two tapes are of the same app and the same story, and how "
