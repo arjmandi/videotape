@@ -232,11 +232,11 @@ def accept(args) -> int:
               + ", so nothing is recorded")
         return 1
     accepted = {"shot": shot.title, "code": args.code, "reason": args.reason, "at": ledger.now(),
-                "seed": failing[0]["take"]}
+                "seed": failing[0]["take"], "clip": failing[0]["clip"]}
     others = [a for a in record.get("accepted", []) if (a["shot"], a["code"]) != (shot.title, args.code)]
     record["accepted"] = [*others, accepted]
     for failure in failing:
-        failure.update(dailies.verdict(record["accepted"], shot.title, args.code, failure["take"]))
+        failure.update(dailies.verdict(record["accepted"], shot.title, args.code, failure["clip"]))
     dailies.write(tape, record, ledger.of(found.root, tape).totals())
     print(f"accepted {args.code} on {shot.title}: {args.reason}")
     return 0

@@ -167,15 +167,16 @@ def write(tape: Path, record: dict, totals: dict) -> None:
     write_atomically(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
 
 
-def verdict(accepts: list[dict], shot: str, code: str, take: int) -> dict:
+def verdict(accepts: list[dict], shot: str, code: str, clip: str) -> dict:
     """What a person said of a failure of this code on this take of the shot. An accept holds for the take it was
-    given on, so one given on another take, or before an accept named its take, is shown as accepted_before, and the
+    given on, by its clip, since a take filmed again from a changed prompt or key image keeps its seed and gets new
+    pixels. One given on another take, or before an accept named its take, is shown as accepted_before, and the
     failure fails again until a person looks at the new take."""
     accept = next((accept for accept in accepts if (accept["shot"], accept["code"]) == (shot, code)), None)
     if accept is None:
         return {"accepted": None, "accepted_before": None}
     said = {"reason": accept["reason"], "at": accept["at"]}
-    if accept.get("seed") == take:
+    if accept.get("clip") == clip:
         return {"accepted": said, "accepted_before": None}
     return {"accepted": None, "accepted_before": {**said, "seed": accept.get("seed")}}
 
@@ -217,7 +218,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
             "screenplay": _screenplay_line(shot),
             "accept": f'videotape accept "{name}" {failure.code} --story {story.name}{where} --reason "..."',
         },
-        **verdict(carry.accepted, shot.title, failure.code, kept.seed),
+        **verdict(carry.accepted, shot.title, failure.code, kept.path.relative_to(tape).as_posix()),
     }
 
 
@@ -357,9 +358,13 @@ def _failure_card(failure: dict) -> str:
     badge = ' <span class="badge accepted">accepted</span>' if accepted else ""
     reason = f'<p class="reason">Accepted: {escape(accepted["reason"])}</p>' if accepted else ""
     if before := failure.get("accepted_before"):
-        on = f'take {before["seed"]}' if before["seed"] is not None else "an earlier render"
-        reason = (f'<p class="again">Accepted on {on}: {escape(before["reason"])}; this is take {failure["take"]}, '
-                  "so look again</p>")
+        if before["seed"] is None:
+            on, now = "an earlier render", f'this is take {failure["take"]}'
+        elif before["seed"] == failure["take"]:
+            on, now = f'take {before["seed"]}', "the take was filmed again"
+        else:
+            on, now = f'take {before["seed"]}', f'this is take {failure["take"]}'
+        reason = f'<p class="again">Accepted on {on}: {escape(before["reason"])}; {now}, so look again</p>'
     return f"""<div class="failure{" accepted" if accepted else ""}">
 <img src="{escape(failure["crop"])}" alt="Where {escape(failure["about"])} should be on {escape(failure["shot"])}" loading="lazy">
 <div>

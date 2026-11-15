@@ -171,20 +171,27 @@ def test_accept_of_a_check_that_is_not_failing_says_so_and_records_nothing(tmp_p
     assert "invalid choice: 'VT301'" in capsys.readouterr().err
 
 
-def test_an_accept_survives_a_render_that_films_the_shot_again(tmp_path, cli, capsys, monkeypatch):
+def test_an_accept_fails_again_when_a_story_edit_films_its_take_again(tmp_path, cli, capsys, monkeypatch):
     directory = copy_of("cafe", tmp_path)
     tape = directory / "tapes" / "chalk"
     stand_in(monkeypatch, extra_on_thanks_espresso)
     cli(directory, *RENDER)
     cli(directory, "accept", "thanks(Espresso)", "VT503", "--story", "chalk", "--reason", "a logo")
+    [accepted] = dailies.read(tape)["accepted"]
     story = directory / "stories" / "chalk.toml"
     story.write_text(story.read_text().replace("A paper cup on the counter", "A paper cup on the table"))
     capsys.readouterr()
-    assert cli(directory, *RENDER) == 0
-    assert "4. key thanks(Espresso)  kept take 1, fails VT503, 4 takes filmed" in capsys.readouterr().out
+    assert cli(directory, *RENDER) == 1
+    out, err = capsys.readouterr()
+    assert "4. key thanks(Espresso)  kept take 1, fails VT503, 4 takes filmed" in out
+    assert "fail: 4. key thanks(Espresso)  VT503" in err and "accepted:" not in err
     record = dailies.read(tape)
-    assert [a["reason"] for a in record["accepted"]] == ["a logo"]
-    assert json.dumps(record["failures"][0]["accepted"]["reason"]) == '"a logo"'
+    [failure] = record["failures"]
+    assert failure["take"] == 1 and failure["clip"] != accepted["clip"]
+    assert (failure["accepted"], failure["accepted_before"]) == (None, {"reason": "a logo", "at": accepted["at"],
+                                                                       "seed": 1})
+    assert ('<p class="again">Accepted on take 1: a logo; the take was filmed again, so look again</p>'
+            in (tape / "dailies.html").read_text())
 
 
 def test_an_accept_holds_for_its_take_and_a_retake_that_keeps_another_fails_again_beside_the_earlier_reason(
@@ -233,7 +240,8 @@ def test_an_accept_that_names_no_take_holds_for_none(tmp_path, cli, capsys, monk
     cli(directory, *RENDER)
     cli(directory, "accept", "thanks(Espresso)", "VT503", "--story", "chalk", "--reason", "a logo")
     record = dailies.read(tape)
-    del record["accepted"][0]["seed"]
+    for field in ("seed", "clip"):
+        del record["accepted"][0][field]
     (tape / "dailies.json").write_text(json.dumps(record))
     capsys.readouterr()
     assert cli(directory, *RENDER) == 1
