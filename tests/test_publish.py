@@ -195,6 +195,19 @@ def test_a_publish_stopped_or_failing_at_any_step_leaves_the_old_app_zip_and_loc
     assert shipped(folder) == old
 
 
+def test_a_tape_made_before_its_made_id_named_the_screenplay_is_vt601(contrail, cli, capsys):
+    tape = contrail / "tapes" / "starter" / "tape.json"
+    written = json.loads(tape.read_text())
+    block = {part: written["made"][part] for part in ("app", "story", "model", "engine")}
+    del block["app"]["screenplay"]
+    written["made"] = {"label": written["made"]["label"],
+                       "id": hashlib.sha256(json.dumps(block, sort_keys=True).encode()).hexdigest(), **block}
+    tape.write_text(json.dumps(written))
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert refused(contrail, capsys).startswith(
+        "error VT601 tapes/starter: the app's screenplay changed since the tape was rendered\n")
+
+
 def test_publish_needs_a_rendered_tape(tmp_path, cli, capsys):
     cli(tmp_path, "new", "shop")
     capsys.readouterr()

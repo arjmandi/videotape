@@ -113,7 +113,7 @@ def entry(block: dict) -> dict[str, str]:
     """What the lock records of a tape: its id, and what its id is made of, the screenplay by its module:app and the
     model by its name."""
     settings = hashlib.sha256(json.dumps(block["model"]["settings"], sort_keys=True).encode()).hexdigest()
-    return {"id": block["id"], "screenplay": block["app"]["screenplay"], "code": block["app"]["code"],
+    return {"id": block["id"], "screenplay": block["app"].get("screenplay", ""), "code": block["app"]["code"],
             "data": block["app"]["data"], "story": block["story"]["hash"], "model": block["model"]["name"],
             "settings": settings, "engine": block["engine"]}
 
