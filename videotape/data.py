@@ -148,7 +148,7 @@ DATA = "data"
 def _open(path: str) -> tuple[_File, Any]:
     asked, _ = errors.origin()
     parts = PurePosixPath(path).parts
-    # Every file an app loads sits under data/, which is what the data hash in a tape's made block covers.
+    # Every file an app loads sits under data/, which is what a tape's made id covers.
     if not parts or parts[0] != DATA or ".." in parts or PurePosixPath(path).is_absolute():
         raise ScreenplayError("VT205", errors.here(), f'"{path}" is not under {DATA}/',
                               f'keep every data file under {DATA}/ in the project, as in {DATA}/{PurePosixPath(path).name}')

@@ -1,4 +1,4 @@
-"""TapePlayer, the macOS app that plays a tape. Its source ships in the package as videotape/macos, and in a checkout
+"""TapePlayer, the Mac app that plays a tape. Its source ships in the package as videotape/macos, and in a checkout
 it is clients/macos beside the package. It is built in Release into a cache, once for each version of its source, and
 never into the package. play opens a tape in the built app with the tape's path as its argument, which TapePlayer
 takes as it is when the path is absolute."""

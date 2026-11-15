@@ -1,4 +1,4 @@
-"""A project is the folder that holds an app's pyproject.toml, whose [tool.videotape] table names its screenplay."""
+"""A project is the folder that holds an app's pyproject.toml, whose [tool.videotape] section names its screenplay."""
 
 import importlib
 import os

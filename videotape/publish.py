@@ -188,7 +188,7 @@ def _encode(tape: Path, manifest: dict, inside: Path) -> dict[str, str]:
 
 
 def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clips: dict[str, str]) -> None:
-    """VT604 when the last frame of an encoded clip, where the player rests, fails a check that passed in the record:
+    """VT604 when the last frame of an encoded clip, where TapePlayer rests, fails a check that passed in the record:
     the eye's checks of the state it lands on, which its key passed, and the seam with that state's key image, which
     the move's kept take passed."""
     keys = {key.state.name: key for key in planned.keys}
