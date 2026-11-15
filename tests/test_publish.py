@@ -22,6 +22,7 @@ from conftest import as_explained, forget, told
 from videotape import frames, made, new, player, project, publish
 from videotape.cli import main
 from videotape.model import MODELS, Listing
+from videotape.checks import Spot
 from videotape.standin import Flaw, StandIn, StandInEye
 from videotape.plan import Mode
 from videotape.wan3 import Wan3
@@ -301,6 +302,43 @@ def test_a_label_the_lock_holds_with_another_id_is_vt305_until_a_version_is_bump
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
     assert cli(contrail, "publish", "--story", "starter") == 0
     assert list(tomllib.loads((contrail / "videotape.lock").read_text())) == [LABEL, "contrail 0.1.1 + starter 1.0.0"]
+
+
+TWICE = "in the data folder"
+
+
+@dataclasses.dataclass(frozen=True)
+class Smudging:
+    """The stand-in's eye, which reads every time TWICE shows on a frame after the first clear times as smudged."""
+
+    clear: int
+    name = "stand-in"
+
+    def see(self, frame: frames.Frame) -> tuple[Spot, ...]:
+        shown = itertools.count(1)
+        return tuple(dataclasses.replace(spot, text="in the dark folder")
+                     if spot.text == TWICE and next(shown) > self.clear else spot for spot in StandInEye().see(frame))
+
+
+def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_after_encoding_is_vt604(
+        contrail, cli, capsys, monkeypatch):
+    steps = contrail / "data" / "steps.json"
+    steps.write_text(steps.read_text().replace("in the stories folder", TWICE))
+    eye = lambda clear: Listing(lambda: StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE),
+                                lambda tape: Smudging(clear), limit=8, kind=StandIn)
+    monkeypatch.setitem(MODELS, "stand-in", eye(1))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
+    assert [(failure["shot"], failure["code"], failure["about"]) for failure in
+            json.loads((contrail / "tapes" / "starter" / "dailies.json").read_text())["failures"]] == \
+        [("key todo()", "VT502", TWICE)]
+    assert cli(contrail, "accept", "todo()", "VT502", "--story", "starter", "--reason", "the second line, smudged") == 0
+    capsys.readouterr()
+
+    monkeypatch.setitem(MODELS, "stand-in", eye(0))
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert refused(contrail, capsys).startswith(
+        "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where TapePlayer rests on todo(), fails a "
+        f'check its key passed: VT502 {TWICE}: read "in the dark folder", CER ')
 
 
 def test_a_player_that_does_not_build_is_vt603(contrail, cli, capsys, monkeypatch):

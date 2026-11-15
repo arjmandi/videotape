@@ -5,12 +5,14 @@ with the tape inside it and each clip encoded as HEVC, which must keep every che
 ad hoc, and videotape.lock records the label, the id and the hashes the id is made of."""
 
 import hashlib
+import itertools
 import json
 import plistlib
 import re
 import shutil
 import subprocess
 import tomllib
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -219,7 +221,8 @@ def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clip
     seams = {move["move"]: next(take for take in move["takes"] if take["kept"]) for move in record["moves"]}
     images: dict[str, Frame] = {}
     for clip, state in clips.items():
-        failed = {(item["code"], item["about"]) for item in [*recorded[state]["items"], *seams.get(clip, {}).get("items", [])]
+        before = [*recorded[state]["items"], *seams.get(clip, {}).get("items", [])]
+        failed = {check for check, item in zip(_numbered((item["code"], item["about"]) for item in before), before)
                   if not item["passed"]}
         frame = frames.last_frame(inside / clip)
         if state not in images:
@@ -227,7 +230,8 @@ def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clip
         end = frames.difference(frame, images[state])
         items = [*score(frame, keys[state], eye).items(),
                  Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)]
-        broken = [item for item in items if not item.passed and (item.code, item.about) not in failed]
+        broken = [item for check, item in zip(_numbered((item.code, item.about) for item in items), items)
+                  if not item.passed and check not in failed]
         if broken:
             shot = next((move for move in planned.moves if move.clip == clip), planned.keys[0])
             checks = "a check its key passed:" if len(broken) == 1 else f"{len(broken)} checks its key passed, the first"
@@ -235,6 +239,13 @@ def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clip
                                   f"{checks} {broken[0].code} {broken[0].about}: {broken[0].result}",
                                   "retake the shot, whose next take may come through the encoding, then publish again:"
                                   f'\nvideotape retake "{dailies.named(shot)}" --story {record["story"]}{_out(record)}')
+
+
+def _numbered(checks: Iterable[tuple[str, str]]) -> list[tuple[str, str, int]]:
+    """Each check by its code, what it is about, and how many checks before it share both, so a line a key shows twice
+    is two checks."""
+    seen: dict[tuple[str, str], itertools.count] = {}
+    return [(code, about, next(seen.setdefault((code, about), itertools.count()))) for code, about in checks]
 
 
 def _run(*command: str) -> None:
