@@ -42,9 +42,13 @@ def tapeplayer(folder: Path) -> subprocess.CompletedProcess[str]:
 def starter(tmp_path_factory) -> Path:
     """The project videotape new contrail writes, rendered with the stand-in."""
     folder = new.project("contrail", tmp_path_factory.mktemp("starter"))
-    with contextlib.chdir(folder):
-        assert main(["render", "--story", "starter", "--model", "stand-in"]) == 0
-    forget(project.find(folder))
+    found = project.find(folder)
+    forget(found)
+    try:
+        with contextlib.chdir(folder):
+            assert main(["render", "--story", "starter", "--model", "stand-in"]) == 0
+    finally:
+        forget(found)
     return folder
 
 
