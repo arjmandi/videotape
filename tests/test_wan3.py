@@ -12,9 +12,9 @@ from pathlib import Path
 import pytest
 
 from conftest import FIXTURES, as_explained, copy_of, planned, told, words
-from videotape import dailies, ledger, project
-from videotape.errors import RenderError
-from videotape.fal import Fal, FalError, Receipt
+from videotape import dailies, doctor, ledger, project
+from videotape.errors import CODES, ModelError, RenderError
+from videotape.fal import Fal, Receipt
 from videotape.hosted import WAN3, WAN3_FIELDS, FalRequest, OnFal, from_environment, request_record
 from videotape.made import made
 from videotape.model import MODELS, Listing
@@ -95,7 +95,7 @@ def test_a_recorded_response_reads_into_a_video_and_a_receipt_without_the_networ
 
 def test_a_response_without_a_video_is_an_error():
     response = recorded("text-to-video")
-    with pytest.raises(FalError, match="request 01a1c5fb-027e-7b70-857e-d4305eafbbdb answered without video.url"):
+    with pytest.raises(ModelError, match="request 01a1c5fb-027e-7b70-857e-d4305eafbbdb answered without video.url"):
         WAN3.bill({**response, "result": {"detail": "the safety checker flagged the output"}})
 
 
@@ -149,7 +149,7 @@ def test_a_take_is_submitted_once_even_when_the_render_dies_between_submitting_a
     model = OnFal(WAN3, Fal(KEY, send=fal, sleep=lambda _: None))
     (tmp_path / "takes").mkdir()
     out = tmp_path / "takes" / "abc123.partial.mp4"
-    with pytest.raises(FalError, match="status of alibaba/wan-3.0/text-to-video request request-0 failed with HTTP 400"):
+    with pytest.raises(ModelError, match="status of alibaba/wan-3.0/text-to-video request request-0 failed with HTTP 400"):
         model.text_to_video("a prompt", 1, out)
     record = tmp_path / "takes" / "abc123.request.json"
     assert json.loads(record.read_text())["request_id"] == "request-0"
@@ -486,7 +486,9 @@ def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, cli, capsys, m
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
-    assert capsys.readouterr() == ("", "error: wan3.0 needs FAL_KEY in the environment or the project's .env\n")
+    said = f"error VT104 .env: {CODES['VT104'].example.removeprefix('fail VT104 ')}\nfix: {CODES['VT104'].fix}\n"
+    assert capsys.readouterr() == ("", said)
+    assert said == f"error VT104 .env: {doctor.key('wan3.0').what}\nfix: {doctor.key('wan3.0').fix}\n"
     assert sent == []
     assert sorted(path.name for path in directory.iterdir()) == ["cafe.py", "data", "pyproject.toml", "stories"]
 
@@ -510,7 +512,9 @@ def test_a_key_a_header_cannot_carry_is_refused_without_printing_it(tmp_path, cl
     monkeypatch.setenv("FAL_KEY", f"{KEY[:8]}\n{KEY[8:]}")
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
     out, err = capsys.readouterr()
-    assert (out, err) == ("", "error: FAL_KEY holds a character an HTTP header cannot carry, such as a line break\n")
+    check = doctor.key("wan3.0")
+    assert (out, err, check.ok) == ("", f"error VT104 .env: {check.what}\nfix: {check.fix}\n", False)
+    assert check.what == "FAL_KEY holds a character an HTTP header cannot carry, such as a line break"
 
 
 class Answer:
@@ -533,7 +537,7 @@ def test_the_key_from_the_environment_goes_only_into_the_submits_authorization_h
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda request, timeout: sent.append(request) or Answer(b'{"detail": "no request today"}'))
-    with pytest.raises(FalError, match="answered without a request") as error:
+    with pytest.raises(ModelError, match="answered without a request") as error:
         from_environment(WAN3).text_to_video("a prompt", 1, Path("unused.mp4"))
     assert [(request.full_url, request.get_header("Authorization")) for request in sent] == [
         ("https://queue.fal.run/alibaba/wan-3.0/text-to-video", f"Key {KEY}")]

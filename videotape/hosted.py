@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotape.atomic import write_atomically
-from videotape.fal import Fal, FalError, Price, Receipt
+from videotape.errors import ModelError, ScreenplayError
+from videotape.fal import Fal, Price, Receipt
 from videotape.plan import Mode
 
 
@@ -55,7 +56,7 @@ class FalModel:
         try:
             url, duration = result["video"]["url"], float(result.get("duration", self.price.seconds))
         except (AttributeError, KeyError, TypeError, ValueError):
-            raise FalError(f"request {submitted['request_id']} answered without video.url: {result}") from None
+            raise ModelError(f"request {submitted['request_id']} answered without video.url: {result}") from None
         return url, Receipt(submitted["request_id"], duration, self.price.billed(duration), response)
 
 
@@ -121,7 +122,7 @@ GEMINI_OMNI_FLASH = FalModel(
 FAL_MODELS = (WAN3, MINIMAX_H3, GEMINI_OMNI_FLASH)
 
 
-class RecordedFailure(FalError):
+class RecordedFailure(ModelError):
     """A recorded request's poll or download failed. A render never submits it again on its own, so the error names
     the record, which deleting lets a render submit a new, paid take."""
 
@@ -174,8 +175,8 @@ class OnFal:
         try:
             url, receipt = self.model.bill(self.fal.wait(submitted["endpoint"], submitted))
             self.fal.download(url, out)
-        except FalError as error:
-            raise RecordedFailure(str(error), record) from None
+        except ModelError as error:
+            raise RecordedFailure(error.message, record) from None
         return receipt
 
 
@@ -187,8 +188,10 @@ def request_record(out: Path) -> Path:
 
 def from_environment(model: FalModel) -> OnFal:
     if not (key := os.environ.get("FAL_KEY", "").strip()):
-        raise FalError(f"{model.name} needs FAL_KEY in the environment or the project's .env")
+        raise ScreenplayError("VT104", ".env", f"{model.name} needs FAL_KEY, and it is not in the environment or .env",
+                              "copy .env.example to .env and set FAL_KEY there, or export it")
     # http.client rejects a header with a control character by quoting the whole header, key and all, in its error.
     if not key.isprintable():
-        raise FalError("FAL_KEY holds a character an HTTP header cannot carry, such as a line break")
+        raise ScreenplayError("VT104", ".env", "FAL_KEY holds a character an HTTP header cannot carry, such as a line "
+                              "break", "set FAL_KEY to the API key alone, in .env or the environment")
     return OnFal(model, Fal(key))

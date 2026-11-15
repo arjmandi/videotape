@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import copy_of
-from videotape import dailies
+from conftest import as_explained, copy_of
+from videotape import dailies, ledger
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
 from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
@@ -88,6 +88,39 @@ def test_retake_films_seeds_after_the_highest_tried_keeps_the_best_and_redraws_t
     assert dailies.read(tape)["retakes"] == {"key order(Latte)": [5, 6, 7]}
 
 
+def test_retake_films_with_the_model_that_made_the_tape_and_not_the_projects(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    pyproject = directory / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('model = "stand-in"', 'model = "wan3.0"'))
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    model = stand_in(monkeypatch, misspelt_until_five)
+    assert cli(directory, *RENDER, "--model", "stand-in") == 1
+    assert '  next: videotape retake "order(Latte)" --story chalk\n' in capsys.readouterr().err
+    model.calls.clear()
+
+    assert cli(directory, "retake", "order(Latte)", "--story", "chalk") == 0
+    out, err = capsys.readouterr()
+    assert (out.splitlines()[0], err) == ("retaking key order(Latte) with seed 5", "")
+    assert [(call.mode, call.seed) for call in model.calls][0] == (Mode.TEXT_TO_VIDEO, 5)
+    assert {line["model"] for line in ledger.of(directory, directory / "tapes" / "chalk").lines()} == {"stand-in"}
+    with pytest.raises(SystemExit) as refused:
+        cli(directory, "retake", "order(Latte)", "--story", "chalk", "--model", "stand-in")
+    assert refused.value.code == 2 and "unrecognized arguments: --model stand-in" in capsys.readouterr().err
+
+
+def test_retake_of_a_tape_no_render_finished_names_no_model_and_films_nothing(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / "tapes" / "chalk"
+    model = stand_in(monkeypatch, misspelt_until_five)
+    assert cli(directory, *RENDER) == 1
+    (tape / "tape.json").unlink()
+    capsys.readouterr()
+    model.calls.clear()
+    assert cli(directory, "retake", "order(Latte)", "--story", "chalk") == 1
+    assert as_explained("VT405").fullmatch(capsys.readouterr().err.rstrip("\n"))
+    assert model.calls == [] and dailies.read(tape)["retakes"] == {}
+
+
 def test_retake_of_a_move_films_its_next_seeds_and_a_wrong_name_names_the_closest(tmp_path, cli, capsys, monkeypatch):
     directory = copy_of("cafe", tmp_path)
     model = stand_in(monkeypatch, lambda mode, prompt, seed: Flaw.NONE)
@@ -98,10 +131,15 @@ def test_retake_of_a_move_films_its_next_seeds_and_a_wrong_name_names_the_closes
     assert capsys.readouterr().out.splitlines()[0] == 'retaking thanks(Latte) -> menu() "Done" with seed 5'
     assert [(call.mode, call.seed) for call in model.calls] == [(Mode.FIRST_AND_LAST_FRAME, 5)]
     assert cli(directory, "retake", "thanks(Late) -> menu()", "--story", "chalk") == 1
-    assert capsys.readouterr().err == ('error: the app has no state or move "thanks(Late) -> menu()"; the closest are '
-                                       'thanks(Latte) -> menu(), thanks(Latte) -> menu() "Done", thanks(Espresso) -> menu()\n')
+    assert capsys.readouterr().err == ('error VT212 "thanks(Late) -> menu()": the app has no state or move of this name\n'
+                                       'fix: name one of the closest: thanks(Latte) -> menu(), thanks(Latte) -> menu() '
+                                       '"Done", thanks(Espresso) -> menu()\n')
+    assert cli(directory, "retake", "thanks(Late)", "--story", "chalk") == 1
+    assert as_explained("VT212").fullmatch(capsys.readouterr().err.rstrip("\n"))
     assert cli(directory, "retake", "order(Latte)", "--story", "chalk", "--out", "tape-none") == 1
-    assert capsys.readouterr().err == "error: no dailies.json in tape-none; render the story first\n"
+    assert capsys.readouterr().err == ("error VT405 tape-none: has no dailies.json, which every render writes\n"
+                                       "next: render the story first, as in:\n"
+                                       "videotape render --story chalk --out tape-none\n")
 
 
 def test_a_move_name_shared_by_two_moves_is_ambiguous_until_given_its_label(tmp_path, cli, capsys, monkeypatch):
@@ -116,8 +154,8 @@ def test_a_move_name_shared_by_two_moves_is_ambiguous_until_given_its_label(tmp_
     model = stand_in(monkeypatch, lambda mode, prompt, seed: Flaw.NONE)
     assert cli(tmp_path, "render", "--story", "bare") == 0
     assert cli(tmp_path, "retake", "hall() -> room()", "--story", "bare") == 1
-    assert capsys.readouterr().err == ('error: "hall() -> room()" names 2 moves; name one by its full title: '
-                                       'hall() -> room() "Front door"; hall() -> room() "Side door"\n')
+    assert capsys.readouterr().err == ('error VT212 "hall() -> room()": names 2 moves\nfix: name one by its full '
+                                       'title: hall() -> room() "Front door"; hall() -> room() "Side door"\n')
     model.calls.clear()
     assert cli(tmp_path, "retake", 'hall() -> room() "Side door"', "--story", "bare") == 0
     assert [(call.mode, call.seed, call.prompt.split('"')[1]) for call in model.calls] == [

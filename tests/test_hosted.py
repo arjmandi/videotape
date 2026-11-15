@@ -215,7 +215,8 @@ def test_a_model_on_fal_without_fal_key_says_so_and_sends_nothing(case, tmp_path
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))
     assert cli(directory, "render", "--story", "chalk", "--model", case.name, "--cap-usd", "20", "--out", "tape-fal") == 1
-    assert capsys.readouterr() == ("", f"error: {case.name} needs FAL_KEY in the environment or the project's .env\n")
+    assert capsys.readouterr() == ("", f"error VT104 .env: {case.name} needs FAL_KEY, and it is not in the environment or "
+                                       ".env\nfix: copy .env.example to .env and set FAL_KEY there, or export it\n")
     assert sent == []
     assert not (directory / "tape-fal").exists()
 

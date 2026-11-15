@@ -19,8 +19,9 @@ from pathlib import Path
 import pytest
 
 from conftest import as_explained, forget, told
-from videotape import frames, made, new, player, project, publish
+from videotape import doctor, frames, made, new, player, project, publish
 from videotape.cli import main
+from videotape.errors import CODES
 from videotape.model import MODELS, Listing
 from videotape.checks import Spot
 from videotape.standin import Flaw, StandIn, StandInEye
@@ -218,7 +219,7 @@ def test_a_publish_stopped_or_failing_at_any_step_leaves_the_old_app_zip_and_loc
                         run("ditto", "-c", "-k", str(tmp_path / "nothing"), str(tmp_path / "nothing.zip")))
     capsys.readouterr()
     assert cli(folder, "publish", "--story", "starter") == 1
-    assert capsys.readouterr().err.startswith("error: ditto exited with 1: ")
+    assert capsys.readouterr().err.startswith("error VT606 ditto: exited with 1: ")
     assert shipped(folder) == old
 
 
@@ -226,8 +227,51 @@ def test_publish_needs_a_rendered_tape(tmp_path, cli, capsys):
     cli(tmp_path, "new", "shop")
     capsys.readouterr()
     assert cli(tmp_path / "shop", "publish", "--story", "starter") == 1
-    assert capsys.readouterr() == ("", "error: no tape.json in tapes/starter; render the story first\n")
+    out, err = capsys.readouterr()
+    assert out == "" and as_explained("VT405").fullmatch(err.rstrip("\n"))
     assert not (tmp_path / "shop" / "dist").exists()
+
+
+def test_a_codesign_that_fails_is_vt606_and_ships_nothing(contrail, cli, capsys, monkeypatch, tmp_path):
+    run = publish._run
+    monkeypatch.setattr(publish, "_run", lambda *command: run(*command) if command[0] != "codesign" else
+                        run("codesign", "--force", "--deep", "--sign", "-", str(tmp_path / "nothing")))
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert as_explained("VT606").fullmatch(refused(contrail, capsys).rstrip("\n"))
+
+
+def test_a_lock_that_is_not_toml_is_vt605_and_ships_nothing(contrail, cli, capsys):
+    (contrail / "videotape.lock").write_text(publish.HEADER + '\n["shop 0.1.0 + starter 1.0.0"]\n<<<<<<< HEAD\n')
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    out, err = capsys.readouterr()
+    assert as_explained("VT605").fullmatch(err.rstrip("\n"))
+    assert not (contrail / "dist").exists()
+
+
+def test_a_key_picture_of_another_size_than_its_clips_is_vt407(contrail, cli, capsys):
+    frames.write_png(frames.Frame(640, 352, bytes(640 * 352 * 3)), contrail / "tapes" / "starter" / "keys" / "todo.png")
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert as_explained("VT407").fullmatch(refused(contrail, capsys).rstrip("\n"))
+
+
+def test_publish_without_ffmpeg_is_doctors_vt102_in_doctors_words(contrail, cli, capsys, monkeypatch, tmp_path):
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    (tools / "ffprobe").symlink_to(shutil.which("ffprobe"))
+    monkeypatch.setenv("PATH", str(tools))
+    check = doctor.ffmpeg()
+    assert (check.ok, check.fix) == (False, CODES["VT102"].fix)
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert refused(contrail, capsys) == f"error VT102 PATH: {check.what}\nfix: {check.fix}\n"
+
+
+def test_a_clip_ffmpeg_cannot_encode_is_vt404_naming_the_command(contrail, cli, capsys):
+    (contrail / "tapes" / "starter" / "moves" / "opening.mp4").write_bytes(b"not a clip")
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    err = refused(contrail, capsys).splitlines()
+    assert err[0].startswith("error VT404 ffmpeg: ffmpeg -hide_banner -loglevel error -i ")
+    assert err[-1] == ("next: run videotape doctor, which checks ffmpeg and ffprobe, then run the command again; when "
+                       "ffmpeg names a file of the tape, render the story again first")
 
 
 def refused(contrail: Path, capsys) -> str:

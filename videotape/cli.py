@@ -8,18 +8,13 @@ from difflib import get_close_matches
 from pathlib import Path
 
 from videotape import dailies, doctor, errors, ledger, new, player, project, publish, story
-from videotape.checks import ChecksError
 from videotape.errors import CODES, RenderError, ScreenplayError
-from videotape.fal import FalError
-from videotape.frames import FfmpegError
-from videotape.made import made
+from videotape.made import finished, made, manifest
 from videotape.model import MODELS, Listing, estimate
 from videotape.plan import Key, Plan, Shot, plan
-from videotape.project import Project, ProjectError
+from videotape.project import Project
 from videotape.render import Filmed, render
-from videotape.standin import StandInError
 from videotape.story import Story
-from videotape.wan import WanError
 
 
 def _planned(found: Project) -> Plan:
@@ -51,7 +46,9 @@ def _warn(warnings: tuple[ScreenplayError, ...]) -> None:
 def plan_app(args) -> int:
     found = project.find(Path.cwd())
     if args.model and not args.story:
-        raise ProjectError("--model sets the prompt limit for a story's prompts, so pass --story with it")
+        raise ScreenplayError("VT310", "--model", "names the model whose prompt limit a story's prompts must fit, and "
+                              "no --story names one", f"name the story too, as in videotape plan --story starter "
+                              f"--model {args.model}")
     planned, listing = _planned(found), _listing(found, args.model)
     warnings, in_story = planned.warnings, ""
     if args.story:
@@ -74,17 +71,27 @@ def plan_app(args) -> int:
     return 0
 
 
-def _shots_named(planned: Plan, name: str, what: str) -> list[Shot]:
-    """The shots a name picks out: a state's key, a move as "<state> -> <state>", or a move by its full title. A
-    name that is none of these is an error naming the closest."""
+def _unnamed(name: str, what: str, close: list[str]) -> ScreenplayError:
+    """VT212 for a name no state or move has, with the closest names."""
+    return ScreenplayError("VT212", f'"{name}"', f"the app has no {what} of this name",
+                           f"name one of the closest: {', '.join(close)}" if close else
+                           'name a state as the plan names it, as in "home()", or a move by its two states, as in '
+                           '"home() -> search()"')
+
+
+def _shot_named(planned: Plan, name: str) -> Shot:
+    """The one shot a name picks out: a state's key, a move as "<state> -> <state>", or a move by its full title.
+    VT212 for a name that picks out none, with the closest, or two moves, with their full titles."""
     names = {key.state.name: [key] for key in planned.keys}
     for move in planned.moves:
         names.setdefault(f"{move.start.name} -> {move.land.name}", []).append(move)
         names[move.title] = [move]
-    if name in names:
-        return names[name]
-    close = get_close_matches(name, names, n=3)
-    raise ProjectError(f'the app has no {what} "{name}"' + (f"; the closest are {', '.join(close)}" if close else ""))
+    if name not in names:
+        raise _unnamed(name, "state or move", get_close_matches(name, names, n=3))
+    if len(shots := names[name]) > 1:
+        raise ScreenplayError("VT212", f'"{name}"', f"names {_count(len(shots), 'move')}",
+                              "name one by its full title: " + "; ".join(shot.title for shot in shots))
+    return shots[0]
 
 
 def print_shots(args) -> int:
@@ -96,9 +103,7 @@ def print_shots(args) -> int:
     if args.state:
         names = [key.state.name for key in planned.keys]
         if args.state not in names:
-            close = sorted(get_close_matches(args.state, names, n=3), key=names.index)
-            raise ProjectError(f'the app has no state "{args.state}"' +
-                               (f"; the closest are {', '.join(close)}" if close else ""))
+            raise _unnamed(args.state, "state", sorted(get_close_matches(args.state, names, n=3), key=names.index))
         shots = [shot for shot in shots if (shot.state if isinstance(shot, Key) else shot.start).name == args.state]
     prompts = [(shot, story.prompt(shot, told)) for shot in shots]
     width = max(len(str(clause.source)) for _, clauses in prompts for clause in clauses)
@@ -139,6 +144,12 @@ def _tape(found: Project, name: str | None, out: str | None) -> Path:
     return Path(out) if out else found.root / "tapes" / name
 
 
+def _rendering(story: str | None, out: str | None) -> str:
+    """The command that renders a tape: the story's own, or the one --out names, which names no story."""
+    return " ".join(["videotape", "render", "--story", shlex.quote(story) if story else "<story>",
+                     *(["--out", shlex.quote(out)] if out else [])])
+
+
 def _resume(args, story: str) -> str:
     """The render command that resumes this one."""
     words = ["videotape", "render", "--story", story]
@@ -155,7 +166,9 @@ def _render(found: Project, args) -> int:
     totals, and each failing shot with what to run next."""
     listing = _listing(found, args.model)
     if listing is None:
-        raise ProjectError("no model to render with; pass --model, or set model in [tool.videotape]")
+        raise ScreenplayError("VT110", errors.shown(found.root / "pyproject.toml"), "[tool.videotape] names no model, "
+                              "and neither does --model", 'set it in [tool.videotape], as in model = "stand-in", or name '
+                              f"one for this render, as in videotape render --story {args.story} --model stand-in")
     planned = _planned(found)
     told, warnings = _told(found, planned, args.story, listing)
     _warn((*planned.warnings, *warnings))
@@ -199,19 +212,14 @@ def render_tape(args) -> int:
 
 
 def retake(args) -> int:
-    """Film new takes of a shot, with seeds after the highest it has tried, and render again so the best of all its
-    takes is kept and the moves pinned to a key that changed are drawn again."""
+    """Film new takes of a shot with the model that made the tape, with seeds after the highest it has tried, and
+    render again so the best of all its takes is kept and the moves pinned to a key that changed are drawn again."""
     found = project.find(Path.cwd())
     planned = _planned(found)
-    shots = _shots_named(planned, args.shot, "state or move")
-    if len(shots) > 1:
-        raise ProjectError(f'"{args.shot}" names {_count(len(shots), "move")}; name one by its full title: '
-                           + "; ".join(shot.title for shot in shots))
-    [shot] = shots
-    tape = _tape(found, args.story, args.out)
-    if not (tape / "dailies.json").is_file():
-        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the story first")
-    record = dailies.read(tape)
+    shot = _shot_named(planned, args.shot)
+    tape, rendering = _tape(found, args.story, args.out), _rendering(args.story, args.out)
+    record = dailies.recorded(tape, rendering)
+    args.model = manifest(tape, rendering)["made"]["model"]["name"]
     tried = [take["seed"] for filmed in (*record["keys"], *record["moves"]) if filmed["title"] == shot.title
              for take in filmed["takes"]]
     retakes = record.get("retakes", {})
@@ -230,15 +238,9 @@ def accept(args) -> int:
     shot's kept take, the one the person looked at."""
     found = project.find(Path.cwd())
     planned = _planned(found)
-    shots = _shots_named(planned, args.shot, "state or move")
-    if len(shots) > 1:
-        raise ProjectError(f'"{args.shot}" names {_count(len(shots), "move")}; name one by its full title: '
-                           + "; ".join(shot.title for shot in shots))
-    [shot] = shots
+    shot = _shot_named(planned, args.shot)
     tape = _tape(found, args.story, args.out)
-    if not (tape / "dailies.json").is_file():
-        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the story first")
-    record = dailies.read(tape)
+    record = dailies.recorded(tape, _rendering(args.story, args.out))
     failing = [f for f in record["failures"] if (f["shot"], f["code"]) == (shot.title, args.code)]
     if not failing:
         codes = sorted({f["code"] for f in record["failures"] if f["shot"] == shot.title})
@@ -259,9 +261,7 @@ def accept(args) -> int:
 def rewrite_dailies(args) -> int:
     found = project.find(Path.cwd())
     tape = _tape(found, args.story, args.out)
-    if not (tape / "dailies.json").is_file():
-        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the story first")
-    dailies.write(tape, dailies.read(tape), ledger.of(found.root, tape).totals())
+    dailies.write(tape, dailies.recorded(tape, _rendering(args.story, args.out)), ledger.of(found.root, tape).totals())
     page = tape / "dailies.html"
     print(f"wrote {errors.shown(page)} with {json.dumps(dailies.read(tape)['ledger'])}")
     webbrowser.open(page.resolve().as_uri())
@@ -271,15 +271,14 @@ def rewrite_dailies(args) -> int:
 def play(args) -> int:
     found = project.find(Path.cwd())
     tape = _tape(found, args.story, args.out)
-    if not (tape / "tape.json").is_file():
-        raise ChecksError(f"no tape.json in {errors.shown(tape)}; render the story first")
+    finished(tape, _rendering(args.story, args.out))
     print(shlex.join(player.play(tape)))
     return 0
 
 
 def publish_app(args) -> int:
     found = project.find(Path.cwd())
-    done = publish.publish(found, _tape(found, args.story, args.out))
+    done = publish.publish(found, _tape(found, args.story, args.out), _rendering(args.story, args.out))
     print(f"published {errors.shown(done.app)}, {done.size / 1e6:.1f} MB, zipped to {errors.shown(done.zip)}, "
           f"{done.zip.stat().st_size / 1e6:.1f} MB")
     print(f"label {done.label}\nid {done.id}")
@@ -287,25 +286,14 @@ def publish_app(args) -> int:
     return 0
 
 
-def _manifest(tape: str) -> dict:
-    """A tape's tape.json, which says what made it."""
-    file = Path(tape) / "tape.json"
-    if not file.is_file():
-        raise ChecksError(f"no tape.json in {tape}; render the story first")
-    manifest = json.loads(file.read_text())
-    if "made" not in manifest:
-        raise ChecksError(f"{file} does not say what made it; render the tape again")
-    return manifest
-
-
 def diff_tapes(args) -> int:
-    a, b = _manifest(args.a), _manifest(args.b)
+    a, b = (manifest(Path(tape), _rendering(None, None)) for tape in (args.a, args.b))
     rows = [(tape, manifest["made"]["label"], manifest["made"]["id"]) for tape, manifest in ((args.a, a), (args.b, b))]
     widths = [max(map(len, column)) for column in zip(*rows)]
     for row in rows:
         print("  ".join(f"{cell:<{width}}" for cell, width in zip(row, widths)))
     app, other = a["made"]["app"], b["made"]["app"]
-    print("same app" if (app["code"], app["data"]) == (other["code"], other["data"]) else "another app")
+    print("same app" if all(app[part] == other[part] for part in ("screenplay", "code", "data")) else "another app")
     print("same story" if a["made"]["story"]["hash"] == b["made"]["story"]["hash"] else "another story")
     for part, noun in (("scenes", "state"), ("moves", "move")):
         print(f"{_count(len(a[part].keys() & b[part].keys()), noun)} shared, of {len(a[part])} and {len(b[part])}")
@@ -319,8 +307,6 @@ def _tape_flags(command: argparse.ArgumentParser, required: bool = True) -> None
 
 
 def _render_flags(command: argparse.ArgumentParser) -> None:
-    command.add_argument("--model", choices=sorted(MODELS), help="the model that films the takes (default: model "
-                         "in [tool.videotape])")
     command.add_argument("--cap-usd", type=float, help="the most a render may spend on a model that bills per "
                          "call (default: cap_usd in [tool.videotape])")
     command.add_argument("--out", help="the folder to write the tape to (default: tapes/<story> in the project)")
@@ -355,9 +341,12 @@ def main(argv=None) -> int:
     rendering.add_argument("--story", required=True, help="the story, which is stories/<story>.toml in the project")
     rendering.add_argument("--takes", type=positive, help="the most takes a shot gets; it stops at the first that "
                            "passes (default: takes in [tool.videotape], or 4)")
+    rendering.add_argument("--model", choices=sorted(MODELS), help="the model that films the takes (default: model "
+                           "in [tool.videotape])")
     _render_flags(rendering)
     rendering.set_defaults(run=render_tape)
-    retaking = commands.add_parser("retake", help="film new takes of one shot and keep the best of all its takes")
+    retaking = commands.add_parser("retake", help="film new takes of one shot with the model that made the tape, and "
+                                   "keep the best of all its takes")
     retaking.add_argument("shot", help='a key, named by its state as in "home()", or a move, as in '
                           '"home() -> search()"')
     retaking.add_argument("--story", required=True, help="the story whose tape it is")
@@ -391,12 +380,6 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         return args.run(args)
-    except ScreenplayError as error:
+    except (ScreenplayError, RenderError) as error:
         print(error.report(), file=sys.stderr)
-        return 1
-    except RenderError as error:
-        print(error.report(), file=sys.stderr)
-        return 1
-    except (ProjectError, FfmpegError, ChecksError, WanError, FalError, StandInError) as error:
-        print(f"error: {error}", file=sys.stderr)
         return 1

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from conftest import CONTRAIL, copy_of, planned, told
-from videotape import hosted, ledger, project
+from videotape import hosted, ledger, new, project
 from videotape.errors import PACKAGE
 from videotape.fal import Fal
 from videotape.made import made
@@ -208,13 +208,32 @@ def test_diff_after_the_code_changes_is_another_app_and_counts_the_states_and_mo
         "another app", "same story", "3 states shared, of 5 and 3", "3 moves shared, of 6 and 3"]
 
 
+def test_diff_of_two_screenplays_of_one_package_is_another_app_though_their_code_and_data_are_one(tmp_path, cli,
+                                                                                                   capsys):
+    folder = new.project("shop", tmp_path)
+    package = folder / "shop"
+    (package / "other.py").write_text((package / "screenplay.py").read_text().replace("of two scenes", "of two pages"))
+    assert cli(folder, "render", "--story", "starter", "--model", "stand-in", "--out", "tape-screenplay") == 0
+    pyproject = folder / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"shop.screenplay:app"', '"shop.other:app"'))
+    assert cli(folder, "render", "--story", "starter", "--model", "stand-in", "--out", "tape-other") == 0
+    capsys.readouterr()
+    apps = [json.loads((folder / tape / "tape.json").read_text())["made"]["app"]
+            for tape in ("tape-screenplay", "tape-other")]
+    assert [(app["code"], app["data"]) for app in apps[1:]] == [(apps[0]["code"], apps[0]["data"])]
+    assert diff(cli, capsys, folder, "tape-screenplay", "tape-other")[2:3] == ["another app"]
+
+
 def test_diff_says_which_tape_has_no_tape_json_or_does_not_say_what_made_it(two, cli, capsys):
     directory, _ = two
     assert cli(directory, "diff", "tapes/chalk", "tapes/neon") == 1
-    assert capsys.readouterr() == ("", "error: no tape.json in tapes/neon; render the story first\n")
+    assert capsys.readouterr() == ("", "error VT405 tapes/neon: has no tape.json, which a render writes when it "
+                                       "finishes\nnext: render the story first, or run a render that stopped again as "
+                                       "it ran, which resumes, as in:\nvideotape render --story <story>\n")
     old = directory / "tape-old"
     old.mkdir()
     manifest = json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())
     (old / "tape.json").write_text(json.dumps({name: part for name, part in manifest.items() if name != "made"}))
     assert cli(directory, "diff", "tape-old", "tapes/chalk") == 1
-    assert capsys.readouterr() == ("", "error: tape-old/tape.json does not say what made it; render the tape again\n")
+    assert capsys.readouterr() == ("", "error VT405 tape-old/tape.json: does not say what made the tape\n"
+                                       "next: render the story again, as in:\nvideotape render --story <story>\n")

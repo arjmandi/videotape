@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import copy_of
+from conftest import as_explained, copy_of
 from videotape import player
 from videotape.errors import ScreenplayError
 
@@ -120,7 +120,7 @@ def test_a_source_without_its_build_script_is_vt603(tmp_path, cache):
 def test_play_needs_a_rendered_tape_then_builds_the_player_and_opens_the_tape(tmp_path, cli, cache, capsys, monkeypatch):
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "play", "--story", "chalk") == 1
-    assert capsys.readouterr().err == "error: no tape.json in tapes/chalk; render the story first\n"
+    assert as_explained("VT405").fullmatch(capsys.readouterr().err.rstrip("\n"))
     tape = directory / "tapes" / "chalk"
     tape.mkdir(parents=True)
     (tape / "tape.json").write_text("{}")

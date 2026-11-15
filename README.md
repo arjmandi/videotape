@@ -509,7 +509,7 @@ stand-in: 160 shots, 160 to 640 calls, free
 
 The data gives every number that `plan` prints. Three cities have flights, on three days each, so `results` has 9 states. There are 18 flights, so `flight` and `booked` have 18 states each. The estimate is for the stand-in, the project's model since part 2.
 
-A mistake in the screenplay stops the plan with an error code from `VT201` to `VT211` and the file and line it is at. A scene that raises for one state's arguments, an action that leads to a scene instead of a state, and a scene no action reaches are such mistakes. `uv run videotape explain <code>` prints a code's long form, with an example and its fix.
+A mistake in the screenplay or its data stops the plan with an error code from `VT201` to `VT211`, or `VT213` for a record field that is not a `str`, an `int`, a `date` or a `time`, and the file and line it is at. A scene that raises for one state's arguments, an action that leads to a scene instead of a state, and a scene no action reaches are such mistakes. `uv run videotape explain <code>` prints a code's long form, with an example and its fix.
 
 The screenplay is typed, so pyright finds a wrong type before a render does. Add pyright to `pyproject.toml`, in its strict mode:
 
@@ -778,7 +778,7 @@ accepted: 53. key booked(CT 300, 2026-12-11)  VT503 Not in the script: a control
   reason: a printed logo, not a control
 ```
 
-A retake films new takes of one shot, with seeds after the highest it has tried, and keeps the best of all its takes. Add `--takes 3` to film three. It then renders the story again, so the moves that start or end on the key film again. To retake a move, name it by its states, as in `"flight(CT 104, 2026-12-13) -> booked(CT 104, 2026-12-13)"`.
+A retake films new takes of one shot, with seeds after the highest it has tried, and keeps the best of all its takes. It films with the model that made the tape, which `tape.json` names, so a retake of a stand-in tape costs nothing whatever model `[tool.videotape]` names. Add `--takes 3` to film three. It then renders the story again, so the moves that start or end on the key film again. To retake a move, name it by its states, as in `"flight(CT 104, 2026-12-13) -> booked(CT 104, 2026-12-13)"`.
 
 Nothing fails now that nobody accepted. Play the tape:
 
@@ -802,7 +802,7 @@ Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 s
 wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s
 ```
 
-To render with it, first add videotape's `qwen` extra, which runs the eye. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` there, and set `model = "wan3.0"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for `VT104` and `VT105`. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`.
+To render with it, first add videotape's `qwen` extra, which runs the eye. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` there, and set `model = "wan3.0"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for `VT104` and `VT105`. A render without `FAL_KEY` stops before its first call with doctor's `VT104` and doctor's fix. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`.
 
 Two more models run on fal, with the same `FAL_KEY`, the same eye and a cap. Name one with `--model`, or set it as `model` in `pyproject.toml`. minimax-h3 runs MiniMax H3 at 1344x768, for $0.06 a second, so $0.30 a call, and allows prompts of up to 7,000 characters. gemini-omni-flash-1.2 runs Gemini Omni Flash 1.2 at 720p, for $0.0819 a second. fal also bills its prompt, by the token, and no answer says for how much, so the estimate and the cap count the most a prompt can cost, $0.03 a call. fal takes no seed for gemini-omni-flash-1.2, so there the seed only names a take, and a render run again reuses the take of each seed as it does for any model. A tape takes the size of its model's clips, and TapePlayer's window takes the tape's shape.
 

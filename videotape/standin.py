@@ -13,6 +13,7 @@ from pathlib import Path
 
 from videotape import frames
 from videotape.checks import Spot
+from videotape.errors import ModelError
 from videotape.frames import HEIGHT, WIDTH, Box, Frame
 from videotape.plan import Mode
 
@@ -44,10 +45,6 @@ CONTRAST = 30
 MARK_CELLS, MARK_HEIGHT, MARK_SHADE = 64, 16, 8
 # What the extra box flaw letters: a line no screenplay shows, drawn as one more row.
 EXTRA = "Not in the script"
-
-
-class StandInError(RuntimeError):
-    pass
 
 
 class Flaw(Enum):
@@ -198,7 +195,7 @@ def draw(rows: list[list[str]], prompt: str = "") -> tuple[Frame, tuple[Drawn, .
             if x > MARGIN and x + w > WIDTH - MARGIN:
                 x, y = MARGIN, y + BOX_HEIGHT + GAP * SCALE
             if x + w > WIDTH - MARGIN or y + BOX_HEIGHT > HEIGHT - MARGIN:
-                raise StandInError(f'the stand-in has no room to draw "{text}"')
+                raise _undrawable(f'the stand-in has no room to draw "{text}"')
             box = Box(x, y, w, BOX_HEIGHT)
             _fill(canvas, box, BOX)
             for i, char in enumerate(text):
@@ -207,6 +204,12 @@ def draw(rows: list[list[str]], prompt: str = "") -> tuple[Frame, tuple[Drawn, .
             x += w + GAP * SCALE
         y += BOX_HEIGHT + GAP * SCALE
     return Frame(WIDTH, HEIGHT, bytes(canvas)), tuple(drawn)
+
+
+def _undrawable(message: str) -> ModelError:
+    """VT406: a line the stand-in cannot draw, on any seed."""
+    return ModelError(message, "VT406", "show fewer or shorter lines in the state, in plain ASCII as VT211 asks, or "
+                      "render with a Wan model")
 
 
 def _mark(canvas: bytearray, prompt: str) -> None:
@@ -222,7 +225,7 @@ def _mark(canvas: bytearray, prompt: str) -> None:
 def _letter(canvas: bytearray, x: int, y: int, char: str) -> None:
     index = ord(char) - 32
     if not 0 <= index < len(CHARACTERS):
-        raise StandInError(f"the stand-in cannot draw {char!r}")
+        raise _undrawable(f"the stand-in cannot draw {char!r}")
     for c, column in enumerate(GLYPHS[5 * index:5 * index + 5]):
         for r in range(7):
             if column >> r & 1:

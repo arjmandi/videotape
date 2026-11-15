@@ -5,7 +5,8 @@ from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
 
-from videotape.checks import ChecksError, Spot
+from videotape.checks import Spot
+from videotape.errors import ScreenplayError
 from videotape.frames import Box, Frame
 from videotape.atomic import write_atomically
 
@@ -67,8 +68,8 @@ class QwenEye:
 
     def __init__(self, tape: Path):
         if not installed():
-            raise ChecksError("qwen3-vl-8b, this model's eye, needs videotape's qwen extra, which is not installed "
-                              f"here; {ADD_EXTRA}")
+            raise ScreenplayError("VT105", self.name, "this model's eye runs through videotape's qwen extra, which is "
+                                  "not installed here", ADD_EXTRA)
         self.looks = tape / "looks"
         self.qwen: _Qwen | None = None
 
@@ -93,7 +94,9 @@ class _Qwen:
         elif torch.backends.mps.is_available():
             device = "mps"
         else:
-            raise ChecksError("qwen3-vl-8b needs a CUDA GPU or Apple silicon (MPS), and this machine has neither")
+            raise ScreenplayError("VT105", QwenEye.name, "needs a CUDA GPU or Apple silicon (MPS), and this machine has "
+                                  "neither", "render on a Mac with Apple silicon or a machine with a CUDA GPU, or with "
+                                  "the stand-in, as in videotape render --story starter --model stand-in")
         self.model = Qwen3VLForConditionalGeneration.from_pretrained(MODEL_ID, dtype=torch.bfloat16, device_map=device)
         self.processor = AutoProcessor.from_pretrained(MODEL_ID)
 

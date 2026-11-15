@@ -151,6 +151,14 @@ def read(tape: Path) -> dict:
     return json.loads((tape / "dailies.json").read_text())
 
 
+def recorded(tape: Path, render: str) -> dict:
+    """The tape's record: VT405 when nothing rendered into the tape. render is the command that renders it."""
+    if not (tape / "dailies.json").is_file():
+        raise errors.ScreenplayError("VT405", errors.shown(tape), "has no dailies.json, which every render writes",
+                                     f"render the story first, as in:\n{render}")
+    return read(tape)
+
+
 def write(tape: Path, record: dict, totals: dict) -> None:
     """Write the record and its page into the tape, with the ledger's totals for this tape, the size of what plays,
     the size of its frames, and a crop for each failure. The crops of failures the record no longer holds are

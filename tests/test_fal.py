@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from videotape.fal import Fal, FalError
+from videotape.errors import ModelError
+from videotape.fal import Fal
 
 FIXTURES = Path(__file__).parent / "fixtures"
 KEY = "fal-test-key-0123456789abcdef"
@@ -82,7 +83,7 @@ def test_the_key_rides_only_in_the_authorization_header_and_never_follows_a_redi
                                      IncompleteRead(b"{", 20)])
 def test_a_failed_submit_is_never_sent_again(failure):
     _, queue = exchange(submit=[failure])
-    with pytest.raises(FalError, match="submit to alibaba/wan-3.0/image-to-video failed"):
+    with pytest.raises(ModelError, match="submit to alibaba/wan-3.0/image-to-video failed"):
         Fal(KEY, send=queue, sleep=lambda _: None).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert [method for method, _, _ in queue.sent()] == ["POST"]
 
@@ -100,7 +101,7 @@ def test_a_failed_poll_or_download_is_tried_again(tmp_path):
 
 def test_the_key_never_appears_in_an_error():
     _, queue = exchange(submit=[http(401, f'{{"detail": "Invalid key {KEY}"}}')])
-    with pytest.raises(FalError) as error:
+    with pytest.raises(ModelError) as error:
         Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert KEY not in str(error.value)
     assert "HTTP 401" in str(error.value) and "<FAL_KEY>" in str(error.value)
@@ -113,7 +114,7 @@ def test_the_key_never_appears_in_an_error():
 def test_the_key_is_scrubbed_before_a_long_error_is_cut(answer, said):
     """The key sits where the message is cut, so a cut before the scrub would leave its first characters."""
     _, queue = exchange(submit=[answer])
-    with pytest.raises(FalError) as error:
+    with pytest.raises(ModelError) as error:
         Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert said in str(error.value)
     assert "<FAL_KEY>" in str(error.value) and KEY[:8] not in str(error.value)
@@ -123,6 +124,6 @@ def test_the_key_is_sent_only_to_the_queue():
     response, queue = exchange()
     elsewhere = {**response["submitted"], "status_url": "https://example.com/steal/status"}
     queue.answers[("POST", "https://queue.fal.run/alibaba/wan-3.0/image-to-video")] = [elsewhere]
-    with pytest.raises(FalError, match="https://example.com/steal/status, which is not on https://queue.fal.run"):
+    with pytest.raises(ModelError, match="https://example.com/steal/status, which is not on https://queue.fal.run"):
         Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert [url for _, url, _ in queue.sent()] == ["https://queue.fal.run/alibaba/wan-3.0/image-to-video"]

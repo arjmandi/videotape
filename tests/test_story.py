@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 import videotape as vt
-from conftest import CONTRAIL, FIXTURES, a_story, planned, told, videotape, words
+from conftest import CONTRAIL, FIXTURES, a_story, as_explained, planned, told, videotape, words
 from videotape import story
 from videotape.plan import Key, plan
 
@@ -217,17 +217,20 @@ def test_shots_without_a_state_prints_every_shot_of_the_plan():
 
 @pytest.mark.parametrize("arguments, code, error", [
     (("shots", "--story", "posters", "--state", "results(SEA, 2026-12-21)"), 1,
-     'error: the app has no state "results(SEA, 2026-12-21)"; the closest are results(SEA, 2026-12-11), '
-     "results(SEA, 2026-12-12), results(SEA, 2026-12-13)\n"),
+     'error VT212 "results(SEA, 2026-12-21)": the app has no state of this name\nfix: name one of the closest: '
+     "results(SEA, 2026-12-11), results(SEA, 2026-12-12), results(SEA, 2026-12-13)\n"),
     (("shots", "--story", "poster"), 1, NO_POSTER),
     (("render", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--model", "wan3.0"), 1,
-     "error: --model sets the prompt limit for a story's prompts, so pass --story with it\n"),
+     "error VT310 --model: names the model whose prompt limit a story's prompts must fit, and no --story names one\n"
+     "fix: name the story too, as in videotape plan --story starter --model wan3.0\n"),
 ])
 def test_a_story_or_a_state_the_project_does_not_have_is_named_with_the_ones_it_has(arguments, code, error):
     result = videotape(CONTRAIL, *arguments)
     assert (result.stdout, result.stderr, result.returncode) == ("", error, code)
+    if " VT310 " in error:
+        assert as_explained("VT310").fullmatch(error.rstrip("\n"))
     assert not (CONTRAIL / "tapes" / "poster").exists()
 
 

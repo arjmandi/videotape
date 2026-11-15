@@ -89,6 +89,41 @@ CODES: dict[str, Code] = {
         "set each to what it allows:\n[tool.videotape]\n"
         'screenplay = "shop.screenplay:app"\nmodel = "wan3.0"\ntakes = 4\ncap_usd = 20',
     ),
+    "VT108": Code(
+        "new cannot give a project this name",
+        "videotape new gives one name to the project's folder, its Python package and the project in pyproject.toml. So "
+        "the name starts with an ASCII letter, ends with a letter or digit, holds only ASCII letters, digits and _, and "
+        "is not a Python keyword. A package of the name must also not hide a module of Python's own, such as json, or "
+        "videotape itself, which the project imports. new writes nothing.",
+        "error VT108 my-shop: is not a name a project can have",
+        "fix: name the project with ASCII letters, digits and _, starting with a letter and ending with a letter or "
+        "digit, as in videotape new my_shop",
+    ),
+    "VT109": Code(
+        "new's folder is not empty",
+        "videotape new writes a project into a new folder named for it, or an empty one, so that it overwrites no file. "
+        "A folder of this name holds files already, or a file has the name. new writes nothing.",
+        "error VT109 shop: is not an empty folder",
+        "fix: name the project another way, run new in another folder, or empty this one",
+    ),
+    "VT110": Code(
+        "no model to render with",
+        "A render films with the model that --model names, or else the one that model in [tool.videotape] names. "
+        "Neither names one here. A plan needs no model, and prints no estimate without one.",
+        "error VT110 pyproject.toml: [tool.videotape] names no model, and neither does --model",
+        'fix: set it in [tool.videotape], as in model = "stand-in", or name one for this render, as in '
+        "videotape render --story starter --model stand-in",
+    ),
+    "VT111": Code(
+        "this machine cannot run wan2.2-5b",
+        "wan2.2-5b runs Wan 2.2 5B here, not as a service: through videotape's wan extra, on one CUDA GPU with about "
+        "80 GB, such as an H100. A Mac has no CUDA GPU. scripts/runpod-render rents one on Runpod, installs the extra "
+        "there and renders the tape on it. wan3.0 runs Wan 3.0 on fal and needs only its API key, and the stand-in "
+        "runs anywhere. The render stops before its first take.",
+        "error VT111 wan2.2-5b: needs videotape's wan extra, which is not installed here",
+        "fix: render with wan2.2-5b on a CUDA GPU with about 80 GB, as scripts/runpod-render does, or with another "
+        "model, as in videotape render --story starter --model stand-in",
+    ),
     "VT201": Code(
         "the screenplay has no scenes",
         "The app opens on the state of the screenplay's first scene, called with no arguments. A screenplay with no "
@@ -178,6 +213,23 @@ CODES: dict[str, Code] = {
         'vt.Text("Café Lumière opens at 7 & closes at 9")',
         'vt.Text("Cafe Lumiere opens at 7 and closes at 9")',
     ),
+    "VT212": Code(
+        "no one state or move has this name",
+        'retake and accept name a shot, and shots --state names a state. A key is named by its state, as in "home()", '
+        'and a move by its two states, as in "home() -> search()", or by its full title when two moves join the same '
+        'states, as in \'hall() -> room() "Side door"\'. No state or move of the plan has this name, or two moves '
+        "share it. The fix names the closest, or the full titles.",
+        'error VT212 "thanks(Late)": the app has no state or move of this name',
+        "fix: name one of the closest: thanks(Latte), thanks(Latte) -> menu(), thanks(Espresso)",
+    ),
+    "VT213": Code(
+        "a record class has a field of another type",
+        "A record class's fields are each a str, an int, a date or a time, which is what vt.table and vt.one read a "
+        "data file's values as. This class has a field of another type, so its file cannot be read into records. The "
+        "error names the class, the field and the line that loads the file.",
+        "error VT213 app.py:9: Drink.price is <class 'float'>, and a record's field is a str, an int, a date or a time",
+        "fix: make price one of those, as in price: int",
+    ),
     "VT301": Code(
         "a story has no version or no look",
         "A story is one file under stories/, and it opens with its version and its look. The look is the sentence or "
@@ -263,6 +315,14 @@ CODES: dict[str, Code] = {
         "videotape plan --story poster",
         "videotape plan --story posters",
     ),
+    "VT310": Code(
+        "plan's --model needs a story",
+        "videotape plan --model checks a story's prompts against the prompt limit of the model it names, and ends with "
+        "that model's estimate. Without --story there are no prompts to check. A plan without --model ends with the "
+        "estimate for the model in [tool.videotape].",
+        "error VT310 --model: names the model whose prompt limit a story's prompts must fit, and no --story names one",
+        "fix: name the story too, as in videotape plan --story starter --model wan3.0",
+    ),
     "VT401": Code(
         "a model call failed",
         "A render asks the model for one take at a time, and this call did not come back with a take. The error "
@@ -307,6 +367,37 @@ CODES: dict[str, Code] = {
         "the machine, not the model or the screenplay.",
         "error VT404 key home(): ffmpeg is not on PATH",
         "next: install ffmpeg, as in brew install ffmpeg, and run the render again",
+    ),
+    "VT405": Code(
+        "the tape has no finished render",
+        "retake, accept, dailies, play, publish and diff read a tape's folder. Every render writes dailies.json there, "
+        "and a render that finishes writes tape.json, whose made block says what made the tape, the model included. "
+        "This folder lacks the file the command reads: nothing rendered into it, its render stopped before its last "
+        "shot, or a videotape older than the made block wrote it. A retake films with the model that the made block "
+        "names, so it never guesses a model, which could bill per call.",
+        "error VT405 tapes/chalk: has no tape.json, which a render writes when it finishes",
+        "next: render the story first, or run a render that stopped again as it ran, which resumes, as in:\n"
+        "videotape render --story chalk",
+    ),
+    "VT406": Code(
+        "the stand-in cannot draw a line",
+        "The stand-in draws each line of a state as a box, in rows of 33 pixels, 15 rows to a frame, with letters of "
+        "plain ASCII only. This state has more rows than that, a line wider than the frame, or a letter the stand-in "
+        "does not have, so every seed of the key fails the same way. The render stops at the shot. A Wan model has no "
+        "such limit.",
+        'error VT406 key menu() take 1: the stand-in has no room to draw "Drink 15"',
+        "next: show fewer or shorter lines in the state, in plain ASCII as VT211 asks, or render with a Wan model",
+    ),
+    "VT407": Code(
+        "frames of two sizes",
+        "A tape plays in one window, so the kept takes of its keys and moves share one size and frame rate. The checks "
+        "compare a move's first and last frames with its keys' pictures, and publish compares each clip's last frame "
+        "with the picture of the state it lands on, which needs one size. Two differ here: a key's picture on disk is "
+        "from another render, or the model filmed takes of two sizes. A render writes every key's picture again from "
+        "its kept take. A retake films at the size the model gives, so it does not help.",
+        "error VT407 frames: cannot compare a 1280x704 frame with a 640x352 one",
+        "next: render the story again, which writes every key's picture again; when it stops here too, the model films "
+        "takes of two sizes, so render with another model, as in:\nvideotape render --story <story> --model stand-in",
     ),
     "VT501": Code(
         "an action was not found on its key",
@@ -389,6 +480,23 @@ CODES: dict[str, Code] = {
         "fix: retake the shot, whose next take may come through the encoding, then publish again:\n"
         "videotape retake \"home() -> todo()\" --story starter",
     ),
+    "VT605": Code(
+        "videotape.lock is not TOML",
+        "videotape.lock, at the project's root, records each label that publish shipped, with its made id and the "
+        "hashes the made id is made of. Publish writes it as TOML and reads it before anything else. This file breaks "
+        "TOML's rules, most often when a merge left its conflict markers in it. Publish leaves dist/ and the lock as "
+        "they were.",
+        "error VT605 videotape.lock: is not TOML: Invalid statement (at line 3, column 1)",
+        "fix: mend it, keeping one section for each label, or restore it from git, as in git checkout videotape.lock",
+    ),
+    "VT606": Code(
+        "codesign or ditto failed",
+        "Publish signs the app ad hoc with codesign and zips it with ditto, both of which come with macOS. One of them "
+        "exited with an error, which the message quotes. Publish leaves dist/ and the lock as they were.",
+        "error VT606 codesign: exited with 1: /Users/me/shop/dist/Shop-starter.partial/Shop-starter.app: No such file "
+        "or directory",
+        "fix: do what the quoted error asks, then publish again",
+    ),
 }
 
 
@@ -402,10 +510,18 @@ class ScreenplayError(Exception):
         self.code, self.place, self.message, self.fix = code, place, message, fix
 
     def report(self, level: str = "error") -> str:
-        return f"{level} {self.code} {self.place}: {self.message}\nfix: {self.fix}"
+        return f"{level} {self.code} {self.place}: {self.message}\n{step(self.code)}: {self.fix}"
 
     def in_state(self, state: str) -> "ScreenplayError":
         return ScreenplayError(self.code, self.place, f"{self.message}, in state {state}", self.fix)
+
+
+class ModelError(ScreenplayError):
+    """A model's call that came back without a take. A render reports it at the shot and take, with the model's code
+    and fix, and for VT401 with the render command that resumes as its next step."""
+
+    def __init__(self, message: str, code: str = "VT401", fix: str = "run the render again, which resumes") -> None:
+        super().__init__(code, "the model's call", message, fix)
 
 
 class RenderError(Exception):
@@ -422,11 +538,16 @@ class RenderError(Exception):
         return f"error {self.code} {self.place}: {self.message}\nnext: {self.next}"
 
 
+def step(code: str) -> str:
+    """What an error says to do: the next step to run, for a render's code or a check's, and the fix to write for the
+    rest."""
+    return "next" if "VT400" <= code < "VT600" else "fix"
+
+
 def explain(code: str) -> str:
     entry = CODES[code]
-    what = "Next" if "VT400" <= code < "VT600" else "Fix"
     return (f"{code}: {entry.title}\n\n{entry.long}\n\nExample:\n{_indented(entry.example)}\n\n"
-            f"{what}:\n{_indented(entry.fix)}")
+            f"{step(code).capitalize()}:\n{_indented(entry.fix)}")
 
 
 def _indented(text: str) -> str:
