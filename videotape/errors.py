@@ -305,6 +305,17 @@ CODES: dict[str, Code] = {
         "error VT404 key home(): ffmpeg is not on PATH",
         "next: install ffmpeg, as in brew install ffmpeg, and run the render again",
     ),
+    "VT405": Code(
+        "the tape has no finished render",
+        "retake, accept, dailies, play, publish and diff read a tape's folder. Every render writes dailies.json there, "
+        "and a render that finishes writes tape.json, whose made block says what made the tape, the model included. "
+        "This folder lacks the file the command reads: nothing rendered into it, its render stopped before its last "
+        "shot, or a videotape older than the made block wrote it. A retake films with the model that the made block "
+        "names, so it never guesses a model, which could bill per call.",
+        "error VT405 tapes/chalk: has no tape.json, which a render writes when it finishes",
+        "next: render the story first, or run a render that stopped again as it ran, which resumes, as in:\n"
+        "videotape render --story chalk",
+    ),
     "VT501": Code(
         "an action was not found on its key",
         "Every action of a state is found on the state's key by its words, and its box becomes the hotspot a "
@@ -399,7 +410,7 @@ class ScreenplayError(Exception):
         self.code, self.place, self.message, self.fix = code, place, message, fix
 
     def report(self, level: str = "error") -> str:
-        return f"{level} {self.code} {self.place}: {self.message}\nfix: {self.fix}"
+        return f"{level} {self.code} {self.place}: {self.message}\n{step(self.code)}: {self.fix}"
 
     def in_state(self, state: str) -> "ScreenplayError":
         return ScreenplayError(self.code, self.place, f"{self.message}, in state {state}", self.fix)
@@ -419,11 +430,16 @@ class RenderError(Exception):
         return f"error {self.code} {self.place}: {self.message}\nnext: {self.next}"
 
 
+def step(code: str) -> str:
+    """What an error says to do: the next step to run, for a render's code or a check's, and the fix to write for the
+    rest."""
+    return "next" if "VT400" <= code < "VT600" else "fix"
+
+
 def explain(code: str) -> str:
     entry = CODES[code]
-    what = "Next" if "VT400" <= code < "VT600" else "Fix"
     return (f"{code}: {entry.title}\n\n{entry.long}\n\nExample:\n{_indented(entry.example)}\n\n"
-            f"{what}:\n{_indented(entry.fix)}")
+            f"{step(code).capitalize()}:\n{_indented(entry.fix)}")
 
 
 def _indented(text: str) -> str:

@@ -12,7 +12,7 @@ from videotape.checks import ChecksError
 from videotape.errors import CODES, RenderError, ScreenplayError
 from videotape.fal import FalError
 from videotape.frames import FfmpegError
-from videotape.made import made
+from videotape.made import made, manifest
 from videotape.model import MODELS, Listing, estimate
 from videotape.plan import Key, Plan, Shot, plan
 from videotape.project import Project, ProjectError
@@ -199,8 +199,8 @@ def render_tape(args) -> int:
 
 
 def retake(args) -> int:
-    """Film new takes of a shot, with seeds after the highest it has tried, and render again so the best of all its
-    takes is kept and the moves pinned to a key that changed are drawn again."""
+    """Film new takes of a shot with the model that made the tape, with seeds after the highest it has tried, and
+    render again so the best of all its takes is kept and the moves pinned to a key that changed are drawn again."""
     found = project.find(Path.cwd())
     planned = _planned(found)
     shots = _shots_named(planned, args.shot, "state or move")
@@ -212,6 +212,8 @@ def retake(args) -> int:
     if not (tape / "dailies.json").is_file():
         raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the story first")
     record = dailies.read(tape)
+    rendering = shlex.join(["videotape", "render", "--story", args.story, *(["--out", args.out] if args.out else [])])
+    args.model = manifest(tape, rendering)["made"]["model"]["name"]
     tried = [take["seed"] for filmed in (*record["keys"], *record["moves"]) if filmed["title"] == shot.title
              for take in filmed["takes"]]
     retakes = record.get("retakes", {})
@@ -319,8 +321,6 @@ def _tape_flags(command: argparse.ArgumentParser, required: bool = True) -> None
 
 
 def _render_flags(command: argparse.ArgumentParser) -> None:
-    command.add_argument("--model", choices=sorted(MODELS), help="the model that films the takes (default: model "
-                         "in [tool.videotape])")
     command.add_argument("--cap-usd", type=float, help="the most a render may spend on a model that bills per "
                          "call (default: cap_usd in [tool.videotape])")
     command.add_argument("--out", help="the folder to write the tape to (default: tapes/<story> in the project)")
@@ -355,9 +355,12 @@ def main(argv=None) -> int:
     rendering.add_argument("--story", required=True, help="the story, which is stories/<story>.toml in the project")
     rendering.add_argument("--takes", type=positive, help="the most takes a shot gets; it stops at the first that "
                            "passes (default: takes in [tool.videotape], or 4)")
+    rendering.add_argument("--model", choices=sorted(MODELS), help="the model that films the takes (default: model "
+                           "in [tool.videotape])")
     _render_flags(rendering)
     rendering.set_defaults(run=render_tape)
-    retaking = commands.add_parser("retake", help="film new takes of one shot and keep the best of all its takes")
+    retaking = commands.add_parser("retake", help="film new takes of one shot with the model that made the tape, and "
+                                   "keep the best of all its takes")
     retaking.add_argument("shot", help='a key, named by its state as in "home()", or a move, as in '
                           '"home() -> search()"')
     retaking.add_argument("--story", required=True, help="the story whose tape it is")

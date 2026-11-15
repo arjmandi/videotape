@@ -6,7 +6,7 @@ import json
 from collections.abc import Iterable
 from pathlib import Path
 
-from videotape.errors import PACKAGE
+from videotape.errors import PACKAGE, ScreenplayError, shown
 from videotape.model import Kind
 from videotape.plan import Mode
 from videotape.project import Project
@@ -30,6 +30,21 @@ def made(found: Project, story: Story, model: Kind) -> dict:
     app = " ".join(filter(None, (found.name, found.version)))
     return {"label": f"{app} + {story.name} {story.version}",
             "id": hashlib.sha256(json.dumps(block, sort_keys=True).encode()).hexdigest(), **block}
+
+
+def manifest(tape: Path, render: str) -> dict:
+    """A tape's tape.json, whose made block says what made it: VT405 when no render finished the tape, or when a
+    videotape older than the made block wrote it. render is the command that renders the tape."""
+    file = tape / "tape.json"
+    if not file.is_file():
+        raise ScreenplayError("VT405", shown(tape), "has no tape.json, which a render writes when it finishes",
+                              f"render the story first, or run a render that stopped again as it ran, which resumes, "
+                              f"as in:\n{render}")
+    held = json.loads(file.read_text())
+    if "made" not in held:
+        raise ScreenplayError("VT405", shown(file), "does not say what made the tape", f"render the story again, as in:"
+                              f"\n{render}")
+    return held
 
 
 def digest(root: Path, files: Iterable[Path]) -> str:

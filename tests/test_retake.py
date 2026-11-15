@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import copy_of
-from videotape import dailies
+from conftest import as_explained, copy_of
+from videotape import dailies, ledger
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
 from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
@@ -86,6 +86,39 @@ def test_retake_films_seeds_after_the_highest_tried_keeps_the_best_and_redraws_t
     assert [call.seed for call in model.calls] == [6, 7]
     assert kept(tape)["key order(Latte)"] == 5
     assert dailies.read(tape)["retakes"] == {"key order(Latte)": [5, 6, 7]}
+
+
+def test_retake_films_with_the_model_that_made_the_tape_and_not_the_projects(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    pyproject = directory / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('model = "stand-in"', 'model = "wan3.0"'))
+    monkeypatch.delenv("FAL_KEY", raising=False)
+    model = stand_in(monkeypatch, misspelt_until_five)
+    assert cli(directory, *RENDER, "--model", "stand-in") == 1
+    assert '  next: videotape retake "order(Latte)" --story chalk\n' in capsys.readouterr().err
+    model.calls.clear()
+
+    assert cli(directory, "retake", "order(Latte)", "--story", "chalk") == 0
+    out, err = capsys.readouterr()
+    assert (out.splitlines()[0], err) == ("retaking key order(Latte) with seed 5", "")
+    assert [(call.mode, call.seed) for call in model.calls][0] == (Mode.TEXT_TO_VIDEO, 5)
+    assert {line["model"] for line in ledger.of(directory, directory / "tapes" / "chalk").lines()} == {"stand-in"}
+    with pytest.raises(SystemExit) as refused:
+        cli(directory, "retake", "order(Latte)", "--story", "chalk", "--model", "stand-in")
+    assert refused.value.code == 2 and "unrecognized arguments: --model stand-in" in capsys.readouterr().err
+
+
+def test_retake_of_a_tape_no_render_finished_names_no_model_and_films_nothing(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / "tapes" / "chalk"
+    model = stand_in(monkeypatch, misspelt_until_five)
+    assert cli(directory, *RENDER) == 1
+    (tape / "tape.json").unlink()
+    capsys.readouterr()
+    model.calls.clear()
+    assert cli(directory, "retake", "order(Latte)", "--story", "chalk") == 1
+    assert as_explained("VT405").fullmatch(capsys.readouterr().err.rstrip("\n"))
+    assert model.calls == [] and dailies.read(tape)["retakes"] == {}
 
 
 def test_retake_of_a_move_films_its_next_seeds_and_a_wrong_name_names_the_closest(tmp_path, cli, capsys, monkeypatch):

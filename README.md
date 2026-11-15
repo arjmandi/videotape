@@ -778,7 +778,7 @@ accepted: 53. key booked(CT 300, 2026-12-11)  VT503 Not in the script: a control
   reason: a printed logo, not a control
 ```
 
-A retake films new takes of one shot, with seeds after the highest it has tried, and keeps the best of all its takes. Add `--takes 3` to film three. It then renders the story again, so the moves that start or end on the key film again. To retake a move, name it by its states, as in `"flight(CT 104, 2026-12-13) -> booked(CT 104, 2026-12-13)"`.
+A retake films new takes of one shot, with seeds after the highest it has tried, and keeps the best of all its takes. It films with the model that made the tape, which `tape.json` names, so a retake of a stand-in tape costs nothing whatever model `[tool.videotape]` names. Add `--takes 3` to film three. It then renders the story again, so the moves that start or end on the key film again. To retake a move, name it by its states, as in `"flight(CT 104, 2026-12-13) -> booked(CT 104, 2026-12-13)"`.
 
 Nothing fails now that nobody accepted. Play the tape:
 
