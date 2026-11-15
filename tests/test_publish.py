@@ -22,7 +22,7 @@ from conftest import as_explained, forget, told
 from videotape import frames, made, new, player, project, publish
 from videotape.cli import main
 from videotape.model import MODELS, Listing
-from videotape.checks import Spot
+from videotape.checks import Free, Read
 from videotape.standin import Flaw, StandIn, StandInEye
 from videotape.plan import Mode
 from videotape.wan3 import Wan3
@@ -249,7 +249,7 @@ def as_wan3(folder: Path) -> dict:
 
 
 def test_a_wan3_tape_is_checked_against_its_sources_without_fal_key(contrail, cli, capsys, monkeypatch):
-    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], eye=lambda tape: StandInEye()))
+    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], readers=(StandInEye,)))
     made_by = as_wan3(contrail)
     assert cli(contrail, "publish", "--story", "starter") == 0
     assert capsys.readouterr().out.splitlines()[-3:-1] == [f"label {LABEL}", f"id {made_by['id']}"]
@@ -267,7 +267,7 @@ def extra_box_on_todo(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 
 def test_a_failing_check_nobody_accepted_is_vt602_until_it_is_accepted(contrail, cli, capsys, monkeypatch):
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=extra_box_on_todo), lambda tape: StandInEye(),
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=extra_box_on_todo), (StandInEye,),
                                                     limit=8, kind=StandIn))
     shutil.rmtree(contrail / "tapes")
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
@@ -307,17 +307,16 @@ def test_a_label_the_lock_holds_with_another_id_is_vt305_until_a_version_is_bump
 TWICE = "in the data folder"
 
 
-@dataclasses.dataclass(frozen=True)
-class Smudging:
+def smudging(clear: int) -> type[StandInEye]:
     """The stand-in's eye, which reads every time TWICE shows on a frame after the first clear times as smudged."""
-
-    clear: int
-    name = "stand-in"
-
-    def see(self, frame: frames.Frame) -> tuple[Spot, ...]:
-        shown = itertools.count(1)
-        return tuple(dataclasses.replace(spot, text="in the dark folder")
-                     if spot.text == TWICE and next(shown) > self.clear else spot for spot in StandInEye().see(frame))
+    class Smudging(StandInEye):
+        def see(self, frame: frames.Frame, purse=Free()) -> Read:
+            shown = itertools.count(1)
+            seen = super().see(frame)
+            return dataclasses.replace(seen, spots=tuple(
+                dataclasses.replace(spot, text="in the dark folder") if spot.text == TWICE and next(shown) > clear
+                else spot for spot in seen.spots))
+    return Smudging
 
 
 def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_after_encoding_is_vt604(
@@ -325,7 +324,7 @@ def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_a
     steps = contrail / "data" / "steps.json"
     steps.write_text(steps.read_text().replace("in the stories folder", TWICE))
     eye = lambda clear: Listing(lambda: StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE),
-                                lambda tape: Smudging(clear), limit=8, kind=StandIn)
+                                (smudging(clear),), limit=8, kind=StandIn)
     monkeypatch.setitem(MODELS, "stand-in", eye(1))
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
     assert [(failure["shot"], failure["code"], failure["about"]) for failure in

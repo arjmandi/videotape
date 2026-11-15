@@ -59,7 +59,7 @@ def clean(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 
 def stand_in(model: StandIn, **listing) -> Listing:
-    return Listing(lambda: model, lambda tape: StandInEye(), kind=model, **listing)
+    return Listing(lambda: model, (StandInEye,), kind=model, **listing)
 
 
 class Witness(StandIn):
@@ -78,7 +78,7 @@ RENDER = ("render", "--story", "chalk")
 
 def rendered(directory: Path, model, takes: int = 4, out: str = TAPE, **more):
     chalk = told(directory)
-    return render(planned(directory), chalk, model, StandInEye(), directory / out, ledger.of(directory, directory / out),
+    return render(planned(directory), chalk, model, [StandInEye()], directory / out, ledger.of(directory, directory / out),
                   made(project.find(directory), chalk, model), takes=takes, **more)
 
 
@@ -167,7 +167,7 @@ def test_a_states_words_are_what_its_scene_shows_in_reading_order(tmp_path):
     directory = Path(shutil.copytree(CONTRAIL, tmp_path / "contrail", ignore=shutil.ignore_patterns(
         ".venv", "tape*", "ledger.jsonl", "__pycache__")))
     terminal, model, tape = told(directory, "terminal"), StandIn(flaw=clean), directory / "tapes" / "terminal"
-    render(planned(directory), terminal, model, StandInEye(), tape, ledger.of(directory, tape),
+    render(planned(directory), terminal, model, [StandInEye()], tape, ledger.of(directory, tape),
            made(project.find(directory), terminal, model), takes=1, limit=8)
     data = json.loads((tape / "tape.json").read_text())
     app = project.find(directory).load()
@@ -203,7 +203,7 @@ def test_a_search_bar_without_options_or_without_a_no_match_offers_no_search(tmp
     (tmp_path / "stories").mkdir()
     (tmp_path / "stories" / "bare.toml").write_text('version = "1.0.0"\nlook = "A bare room."\n')
     chalk, model = told(tmp_path, "bare"), StandIn(flaw=clean)
-    render(planned(tmp_path), chalk, model, StandInEye(), tmp_path / "tapes" / "bare",
+    render(planned(tmp_path), chalk, model, [StandInEye()], tmp_path / "tapes" / "bare",
            ledger.of(tmp_path, tmp_path / "tapes" / "bare"), made(project.find(tmp_path), chalk, model), takes=1)
     data = json.loads((tmp_path / "tapes" / "bare" / "tape.json").read_text())
     assert [name for name, scene in data["scenes"].items() if "search" in scene] == []
@@ -414,7 +414,7 @@ def test_each_filmed_take_records_its_render_time_and_a_line_in_the_projects_led
         for filmed in result.shots for take in filmed.takes)
     assert all(line["at"].endswith("+00:00") for line in lines_)
     assert ledger.of(directory, directory / TAPE).totals() == {
-        "takes": 17, "gpu_seconds": round(sum(line["seconds"] for line in lines_), 1), "pods": 0, "pod_hours": 0.0, "usd": 0.0}
+        "takes": 17, "gpu_seconds": round(sum(line["seconds"] for line in lines_), 1), "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
     assert not (directory / TAPE / "ledger.jsonl").exists()
 
 

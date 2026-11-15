@@ -46,11 +46,13 @@ CODES: dict[str, Code] = {
         "sudo xcode-select --switch /Applications/Xcode.app",
     ),
     "VT104": Code(
-        "an API key the project's model needs is not set",
-        "A model that runs as a service needs its API key: wan3.0 runs on fal and needs FAL_KEY. A project command "
+        "an API key the project's model or one of its readers needs is not set",
+        "A model that runs as a service needs its API key: wan3.0 runs on fal and needs FAL_KEY. So does a reader "
+        "that runs as a service: Claude, a reader of the Wan models' eye, needs ANTHROPIC_API_KEY. A project command "
         "reads API keys from the environment and from the project's .env, one KEY=VALUE line each, and an API key "
-        "already in the environment wins. No command prints an API key's value. The stand-in and wan2.2-5b run here "
-        "and need none.",
+        "already in the environment wins. No command prints an API key's value. The stand-in and its reader run here "
+        "and need none, and so does Qwen3-VL-8B. A render with a reader whose API key is not set stops before any "
+        "paid call.",
         "fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env",
         "copy .env.example to .env and set FAL_KEY there, or export it",
     ),
@@ -317,19 +319,36 @@ CODES: dict[str, Code] = {
     ),
     "VT502": Code(
         "a line was misread",
-        "Every line of a state is read back from its key, and a line reads back exactly or the check fails. The "
-        "character error rate says how far off it was, and the dailies show the line's box when the eye saw one.",
+        "Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly "
+        "from every reader or the check fails. The character error rate says how far off each reading was, and the "
+        "dailies show each reader's reading and the line's box when a reader saw one. A DatePicker shows a month, and "
+        "a day without an option shows no label, so an option's label read where the key has no such line fails this "
+        "check too.",
         'vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"',
         "retake the shot, shorten or simplify the line in the screenplay, or accept it with a reason",
     ),
     "VT503": Code(
         "the model invented a control",
         "The kept take shows a control-like box whose words are none of the state's lines, so a person would try "
-        "to press something the app does not have. The eye lists every control-like box with its words, and one is "
-        "invented when its words match no line within the character error the find allows.",
+        "to press something the app does not have. Each reader reads the whole key and lists every control-like box "
+        "with its words, and one is invented when its words match no line within the character error the find "
+        "allows.",
         'a lit panel reading "Cancel" on a key whose state has no such line',
         "retake the shot, change the story's appearance for the element type it came from, or accept it with a "
         "reason, as in --reason \"a printed logo, not a control\"",
+    ),
+    "VT504": Code(
+        "a chart is off its data",
+        "A BarChart or a LineChart plots the screenplay's data: a title, labels in order, and a value at each. A "
+        "reader that reports charts, Claude, judges each chart whole: its title and its labels read back exactly and "
+        "in order, the key shows as many bars or points as the data has, and each value it reads sits within a tenth "
+        "of the data's. Those are facts that reading the chart's letters cannot judge, so that reader's VT502 leaves "
+        "the chart's lines out, and a reader that reports no charts reads them as lettering. The dailies name what "
+        "is off.",
+        'vt.BarChart("Flights per month in 2026", {"Jan": 0, "Feb": 1, "Mar": 2}), read with 2 bars where the data '
+        "has 3, and Mar read 5 where the data has 2",
+        "retake the shot, change the story's appearance for the chart's type, plot fewer labels in the screenplay, or "
+        "accept it with a reason",
     ),
     "VT508": Code(
         "a seam between a move and its key is too wide",
@@ -339,6 +358,19 @@ CODES: dict[str, Code] = {
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
         "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
         "with a reason",
+    ),
+    "VT509": Code(
+        "the chosen day or tab is not the one drawn marked",
+        "A DatePicker, a DateStrip, Tabs and a SearchBar with options each offer a choice, and the day, tab or option "
+        "that leads to the state it is on is the chosen one: the day a results state shows, or the tab of the current "
+        "scene. The prompt says it is chosen, and the key draws it marked, lit or inverted, and no other day, tab or "
+        "option of that element. A reader that reports marks, Claude or the stand-in's own, says which it saw drawn "
+        "marked. The check fails when the chosen one is not marked, when another one is, or when an element with no "
+        "chosen one marks any.",
+        'vt.Tabs({"Home": home(), "Trips": my_trips(), "Profile": profile()}) on home(), with "Trips" drawn lit and '
+        '"Home" not',
+        "retake the shot, change the story's appearance for the element's type so that the chosen one stands apart, "
+        "or accept it with a reason",
     ),
     "VT601": Code(
         "the tape is out of date",

@@ -64,8 +64,8 @@ def test_a_model_other_than_the_stand_in_is_checked_by_qwen_which_needs_its_extr
     monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
-    assert capsys.readouterr() == ("", "error: qwen3-vl-8b, this model's eye, needs videotape's qwen extra, which is "
-                                       f"not installed here; {CODES['VT105'].fix}\n")
+    assert capsys.readouterr() == ("", "error: qwen3-vl-8b, a reader of this model's eye, needs videotape's qwen extra, "
+                                       f"which is not installed here; {CODES['VT105'].fix}\n")
     assert sent == [] and not (directory / "tape-wan3").exists()
 
 
@@ -97,9 +97,10 @@ def test_qwen_reads_a_misspelling_as_written(eye):
     app = vt.Screenplay("Surf")
     app.scene(lambda: [vt.Heading("Brushstroke Surf Co."), vt.Text("Hand-painted surfboards from California")]).name = "home"
     frame, _ = standin.draw([["Brushstroke Surf Co."], ["Hand-painted surfboards from Califxrnia"]])
-    checks = score(frame, plan(app).keys[0], eye)
+    checks = score(plan(app).keys[0], [eye.see(frame)])
     assert checks.text[1].line == "Hand-painted surfboards from California"
-    assert (checks.text[1].seen, checks.text[1].cer) == ("Hand-painted surfboards from Califxrnia", 1 / 39)
+    [seen] = checks.text[1].seen
+    assert (seen.reader, seen.text, seen.cer) == ("qwen3-vl-8b", "Hand-painted surfboards from Califxrnia", 1 / 39)
     assert [(item.code, item.about) for item in checks.failures] == [("VT502", "Hand-painted surfboards from California")]
 
 
@@ -110,7 +111,7 @@ def test_qwen_reads_and_finds_a_hand_painted_shop_sign(eye, capsys):
     fixture = dict(line.split(": ", 1) for line in (FIXTURES / "local-oysters.txt").read_text().splitlines())
     image = Image.open(FIXTURES / "local-oysters.jpg").convert("RGB")
     photo = Frame(image.width, image.height, image.tobytes())
-    seen = eye.see(photo)
+    seen = eye.see(photo).spots
     reading = min((cer(fixture["text"], line), line) for line in read(seen))
     box = find(seen, fixture["text"])
     overlap = iou(box, Box(*map(int, fixture["box"].split(",")))) if box else 0.0

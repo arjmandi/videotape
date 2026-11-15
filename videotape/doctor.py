@@ -1,5 +1,5 @@
 """What videotape needs of this machine, checked one line at a time: the Python, ffmpeg, and Xcode for TapePlayer, and
-in a project, the API key its model needs and what its eye needs."""
+in a project, each API key its model and its model's readers need, and what its eye needs."""
 
 import importlib.metadata
 import os
@@ -67,20 +67,21 @@ def xcode() -> Check:
                  "sudo xcode-select --switch /Applications/Xcode.app")
 
 
-def key(model: str) -> Check:
-    needed = MODELS[model].key
-    if needed is None:
-        return Check("VT104", True, f"{model} needs no API key")
-    if os.environ.get(needed, "").strip():
-        return Check("VT104", True, f"{needed} is set, for {model}")
-    return Check("VT104", False, f"{model} needs {needed}, and it is not in the environment or .env",
-                 f"copy .env.example to .env and set {needed} there, or export it")
+def keys(model: str) -> list[Check]:
+    """Each API key the model and its readers need, one check each."""
+    needed = MODELS[model].keys(model)
+    if not needed:
+        return [Check("VT104", True, f"{model} needs no API key")]
+    return [Check("VT104", True, f"{key} is set, for {what}") if os.environ.get(key, "").strip()
+            else Check("VT104", False, f"{what} needs {key}, and it is not in the environment or .env",
+                       f"copy .env.example to .env and set {key} there, or export it")
+            for what, key in needed]
 
 
 def eye(model: str) -> Check:
-    """What the model's eye needs to read a take back. Qwen3-VL-8B, the Wan models' eye, runs on Apple silicon or a
-    CUDA GPU, through videotape's qwen extra."""
-    if MODELS[model].eye is not QwenEye:
+    """What the model's eye needs to read a take back. Qwen3-VL-8B, a reader of the Wan models' eye, runs on Apple
+    silicon or a CUDA GPU, through videotape's qwen extra."""
+    if QwenEye not in MODELS[model].readers:
         return Check("VT105", True, f"{model}'s checks need no GPU")
     gpu = ("Apple silicon" if platform.system() == "Darwin" and platform.machine() == "arm64"
            else "a CUDA GPU" if shutil.which("nvidia-smi") else None)
@@ -105,4 +106,4 @@ def checks(start: Path) -> list[Check]:
         if error.code == "VT106":
             return machine
         return [*machine, Check(error.code, False, f"{error.place}: {error.message}", error.fix)]
-    return [*machine, key(found.model), eye(found.model)] if found.model else machine
+    return [*machine, *keys(found.model), eye(found.model)] if found.model else machine

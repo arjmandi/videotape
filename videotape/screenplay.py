@@ -102,20 +102,31 @@ Cell = tuple[Line, ...]
 """One line, or a label beside its value."""
 
 
+@dataclass(frozen=True)
+class Chart:
+    """What a chart plots: its title, its labels in order, and the value at each. The screenplay's own, which the
+    checks judge a reader's against."""
+
+    title: str
+    labels: tuple[str, ...]
+    values: tuple[float, ...]
+
+
 class Shown(NamedTuple):
     """An element on one state: its type, which a story gives an appearance and a move, and its lines. The lines are
-    in rows of cells, in reading order."""
+    in rows of cells, in reading order. A chart also carries what it plots, as numbers."""
 
     type: str
     rows: tuple[tuple[Cell, ...], ...]
+    chart: Chart | None = None
 
     @property
     def lines(self) -> tuple[Line, ...]:
         return tuple(line for row in self.rows for cell in row for line in cell)
 
 
-def _shown(element: object, *rows: Sequence[Cell]) -> Shown:
-    return Shown(type(element).__name__, tuple(tuple(row) for row in rows if row))
+def _shown(element: object, *rows: Sequence[Cell], chart: Chart | None = None) -> Shown:
+    return Shown(type(element).__name__, tuple(tuple(row) for row in rows if row), chart)
 
 
 def _each(*lines: Line) -> list[Cell]:
@@ -271,7 +282,8 @@ class List:
 
 def _chart(chart: BarChart | LineChart) -> Shown:
     points = [(Line(label), Line(f"{value:,}")) for label, value in chart.values.items()]
-    return _shown(chart, _each(Line(chart.title)), points)
+    plotted = Chart(chart.title, tuple(chart.values), tuple(float(value) for value in chart.values.values()))
+    return _shown(chart, _each(Line(chart.title)), points, chart=plotted)
 
 
 @dataclass(frozen=True)

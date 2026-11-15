@@ -98,6 +98,8 @@ figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; marg
 .failure img { aspect-ratio: auto; border: 1px solid var(--line); }
 .failure .about { margin: 0 0 4px; }
 .failure .evidence { color: var(--fail); font-size: 13px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.failure .readings { margin: 0 0 8px; padding-left: 20px; font-size: 13px; }
+.failure .readings li { overflow-wrap: anywhere; }
 .failure .reason { color: var(--pass); font-size: 13px; margin: 0 0 8px; }
 .failure .again { color: var(--kept); font-size: 13px; margin: 0 0 8px; }
 .next { margin: 0; padding-left: 20px; font-size: 13px; }
@@ -231,23 +233,11 @@ def _found_elsewhere(failure: Failure, filmed: Filmed) -> Box | None:
     return None
 
 
-def _element_type(failure: Failure, shot: Shot) -> str | None:
-    """The type of the element the failure is about: the one holding the action, the line, or the move."""
-    if isinstance(shot, Move):
-        return shot.element
-    for element in shot.shown:
-        for line in element.lines:
-            if failure.code == "VT501" and line.action and line.action.label == failure.about:
-                return element.type
-            if failure.code == "VT502" and line.words == failure.about:
-                return element.type
-    return None
-
-
 def _story_line(failure: Failure, filmed: Filmed, story: Story) -> str:
-    """The story line that drew what failed, named from the prompt's clause sources: the element type's appearance
-    or move, else the scene's direction, else the look."""
-    shot, kind = filmed.shot, _element_type(failure, filmed.shot)
+    """The story line that drew what failed, named from the prompt's clause sources: the appearance or the move of
+    the element type the check judges, else the scene's direction, else the look."""
+    shot = filmed.shot
+    kind = shot.element if isinstance(shot, Move) else failure.element
     sources = [clause.source.part for clause in filmed.prompt if isinstance(clause.source, FromStory)]
     wanted = [f"moves.{kind}", "moves.default"] if isinstance(shot, Move) else \
         [f"elements.{kind}", f"scenes.{shot.state.scene.name}", "look"]
@@ -370,7 +360,7 @@ def _failure_card(failure: dict) -> str:
 <div>
 <p class="about"><strong>{escape(failure["shot"])}</strong> take {failure["take"]}: {escape(failure["about"])}{badge}</p>
 <p class="evidence">{escape(failure["evidence"])}</p>
-{reason}
+{_disagreement(failure.get("readings", []))}{reason}
 <ol class="next">
 <li>Retake it: <code>{escape(steps["retake"])}</code></li>
 <li>Change the story line that drew it: {escape(steps["story"])}</li>
@@ -379,6 +369,15 @@ def _failure_card(failure: dict) -> str:
 </ol>
 </div>
 </div>"""
+
+
+def _disagreement(readings: list[dict]) -> str:
+    """Each reader's reading, one to a line, when the readers of a line disagree."""
+    if len({reading["text"] for reading in readings}) < 2:
+        return ""
+    return '<ul class="readings">' + "".join(
+        f'<li>{escape(reading["reader"])} read {f"&quot;{escape(reading["text"])}&quot;" if reading["text"] else "nothing"}</li>'
+        for reading in readings) + "</ul>\n"
 
 
 def _keys(record: dict) -> str:

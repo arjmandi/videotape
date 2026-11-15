@@ -1,5 +1,6 @@
-"""The stand-in is a model that needs no GPU: it draws each of a prompt's quoted lines as a labelled box, and its eye
-reads them back from the pixels. A render with it proves everything around the model."""
+"""The stand-in is a model that needs no GPU: it draws each of a prompt's quoted lines as a labelled box, the line
+the prompt says is chosen as an inverted one, and its eye reads them back from the pixels. A render with it proves
+everything around the model."""
 
 import hashlib
 import re
@@ -12,7 +13,7 @@ from itertools import groupby
 from pathlib import Path
 
 from videotape import frames
-from videotape.checks import Spot
+from videotape.checks import Free, Purse, Read, Spot
 from videotape.frames import HEIGHT, WIDTH, Box, Frame
 from videotape.plan import Mode
 
@@ -108,14 +109,17 @@ class StandIn:
 
     def _film(self, mode: Mode, prompt: str, seed: int, start: Path | None, end: Path | None, out: Path) -> None:
         self.calls.append(Call(mode, prompt, seed, start, end, out))
-        rows = quoted(prompt)
+        rows, marked = quoted(prompt), chosen(prompt)
         digest = hashlib.sha256(f"{seed}\n{prompt}".encode()).digest()
         kinds = [kind for kind in FLAWS[mode] if mode is Mode.FIRST_AND_LAST_FRAME or rows]
         flaw = self.flaw(mode, prompt, seed) if self.flaw else _default_flaw(digest, seed, kinds)
         if flaw is not Flaw.NONE and flaw not in kinds:
             raise ValueError(f"{flaw.name} does not apply to this {mode.value} take")
         if flaw in (Flaw.MISSPELL, Flaw.DROP_LINE):
-            rows = _spoil(rows, flaw, digest)
+            rows, (r, i) = _spoil(rows, flaw, digest)
+            if flaw is Flaw.DROP_LINE:
+                # The lines after the dropped one in its row move up one place, and a dropped chosen line marks nothing.
+                marked = {(row, column - (row == r and column > i)) for row, column in marked if (row, column) != (r, i)}
         elif flaw is Flaw.EXTRA_BOX:
             rows = rows + [[EXTRA]]
         with tempfile.TemporaryDirectory() as scratch:
@@ -124,7 +128,7 @@ class StandIn:
             if mode is Mode.FIRST_AND_LAST_FRAME:
                 first, last = start, end
             else:
-                frame, drawn = draw(rows, prompt)
+                frame, drawn = draw(rows, prompt, marked)
                 last = _png(frame, scratch / "drawn.png")
                 first = _png(draw([], prompt)[0], scratch / "background.png")
             if flaw is Flaw.WRONG_START:
@@ -136,26 +140,58 @@ class StandIn:
 
 
 class StandInEye:
-    """Reads the stand-in's boxes back from the pixels. Every box it draws is a control."""
+    """Reads the stand-in's boxes back from the pixels. Every box it draws is a control, and a box drawn inverted
+    is marked. It reports no charts, and caches nothing in the tape."""
 
     name = "stand-in"
+    key = None
+    paid = False
 
-    def see(self, frame: Frame) -> tuple[Spot, ...]:
-        return tuple(Spot(text, box, True) for box, text in _segment(frame))
+    def __init__(self, tape: Path | None = None) -> None:
+        pass
+
+    def see(self, frame: Frame, purse: Purse = Free()) -> Read:
+        found = _segment(frame)
+        return Read(self.name, tuple(Spot(text, box, True) for box, text, _ in found),
+                    marked=tuple(box for box, _, inverted in found if inverted))
 
 
 def quoted(prompt: str) -> list[list[str]]:
     """The lines a prompt quotes, in rows: a sentence, or a part of one that ends at a colon or semicolon, is a row.
     A line the prompt quotes again to say it is the chosen one, as in with "Home" chosen, is drawn once."""
-    rows, row = list[list[str]](), list[str]()
+    return [[text for text, _ in row] for row in _quotes(prompt)]
+
+
+def chosen(prompt: str) -> set[tuple[int, int]]:
+    """Where the lines a prompt says are chosen sit among its rows, as row and place in the row. A chosen line is
+    the one of its own element's sentence, so a heading that shares its words stays as it is."""
+    return {(r, i) for r, row in enumerate(_quotes(prompt)) for i, (_, chosen) in enumerate(row) if chosen}
+
+
+def _quotes(prompt: str) -> list[list[tuple[str, bool]]]:
+    """The prompt's quoted lines in rows, each with whether its sentence says it is chosen."""
+    rows, row, sentence = list[list[tuple[str, bool]]](), list[tuple[str, bool]](), 0
     parts = re.split(r'"([^"]*)"', prompt)
     for index, part in enumerate(parts):
-        if index % 2:
-            if part and not parts[index + 1].startswith(" chosen"):
-                row.append(part)
-        elif row and re.search("[.:;]", part):
-            rows.append(row)
-            row = []
+        if index % 2 and part and parts[index + 1].startswith(" chosen"):
+            for at, (text, _) in enumerate(row):
+                if text == part:
+                    row[at] = (text, True)
+                    break
+            else:
+                for earlier in rows[sentence:]:
+                    if (found := next((at for at, (text, _) in enumerate(earlier) if text == part), None)) is not None:
+                        earlier[found] = (part, True)
+                        break
+        elif index % 2:
+            if part:
+                row.append((part, False))
+        else:
+            if row and re.search("[.:;]", part):
+                rows.append(row)
+                row = []
+            if "." in part:
+                sentence = len(rows)
     return rows + [row] if row else rows
 
 
@@ -165,14 +201,14 @@ def _default_flaw(digest: bytes, seed: int, kinds: list[Flaw]) -> Flaw:
     return kinds[digest[1] % len(kinds)]
 
 
-def _spoil(rows: list[list[str]], flaw: Flaw, digest: bytes) -> list[list[str]]:
-    """The rows with one line misspelt by a letter, or with one line missing."""
+def _spoil(rows: list[list[str]], flaw: Flaw, digest: bytes) -> tuple[list[list[str]], tuple[int, int]]:
+    """The rows with one line misspelt by a letter, or with one line missing, and where that line was."""
     places = [(r, i) for r, row in enumerate(rows) for i in range(len(row))]
     r, i = places[digest[2] % len(places)]
     text = rows[r][i]
     at = digest[3] % len(text)
     spoilt = [text[:at] + ("x" if text[at] != "x" else "z") + text[at + 1:]] if flaw is Flaw.MISSPELL else []
-    return [row[:i] + spoilt + row[i + 1:] if number == r else row for number, row in enumerate(rows)]
+    return [row[:i] + spoilt + row[i + 1:] if number == r else row for number, row in enumerate(rows)], (r, i)
 
 
 def _png(frame: Frame, path: Path) -> Path:
@@ -184,25 +220,28 @@ def _negative(frame: Frame) -> Frame:
     return Frame(frame.width, frame.height, frame.rgb.translate(bytes(range(255, -1, -1))))
 
 
-def draw(rows: list[list[str]], prompt: str = "") -> tuple[Frame, tuple[Drawn, ...]]:
-    """Each line as a labelled box. A row's boxes run left to right and wrap at the right edge. The prompt leaves its
-    mark along the bottom edge."""
+def draw(rows: list[list[str]], prompt: str = "", marked: set[tuple[int, int]] | None = None) -> tuple[Frame, tuple[Drawn, ...]]:
+    """Each line as a labelled box, and a line the prompt says is chosen as an inverted one, or the lines at the
+    places marked names. A row's boxes run left to right and wrap at the right edge. The prompt leaves its mark along
+    the bottom edge."""
     canvas = bytearray(BACKGROUND * (WIDTH * HEIGHT))
     _mark(canvas, prompt)
+    marked = chosen(prompt) if marked is None else marked
     drawn = list[Drawn]()
     y = MARGIN
-    for row in rows:
+    for r, row in enumerate(rows):
         x = MARGIN
-        for text in row:
+        for i, text in enumerate(row):
             w = (6 * len(text) - 1 + 2 * PAD) * SCALE
             if x > MARGIN and x + w > WIDTH - MARGIN:
                 x, y = MARGIN, y + BOX_HEIGHT + GAP * SCALE
             if x + w > WIDTH - MARGIN or y + BOX_HEIGHT > HEIGHT - MARGIN:
                 raise StandInError(f'the stand-in has no room to draw "{text}"')
             box = Box(x, y, w, BOX_HEIGHT)
-            _fill(canvas, box, BOX)
+            fill, ink = (INK, BOX) if (r, i) in marked else (BOX, INK)
+            _fill(canvas, box, fill)
             for i, char in enumerate(text):
-                _letter(canvas, box.x + (PAD + 6 * i) * SCALE, box.y + PAD * SCALE, char)
+                _letter(canvas, box.x + (PAD + 6 * i) * SCALE, box.y + PAD * SCALE, char, ink)
             drawn.append(Drawn(text, box))
             x += w + GAP * SCALE
         y += BOX_HEIGHT + GAP * SCALE
@@ -219,14 +258,14 @@ def _mark(canvas: bytearray, prompt: str) -> None:
         _fill(canvas, Box(cell * width, HEIGHT - MARK_HEIGHT, width, MARK_HEIGHT), bytes(c + shade for c in BACKGROUND))
 
 
-def _letter(canvas: bytearray, x: int, y: int, char: str) -> None:
+def _letter(canvas: bytearray, x: int, y: int, char: str, ink: bytes = INK) -> None:
     index = ord(char) - 32
     if not 0 <= index < len(CHARACTERS):
         raise StandInError(f"the stand-in cannot draw {char!r}")
     for c, column in enumerate(GLYPHS[5 * index:5 * index + 5]):
         for r in range(7):
             if column >> r & 1:
-                _fill(canvas, Box(x + c * SCALE, y + r * SCALE, SCALE, SCALE), INK)
+                _fill(canvas, Box(x + c * SCALE, y + r * SCALE, SCALE, SCALE), ink)
 
 
 def _fill(canvas: bytearray, box: Box, colour: bytes) -> None:
@@ -236,8 +275,8 @@ def _fill(canvas: bytearray, box: Box, colour: bytes) -> None:
         canvas[at:at + len(row)] = row
 
 
-def _segment(frame: Frame) -> list[tuple[Box, str]]:
-    """Every box in reading order with the text in it."""
+def _segment(frame: Frame) -> list[tuple[Box, str, bool]]:
+    """Every box in reading order, with the text in it and whether it is drawn inverted."""
     # The palette differs most in green, so one channel separates the boxes without a per-pixel loop.
     green = frame.rgb[1::3]
     width = frame.width
@@ -257,12 +296,14 @@ def _segment(frame: Frame) -> list[tuple[Box, str]]:
             right = width if right == -1 else right
             if right - left >= (4 + 2 * PAD) * SCALE:
                 box = Box(left, rows[0], right - left, len(rows))
-                found.append((box, _letters(green, width, box)))
+                text, fill = _letters(green, width, box)
+                found.append((box, text, abs(fill - INK[1]) < abs(fill - BOX[1])))
             left = padding.find(1, right)
     return found
 
 
-def _letters(green: bytes, width: int, box: Box) -> str:
+def _letters(green: bytes, width: int, box: Box) -> tuple[str, int]:
+    """The text in a box, and the green of its fill, which is the ink's when the box is inverted."""
     padding_row = (box.y + SCALE) * width
     fill = Counter(green[padding_row + box.x:padding_row + box.x + box.w]).most_common(1)[0][0]
     count = round((box.w / SCALE - 2 * PAD + 1) / 6)
@@ -273,7 +314,7 @@ def _letters(green: bytes, width: int, box: Box) -> str:
                           if abs(green[(y0 + r * SCALE) * width + x0 + (6 * i + c) * SCALE] - fill) > CONTRAST)
                       for c in range(5))
         text += CHARACTERS.get(glyph) or min(CHARACTERS.items(), key=lambda item: _bits_apart(item[0], glyph))[1]
-    return text
+    return text, fill
 
 
 def _bits_apart(a: bytes, b: bytes) -> int:

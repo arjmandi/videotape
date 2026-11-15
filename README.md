@@ -723,7 +723,7 @@ uv run videotape dailies --story terminal
 ```
 
 ```text
-wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "usd": 0.0}
+wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
 ```
 
 `dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what the eye read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. `explain` prints a code's long form:

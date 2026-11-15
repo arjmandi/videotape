@@ -170,7 +170,7 @@ def hosted_by(queue: type[Hosted], tmp_path: Path, monkeypatch) -> tuple[Path, H
     (tmp_path / "clips").mkdir()
     fal = queue(tmp_path / "clips")
     monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)),
-                                                  lambda tape: StandInEye(), price=wan3.PRICE, limit=2,
+                                                  (StandInEye,), price=wan3.PRICE, limit=2,
                                                   kind=wan3.Wan3))
     return directory, fal
 
@@ -377,7 +377,7 @@ def test_a_call_that_fails_after_its_submit_keeps_its_reservation(tmp_path):
 
     chalk, tape = told(directory), directory / "tape-wan3"
     with pytest.raises(RenderError) as error:
-        render(planned(directory), chalk, model, StandInEye(), tape, ledger.of(directory, tape),
+        render(planned(directory), chalk, model, [StandInEye()], tape, ledger.of(directory, tape),
                made(project.find(directory), chalk, model), takes=1, limit=2, price=wan3.PRICE, cap=1.5, report=report)
     assert error.value.code in ("VT401", "VT402")
     assert 0.5 * len(fal.posts) <= 1.5 and len(fal.posts) == 3
@@ -495,7 +495,7 @@ def test_a_key_in_the_projects_env_file_goes_only_into_the_submits_authorization
     directory = copy_of("cafe", tmp_path)
     (directory / ".env").write_text(f'# from fal.ai/dashboard/keys\nFAL_KEY="{KEY}"\n')
     monkeypatch.delenv("FAL_KEY", raising=False)
-    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], eye=lambda tape: StandInEye()))
+    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], readers=(StandInEye,)))
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda request, timeout: sent.append(request) or Answer(b'{"detail": "no request today"}'))

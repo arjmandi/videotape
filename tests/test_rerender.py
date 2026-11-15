@@ -70,7 +70,7 @@ def film(directory: Path) -> tuple[set[str], int]:
     """Render the project's terminal tape with one take per shot. Returns the shots that were filmed, and the model's
     calls."""
     found, model, tape = read(directory), StandIn(flaw=clean), directory / "tapes" / STORY
-    result = render(found.plan, found.story, model, StandInEye(), tape, ledger.of(directory, tape),
+    result = render(found.plan, found.story, model, [StandInEye()], tape, ledger.of(directory, tape),
                     made(project.find(directory), found.story, model), takes=1, limit=8)
     return {filmed.shot.id for filmed in result.shots if filmed.rendered}, len(model.calls)
 

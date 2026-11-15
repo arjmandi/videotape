@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Protocol
 
 from videotape import wan, wan3
-from videotape.checks import Eye
+from videotape.checks import Reader
 from videotape.fal import Price, Receipt
 from videotape.plan import Mode
 from videotape.qwen import QwenEye
@@ -51,12 +51,12 @@ class PromptLimit:
 
 @dataclass(frozen=True)
 class Listing:
-    """A model a render can name, and the eye that checks its keys. The eye is given the tape it may cache in. The
-    model's class, the prompt limit, the price and the limit on calls at once are here, and not on the model, so a plan
-    or a publish can read them without building the model."""
+    """A model a render can name, and the readers of the eye that checks its keys. Each reader is built for the tape
+    it may cache its reads in. The model's class, the prompt limit, the price and the limit on calls at once are
+    here, and not on the model, so a plan or a publish can read them without building the model."""
 
     model: Callable[[], Model]
-    eye: Callable[[Path], Eye]
+    readers: tuple[type[Reader], ...]
     prompt_limit: PromptLimit | None = None
     price: Price | None = None
     """What one call costs, for a model that bills per call."""
@@ -69,15 +69,20 @@ class Listing:
     """The model's class, whose name and settings a tape's made block reads. Building wan3.0 needs its key, and
     building wan2.2-5b a CUDA GPU."""
 
+    def keys(self, name: str) -> tuple[tuple[str, str], ...]:
+        """Each API key the model, by this name, or one of its readers needs, with what needs it."""
+        return tuple((what, key) for what, key in ((name, self.key), *((f"{name}'s reader {reader.name}", reader.key)
+                                                                      for reader in self.readers)) if key)
+
 
 MODELS: dict[str, Listing] = {
-    "stand-in": Listing(StandIn, lambda tape: StandInEye(), limit=8, kind=StandIn),
+    "stand-in": Listing(StandIn, (StandInEye,), limit=8, kind=StandIn),
     # One GPU on one pod draws one take at a time.
-    "wan2.2-5b": Listing(Wan, QwenEye, PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens), limit=1,
-                         kind=Wan),
+    "wan2.2-5b": Listing(Wan, (QwenEye,), PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens),
+                         limit=1, kind=Wan),
     # fal.ai/docs/documentation/model-apis/concurrency-limits, read 2026-11-14: "Every new account starts with a
     # concurrency limit of 2 concurrent requests."
-    "wan3.0": Listing(wan3.from_environment, QwenEye,
+    "wan3.0": Listing(wan3.from_environment, (QwenEye,),
                       PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2,
                       key="FAL_KEY", kind=wan3.Wan3),
 }

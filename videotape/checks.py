@@ -1,16 +1,49 @@
-"""What the eye finds on a take, and which of it fails. Each check carries the code it fails with: VT501 an action
-not found, VT502 a word misread, VT503 a control the model invented, and VT508 a seam between a move and its keys."""
+"""What the readers find on a take, and which of it fails. Each check carries the code it fails with: VT501 an action
+not found, VT502 a line misread or an option's label on a day that has none, VT503 a control the model invented,
+VT504 a chart off its data, VT508 a seam between a move and its keys, and VT509 a choice not drawn marked.
 
+The data shape, from what a reader sees to what the dailies record:
+
+    Read      what one reader saw on one picture: its spots, every line of text with its box and whether it looks
+              like a control; the boxes drawn marked; and the charts. marked and charts are None when the reader
+              does not report that kind of thing, and empty when it looked and found none.
+    Chart     a chart's title, its labels in order and a value per label: the screenplay's own, or what a reader saw.
+    KeyChecks what every reader found on a key, judged against the key:
+      actions   a Hotspot per action, found by its words by every reader, with the first reader's box        VT501
+      text      a Reading per line, with a Seen per reader that read it as words                             VT502
+      stray     a Sighting per reader of an option's label where a DatePicker shows a day with no option     VT502
+      invented  a Sighting per reader of a control reading none of the key's lines                           VT503
+      charts    a Plotted per chart, per reader that reports charts                                          VT504
+      marks     a Marked per element that offers a choice, per reader that reports marks                     VT509
+    Item      one check: its code, what it is about, its evidence, whether it passed, its box, the element type it
+              judges, or None for a whole-key check, and each reader's reading behind a VT501 or VT502.
+
+A reader that reports charts judges a chart whole, by VT504: its title, its labels in order, how many bars or points,
+and each value within a tenth of the data. Those are facts of a chart that reading its letters cannot judge, the order
+and the count and a value's size, and judging the same letters twice would fail a chart twice for one flaw, so that
+reader's VT502 leaves the chart's lines out. A reader that reports no charts can only read the chart's lines as
+lettering, so for it they stay in VT502."""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from pathlib import Path
+from typing import ClassVar, Protocol
 
 from videotape import frames
 from videotape.frames import Box, Frame
 from videotape.plan import Key
+from videotape.screenplay import Chart, Line, Shown
 
 MAX_CER = 0.0
 MAX_DIFFERENCE = 0.05
 FIND_MAX_CER = 0.2
+VALUE_TOLERANCE = 0.1
+"""How far a chart's value may sit from the data, as a fraction of the data's value."""
+CHOICES = ("option", "day", "tab")
+"""The action kinds of lines a person chooses among, of which the one that leads to its own state is drawn marked."""
 
 
 class ChecksError(RuntimeError):
@@ -19,17 +52,56 @@ class ChecksError(RuntimeError):
 
 @dataclass(frozen=True)
 class Spot:
-    """One piece of text the eye saw, where it saw it, and whether it sat in something that looks pressable."""
+    """One piece of text a reader saw, where it saw it, and whether it sat in something that looks pressable."""
 
     text: str
     box: Box
     control: bool
 
 
-class Eye(Protocol):
-    name: str
+@dataclass(frozen=True)
+class Read:
+    """What one reader saw on one picture. marked and charts are None when the reader does not report them, and
+    empty when it looked and found none."""
 
-    def see(self, frame: Frame) -> tuple[Spot, ...]: ...
+    reader: str
+    spots: tuple[Spot, ...]
+    marked: tuple[Box, ...] | None = None
+    """The boxes of the spots drawn marked: lit, inverted, underlined or filled, as the chosen or current one."""
+    charts: tuple[Chart, ...] | None = None
+
+
+class Purse(Protocol):
+    """What a paid reader asks before it sends a read, and tells after: the most the read costs is reserved, and the
+    read's ledger line, or None when nothing was billed, settles it."""
+
+    def reserve(self, usd: float) -> None: ...
+
+    def settle(self, line: dict | None, reserved: float) -> None: ...
+
+
+class Free:
+    """The purse of a reader that costs nothing, which no reader asks."""
+
+    def reserve(self, usd: float) -> None:
+        pass
+
+    def settle(self, line: dict | None, reserved: float) -> None:
+        pass
+
+
+class Reader(Protocol):
+    """One part of an eye: it sees a key's picture and reports what it read. A reader is built for the tape it may
+    cache its reads in. Its class says what it needs before it is built: the API key, or None, and whether a read
+    that is not cached is a paid call."""
+
+    name: ClassVar[str]
+    key: ClassVar[str | None]
+    paid: ClassVar[bool]
+
+    def __init__(self, tape: Path) -> None: ...
+
+    def see(self, frame: Frame, purse: Purse = Free()) -> Read: ...
 
 
 def cer(expected: str, actual: str) -> float:
@@ -42,25 +114,38 @@ def cer(expected: str, actual: str) -> float:
     return previous[-1] / max(len(expected), 1)
 
 
-def read(seen: tuple[Spot, ...]) -> list[str]:
-    return [spot.text for spot in seen]
+def read(spots: Sequence[Spot]) -> list[str]:
+    return [spot.text for spot in spots]
 
 
-def find(seen: tuple[Spot, ...], words: str) -> Box | None:
+def find(spots: Sequence[Spot], words: str) -> Box | None:
     """The box of the spot that reads closest to the words, a control before anything else, within FIND_MAX_CER."""
-    best = min(seen, key=lambda spot: (cer(words, spot.text), not spot.control), default=None)
-    return best.box if best and cer(words, best.text) <= FIND_MAX_CER else None
+    return _found("", spots, words).box
+
+
+@dataclass(frozen=True)
+class Seen:
+    """One reader's reading of one line: what it saw, how far off, and where. Nothing seen is "" at CER 1 with no
+    box."""
+
+    reader: str
+    text: str
+    cer: float
+    box: Box | None
 
 
 @dataclass(frozen=True)
 class Item:
-    """One check of one take: its code, what it is about, its evidence, and whether it passed."""
+    """One check of one take: its code, what it is about, its evidence, whether it passed, its box, the element type
+    it judges, or None for a check of the whole key, and each reader's reading behind it."""
 
     code: str
     about: str
     result: str
     passed: bool
     box: Box | None
+    element: str | None = None
+    readings: tuple[Seen, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -70,43 +155,173 @@ class Failure:
     code: str
     shot: str
     about: str
-    """The element's label, the line, the invented control's text, or the seam's end."""
+    """The element's label, the line, the invented control's text, the chart's title, or the seam's end."""
     evidence: str
     box: Box | None
+    element: str | None = None
+    readings: tuple[Seen, ...] = ()
+
+
+@dataclass(frozen=True)
+class Hotspot:
+    """One action looked for on the key by its words: what each reader found, so the box the first reader found is
+    the hotspot when every reader found it."""
+
+    label: str
+    element: str
+    seen: tuple[Seen, ...]
+
+    @property
+    def box(self) -> Box | None:
+        return self.seen[0].box if self.seen and all(seen.box for seen in self.seen) else None
+
+    @property
+    def missed(self) -> tuple[str, ...]:
+        return tuple(seen.reader for seen in self.seen if seen.box is None)
 
 
 @dataclass(frozen=True)
 class Reading:
-    """One line of a key, what the eye saw for it, how far apart the two are, and where it saw it."""
+    """One line of a key, and what each reader that read it as words saw for it."""
 
     line: str
-    seen: str
-    cer: float
+    element: str
+    seen: tuple[Seen, ...]
+
+    @property
+    def box(self) -> Box | None:
+        return next((seen.box for seen in self.seen if seen.box), None)
+
+    @property
+    def exact(self) -> bool:
+        return all(seen.cer <= MAX_CER for seen in self.seen)
+
+
+@dataclass(frozen=True)
+class Sighting:
+    """A spot one reader saw that no line accounts for."""
+
+    reader: str
+    spot: Spot
+
+
+@dataclass(frozen=True)
+class Plotted:
+    """One chart as one reader saw it, beside the chart the screenplay plots. seen is None when the reader saw no
+    chart for it."""
+
+    reader: str
+    element: str
+    chart: Chart
+    seen: Chart | None
+
+    @property
+    def wrong(self) -> list[str]:
+        """What is off, in reading order: the title, the count or the labels, then each value past the tolerance."""
+        if self.seen is None:
+            return ["no chart read"]
+        wrong = []
+        if self.seen.title != self.chart.title:
+            wrong.append(f'title read "{self.seen.title}"')
+        if len(self.seen.labels) != len(self.chart.labels):
+            wrong.append(f"{_counted(len(self.seen.labels), self.element)}, {len(self.chart.labels)} expected")
+        elif self.seen.labels != self.chart.labels:
+            wrong.append(f"labels read {', '.join(self.seen.labels)}")
+        for label, value, seen in zip(self.chart.labels, self.chart.values, self.seen.values):
+            if abs(seen - value) > VALUE_TOLERANCE * abs(value):
+                wrong.append(f"{label} read {_number(seen)}, {_number(value)} in the data")
+        return wrong
+
+
+@dataclass(frozen=True)
+class Marked:
+    """One element that offers a choice, and which of its choices one reader saw drawn marked."""
+
+    reader: str
+    element: str
+    noun: str
+    """What one of its choices is called: a day, a tab or an option."""
+    chosen: str | None
+    marked: tuple[str, ...]
     box: Box | None
+    """Where the chosen choice was read."""
+
+    @property
+    def right(self) -> bool:
+        return list(self.marked) == ([self.chosen] if self.chosen else [])
+
+
+def _number(value: float) -> str:
+    return f"{value:,.10g}"
+
+
+def _counted(number: int, element: str) -> str:
+    """So many bars of a BarChart, or points of a LineChart."""
+    noun = "bar" if element == "BarChart" else "point"
+    return f"{number} {noun}{'' if number == 1 else 's'}"
 
 
 def _placed(box: Box) -> str:
     return f"{box.x},{box.y} {box.w}x{box.h}"
 
 
+def _listed(items: Sequence[str]) -> str:
+    return " and ".join(filter(None, (", ".join(items[:-1]), items[-1]))) if items else "nothing"
+
+
 @dataclass(frozen=True)
 class KeyChecks:
-    """What an eye finds on a key frame: a box per action, by its hotspot's label, or none; a reading per line; and
-    every control-like box whose text is none of the key's lines."""
+    """What every reader found on a key frame, judged against the key."""
 
-    hotspots: dict[str, Box | None]
+    actions: tuple[Hotspot, ...]
     text: tuple[Reading, ...]
-    invented: tuple[Spot, ...] = ()
+    invented: tuple[Sighting, ...] = ()
+    stray: tuple[Sighting, ...] = ()
+    charts: tuple[Plotted, ...] = ()
+    marks: tuple[Marked, ...] = ()
+
+    @property
+    def hotspots(self) -> dict[str, Box | None]:
+        """A box per action, by its hotspot's label, or none."""
+        return {hotspot.label: hotspot.box for hotspot in self.actions}
+
+    @property
+    def readers(self) -> tuple[str, ...]:
+        names = [seen.reader for reading in self.text for seen in reading.seen]
+        names += [seen.reader for hotspot in self.actions for seen in hotspot.seen]
+        return tuple(dict.fromkeys(names))
 
     def items(self) -> list[Item]:
-        items = [Item("VT501", label, f"found at {_placed(box)}" if box else "not found", box is not None, box)
-                 for label, box in self.hotspots.items()]
+        many = len(self.readers) > 1
+        items = []
+        for hotspot in self.actions:
+            found = hotspot.box is not None
+            result = f"found at {_placed(hotspot.box)}" if found else "not found" + _by(hotspot.missed, many)
+            items.append(Item("VT501", hotspot.label, result, found, hotspot.box, hotspot.element, hotspot.seen))
         for reading in self.text:
-            seen = f'"{reading.seen}"' if reading.seen else "nothing"
-            items.append(Item("VT502", reading.line, f"read {seen}, CER {reading.cer:.3f}", reading.cer <= MAX_CER,
-                              reading.box))
-        items += [Item("VT503", spot.text, f'a control reading "{spot.text}" at {_placed(spot.box)}, and no action '
-                       "has those words", False, spot.box) for spot in self.invented]
+            if reading.seen:
+                items.append(Item("VT502", reading.line, _read(reading.seen, many), reading.exact, reading.box,
+                                  reading.element, reading.seen))
+        items += [Item("VT502", sighting.spot.text, f'a day with no option shows "{sighting.spot.text}" at '
+                       f"{_placed(sighting.spot.box)}{_by([sighting.reader], many)}", False, sighting.spot.box,
+                       "DatePicker") for sighting in self.stray]
+        items += [Item("VT503", sighting.spot.text, f'a control reading "{sighting.spot.text}" at '
+                       f"{_placed(sighting.spot.box)}, and no action has those words{_by([sighting.reader], many)}",
+                       False, sighting.spot.box) for sighting in self.invented]
+        for plotted in self.charts:
+            wrong = plotted.wrong
+            result = ("; ".join(wrong) if wrong else f"{_counted(len(plotted.chart.labels), plotted.element)}, the "
+                      f"title, every label and every value within {VALUE_TOLERANCE:.0%}") + _by([plotted.reader], many)
+            items.append(Item("VT504", plotted.chart.title, result, not wrong, None, plotted.element))
+        for mark in self.marks:
+            quoted = [f'"{words}"' for words in mark.marked]
+            if mark.right:
+                result = f"{quoted[0]} marked, and no other {mark.noun}" if mark.chosen else f"no {mark.noun} marked"
+            else:
+                chosen = f'"{mark.chosen}" is chosen' if mark.chosen else f"no {mark.noun} is chosen"
+                result = f"marked {_listed(quoted)}; {chosen}"
+            items.append(Item("VT509", mark.chosen or mark.element, result + _by([mark.reader], many), mark.right,
+                              mark.box, mark.element))
         return items
 
     @property
@@ -120,8 +335,21 @@ class KeyChecks:
     def rank(self, seed: int) -> tuple[int, int, float, int]:
         """The most hotspots found, then the fewest invented controls, then the least character error, then the
         lowest seed."""
-        found = sum(box is not None for box in self.hotspots.values())
-        return -found, len(self.invented), sum(reading.cer for reading in self.text), seed
+        found = sum(hotspot.box is not None for hotspot in self.actions)
+        return -found, len(self.invented), sum(seen.cer for reading in self.text for seen in reading.seen), seed
+
+
+def _by(readers: Sequence[str], many: bool) -> str:
+    return f", by {_listed(list(readers))}" if many and readers else ""
+
+
+def _read(seen: Sequence[Seen], many: bool) -> str:
+    """The evidence of a line's VT502: what was read and how far off, by each reader when there are several."""
+    texts = [f'"{one.text}"' if one.text else "nothing" for one in seen]
+    if not many:
+        return f"read {texts[0]}, CER {seen[0].cer:.3f}"
+    return (f"read {_listed([f'{text} by {one.reader}' for text, one in zip(texts, seen)])}, CER "
+            f"{_listed([f'{one.cer:.3f}' for one in seen])}")
 
 
 @dataclass(frozen=True)
@@ -151,41 +379,110 @@ class MoveChecks:
 Checks = KeyChecks | MoveChecks
 
 
-def score(frame: Frame, key: Key, eye: Eye) -> KeyChecks:
-    """Find each of the key's actions by its words, read each of its lines, and list every control that is none of
-    them. A control the readings paired with a line is that line, misread or not; one left over that reads like no
-    line is invented."""
-    seen = eye.see(frame)
-    text = readings(key.lines, seen)
-    read_as = {reading.box for reading in text if reading.box}
-    return KeyChecks(
-        hotspots={action.label: find(seen, action.words) for action in key.actions},
-        text=text,
-        invented=tuple(spot for spot in seen if spot.control and spot.box not in read_as
-                       and all(cer(line, spot.text) > FIND_MAX_CER for line in key.lines)),
-    )
+@dataclass(frozen=True)
+class _Placed:
+    """One line of the key and the element it is on."""
+
+    line: Line
+    element: Shown
+
+
+def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
+    """Judge what every reader saw against the key. Each reader finds each action by its words and reads each line,
+    each from a different spot, so a line the key shows twice is read twice. A control the readings paired with a
+    line is that line, misread or not; one left over that reads like no line is invented. A reader that reports
+    charts judges each chart whole and leaves its lines out of its readings, and one that reports marks says which of
+    an element's choices are drawn marked."""
+    placed = [_Placed(line, element) for element in key.shown for line in element.lines]
+    seen: dict[str, dict[int, Seen]] = {}
+    for one in reads:
+        judged = [index for index, at in enumerate(placed) if not (one.charts is not None and at.element.chart)]
+        seen[one.reader] = dict(zip(judged, readings(one.reader, [placed[i].line.words for i in judged], one.spots)))
+    text = tuple(Reading(at.line.words, at.element.type, tuple(seen[one.reader][index] for one in reads
+                                                                 if index in seen[one.reader]))
+                 for index, at in enumerate(placed))
+    actions = tuple(Hotspot(at.line.action.label, at.element.type,
+                            tuple(_found(one.reader, one.spots, at.line.action.words) for one in reads))
+                    for at in placed if at.line.action)
+    stray, invented = [], []
+    labels = {_shape(line.words) for element in key.shown if element.type == "DatePicker"
+              for row in element.rows for cell in row if len(cell) == 2 for line in cell[1:]}
+    for one in reads:
+        paired = {found.box for found in seen[one.reader].values() if found.box}
+        left = [spot for spot in one.spots if spot.box not in paired]
+        strayed = [spot for spot in left if _shape(spot.text) in labels]
+        stray += [Sighting(one.reader, spot) for spot in strayed]
+        invented += [Sighting(one.reader, spot) for spot in left if spot.control and spot not in strayed
+                     and all(cer(line, spot.text) > FIND_MAX_CER for line in key.lines)]
+    charts = [Plotted(one.reader, element.type, chart, found) for one in reads if one.charts is not None
+              for element, chart, found in _plotted(key.shown, one.charts)]
+    marks = [_marked(one, element, [index for index, at in enumerate(placed) if at.element is element and _choice(at.line)],
+                     placed, seen[one.reader])
+             for one in reads if one.marked is not None for element in key.shown
+             if any(_choice(line) for line in element.lines)]
+    return KeyChecks(actions, text, tuple(invented), tuple(stray), tuple(charts), tuple(marks))
 
 
 def seams(first: Frame, last: Frame, start_key: Frame, end_key: Frame) -> MoveChecks:
     return MoveChecks(start=frames.difference(first, start_key), end=frames.difference(last, end_key))
 
 
-def readings(lines: tuple[str, ...], seen: tuple[Spot, ...]) -> tuple[Reading, ...]:
-    """A reading for each line, each from a different spot the eye saw, so a line the key shows twice is read twice.
-    Lines seen exactly are paired first, and each line left takes the closest spot still unpaired."""
-    left = list(seen)
-    paired: dict[int, Reading] = {}
+def readings(reader: str, lines: Sequence[str], spots: Sequence[Spot]) -> tuple[Seen, ...]:
+    """One reader's reading of each line, each from a different spot it saw, so a line the key shows twice is read
+    twice. Lines seen exactly are paired first, and each line left takes the closest spot still unpaired."""
+    left = list(spots)
+    paired: dict[int, Seen] = {}
     for index, line in enumerate(lines):
         exact = next((spot for spot in left if spot.text == line), None)
         if exact:
             left.remove(exact)
-            paired[index] = Reading(line, line, 0.0, exact.box)
+            paired[index] = Seen(reader, line, 0.0, exact.box)
     for index, line in enumerate(lines):
         if index not in paired:
             closest = min(left, key=lambda spot: cer(line, spot.text), default=None)
             if closest is None:
-                paired[index] = Reading(line, "", 1.0, None)
+                paired[index] = Seen(reader, "", 1.0, None)
             else:
                 left.remove(closest)
-                paired[index] = Reading(line, closest.text, cer(line, closest.text), closest.box)
+                paired[index] = Seen(reader, closest.text, cer(line, closest.text), closest.box)
     return tuple(paired[index] for index in range(len(lines)))
+
+
+def _found(reader: str, spots: Sequence[Spot], words: str) -> Seen:
+    """The spot that reads closest to the words, a control before anything else, within FIND_MAX_CER."""
+    best = min(spots, key=lambda spot: (cer(words, spot.text), not spot.control), default=None)
+    if best is None or cer(words, best.text) > FIND_MAX_CER:
+        return Seen(reader, "", 1.0, None)
+    return Seen(reader, best.text, cer(words, best.text), best.box)
+
+
+def _shape(text: str) -> str:
+    """A text's shape, which an option's label shares with another label of its kind: $219 and $1,019 are both $9."""
+    return re.sub(r"[A-Za-z]+", "a", re.sub(r"[\d][\d,.]*", "9", text))
+
+
+def _plotted(shown: Sequence[Shown], seen: Sequence[Chart]) -> list[tuple[Shown, Chart, Chart | None]]:
+    """Each chart the key plots beside the chart a reader saw for it: the closest titles are paired first, and a
+    chart left without one is paired with None."""
+    plotted = [(element, element.chart) for element in shown if element.chart]
+    pairs = sorted((cer(chart.title, found.title), i, j) for i, (_, chart) in enumerate(plotted)
+                   for j, found in enumerate(seen))
+    taken: dict[int, int] = {}
+    for _, i, j in pairs:
+        if i not in taken and j not in taken.values():
+            taken[i] = j
+    return [(element, chart, seen[taken[i]] if i in taken else None) for i, (element, chart) in enumerate(plotted)]
+
+
+def _choice(line: Line) -> bool:
+    return line.chosen or (line.action is not None and line.action.kind in CHOICES)
+
+
+def _marked(one: Read, element: Shown, choices: Sequence[int], placed: Sequence[_Placed], seen: dict[int, Seen]) -> Marked:
+    """Which of an element's choices, by their places among the key's lines, this reader saw drawn marked."""
+    marked = set(one.marked or ())
+    chosen = next((index for index in choices if placed[index].line.chosen), None)
+    noun = next((action.kind for index in choices if (action := placed[index].line.action)), "line")
+    lit = tuple(placed[index].line.words for index in choices if (found := seen.get(index)) and found.box in marked)
+    box = seen[chosen].box if chosen is not None and chosen in seen else None
+    return Marked(one.reader, element.type, noun, placed[chosen].line.words if chosen is not None else None, lit, box)

@@ -160,7 +160,8 @@ def _render(found: Project, args) -> int:
     told, warnings = _told(found, planned, args.story, listing)
     _warn((*planned.warnings, *warnings))
     tape = _tape(found, told.name, args.out)
-    model, eye, takes = listing.model(), listing.eye(tape), args.takes or found.takes
+    model, takes = listing.model(), args.takes or found.takes
+    readers = [reader(tape) for reader in listing.readers]
     cap = args.cap_usd if args.cap_usd is not None else found.cap_usd
     book = ledger.of(found.root, tape)
     if listing.price:
@@ -176,7 +177,7 @@ def _render(found: Project, args) -> int:
         print(f"{numbers[filmed.shot]}. {filmed.shot.title}  kept take {filmed.kept.seed}, {verdict}, {filmed_takes}, "
               f"${filmed.usd:.2f}, {filmed.seconds:.1f} s", flush=True)
 
-    result = render(planned, told, model, eye, tape, book, made(found, told, model), takes=takes, limit=listing.limit,
+    result = render(planned, told, model, readers, tape, book, made(found, told, model), takes=takes, limit=listing.limit,
                     price=listing.price, cap=cap, resume=_resume(args, told.name), report=report)
     record = dailies.read(tape)
     print(f"{_count(len(result.shots), 'shot')}, {_count(sum(f.rendered for f in result.shots), 'take')} filmed, "

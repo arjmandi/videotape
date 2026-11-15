@@ -148,8 +148,8 @@ def test_the_pods_take_lines_and_its_pod_line_land_in_the_projects_ledger_for_th
                            f"{tmp_path}/examples/contrail/tape-wan2/")]
     assert pod.ran == ["cat /workspace/videotape/examples/contrail/ledger.jsonl"]
     assert [json.loads(line)["kind"] for line in book.read_text().splitlines()] == ["take", "take", "take", "pod"]
-    assert Ledger(book, "tape-wan2").totals() == {"takes": 2, "gpu_seconds": 190.5, "pods": 1, "pod_hours": 0.5, "usd": 2.0}
-    assert Ledger(book, "tapes/terminal").totals() == {"takes": 1, "gpu_seconds": 0.5, "pods": 0, "pod_hours": 0.0, "usd": 0.0}
+    assert Ledger(book, "tape-wan2").totals() == {"takes": 2, "gpu_seconds": 190.5, "pods": 1, "pod_hours": 0.5, "reads": 0, "usd": 2.0}
+    assert Ledger(book, "tapes/terminal").totals() == {"takes": 1, "gpu_seconds": 0.5, "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
 
 
 def test_describe_names_every_part_of_the_plan(script, built):
