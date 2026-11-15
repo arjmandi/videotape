@@ -62,5 +62,6 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "videotape/**/*" }, { file =
               { file = "clients/macos/TapePlayer.xcodeproj/project.pbxproj" }]
 
 [tool.pytest.ini_options]
-markers = ["qwen: runs the real Qwen3-VL-8B model; needs the qwen extra, the weights, and a CUDA or MPS GPU"]
-addopts = "-m 'not qwen'"
+markers = ["qwen: runs the real Qwen3-VL-8B model; needs the qwen extra, the weights, and a CUDA or MPS GPU",
+           "player: launches TapePlayer on the screen and quits it; needs Xcode, and takes over the screen"]
+addopts = "-m 'not qwen and not player'"
