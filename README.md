@@ -811,7 +811,14 @@ To render with it, copy `.env.example` to `.env` and set `FAL_KEY` there, and se
 uv run videotape publish --story terminal
 ```
 
-<!-- The output of publish goes here. -->
+```text
+encoded 103 clips as HEVC; on each one's last frame, where the player rests, every check its key passed still passes
+signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app
+published dist/Contrail-terminal.app, 8.1 MB, zipped to dist/Contrail-terminal.zip, 7.3 MB
+label contrail 0.1.0 + terminal 1.0.0
+id 7ab3bc3c8733a665eb87538384f91837a8db27507e1f05d1172f4d478c5a3fb3
+videotape.lock holds the label now; commit it
+```
 
 `publish` refuses a tape that is out of date with its project's files (`VT601`), that has a failing check nobody accepted (`VT602`), or whose label `videotape.lock` holds with another made id (`VT305`). Then it builds TapePlayer and writes `dist/Contrail-terminal.app`, named after the screenplay and the story, with the tape inside it and each move re-encoded as HEVC. Then the tape's eye reads the last frame of each clip in the app again, against the state the clip lands on and that state's key. A check that passed in the tape and fails on that frame is `VT604`. It signs the app ad hoc, not with a Developer ID, zips it to `dist/Contrail-terminal.zip`, and adds the label, the made id, and the file hashes to `videotape.lock`. The app opens on the tape it holds.
 

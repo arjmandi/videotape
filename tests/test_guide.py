@@ -30,12 +30,10 @@ ROOT = CONTRAIL.parent.parent
 GUIDE = ROOT / "README.md"
 FENCE = re.compile(r"^```(?P<info>[^\n]*)\n(?P<text>.*?)^```$", re.M | re.S)
 VIDEOTAPE = ["uv", "run", "videotape"]
-NOT_YET = "publish"
-"""A command the guide documents before this checkout's CLI has it. The run stops there until the CLI has it."""
 FLAWS = {"VT502": Flaw.MISSPELL, "VT503": Flaw.EXTRA_BOX}
 """The stand-in's flaw that fails a key with each code the guide accepts."""
-VARIES = re.compile(r"(?P<path>\S*/\S*)|(?P<number>(?<![\w.])\d+(?:\.\d+)*)")
-WILDCARDS = {"path": r"\S+", "number": r"\d+(?:\.\d+)*"}
+VARIES = re.compile(r"(?P<hash>\b[0-9a-f]{64}\b)|(?P<path>\S*/\S*)|(?P<number>(?<![\w.])\d+(?:\.\d+)*)")
+WILDCARDS = {"hash": r"[0-9a-f]{64}", "path": r"\S+", "number": r"\d+(?:\.\d+)*"}
 BUNDLE = "dev.videotape.TapePlayer"
 
 
@@ -215,7 +213,7 @@ def test_every_file_the_guide_shows_whole_is_contrails_byte_for_byte():
 def test_the_guide_runs_from_new_and_leaves_publish_for_last():
     guide = steps()
     assert guide[0].words[:2] == ["uvx", "--from"] and guide[0].words[3:] == ["videotape", "new", "contrail"]
-    assert [step.command for step in guide if videotape_command(step, NOT_YET)] == [guide[-1].command]
+    assert [step.command for step in guide if videotape_command(step, "publish")] == [guide[-1].command]
 
 
 @pytest.mark.parametrize("real_player", [False, pytest.param(True, marks=pytest.mark.player)],
@@ -226,7 +224,6 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
     monkeypatch.delenv("FAL_KEY", raising=False)
     opened = list[list[str]]()
     if not real_player:
-        monkeypatch.setattr(player, "built", lambda source=None: tmp_path / "cache" / "TapePlayer.app")
         monkeypatch.setattr(player, "_launch", opened.append)
     environment = {key: value for key, value in os.environ.items()
                    if key not in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")}
@@ -238,9 +235,6 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
                 written = True
             continue
         step = event
-        if videotape_command(step, NOT_YET):
-            assert NOT_YET not in subcommands(capsys), f"videotape has {NOT_YET} now, so run README.md:{step.line}"
-            break
         words = step.words
         if words[0] == "cd":
             here = here / words[1]
@@ -277,5 +271,5 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
     assert rendered.code == 0
     assert [(failure["shot"], bool(failure["accepted"])) for failure in rendered.record["failures"]] == [(accepted, True)]
     if not real_player:
-        assert opened == [["open", str(tmp_path / "cache" / "TapePlayer.app"), "--args", str(done.tape.resolve())]
+        assert opened == [["open", str(player.built()), "--args", str(done.tape.resolve())]
                           for done in ran if videotape_command(done.step, "play")]
