@@ -319,9 +319,9 @@ def _tape_flags(command: argparse.ArgumentParser, required: bool = True) -> None
 
 
 def _render_flags(command: argparse.ArgumentParser) -> None:
-    command.add_argument("--model", choices=sorted(MODELS), help="the model to render with (default: model in "
-                         "[tool.videotape])")
-    command.add_argument("--cap-usd", type=float, help="the most this render may spend on a model that bills per "
+    command.add_argument("--model", choices=sorted(MODELS), help="the model that films the takes (default: model "
+                         "in [tool.videotape])")
+    command.add_argument("--cap-usd", type=float, help="the most a render may spend on a model that bills per "
                          "call (default: cap_usd in [tool.videotape])")
     command.add_argument("--out", help="the folder to write the tape to (default: tapes/<story> in the project)")
 
