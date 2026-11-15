@@ -1,9 +1,10 @@
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Protocol
 
-from videotape import wan, wan3
+from videotape import hosted, wan
 from videotape.checks import Eye
 from videotape.fal import Price, Receipt
 from videotape.plan import Mode
@@ -13,8 +14,9 @@ from videotape.wan import Wan
 
 
 class Kind(Protocol):
-    """A model's name and settings, which is all a tape's made block reads of it. A model's class gives both without
-    being built, so publish can say what made a tape without a model's key or GPU."""
+    """A model's name and settings, which is all a tape's made block reads of it. A model's class, or a model on fal's
+    FalModel, gives both without the model being built, so publish can say what made a tape without a model's key or
+    GPU."""
 
     name: str
 
@@ -66,8 +68,8 @@ class Listing:
     """The environment variable that holds the key a model run as a service needs. The environment or the project's
     .env sets it."""
     kind: Kind = field(kw_only=True)
-    """The model's class, whose name and settings a tape's made block reads. Building wan3.0 needs its key, and
-    building wan2.2-5b a CUDA GPU."""
+    """The model's name and settings, which a tape's made block reads, without building the model: its class, or for a
+    model on fal its FalModel. Building a model on fal needs its key, and building wan2.2-5b a CUDA GPU."""
 
 
 MODELS: dict[str, Listing] = {
@@ -76,10 +78,10 @@ MODELS: dict[str, Listing] = {
     "wan2.2-5b": Listing(Wan, QwenEye, PromptLimit(Wan.name, wan.TEXT_TOKENS, "about {:,} tokens", wan.tokens), limit=1,
                          kind=Wan),
     # fal.ai/docs/documentation/model-apis/concurrency-limits, read 2026-11-14: "Every new account starts with a
-    # concurrency limit of 2 concurrent requests."
-    "wan3.0": Listing(wan3.from_environment, QwenEye,
-                      PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2,
-                      key="FAL_KEY", kind=wan3.Wan3),
+    # concurrency limit of 2 concurrent requests." The limit is the account's, so it holds for every model on fal.
+    **{model.name: Listing(partial(hosted.from_environment, model), QwenEye,
+                           PromptLimit(model.name, model.prompt_characters, "{:,} characters", len), model.price,
+                           limit=2, key="FAL_KEY", kind=model) for model in hosted.FAL_MODELS},
 }
 
 

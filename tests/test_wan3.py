@@ -12,9 +12,10 @@ from pathlib import Path
 import pytest
 
 from conftest import FIXTURES, as_explained, copy_of, planned, told, words
-from videotape import dailies, ledger, project, wan3
+from videotape import dailies, ledger, project
 from videotape.errors import RenderError
 from videotape.fal import Fal, FalError, Receipt
+from videotape.hosted import WAN3, WAN3_FIELDS, FalRequest, OnFal, from_environment, request_record
 from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
@@ -50,8 +51,8 @@ def unpacked(uri: str) -> bytes:
 
 def test_a_key_is_text_to_video_from_its_own_prompt_at_720p_without_sound_or_prompt_expansion():
     order = SHOTS["key order(Latte)"]
-    built = wan3.request(Mode.TEXT_TO_VIDEO, order, 1)
-    assert built == wan3.Wan3Request("alibaba/wan-3.0/text-to-video", {"prompt": order, **SETTINGS, "seed": 1})
+    built = WAN3.request(Mode.TEXT_TO_VIDEO, order, 1)
+    assert built == FalRequest("alibaba/wan-3.0/text-to-video", {"prompt": order, **SETTINGS, "seed": 1})
 
 
 def test_the_prompt_limit_is_the_20000_characters_fals_schema_gives_both_endpoints():
@@ -62,7 +63,7 @@ def test_the_prompt_limit_is_the_20000_characters_fals_schema_gives_both_endpoin
 def test_a_move_is_image_to_video_from_the_key_it_starts_on_to_the_key_it_lands_on(tmp_path):
     pick = SHOTS['menu() -> order(Latte) "Latte, $5"']
     menu, order = png(tmp_path / "menu.png", "red"), png(tmp_path / "order.png", "blue")
-    built = wan3.request(Mode.FIRST_AND_LAST_FRAME, pick, 2, menu, order)
+    built = WAN3.request(Mode.FIRST_AND_LAST_FRAME, pick, 2, menu, order)
     assert built.endpoint == "alibaba/wan-3.0/image-to-video"
     images = {name: built.arguments[name] for name in ("start_image_url", "end_image_url")}
     assert {name: value for name, value in built.arguments.items() if name not in images} == {
@@ -73,10 +74,10 @@ def test_a_move_is_image_to_video_from_the_key_it_starts_on_to_the_key_it_lands_
 
 def test_settings_cover_every_argument_a_shot_does_not_supply(tmp_path):
     images = png(tmp_path / "a.png", "red"), png(tmp_path / "b.png", "blue")
-    for mode, built in ((Mode.TEXT_TO_VIDEO, wan3.request(Mode.TEXT_TO_VIDEO, "a prompt", 7)),
-                        (Mode.FIRST_AND_LAST_FRAME, wan3.request(Mode.FIRST_AND_LAST_FRAME, "a prompt", 7, *images))):
+    for mode, built in ((Mode.TEXT_TO_VIDEO, WAN3.request(Mode.TEXT_TO_VIDEO, "a prompt", 7)),
+                        (Mode.FIRST_AND_LAST_FRAME, WAN3.request(Mode.FIRST_AND_LAST_FRAME, "a prompt", 7, *images))):
         from_shot = {"prompt", "seed", "start_image_url", "end_image_url"}
-        assert wan3.Wan3.settings(mode) == {"endpoint": built.endpoint,
+        assert WAN3.settings(mode) == {"endpoint": built.endpoint,
                                             **{k: v for k, v in built.arguments.items() if k not in from_shot}}
 
 
@@ -87,7 +88,7 @@ def test_a_recorded_response_reads_into_a_video_and_a_receipt_without_the_networ
             ("image-to-video", "01a1c61c-45f6-76e1-9089-e4151dcebb51",
              "https://v3b.fal.media/files/b/0ab1ec52/ovFng3HiN7lAS57AK3Vmg_5d55sEuG.mp4")):
         response = recorded(mode)
-        url, receipt = wan3.bill(response)
+        url, receipt = WAN3.bill(response)
         assert url == video
         assert receipt == Receipt(request_id, 5.0, 0.5, response)
 
@@ -95,7 +96,7 @@ def test_a_recorded_response_reads_into_a_video_and_a_receipt_without_the_networ
 def test_a_response_without_a_video_is_an_error():
     response = recorded("text-to-video")
     with pytest.raises(FalError, match="request 01a1c5fb-027e-7b70-857e-d4305eafbbdb answered without video.url"):
-        wan3.bill({**response, "result": {"detail": "the safety checker flagged the output"}})
+        WAN3.bill({**response, "result": {"detail": "the safety checker flagged the output"}})
 
 
 def http(code: int, body: str = "") -> urllib.error.HTTPError:
@@ -145,7 +146,7 @@ def test_a_take_is_submitted_once_even_when_the_render_dies_between_submitting_a
     fal = Hosted(tmp_path)
     status = "https://queue.fal.run/alibaba/wan-3.0/requests/request-0/status"
     fal.broken.add(status)
-    model = wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None))
+    model = OnFal(WAN3, Fal(KEY, send=fal, sleep=lambda _: None))
     (tmp_path / "takes").mkdir()
     out = tmp_path / "takes" / "abc123.partial.mp4"
     with pytest.raises(FalError, match="status of alibaba/wan-3.0/text-to-video request request-0 failed with HTTP 400"):
@@ -169,9 +170,9 @@ def hosted_by(queue: type[Hosted], tmp_path: Path, monkeypatch) -> tuple[Path, H
     directory = copy_of("cafe", tmp_path)
     (tmp_path / "clips").mkdir()
     fal = queue(tmp_path / "clips")
-    monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)),
-                                                  lambda tape: StandInEye(), price=wan3.PRICE, limit=2,
-                                                  kind=wan3.Wan3))
+    monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: OnFal(WAN3, Fal(KEY, send=fal, sleep=lambda _: None)),
+                                                  lambda tape: StandInEye(), price=WAN3.price, limit=2,
+                                                  kind=WAN3))
     return directory, fal
 
 
@@ -289,7 +290,7 @@ def test_a_corrupt_take_whose_record_is_gone_is_vt403_and_never_submitted_again(
     cli(directory, *RENDER)
     clip, sidecar, shot = a_take(directory)
     clip.write_bytes(b"not a clip")
-    wan3.request_record(clip).unlink()
+    request_record(clip).unlink()
     capsys.readouterr()
     assert cli(directory, *render_args(takes=2)) == 1
     err = capsys.readouterr().err
@@ -366,7 +367,7 @@ def test_a_call_that_fails_after_its_submit_keeps_its_reservation(tmp_path):
     directory = copy_of("cafe", tmp_path)
     (tmp_path / "clips").mkdir()
     fal = Window(tmp_path / "clips")
-    model = wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None))
+    model = OnFal(WAN3, Fal(KEY, send=fal, sleep=lambda _: None))
     reported = []
 
     def report(filmed):
@@ -378,7 +379,7 @@ def test_a_call_that_fails_after_its_submit_keeps_its_reservation(tmp_path):
     chalk, tape = told(directory), directory / "tape-wan3"
     with pytest.raises(RenderError) as error:
         render(planned(directory), chalk, model, StandInEye(), tape, ledger.of(directory, tape),
-               made(project.find(directory), chalk, model), takes=1, limit=2, price=wan3.PRICE, cap=1.5, report=report)
+               made(project.find(directory), chalk, model), takes=1, limit=2, price=WAN3.price, cap=1.5, report=report)
     assert error.value.code in ("VT401", "VT402")
     assert 0.5 * len(fal.posts) <= 1.5 and len(fal.posts) == 3
     assert sorted(line["request_id"] for line in ledger.of(directory, tape).lines()) == ["request-1", "request-2"]
@@ -473,7 +474,7 @@ def test_an_edit_submits_only_the_calls_it_needs(hosted, cli, capsys, old, new, 
 def test_a_change_to_the_request_settings_renders_again(hosted, cli, monkeypatch):
     directory, fal = hosted
     cli(directory, *RENDER)
-    monkeypatch.setitem(wan3.SETTINGS, "resolution", "1080p")
+    monkeypatch.setitem(WAN3_FIELDS, "resolution", "1080p")
     cli(directory, *RENDER)
     assert len(fal.posts) == 22
     assert {arguments["resolution"] for _, arguments in fal.posts[11:]} == {"1080p"}
@@ -533,7 +534,7 @@ def test_the_key_from_the_environment_goes_only_into_the_submits_authorization_h
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda request, timeout: sent.append(request) or Answer(b'{"detail": "no request today"}'))
     with pytest.raises(FalError, match="answered without a request") as error:
-        wan3.from_environment().text_to_video("a prompt", 1, Path("unused.mp4"))
+        from_environment(WAN3).text_to_video("a prompt", 1, Path("unused.mp4"))
     assert [(request.full_url, request.get_header("Authorization")) for request in sent] == [
         ("https://queue.fal.run/alibaba/wan-3.0/text-to-video", f"Key {KEY}")]
     assert KEY not in str(error.value)

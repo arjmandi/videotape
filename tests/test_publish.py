@@ -25,7 +25,7 @@ from videotape.model import MODELS, Listing
 from videotape.checks import Spot
 from videotape.standin import Flaw, StandIn, StandInEye
 from videotape.plan import Mode
-from videotape.wan3 import Wan3
+from videotape.hosted import WAN3
 
 LABEL = "contrail 0.1.0 + starter 1.0.0"
 
@@ -243,7 +243,7 @@ def as_wan3(folder: Path) -> dict:
     """Rewrite the tape's made block as a wan3.0 render of the same sources would write it."""
     file = folder / "tapes" / "starter" / "tape.json"
     written = json.loads(file.read_text())
-    written["made"] = made.made(project.find(folder), told(folder, "starter"), Wan3)
+    written["made"] = made.made(project.find(folder), told(folder, "starter"), WAN3)
     file.write_text(json.dumps(written, indent=2) + "\n")
     return written["made"]
 

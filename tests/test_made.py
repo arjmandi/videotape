@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from conftest import CONTRAIL, copy_of, planned, told
-from videotape import ledger, project, wan3
+from videotape import hosted, ledger, project
 from videotape.errors import PACKAGE
 from videotape.fal import Fal
 from videotape.made import made
@@ -48,7 +48,7 @@ def test_the_same_everything_has_one_id_wherever_the_project_is(tmp_path):
 def test_each_listed_models_class_gives_the_made_block_its_built_model_does_without_a_key(monkeypatch):
     monkeypatch.delenv("FAL_KEY", raising=False)
     found, terminal = project.find(CONTRAIL), told(CONTRAIL, "terminal")
-    assert made(found, terminal, MODELS["wan3.0"].kind) == made(found, terminal, wan3.Wan3(Fal("a key")))
+    assert made(found, terminal, MODELS["wan3.0"].kind) == made(found, terminal, hosted.OnFal(hosted.WAN3, Fal("a key")))
     assert made(found, terminal, MODELS["stand-in"].kind) == made(found, terminal, StandIn())
     assert {name: made(found, terminal, listing.kind)["model"]["name"] for name, listing in MODELS.items()} == \
         {name: name for name in MODELS}

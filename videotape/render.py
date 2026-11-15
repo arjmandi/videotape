@@ -19,6 +19,7 @@ from videotape.dailies import Carried
 from videotape.errors import RenderError, shown
 from videotape.fal import FalError, Price, Receipt
 from videotape.frames import Box, DecodeError, FfmpegError, Shape
+from videotape.hosted import RecordedFailure
 from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
@@ -27,7 +28,6 @@ from videotape.screenplay import State
 from videotape.standin import StandInError
 from videotape.story import Prompt, Story, prompt, text
 from videotape.wan import WanError
-from videotape.wan3 import RecordedFailure
 
 
 @dataclass(frozen=True)
