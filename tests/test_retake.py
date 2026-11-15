@@ -200,9 +200,14 @@ def test_accept_of_a_check_that_is_not_failing_says_so_and_records_nothing(tmp_p
     assert cli(directory, *RENDER) == 1
     capsys.readouterr()
     assert cli(directory, "accept", "order(Latte)", "VT503", "--story", "chalk", "--reason", "fine") == 1
-    assert capsys.readouterr().out == "key order(Latte) does not fail VT503; it passes, so nothing is recorded\n"
+    out, err = capsys.readouterr()
+    assert out == "" and as_explained("VT408").fullmatch(err.rstrip("\n"))
+    assert err == ("error VT408 key order(Latte): does not fail VT503; it passes, so nothing is recorded\n"
+                   "next: nothing; its kept take passes every check\n")
     assert cli(directory, "accept", "thanks(Espresso)", "VT501", "--story", "chalk", "--reason", "fine") == 1
-    assert capsys.readouterr().out == "key thanks(Espresso) does not fail VT501; it fails VT503, so nothing is recorded\n"
+    assert capsys.readouterr() == (
+        "", "error VT408 key thanks(Espresso): does not fail VT501; it fails VT503, so nothing is recorded\n"
+            'next: accept the code it fails: videotape accept "thanks(Espresso)" VT503 --story chalk --reason "..."\n')
     assert dailies.read(tape)["accepted"] == []
     with pytest.raises(SystemExit):
         cli(directory, "accept", "thanks(Espresso)", "VT301", "--story", "chalk", "--reason", "fine")

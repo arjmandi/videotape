@@ -171,7 +171,7 @@ MODELS = "gemini-omni-flash-1.2, minimax-h3, stand-in, wan2.2-5b, wan3.0"
     (None, "VT106 pyproject.toml: no pyproject.toml here or in any folder above\n"
            "fix: run videotape in an app's project, or start one with videotape new <name>"),
     ('[project]\nname = "app"\n', "VT106 pyproject.toml: has no [tool.videotape] section\nfix: add one that names the "
-     'screenplay, its module and the name of its vt.Screenplay: [tool.videotape] screenplay = "shop:app"'),
+     'screenplay, its module and the name of its vt.Screenplay: [tool.videotape] screenplay = "shop.screenplay:app"'),
     ("[tool.videotape\n", "VT107 pyproject.toml: is not TOML: Expected ']' at the end of a table declaration "
      "(at line 1, column 16)\nfix: write it as TOML, at the line the error names"),
     ('[tool.videotape]\nscreenplay = "app"\n', "VT107 pyproject.toml: [tool.videotape] screenplay is 'app', not "

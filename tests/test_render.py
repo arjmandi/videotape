@@ -778,7 +778,7 @@ def test_every_take_corrupt_stops_the_render_with_vt403(tmp_path):
         rendered(directory, Garbled({1, 2}, flaw=clean), takes=2)
     assert (error.value.code, error.value.place, error.value.message) == (
         "VT403", "key menu()", "every take of the shot is corrupt")
-    assert 'videotape retake "menu()"' in error.value.next
+    assert error.value.next.endswith('videotape retake "menu()" --story chalk')
 
 
 class Failing(StandIn):

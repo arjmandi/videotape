@@ -5,6 +5,7 @@ call films under a cap. Every take on disk is reused, so a render run again resu
 
 import hashlib
 import json
+import shlex
 import shutil
 import threading
 import time
@@ -145,6 +146,8 @@ class _Set:
     budget: Budget
     resume: str
     """The command that runs this render again."""
+    retake: str
+    """What a retake of one of this render's shots names after the shot: the story, and the tape when not its own."""
     stop: threading.Event
     """Set when the render stops on an error: a take in flight finishes and is recorded, and no new one starts."""
     locks: dict[Path, threading.Lock]
@@ -174,8 +177,10 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     carried = dailies.carried(tape)
+    words = shlex.split(resume)
+    retake = f" --story {story.name}" + (f" --out {words[words.index('--out') + 1]}" if "--out" in words else "")
     shared = _Set(model, eye, tape, {key.state: tape / key.image for key in plan.keys}, Budget(ledger, price, cap), resume,
-                  threading.Event(), {}, threading.Lock())
+                  retake, threading.Event(), {}, threading.Lock())
     seeds = {shot.title: _seeds(shot, takes, carried) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
     stopped: RenderError | None = None
@@ -306,7 +311,7 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
     if not takes:
         raise RenderError("VT403", shot.title, "every take of the shot is corrupt",
                           f"raise takes in [tool.videotape] or pass --takes, or retake the shot: "
-                          f'videotape retake "{dailies.named(shot)}"')
+                          f'videotape retake "{dailies.named(shot)}"{shared.retake}')
     return Filmed(shot, clauses, tuple(takes), min(takes, key=lambda take: take.checks.rank(take.seed)),
                   tuple(reported), tuple(corrupt))
 

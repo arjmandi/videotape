@@ -399,6 +399,15 @@ CODES: dict[str, Code] = {
         "next: render the story again, which writes every key's picture again; when it stops here too, the model films "
         "takes of two sizes, so render with another model, as in:\nvideotape render --story <story> --model stand-in",
     ),
+    "VT408": Code(
+        "accept names a check the shot does not fail",
+        "accept records a person's reason for one check that a shot's kept take fails, named by the shot and the "
+        "check's code. The kept take of the shot it names does not fail that code, so there is nothing to accept, and "
+        "the tape's dailies.json is left as it was. The error says which codes the kept take fails, if any, and the "
+        "next step accepts the first of them.",
+        "error VT408 key order(Latte): does not fail VT503; it passes, so nothing is recorded",
+        "next: nothing; its kept take passes every check",
+    ),
     "VT501": Code(
         "an action was not found on its key",
         "Every action of a state is found on the state's key by its words, and its box becomes the hotspot a "
