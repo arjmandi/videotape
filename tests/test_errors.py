@@ -33,7 +33,7 @@ ERRORS = {
               "ask for a record the data holds, or count the matches with where(...).count()"),
     "VT209": ("home()", 'two actions have the spoken name "Open"', "give each action words of its own"),
     "VT210": ("count(5)", "the plan reached more than 5 states",
-              "take a scene's arguments from the data, which ends, or raise max_states in [tool.videotape]"),
+              "let a scene's arguments come from the data, which ends, or raise max_states in [tool.videotape]"),
     "VT301": ("stories/neon.toml", "the story has no look",
               'write look = "...", the look of the whole app in a sentence or two, above the first [heading]'),
     "VT302": ("stories/neon.toml:6", "the story directs the scene detial, and the screenplay has no scene of that name",
@@ -44,7 +44,7 @@ ERRORS = {
     "VT306": ("stories/neon.toml:2", "the story is not TOML: Invalid value",
               'write each line as name = "words", under [scenes], [elements] or [moves], or above all three'),
     "VT308": ("stories/neon.toml:5", "home under [scenes] quotes '\u201cOpen\u201d.'",
-              "take the quotes out; the screenplay owns every word on screen, so describe how they look"),
+              "remove the quotes; the screenplay owns every word on screen, so describe how they look"),
     "VT309": ("stories", 'no story "neon"', "name one of the stories there, glow"),
 }
 WARNINGS = {
@@ -53,7 +53,7 @@ WARNINGS = {
                "shorten it to 12 words or fewer")],
     "VT304": [("stories/neon.toml", "the scene detail has no direction, so its keys get only the look",
                'add detail = "..." under [scenes]')],
-    "VT307": [("key home()", "the prompt is about 778 tokens long, and wan2.2-5b takes no more than 512",
+    "VT307": [("key home()", "the prompt is about 778 tokens long, and wan2.2-5b allows no more than 512",
                "shorten the look, the scene's direction or the appearances in stories/neon.toml, or show fewer lines "
                "in this state")],
 }

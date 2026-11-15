@@ -31,7 +31,7 @@ CODES: dict[str, Code] = {
     "VT102": Code(
         "ffmpeg or ffprobe is not on PATH",
         "A render decodes takes and writes each key's picture with ffmpeg, and reads each kept take's size with "
-        "ffprobe. doctor looks for both on PATH. A render without them stops at its first take with VT404.",
+        "ffprobe. doctor searches PATH for both. A render without them stops at its first take with VT404.",
         "fail VT102 ffprobe is not on PATH",
         "install ffmpeg, which brings ffprobe, as in brew install ffmpeg",
     ),
@@ -79,10 +79,10 @@ CODES: dict[str, Code] = {
         "[tool.videotape] in the project's pyproject.toml names the screenplay as module:name, the module that holds "
         "it and the name of its vt.Screenplay. It may set model, one of the models videotape has, max_states and "
         "takes, whole numbers of at least 1, and cap_usd, a number of dollars. A value here is none of what its "
-        "setting takes, the screenplay it names is not a vt.Screenplay in the project, or the file is not TOML. The "
+        "setting allows, the screenplay it names is not a vt.Screenplay in the project, or the file is not TOML. The "
         "error names the setting and what it holds.",
         'error VT107 pyproject.toml: [tool.videotape] model is "wan3", and videotape has no such model',
-        "set each to what it takes:\n[tool.videotape]\n"
+        "set each to what it allows:\n[tool.videotape]\n"
         'screenplay = "shop.screenplay:app"\nmodel = "wan3.0"\ntakes = 4\ncap_usd = 20',
     ),
     "VT201": Code(
@@ -134,7 +134,7 @@ CODES: dict[str, Code] = {
     ),
     "VT207": Code(
         "a query names a field its records don't have",
-        "where, order_by, get, distinct, min, and sum take the names of a record's fields, and so does key=. This "
+        "where, order_by, get, distinct, min, and sum name a record's fields, and so does key=. This "
         "name is not one of them. The error lists the fields the records do have.",
         'flights.where(dest="SEA")',
         'flights.where(destination="SEA")',
@@ -162,7 +162,7 @@ CODES: dict[str, Code] = {
         "passed max_states, which is 500 unless [tool.videotape] sets it. Usually a scene's argument grows without "
         "end, such as a counter that every state passes on plus one.",
         '@app.scene\ndef count(n: int):\n    return [vt.Button("More", to=count(n + 1))]',
-        "Take a scene's arguments from the data, which ends. If the app really has more states, raise the limit:\n"
+        "Let a scene's arguments come from the data, which ends. If the app really has more states, raise the limit:\n"
         "[tool.videotape]\nmax_states = 2000",
     ),
     "VT211": Code(
@@ -192,10 +192,10 @@ CODES: dict[str, Code] = {
     "VT303": Code(
         "a story names an element type the screenplay doesn't use",
         "Under [elements] a story gives an element type its appearance, and under [moves] what the camera does in "
-        "its moves, by the type's class name, such as Button or DateStrip. An Option takes those of its SearchBar, DatePicker or "
-        "DateStrip, and a Row those of its List. No state of this app shows an element of this type, so the words "
-        "would never be used. [moves] may also hold default, for every type without its own. The error names the "
-        "line, and the fix names the closest type the app does show.",
+        "its moves, by the type's class name, such as Button or DateStrip. An Option uses those of its SearchBar, "
+        "DatePicker or DateStrip, and a Row those of its List. No state of this app shows an element of this type, so "
+        "the words would never be used. [moves] may also hold default, for every type without its own. The error "
+        "names the line, and the fix names the closest type the app does show.",
         '[elements]\nButon = "a lit amber panel with bold black letters"',
         '[elements]\nButton = "a lit amber panel with bold black letters"',
     ),
@@ -230,11 +230,11 @@ CODES: dict[str, Code] = {
         'look = "A quiet airport terminal at first light."\n\n[scenes]\nhome = "The main hall."',
     ),
     "VT307": Code(
-        "a prompt is longer than the model takes",
-        "A warning. A model takes a prompt up to a limit. Wan 2.2 reads 512 tokens and drops the rest without saying "
+        "a prompt is longer than the model allows",
+        "A warning. A model allows a prompt up to a limit. Wan 2.2 reads 512 tokens and drops the rest without saying "
         "so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it would "
         "leave out. The plan has no tokenizer, so it counts high: one token for every four letters of a word, one "
-        "for every other character that is not a space, and one for the end. Wan 3.0 on fal takes 20,000 characters. "
+        "for every other character that is not a space, and one for the end. Wan 3.0 on fal allows 20,000 characters. "
         "The stand-in has no limit. The plan goes on.",
         'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
         "Shorten the look, the scene's direction or the appearances in the story, or show fewer lines in the state.",
@@ -354,7 +354,7 @@ CODES: dict[str, Code] = {
         "on. Publish reads the tape's dailies.json, and while a failing check there is not accepted, it leaves dist/ "
         "and the lock as they were.",
         "error VT602 tapes/starter: 1 check fails that nobody accepted: key todo() VT503",
-        "fix: look at it with videotape dailies --story starter, then retake the shot or accept the failure with a "
+        "fix: review it with videotape dailies --story starter, then retake the shot or accept the failure with a "
         "reason; for the first:\nvideotape retake \"todo()\" --story starter\n"
         "videotape accept \"todo()\" VT503 --story starter --reason \"...\"",
     ),
@@ -367,7 +367,7 @@ CODES: dict[str, Code] = {
         "error VT603 ~/Library/Caches/videotape/player/3f9a0c1d2e4b5a67/build.log: the build exited with 1: "
         "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory "
         "'/Library/Developer/CommandLineTools' is a command line tools instance",
-        "run videotape doctor, which looks for Xcode; when it finds Xcode, the log says what failed",
+        "run videotape doctor, which searches for Xcode; when it finds Xcode, the log says what failed",
     ),
     "VT604": Code(
         "a check fails on the HEVC frame TapePlayer rests on",

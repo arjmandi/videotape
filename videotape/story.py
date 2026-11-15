@@ -185,7 +185,7 @@ def _unquoted(path: Path, words: str, what: str) -> None:
     # The line is found by the words beside the quote, since a straight quote is escaped in the file.
     beside = re.match(r"[^\\\"\u201c\u201d]{1,8}", words[at + 1:]) or re.search(r"[^\\\"\u201c\u201d]{1,8}$", words[:at])
     raise ScreenplayError("VT308", _line_with(path, beside[0] if beside else ""), f"{what} quotes {quoted!r}",
-                          "take the quotes out; the screenplay owns every word on screen, so describe how they look")
+                          "remove the quotes; the screenplay owns every word on screen, so describe how they look")
 
 
 def _line_with(path: Path, needle: str) -> str:
@@ -229,7 +229,7 @@ def check(story: Story, plan: Plan, limit: PromptLimit | None) -> tuple[Screenpl
     if limit:
         lengths = {shot: limit.count(text(prompt(shot, story))) for shot in plan.shots}
         warnings += [ScreenplayError("VT307", shot.title, f"the prompt is {limit.says.format(length)} long, and "
-                                     f"{limit.model} takes no more than {limit.most:,}",
+                                     f"{limit.model} allows no more than {limit.most:,}",
                                      f"shorten the look, the scene's direction or the appearances in {place}, or show "
                                      "fewer lines in this state")
                      for shot, length in lengths.items() if length > limit.most]

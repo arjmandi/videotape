@@ -63,7 +63,7 @@ def built(source: Path | None = None) -> Path:
             line = next((line for line in said if "error:" in line),
                         next((line for line in reversed(said) if line.strip()), "nothing"))
             raise ScreenplayError("VT603", errors.shown(log), f"the build exited with {ran.returncode}: {line.strip()}",
-                                  "run videotape doctor, which looks for Xcode; when it finds Xcode, the log "
+                                  "run videotape doctor, which searches for Xcode; when it finds Xcode, the log "
                                   "says what failed")
         (folder / "build" / "TapePlayer.app").rename(app)
     log.unlink(missing_ok=True)
