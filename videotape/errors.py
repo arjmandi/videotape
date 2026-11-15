@@ -220,7 +220,8 @@ CODES: dict[str, Code] = {
         'retake and accept name a shot, and shots --state names a state. A key is named by its state, as in "home()", '
         'and a move by its two states, as in "home() -> search()", or by its full title when two moves join the same '
         'states, as in \'hall() -> room() "Side door"\'. No state or move of the plan has this name, or two moves '
-        "share it. The fix names the closest, or the full titles.",
+        "share it. The fix names the closest, or the full titles. scripts/screen-test films the keys of the states its "
+        "SAMPLER names, and stops with this code before anything else when the plan lacks one.",
         'error VT212 "thanks(Late)": the app has no state or move of this name',
         "fix: name one of the closest: thanks(Latte), thanks(Latte) -> menu(), thanks(Espresso)",
     ),
@@ -348,7 +349,9 @@ CODES: dict[str, Code] = {
         "resets it. Before each paid call the render stops when the call would pass the cap, says what was spent, and "
         "lets the calls in flight finish and reach the ledger. The render weighs each call against the cap at its "
         "listed price, and the ledger holds what the call then billed, which can differ a little, so the spend can "
-        "end a little past the cap. A render with a paid model or a paid reader and no cap does not start.",
+        "end a little past the cap. A render with a paid model or a paid reader and no cap does not start. "
+        "scripts/screen-test holds one cap for all its tapes, renders each under what the others leave, and stops "
+        "before its first call when its estimate passes the cap.",
         "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
         "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
         "next: run the render again with a higher cap, which resumes, as in:\n"
