@@ -15,7 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotape import dailies, frames, player, story
-from videotape.atomic import partial, write_atomically
 from videotape.checks import MAX_DIFFERENCE, ChecksError, Eye, Item, score
 from videotape.errors import ScreenplayError, shown
 from videotape.frames import Frame
@@ -47,8 +46,9 @@ class Published:
 
 
 def publish(found: Project, tape: Path) -> Published:
-    """Refuse the tape, or build its app into dist/, zip it, and record it in videotape.lock. The app is staged beside
-    its place and moved there only when whole and signed, so dist/ holds only whole apps."""
+    """Refuse the tape, or build its app into dist/, zip it, and record it in videotape.lock. The app, the zip and the
+    lock are made whole in dist/<app>.partial/ first, then swapped into place, so dist/ and the lock hold what the
+    last publish made or what this one made, never a part of each."""
     manifest, record = _read(tape)
     block = manifest["made"]
     told = story.named(found.root, block["story"]["name"])
@@ -60,8 +60,9 @@ def publish(found: Project, tape: Path) -> Published:
     planned = plan(found.load(), found.max_states)
     built = player.built()
     app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
-    staged = partial(app)
-    shutil.rmtree(staged, ignore_errors=True)
+    zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")
+    staged = staging / app.name
+    shutil.rmtree(staging, ignore_errors=True)
     try:
         shutil.copytree(built, staged, symlinks=True)
         _name(staged / "Contents" / "Info.plist", planned.title, found.name, told.name)
@@ -73,16 +74,37 @@ def publish(found: Project, tape: Path) -> Published:
         _run("codesign", "--force", "--deep", "--sign", "-", str(staged))
         print("signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app",
               flush=True)
-        shutil.rmtree(app, ignore_errors=True)
-        staged.rename(app)
+        _run("ditto", "-c", "-k", "--keepParent", str(staged), str(staging / zipped.name))
+        locked = block["label"] not in lock
+        if locked:
+            write_lock(staging / LOCK, {**lock, block["label"]: entry(block)})
+        _swap(staging, [app, zipped, *([found.root / LOCK] if locked else [])])
     finally:
-        shutil.rmtree(staged, ignore_errors=True)
-    zipped = app.with_suffix(".zip")
-    write_atomically(zipped, lambda written: _run("ditto", "-c", "-k", "--keepParent", str(app), str(written)))
-    locked = block["label"] not in lock
-    if locked:
-        write_lock(found.root, {**lock, block["label"]: entry(block)})
+        shutil.rmtree(staging, ignore_errors=True)
     return Published(app, zipped, block["label"], block["id"], locked)
+
+
+def _swap(staging: Path, places: list[Path]) -> None:
+    """Move what staging holds under each place's name into that place, and what the place held aside into staging.
+    When a move fails or is interrupted, each place gets back what it held, so the places hold all the old files or all
+    the new ones."""
+    aside = staging / "aside"
+    aside.mkdir()
+    try:
+        for place in places:
+            if place.exists():
+                place.rename(aside / place.name)
+            (staging / place.name).rename(place)
+    except BaseException:
+        for place in places:
+            if not (staging / place.name).exists():
+                if place.is_dir():
+                    shutil.rmtree(place)
+                else:
+                    place.unlink(missing_ok=True)
+            if (aside / place.name).exists():
+                (aside / place.name).rename(place)
+        raise
 
 
 def entry(block: dict) -> dict[str, str]:
@@ -104,12 +126,12 @@ def read_lock(root: Path) -> dict[str, dict[str, str]]:
         raise ProjectError(f"{shown(file)} is not TOML: {error}; mend it, or restore it from git") from None
 
 
-def write_lock(root: Path, lock: dict[str, dict[str, str]]) -> None:
+def write_lock(file: Path, lock: dict[str, dict[str, str]]) -> None:
     """The lock as TOML, one table per label in order, so a new label is a few added lines in a diff."""
     tables = (f"\n[{json.dumps(label, ensure_ascii=False)}]\n" +
               "".join(f"{key} = {json.dumps(value, ensure_ascii=False)}\n" for key, value in lock[label].items())
               for label in sorted(lock))
-    write_atomically(root / LOCK, lambda out: out.write_text(HEADER + "".join(tables)))
+    file.write_text(HEADER + "".join(tables))
 
 
 def _read(tape: Path) -> tuple[dict, dict]:

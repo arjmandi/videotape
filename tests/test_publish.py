@@ -7,17 +7,19 @@ app bundle around /usr/bin/true, so codesign has a real executable to sign and n
 import contextlib
 import dataclasses
 import hashlib
+import itertools
 import json
 import plistlib
 import shutil
 import subprocess
 import tomllib
+import zipfile
 from pathlib import Path
 
 import pytest
 
 from conftest import as_explained, forget, told
-from videotape import frames, made, new, player, project
+from videotape import frames, made, new, player, project, publish
 from videotape.cli import main
 from videotape.model import MODELS, Listing
 from videotape.standin import Flaw, StandIn, StandInEye
@@ -131,6 +133,65 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
     assert (contrail / "videotape.lock").read_text() == lock
     assert sorted(path.name for path in (contrail / "dist").iterdir()) == ["Contrail-starter.app", "Contrail-starter.zip"]
     assert signed(app)
+
+
+def shipped(folder: Path) -> tuple[list[str], str | None, str | None, str | None]:
+    """What a publish leaves: the names in dist/, the made id of the tape in the app and in the zip, and the lock."""
+    dist, lock = folder / "dist", folder / "videotape.lock"
+    in_app = dist / "Contrail-starter.app" / "Contents" / "Resources" / "tape" / "tape.json"
+    in_zip = None
+    if (dist / "Contrail-starter.zip").is_file():
+        with zipfile.ZipFile(dist / "Contrail-starter.zip") as zipped:
+            in_zip = json.loads(zipped.read("Contrail-starter.app/Contents/Resources/tape/tape.json"))["made"]["id"]
+    return (sorted(path.name for path in dist.iterdir()) if dist.is_dir() else [],
+            json.loads(in_app.read_text())["made"]["id"] if in_app.is_file() else None, in_zip,
+            lock.read_text() if lock.is_file() else None)
+
+
+def stopped(cli, folder: Path, at: int) -> bool:
+    """Publish in the folder, stopped as by Ctrl-C at its at-th step that writes, counted from 0: codesign, the zip,
+    and each rename or replace. False when the publish finished before that step."""
+    steps = itertools.count()
+    with pytest.MonkeyPatch.context() as patch:
+        for owner, name in ((publish, "_run"), (Path, "rename"), (Path, "replace")):
+            def step(*arguments, real=getattr(owner, name)):
+                if next(steps) == at:
+                    raise KeyboardInterrupt
+                return real(*arguments)
+            patch.setattr(owner, name, step)
+        try:
+            assert cli(folder, "publish", "--story", "starter") == 0
+        except KeyboardInterrupt:
+            return True
+    return False
+
+
+def test_a_publish_stopped_or_failing_at_any_step_leaves_the_old_app_zip_and_lock_whole_or_the_new_ones(
+        contrail, cli, capsys, monkeypatch, tmp_path):
+    """The clips are copied into the app, not encoded, which the swap does not need."""
+    monkeypatch.setattr(frames, "hevc", shutil.copyfile)
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    old = shipped(contrail)
+    pyproject = contrail / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('version = "0.1.0"', 'version = "0.1.1"'))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    left = []
+    for at in itertools.count():
+        folder = Path(shutil.copytree(contrail, tmp_path / f"stopped-at-{at}"))
+        if not stopped(cli, folder, at):
+            break
+        left.append(shipped(folder))
+    new = shipped(folder)
+    assert old != new and new[1] == new[2] == manifest(contrail)["made"]["id"]
+    assert len(left) >= 5 and all(state in (old, new) for state in left), left
+
+    folder, run = Path(shutil.copytree(contrail, tmp_path / "zip-fails")), publish._run
+    monkeypatch.setattr(publish, "_run", lambda *command: run(*command) if command[0] != "ditto" else
+                        run("ditto", "-c", "-k", str(tmp_path / "nothing"), str(tmp_path / "nothing.zip")))
+    capsys.readouterr()
+    assert cli(folder, "publish", "--story", "starter") == 1
+    assert capsys.readouterr().err.startswith("error: ditto exited with 1: ")
+    assert shipped(folder) == old
 
 
 def test_publish_needs_a_rendered_tape(tmp_path, cli, capsys):
