@@ -30,8 +30,8 @@ CODES: dict[str, Code] = {
     ),
     "VT102": Code(
         "ffmpeg or ffprobe is not on PATH",
-        "A render decodes takes, writes key images and copies clips with ffmpeg, and reads clips with ffprobe. doctor "
-        "looks for both on PATH. A render without them stops at its first take with VT404.",
+        "A render decodes takes and writes each key's picture with ffmpeg, and reads each kept take's size with "
+        "ffprobe. doctor looks for both on PATH. A render without them stops at its first take with VT404.",
         "fail VT102 ffprobe is not on PATH",
         "install ffmpeg, which brings ffprobe, as in brew install ffmpeg",
     ),
@@ -296,9 +296,9 @@ CODES: dict[str, Code] = {
     ),
     "VT404": Code(
         "ffmpeg failed",
-        "A render decodes frames, writes key images and copies clips with ffmpeg and ffprobe, and one of them "
-        "failed or is not on PATH. The error prints the command and what ffmpeg said. This is about the machine, "
-        "not the model or the screenplay.",
+        "A render decodes takes and writes each key's picture with ffmpeg, reads each kept take's size with ffprobe, "
+        "and one of them failed or is not on PATH. The error prints the command and what ffmpeg said. This is about "
+        "the machine, not the model or the screenplay.",
         "error VT404 key home(): ffmpeg is not on PATH",
         "next: install ffmpeg, as in brew install ffmpeg, and run the render again",
     ),
@@ -331,8 +331,8 @@ CODES: dict[str, Code] = {
     "VT508": Code(
         "a seam between a move and its key is too wide",
         "A move is filmed from the key it leaves to the key it lands on, and its first and last frames are compared "
-        "with those two keys. A difference over 0.05 at either end is a visible jump when the tape plays. The "
-        "dailies name which end and by how much.",
+        "with those two keys' pictures. A difference over 0.05 at either end is a visible jump when the tape plays. "
+        "The dailies name which end and by how much.",
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
         "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
         "with a reason",
@@ -375,7 +375,7 @@ CODES: dict[str, Code] = {
         "Publish encodes each clip of the tape as HEVC, which makes a Wan tape's app smaller than the clips a render keeps."
         " A clip's last frame is where the player rests until the next press, so publish reads each encoded "
         "clip's last frame, runs the tape's eye on it against the state the clip lands on, and compares it with that "
-        "state's key image. A check that passed on the key and fails on this frame means the encoding lost what the "
+        "state's picture. A check that passed on the key and fails on this frame means the encoding lost what the "
         "check needs. Publish leaves dist/ and the lock as they were.",
         "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where the player rests on todo(), fails 2 "
         "checks its key passed, the first VT501 Back: not found",
