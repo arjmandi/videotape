@@ -3,6 +3,7 @@ screen, so it is run by hand."""
 
 import importlib.machinery
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
@@ -58,3 +59,11 @@ def test_the_steps_to_a_played_tape_are_within_the_budget(script):
         "uv run videotape render --story starter --model stand-in", script.PLAY]
     assert script.TO_A_PLAYED_TAPE <= script.MOST_STEPS
     assert script.STEPS[script.TO_A_PLAYED_TAPE:] == ["uv run videotape publish --story starter"]
+
+
+def test_a_checkout_whose_path_has_a_space_is_one_argument_of_the_step(script, tmp_path, monkeypatch, capsys):
+    checkout = tmp_path / "my checkout"
+    checkout.mkdir()
+    monkeypatch.setattr(script, "ROOT", checkout)
+    ran = script.run("ls -d {repo}", tmp_path, dict(os.environ))
+    assert (ran.code, ran.said) == (0, f"{checkout}\n")

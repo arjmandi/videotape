@@ -70,12 +70,16 @@ def first_build(ran: Ran) -> float:
     return float(built.group(1)) if built else 0.0
 
 
+def command(step: str) -> str:
+    """The step as a shell would run it, with this checkout's path quoted, since it may hold a space."""
+    return step.format(repo=shlex.quote(str(ROOT)))
+
+
 def run(step: str, folder: Path, environment: dict[str, str]) -> Ran:
     """Run one step in the folder, echoing what it prints as it prints it."""
-    command = step.format(repo=ROOT)
-    print(f"$ {command}", flush=True)
+    print(f"$ {command(step)}", flush=True)
     started, said = time.monotonic(), []
-    with subprocess.Popen(shlex.split(command), cwd=folder, env=environment, text=True,
+    with subprocess.Popen(shlex.split(command(step)), cwd=folder, env=environment, text=True,
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as process:
         assert process.stdout is not None
         for line in process.stdout:
@@ -97,11 +101,11 @@ def quit_player() -> bool:
 
 
 def report(ran: list[Ran], seconds: float, skipped: bool) -> list[str]:
-    width = max(len(r.step.format(repo=ROOT)) for r in ran)
+    width = max(len(command(r.step)) for r in ran)
     lines = [f"{'step':<{width}}  seconds"]
     for r in ran:
         built = f"  TapePlayer's first build {first_build(r):.1f} s" if first_build(r) else ""
-        lines.append(f"{r.step.format(repo=ROOT):<{width}}  {r.seconds:7.1f}{built}")
+        lines.append(f"{command(r.step):<{width}}  {r.seconds:7.1f}{built}")
     return [*lines, "", f"{TO_A_PLAYED_TAPE} steps to a played tape, at most {MOST_STEPS}",
             f"{seconds:.1f} s to a {'rendered' if skipped else 'played'} tape without TapePlayer's first build, at "
             f"most {MOST_SECONDS} s"]
