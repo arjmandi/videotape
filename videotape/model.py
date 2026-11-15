@@ -56,6 +56,9 @@ class Listing:
     """What one call costs, for a model that bills per call."""
     limit: int = 1
     """How many shots the model films at once."""
+    key: str | None = None
+    """The environment variable that holds the key a model run as a service needs. The environment or the project's
+    .env sets it."""
 
 
 MODELS: dict[str, Listing] = {
@@ -65,7 +68,8 @@ MODELS: dict[str, Listing] = {
     # fal.ai/docs/documentation/model-apis/concurrency-limits, read 2026-11-14: "Every new account starts with a
     # concurrency limit of 2 concurrent requests."
     "wan3.0": Listing(wan3.from_environment, QwenEye,
-                      PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2),
+                      PromptLimit(wan3.Wan3.name, wan3.PROMPT_CHARACTERS, "{:,} characters", len), wan3.PRICE, limit=2,
+                      key="FAL_KEY"),
 }
 
 

@@ -1,6 +1,7 @@
 """A project is the folder that holds an app's pyproject.toml, whose [tool.videotape] table names its screenplay."""
 
 import importlib
+import os
 import sys
 import tomllib
 from dataclasses import dataclass
@@ -74,5 +75,20 @@ def find(start: Path) -> Project:
     if cap is not None and (isinstance(cap, bool) or not isinstance(cap, (int, float)) or cap < 0):
         raise ProjectError(f"{file}: [tool.videotape] cap_usd is {cap!r}, not a number of dollars")
     name, version = (settings.get("project", {}).get(key) for key in ("name", "version"))
+    load_keys(root / ".env")
     return Project(root, name if isinstance(name, str) else root.name, version if isinstance(version, str) else None,
                    screenplay, model, max_states, takes, float(cap) if cap is not None else None)
+
+
+def load_keys(file: Path) -> None:
+    """Set each KEY=VALUE line of a .env file in the environment, unless the environment has that key already. Blank
+    lines, # comments and empty values are skipped, and a value in quotes loses them. Nothing prints a value."""
+    if not file.is_file():
+        return
+    for line in file.read_text().splitlines():
+        key, equals, value = line.strip().removeprefix("export ").partition("=")
+        key, value = key.strip(), value.strip()
+        if len(value) > 1 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if equals and key and not key.startswith("#") and value:
+            os.environ.setdefault(key, value)

@@ -63,6 +63,16 @@ def videotape(directory: Path, *arguments: str) -> subprocess.CompletedProcess[s
                                "BROWSER": "true"})
 
 
+@pytest.fixture(autouse=True)
+def environment():
+    """Drop what a project's .env added to the environment, so its keys stay in the test that loaded them. A .env
+    never overrides a key, so dropping the added keys undoes it."""
+    before = set(os.environ)
+    yield
+    for key in set(os.environ) - before:
+        del os.environ[key]
+
+
 @pytest.fixture
 def cli(monkeypatch):
     """Run videotape's main in a project, in this process, so a test can swap the model it renders with."""
