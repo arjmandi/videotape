@@ -2,6 +2,7 @@
 # Runs TapeKit's unit tests, then TapePlayer's UI tests. The UI tests take over the mouse and screen while they run, and
 # play examples/contrail/tapes/terminal, so render it first: in examples/contrail, run
 # uv run videotape render --story terminal
+# With TEST_RUNNER_PUBLISHED_APP set to an app videotape publish made, one more test walks a copy of that app.
 # Arguments after the script go to xcodebuild, such as -resultBundlePath <path>.
 set -euo pipefail
 cd "$(dirname "$0")"
