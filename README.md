@@ -625,7 +625,7 @@ home() -> search() "Where to?"
 ...
 ```
 
-A key's prompt is the look, then the scene's direction, then each element, as its appearance from the story and its words from the screenplay. The move's prompt is the press, from the screenplay, and then the move from the story. When a shot comes out wrong, its sources say which line to change.
+A key's prompt is the look, then the scene's direction, then each element, as its appearance from the story and its words from the screenplay. The move's prompt is the press, from the screenplay, and then what the story says the camera does. When a shot comes out wrong, its sources say which line to change.
 
 Write Contrail's second story, a wall of travel posters:
 

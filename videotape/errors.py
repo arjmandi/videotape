@@ -191,11 +191,11 @@ CODES: dict[str, Code] = {
     ),
     "VT303": Code(
         "a story names an element type the screenplay doesn't use",
-        "Under [elements] a story gives an element type its appearance, and under [moves] its camera move, by the "
-        "type's class name, such as Button or DateStrip. An Option takes those of its SearchBar, DatePicker or "
+        "Under [elements] a story gives an element type its appearance, and under [moves] what the camera does in "
+        "its moves, by the type's class name, such as Button or DateStrip. An Option takes those of its SearchBar, DatePicker or "
         "DateStrip, and a Row those of its List. No state of this app shows an element of this type, so the words "
-        "would never be used. [moves] may also hold default, the move of every type without its own. The error names "
-        "the line, and the fix names the closest type the app does show.",
+        "would never be used. [moves] may also hold default, for every type without its own. The error names the "
+        "line, and the fix names the closest type the app does show.",
         '[elements]\nButon = "a lit amber panel with bold black letters"',
         '[elements]\nButton = "a lit amber panel with bold black letters"',
     ),
@@ -333,7 +333,8 @@ CODES: dict[str, Code] = {
         "with those two keys. A difference over 0.05 at either end is a visible jump when the tape plays. The "
         "dailies name which end and by how much.",
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
-        "retake the move, change the story's move for that element type, or accept it with a reason",
+        "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
+        "with a reason",
     ),
     "VT601": Code(
         "the tape is out of date with its sources",

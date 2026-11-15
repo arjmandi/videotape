@@ -217,11 +217,11 @@ def check(story: Story, plan: Plan, limit: PromptLimit | None) -> tuple[Screenpl
                                   f"the story directs the scene {name}, and the screenplay has no scene of that name",
                                   _closest(name, plan.scenes, "scenes"))
     used = sorted({element.type for key in plan.keys for element in key.shown})
-    for table, gives in (("elements", "an appearance"), ("moves", "a move")):
+    for table, gives in (("elements", "gives an appearance to"), ("moves", "says what the camera does for")):
         for name in getattr(story, table):
             if name not in used and (table, name) != ("moves", DEFAULT):
                 raise ScreenplayError("VT303", _at(story.path, table, name),
-                                      f"the story gives {gives} to the element type {name}, which the screenplay "
+                                      f"the story {gives} the element type {name}, which the screenplay "
                                       "does not use", _closest(name, used, "element types"))
     warnings = [ScreenplayError("VT304", place, f"the scene {name} has no direction, so its keys get only the look",
                                 f'add {name} = "..." under [scenes]')
