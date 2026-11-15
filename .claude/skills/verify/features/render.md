@@ -18,7 +18,7 @@
 - `render-hotspots` lists a hotspot in `tape.json` only for an action the checks found on the kept key. A move whose action was not found still renders and is listed under `moves`, and `render` prints a `fail:` line for the hotspot and exits 1.
 - `render-cap` prints the estimate with the cap and what the tape has spent, stops a model that bills per call before the call that would pass the cap, says what was spent, resumes with a higher cap, and pays for each take once; without a cap it does not start. Proven by `uv run pytest tests/test_resume.py`. The render weighs each call against the cap at its listed price, and the ledger holds what the call then billed.
 - `render-play` builds TapePlayer into the cache once per version of its source and opens the tape. Proven by `uv run pytest tests/test_play.py` with the build and the launcher injected; never drive it.
-- `render-model` rejects an unknown `--model` with a usage error, and a render without `--story` with another. `--model wan2.2-5b` is covered in [gpu-render.md](./gpu-render.md) and `--model wan3.0` in [wan3-render.md](./wan3-render.md).
+- `render-model` rejects an unknown `--model` with a usage error, and a render without `--story` with another. `--model wan2.2-5b` is covered in [gpu-render.md](./gpu-render.md) and `--model wan3.0` in [wan3-render.md](./wan3-render.md), and `--model minimax-h3` and `--model gemini-omni-flash-1.2` in [fal-models-render.md](./fal-models-render.md).
 
 ## How to get to it (user POV)
 

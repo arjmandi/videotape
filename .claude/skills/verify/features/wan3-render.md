@@ -51,4 +51,5 @@ Preconditions:
 - Qwen checks the keys and needs the qwen extra. Without it the command stops with an `error:` line before any call. Qwen loads, and on a first run downloads 17.5 GB of weights, after the first key take, so a failed download stops the render after the calls in flight, up to two, were paid for. Run `vt-verify launch qwen` and doctor first, and look for `weights cached` in its `info qwen` line.
 - A Wan 3.0 tape is gitignored and exists only in the checkout that rendered it. It cost money, so never delete it, its `takes/`, or its lines in the project's `ledger.jsonl`.
 - `tests/fixtures/wan3.0-text-to-video.json` and `tests/fixtures/wan3.0-image-to-video.json` hold fal's answers recorded from the paid run of 2026-11-10 on prototype 1's surf shop, as `tests/fixtures/wan3.0.txt` says. The tests read only their shape, so they stay as they are.
+- `videotape/hosted.py` films wan3.0 from its `FalModel`, `WAN3`, through the adapter that also films minimax-h3 and gemini-omni-flash-1.2; see [fal-models-render.md](./fal-models-render.md). A change to the adapter is a change to all three.
 - Wan 3.0's takes are never trained on.

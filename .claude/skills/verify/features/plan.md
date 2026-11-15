@@ -77,6 +77,6 @@ Preconditions:
 - When the plan finds an error it prints nothing to stdout and exits 1. [errors.md](./errors.md) covers each one.
 - A state's name appears in a render's shot lines, in `videotape shots` and in `tape.json`, not in the plan's table. It reads as the call that names the state, so the state of a scene without arguments is `home()`. [render.md](./render.md) and [stories.md](./stories.md) show them.
 - A plan without `--story` checks no story, so a broken story passes it. `render` and `shots` always check theirs first.
-- The plan reads a model's prompt limit and its price without building the model, so `--model wan2.2-5b` needs neither the wan extra nor a GPU, and `--model wan3.0` needs no `FAL_KEY`.
+- The plan reads a model's prompt limit and its price without building the model, so `--model wan2.2-5b` needs neither the wan extra nor a GPU, and `--model wan3.0`, `--model minimax-h3` and `--model gemini-omni-flash-1.2` need no `FAL_KEY`.
 - The estimate's calls are the shots times one to `takes`, since a shot stops at the first take that passes. `wan2.2-5b` reads `free` because its calls cost nothing per call; the GPU it needs is billed by the hour through `scripts/runpod-render`, whose pod lines the ledger holds.
 - `takes = 2` in `[tool.videotape]` changes the estimate to `160 to 320 calls`. `--takes` is a render flag, not a plan flag.
