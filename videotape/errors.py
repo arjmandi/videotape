@@ -200,7 +200,8 @@ CODES: dict[str, Code] = {
         "A paid model with no cap at all does not start.",
         "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
         "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
-        "next: raise the cap and run the render again, which resumes:\nvideotape render --story terminal --cap-usd 5.00",
+        "next: run the render again with a higher cap, which resumes, as in:\n"
+        "videotape render --story terminal --cap-usd 10.00",
     ),
     "VT403": Code(
         "a take's file is corrupt",

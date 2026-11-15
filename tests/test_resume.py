@@ -86,8 +86,8 @@ def test_a_render_stops_at_the_cap_resumes_with_a_higher_one_and_pays_for_each_t
     stop = [line for line in err.splitlines() if line.startswith("error VT402 ")]
     assert len(stop) == 1 and " take " in stop[0] and ": the next call would pass the cap of $3.00, with $" in stop[0]
     assert stop[0].endswith(" reserved for the calls in flight, at the listed price of $0.50 a call")
-    assert err.splitlines()[-2:] == ["next: raise the cap and run the render again, which resumes:",
-                                     "videotape render --story chalk --cap-usd 3.00"]
+    assert err.splitlines()[-2:] == ["next: run the render again with a higher cap, which resumes, as in:",
+                                     "videotape render --story chalk --cap-usd 6.00"]
     assert as_explained("VT402").search(err)
     book = ledger.of(directory, directory / "tapes" / "chalk")
     stopped_lines = book.lines()

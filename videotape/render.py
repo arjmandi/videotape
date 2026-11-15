@@ -110,7 +110,8 @@ class Budget:
                 raise RenderError("VT402", place, f"the next call would pass the cap of ${self.cap:.2f}, with "
                                   f"${self.spent:.2f} spent on this tape and ${self.reserved:.2f} reserved for the "
                                   f"calls in flight, at the listed price of ${self.price.usd:.2f} a call",
-                                  f"raise the cap and run the render again, which resumes:\n{resume}")
+                                  f"run the render again with a higher cap, which resumes, as in:\n"
+                                  f"{_without_cap(resume)} --cap-usd {self.cap + max(self.cap, self.price.usd):.2f}")
             self.reserved += self.price.usd
 
     def settle(self, line: dict, reserved: bool) -> bool:
@@ -127,6 +128,11 @@ class Budget:
 
     def _holds(self, request_id: str | None) -> bool:
         return bool(request_id) and any(line.get("request_id") == request_id for line in self.ledger.lines())
+
+
+def _without_cap(command: str) -> str:
+    """The resume command without the cap it ran under, which the next step raises."""
+    return command.partition(" --cap-usd ")[0]
 
 
 @dataclass(frozen=True)
