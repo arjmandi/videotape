@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from conftest import FIXTURES, copy_of, planned, told, words
-from videotape import claude, frames, ledger
+from videotape import claude, frames, ledger, qwen
 from videotape.fal import Fal, Receipt
 from videotape.hosted import OnFal
 from videotape.model import MODELS
@@ -222,16 +222,39 @@ def test_a_model_on_fal_without_fal_key_says_so_and_sends_nothing(case, tmp_path
 
 
 @CASES
-def test_doctor_checks_fal_key_for_a_project_on_the_model(case, tmp_path, cli, capsys, monkeypatch):
+def test_doctor_checks_fal_key_and_the_api_key_of_its_reader_claude_for_a_project_on_the_model(case, tmp_path, cli,
+                                                                                               capsys, monkeypatch):
     directory = copy_of("cafe", tmp_path)
     pyproject = directory / "pyproject.toml"
     pyproject.write_text(pyproject.read_text().replace('model = "stand-in"', f'model = "{case.name}"'))
     monkeypatch.delenv("FAL_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     cli(directory, "doctor")
-    assert f"fail VT104 {case.name} needs FAL_KEY, and it is not in the environment or .env" in capsys.readouterr().out
-    (directory / ".env").write_text("FAL_KEY=fal-not-a-real-key\n")
+    lines = capsys.readouterr().out.splitlines()
+    assert f"fail VT104 {case.name} needs FAL_KEY, and it is not in the environment or .env" in lines
+    assert (f"fail VT104 {case.name}'s reader claude-opus-5-5 needs ANTHROPIC_API_KEY, and it is not in the environment "
+            "or .env") in lines
+    (directory / ".env").write_text("FAL_KEY=fal-not-a-real-key\nANTHROPIC_API_KEY=sk-ant-not-a-real-key\n")
     cli(directory, "doctor")
-    assert f"ok   VT104 FAL_KEY is set, for {case.name}" in capsys.readouterr().out.splitlines()
+    lines = capsys.readouterr().out.splitlines()
+    assert f"ok   VT104 FAL_KEY is set, for {case.name}" in lines
+    assert f"ok   VT104 ANTHROPIC_API_KEY is set, for {case.name}'s reader claude-opus-5-5" in lines
+
+
+@CASES
+def test_a_render_on_fal_without_the_api_key_of_its_reader_claude_stops_before_any_call(case, tmp_path, cli, capsys,
+                                                                                        monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    monkeypatch.setenv("FAL_KEY", KEY)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(qwen, "installed", lambda: True)
+    sent = []
+    monkeypatch.setattr(urllib.request, "urlopen", lambda *args, **kwargs: sent.append(args))
+    assert cli(directory, *render_args(case)) == 1
+    assert capsys.readouterr() == ("", "error VT104 .env: claude-opus-5-5, a reader of this model's eye, needs "
+                                       "ANTHROPIC_API_KEY, and it is not in the environment or .env\nfix: copy "
+                                       ".env.example to .env and set ANTHROPIC_API_KEY there, or export it\n")
+    assert sent == [] and not (directory / "tape-fal").exists()
 
 
 @CASES
