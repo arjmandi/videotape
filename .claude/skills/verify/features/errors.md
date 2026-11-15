@@ -12,7 +12,7 @@ Every mistake in a screenplay, its data or a story, and everything that goes wro
 - `errors-vt206` rejects a record with a value of the wrong type, naming the file, the record's position and the field.
 - `errors-vt207` rejects a query that names a field its records lack, and lists the fields they have.
 - `errors-vt208` rejects a `get()` that matched no record.
-- `errors-vt209` rejects two actions in one state with one label.
+- `errors-vt209` rejects two actions in one state with one spoken name.
 - `errors-vt210` stops a plan that reaches more states than `max_states`.
 - `errors-vt301` rejects a story with no version or no look.
 - `errors-vt302` rejects a story that directs a scene the screenplay doesn't have, naming the line and the closest real scene.
@@ -52,7 +52,7 @@ Preconditions:
   | `vt206` | `error VT206 data/drinks.json:3: record 2 field "price" is "six", not a whole number`<br>`fix: write a whole number` |
   | `vt207` | `error VT207 app.py:15: Drink has no field "cost", in state home()`<br>`fix: name one of its fields: name, price` |
   | `vt208` | `error VT208 app.py:15: get(name='Mocha') matched no Drink from data/drinks.json, in state home()`<br>`fix: ask for a record the data holds, or count the matches with where(...).count()` |
-  | `vt209` | `error VT209 home(): two actions have the label "Open"`<br>`fix: give each action its own label` |
+  | `vt209` | `error VT209 home(): two actions have the spoken name "Open"`<br>`fix: give each action words of its own` |
   | `vt210` | `error VT210 count(5): the plan reached more than 5 states`<br>`fix: take a scene's arguments from the data, which ends, or raise max_states in [tool.videotape]` |
 - **Each story code.** For `vt301`, `vt302`, `vt303`, `vt306`, `vt308` and `vt309`, run `.claude/skills/verify/scripts/vt-verify run "$RUN" errors-<code> tests/fixtures/errors/<code> -- plan --story neon`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is exactly these two lines:
 

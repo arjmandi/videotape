@@ -163,7 +163,7 @@ def _show(state: State) -> tuple[Shown, ...]:
 
 def _told_apart(state: State, actions: tuple[Action, ...]) -> None:
     for what, values, fix in (
-            ("have the label", [action.label for action in actions], "give each action its own label"),
+            ("have the spoken name", [action.label for action in actions], "give each action words of its own"),
             ("are found by the words", [action.words for action in actions],
              "make the words differ, such as each row's title")):
         shared = [value for value, count in Counter(values).items() if count > 1]

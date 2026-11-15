@@ -31,7 +31,7 @@ ERRORS = {
     "VT207": ("app.py:15", 'Drink has no field "cost", in state home()', "name one of its fields: name, price"),
     "VT208": ("app.py:15", "get(name='Mocha') matched no Drink from data/drinks.json, in state home()",
               "ask for a record the data holds, or count the matches with where(...).count()"),
-    "VT209": ("home()", 'two actions have the label "Open"', "give each action its own label"),
+    "VT209": ("home()", 'two actions have the spoken name "Open"', "give each action words of its own"),
     "VT210": ("count(5)", "the plan reached more than 5 states",
               "take a scene's arguments from the data, which ends, or raise max_states in [tool.videotape]"),
     "VT301": ("stories/neon.toml", "the story has no look",

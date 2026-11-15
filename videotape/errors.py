@@ -148,9 +148,11 @@ CODES: dict[str, Code] = {
         "there are none.",
     ),
     "VT209": Code(
-        "two actions in one state have one label",
-        "An action is found on its key by its words and pressed by its hotspot's label, so each action in a state "
-        "needs its own. Two here share one, and only the first could ever be pressed.",
+        "two actions in one state can't be told apart",
+        "An action is found on its key by its words, and pressed by its hotspot's spoken name, which VoiceOver "
+        "speaks. The spoken name is the action's words, or for a day of a date picker or a date strip, the whole date "
+        "and its option's words. Each action in a state needs words and a spoken name of its own. Two here share one, "
+        "and only the first could ever be pressed.",
         'vt.Button("Open", to=inbox()), vt.Button("Open", to=archive())',
         'vt.Button("Open inbox", to=inbox()), vt.Button("Open archive", to=archive())',
     ),
