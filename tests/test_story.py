@@ -273,7 +273,7 @@ def test_a_table_that_holds_something_other_than_words_is_vt306_at_its_line(tmp_
     with pytest.raises(vt.ScreenplayError) as error:
         story.load(file)
     assert (error.value.code, error.value.place.rpartition(":")[2]) == ("VT306", "3")
-    assert error.value.message == "scenes is ['home'], not a [scenes] table"
+    assert error.value.message == "scenes is ['home'], not a [scenes] section"
     file.write_text('version = 1.0\nlook = "A plain room."\n')
     with pytest.raises(vt.ScreenplayError) as error:
         story.load(file)

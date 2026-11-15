@@ -66,12 +66,12 @@ CODES: dict[str, Code] = {
     ),
     "VT106": Code(
         "no project here",
-        "A project is the folder that holds an app's pyproject.toml, with a [tool.videotape] table that names the "
+        "A project is the folder that holds an app's pyproject.toml, with a [tool.videotape] section that names the "
         "app's screenplay. Every command but new, doctor, explain and diff runs in a project, and finds it from the "
         "working folder upward. Neither this folder nor any above it holds a pyproject.toml, or the nearest one has "
-        "no [tool.videotape] table.",
+        "no [tool.videotape] section.",
         "error VT106 pyproject.toml: no pyproject.toml here or in any folder above",
-        "run the command in the app's project, or start one:\nvideotape new shop\nor add the table to the project's "
+        "run the command in the app's project, or start one:\nvideotape new shop\nor add the section to the project's "
         'pyproject.toml:\n[tool.videotape]\nscreenplay = "shop.screenplay:app"',
     ),
     "VT107": Code(
@@ -175,7 +175,7 @@ CODES: dict[str, Code] = {
         "a story has no version or no look",
         "A story is one file under stories/, and it opens with its version and its look. The look is the sentence or "
         "two that every key's prompt starts from, and a tape's label names the story by its version. Both are words "
-        "in quotes above the first [heading], because a line under a heading belongs to that heading's table.",
+        "in quotes above the first [heading], because a line under a heading belongs to that heading.",
         '[scenes]\nhome = "The main hall."\nlook = "A quiet airport terminal at first light."',
         'version = "1.0.0"\nlook = "A quiet airport terminal at first light."\n\n[scenes]\nhome = "The main hall."',
     ),
@@ -219,11 +219,11 @@ CODES: dict[str, Code] = {
         "change to the story, then render and publish again",
     ),
     "VT306": Code(
-        "a story is not TOML, or a table holds something other than words",
+        "a story is not TOML, or holds something other than words",
         'A story is a TOML file: lines of name = "words", above and under the headings [scenes], [elements] and '
         "[moves]. This file breaks TOML's rules, most often with words that are not in quotes or a quote that never "
-        "closes, or one of its tables holds a number, a list or another table where words belong. The error names "
-        "the line and says what is there.",
+        "closes, or it holds a number, a list or a section where words belong. The error names the line and says "
+        "what is there.",
         "look = A quiet airport terminal at first light.\n\n[scenes]\nhome = 3",
         'look = "A quiet airport terminal at first light."\n\n[scenes]\nhome = "The main hall."',
     ),

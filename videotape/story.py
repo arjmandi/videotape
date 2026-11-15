@@ -164,7 +164,7 @@ def load(path: Path) -> Story:
     for table in ("scenes", "elements", "moves"):
         held = told.get(table, {})
         if not isinstance(held, dict):
-            raise ScreenplayError("VT306", _line_with(path, f"{table} ="), f"{table} is {held!r}, not a [{table}] table",
+            raise ScreenplayError("VT306", _line_with(path, f"{table} ="), f"{table} is {held!r}, not a [{table}] section",
                                   f'write [{table}] on a line of its own, with name = "words" lines under it')
         for name, words in held.items():
             if not isinstance(words, str):
