@@ -55,16 +55,17 @@ def publish(found: Project, tape: Path) -> Published:
     block = manifest["made"]
     told = story.named(found.root, block["story"]["name"])
     listing = MODELS[block["model"]["name"]]
+    planned = plan(found.load(), found.max_states)
+    app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
+    zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")
+    staged = staging / app.name
+    # Before the lock is read, so a lock an earlier publish left aside counts its labels.
+    _put_back(staging, [app, zipped, found.root / LOCK])
     _fresh(tape, block, made(found, told, listing.kind), record)
     _accepted(tape, record)
     lock = read_lock(found.root)
     _unlocked(found.root, lock, block, told.path)
-    planned = plan(found.load(), found.max_states)
     built = player.built()
-    app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
-    zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")
-    staged = staging / app.name
-    _put_back(staging, [app, zipped, found.root / LOCK])
     shutil.rmtree(staging, ignore_errors=True)
     swapped = False
     try:

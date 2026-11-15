@@ -224,6 +224,32 @@ def test_a_publish_stopped_while_it_puts_the_old_files_back_keeps_them_aside_and
     assert shipped(contrail) == old
 
 
+def test_a_lock_left_aside_by_a_stopped_publish_keeps_its_labels_when_the_next_publish_records_a_new_one(
+        contrail, cli, capsys, monkeypatch):
+    monkeypatch.setattr(frames, "hevc", shutil.copyfile)
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    pyproject = contrail / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('version = "0.1.0"', 'version = "0.1.1"'))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    real = Path.rename
+
+    def rename(source: Path, target):
+        if source.parent.name == "Contrail-starter.partial" and source.name == "videotape.lock":
+            raise OSError(28, "No space left on device")
+        if source.parent.name == "aside" and source.name == "videotape.lock":
+            raise KeyboardInterrupt
+        return real(source, target)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(Path, "rename", rename)
+        with pytest.raises(KeyboardInterrupt):
+            cli(contrail, "publish", "--story", "starter")
+    assert not (contrail / "videotape.lock").exists()
+
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    assert sorted(tomllib.loads((contrail / "videotape.lock").read_text())) == [
+        "contrail 0.1.0 + starter 1.0.0", "contrail 0.1.1 + starter 1.0.0"]
+
+
 def test_a_tape_made_before_its_made_id_named_the_screenplay_is_vt601(contrail, cli, capsys):
     tape = contrail / "tapes" / "starter" / "tape.json"
     written = json.loads(tape.read_text())
