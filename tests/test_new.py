@@ -53,13 +53,13 @@ def test_new_writes_into_an_empty_folder_and_refuses_one_that_is_not(tmp_path, c
     assert sorted(path for path in (tmp_path / "shop").rglob("*")) == before
 
 
+NAMES = ("cannot name a project: it names the project in pyproject.toml and its Python package, so it starts with a "
+         "letter, ends with a letter or digit, holds only ASCII letters, digits and _, and is not a Python keyword, as "
+         "in my_app")
+
+
 @pytest.mark.parametrize("name, error", [
-    ("my-app", '"my-app" cannot name a project: it names the project\'s Python package too, so it is letters, digits '
-               "and _, as in my_app"),
-    ("2shop", '"2shop" cannot name a project: it names the project\'s Python package too, so it is letters, digits '
-              "and _, as in my_app"),
-    ("class", '"class" cannot name a project: it names the project\'s Python package too, so it is letters, digits '
-              "and _, as in my_app"),
+    *((name, f'"{name}" {NAMES}') for name in ("my-app", "2shop", "class", "_shop", "shop_", "café")),
     ("json", '"json" cannot name a project: its package would hide the module json that videotape needs; pick '
              "another name"),
     ("videotape", '"videotape" cannot name a project: its package would hide the module videotape that videotape '
