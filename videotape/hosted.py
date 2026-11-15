@@ -14,6 +14,12 @@ from videotape.plan import Mode
 
 
 @dataclass(frozen=True)
+class FalRequest:
+    endpoint: str
+    arguments: dict
+
+
+@dataclass(frozen=True)
 class FalModel:
     """A model fal hosts: the endpoint of each mode, what a request of each mode sends beyond its prompt, seed, images
     and duration, the field that takes a move's first frame, whether fal takes a seed, the longest prompt it takes in
@@ -33,7 +39,7 @@ class FalModel:
         return {"endpoint": self.endpoints[mode], **self.fields[mode], "duration": self.price.seconds}
 
     def request(self, mode: Mode, prompt: str, seed: int, start: Path | None = None,
-                end: Path | None = None) -> "FalRequest":
+                end: Path | None = None) -> FalRequest:
         """A key is text-to-video from its prompt. A move is image-to-video pinned to the two key images it joins."""
         images = {self.start_image: _data_uri(start), "end_image_url": _data_uri(end)} \
             if mode is Mode.FIRST_AND_LAST_FRAME else {}
@@ -51,12 +57,6 @@ class FalModel:
         except (AttributeError, KeyError, TypeError, ValueError):
             raise FalError(f"request {submitted['request_id']} answered without video.url: {result}") from None
         return url, Receipt(submitted["request_id"], duration, self.price.billed(duration), response)
-
-
-@dataclass(frozen=True)
-class FalRequest:
-    endpoint: str
-    arguments: dict
 
 
 # Five seconds without sound, like the 5B's clips. fal's defaults are 1080p, an adaptive aspect ratio, audio on and
@@ -106,8 +106,9 @@ GEMINI_OMNI_FLASH = FalModel(
     {Mode.TEXT_TO_VIDEO: {"resolution": "720p", "aspect_ratio": "16:9"},
      Mode.FIRST_AND_LAST_FRAME: {"resolution": "720p", "aspect_ratio": "16:9"}},
     "image_url",
-    # Neither schema has a seed. A take is still named by its seed, and a render run again reuses the take on disk by
-    # that name, so a seed tried again is never filmed again, and only a seed not tried before gets new pixels.
+    # Neither schema has a seed, so the same request films different pixels each time. A take is still named by its
+    # seed, and a render run again reuses the take on disk by that name, so it films a seed again only when both the
+    # take and its request record are gone.
     seeded=False,
     # Both schemas give the prompt a maxLength of 20000 characters.
     prompt_characters=20_000,
