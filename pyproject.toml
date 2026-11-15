@@ -57,7 +57,7 @@ packages = ["videotape"]
 # A project that depends on this checkout by path gets a new build of videotape whenever its code or TapePlayer's
 # source changes, not only its pyproject.toml.
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "videotape/**/*" }, { file = "clients/macos/build.sh" },
+cache-keys = [{ file = "pyproject.toml" }, { file = "videotape/**/*.py" }, { file = "videotape/starter/**/*" }, { file = "clients/macos/build.sh" },
               { file = "clients/macos/TapeKit/Sources/**/*" }, { file = "clients/macos/TapePlayer/**/*" },
               { file = "clients/macos/TapePlayer.xcodeproj/project.pbxproj" }]
 
