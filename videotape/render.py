@@ -1,7 +1,8 @@
 """A render draws every shot of a plan in a story into a tape. Each shot films one take at a time, seed by seed, and
 stops at the first take that passes every check. Shots that do not depend on each other film at once, up to the
 model's limit: every key is submitted first, and a move as soon as both of its keys are done. A model that bills per
-call films under a cap. Every take on disk is reused, so a render run again resumes without paying for a take twice."""
+call films under a cap, and a reader that bills per read reads under the same cap. Every take on disk is reused, and so
+is every read, so a render run again resumes without paying for a take or a read twice."""
 
 import hashlib
 import json
@@ -9,13 +10,13 @@ import shlex
 import shutil
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from concurrent.futures import FIRST_COMPLETED, CancelledError, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
 
 from videotape import dailies, frames
-from videotape.checks import Checks, Eye, Failure, score, seams
+from videotape.checks import Checks, Failure, KeyChecks, Reader, score, seams
 from videotape.dailies import Carried
 from videotape.errors import ModelError, RenderError, shown
 from videotape.fal import Price, Receipt
@@ -70,7 +71,7 @@ class Filmed:
 
     @property
     def failures(self) -> list[Failure]:
-        return [Failure(item.code, self.shot.title, item.about, item.result, item.box)
+        return [Failure(item.code, self.shot.title, item.about, item.result, item.box, item.element, item.readings)
                 for item in self.kept.checks.failures]
 
 
@@ -89,9 +90,10 @@ class Render:
 
 class Budget:
     """What a render may still spend. One lock keeps the invariant: spent plus reserved never passes the cap, where
-    spent is the sum of this tape's lines in the ledger and reserved is the price of every call in flight. Every ledger
-    write goes through settle, under the same lock, and a request's line is written once. A call that fails keeps its
-    reservation, since a submitted call may have been billed, and the render stops on it anyway."""
+    spent is the sum of this tape's lines in the ledger and reserved is the price of every call in flight, a take's
+    or a read's. Every ledger write goes through settle, under the same lock, and a request's line is written once.
+    A call that fails keeps its reservation, since a submitted call may have been billed, and the render stops on it
+    anyway."""
 
     def __init__(self, ledger: Ledger, price: Price | None, cap: float | None) -> None:
         self.ledger, self.price, self.cap = ledger, price, cap
@@ -99,30 +101,29 @@ class Budget:
         self.spent = ledger.totals()["usd"]
         self.reserved = 0.0
 
-    def reserve(self, place: str, resume: str) -> None:
+    def reserve(self, usd: float, place: str, resume: str) -> None:
         """Hold the listed price of one call, or refuse when it would pass the cap. The ledger records what the call
         then billed, which can differ a little, so the spend can end a little past the cap."""
-        if not self.price:
+        if not usd:
             return
         with self.lock:
-            if self.cap is not None and self.spent + self.reserved + self.price.usd > self.cap:
+            if self.cap is not None and self.spent + self.reserved + usd > self.cap:
                 raise RenderError("VT402", place, f"the next call would pass the cap of ${self.cap:.2f}, with "
                                   f"${self.spent:.2f} spent on this tape and ${self.reserved:.2f} reserved for the "
-                                  f"calls in flight, at the listed price of ${self.price.usd:.2f} a call",
+                                  f"calls in flight, at the listed price of ${usd:.2f} a call",
                                   f"run the render again with a higher cap, which resumes, as in:\n"
-                                  f"{_without_cap(resume)} --cap-usd {self.cap + max(self.cap, self.price.usd):.2f}")
-            self.reserved += self.price.usd
+                                  f"{_without_cap(resume)} --cap-usd {self.cap + max(self.cap, usd):.2f}")
+            self.reserved += usd
 
-    def settle(self, line: dict, reserved: bool) -> bool:
-        """Record a finished call: its line goes into the ledger, unless the ledger holds its request already, and
-        the price reserved for it is let go. Whether the line was written."""
+    def settle(self, line: dict | None, reserved: float) -> bool:
+        """Record a finished call: its line goes into the ledger, unless the ledger holds its request already or
+        nothing was billed, and what was reserved for it is let go. Whether the line was written."""
         with self.lock:
-            written = not self._holds(line.get("request_id"))
-            if written:
+            written = line is not None and not self._holds(line.get("request_id"))
+            if written and line is not None:
                 self.ledger.append(line)
                 self.spent += line.get("usd") or 0.0
-            if self.price and reserved:
-                self.reserved -= self.price.usd
+            self.reserved -= reserved
         return written
 
     def _holds(self, request_id: str | None) -> bool:
@@ -139,7 +140,7 @@ class _Set:
     """Everything every shot of one render shares."""
 
     model: Model
-    eye: Eye
+    readers: tuple[Reader, ...]
     tape: Path
     images: dict[State, Path]
     """Each state's key image, which the moves that leave or land on it are pinned to."""
@@ -163,15 +164,44 @@ class _Stopped(Exception):
     """A shot that did not film because the render had stopped."""
 
 
-def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger: Ledger, made: dict, takes: int = 4,
-           limit: int = 1, price: Price | None = None, cap: float | None = None, resume: str = "videotape render",
-           report: Callable[[Filmed], None] = lambda filmed: None) -> Render:
+@dataclass
+class _Purse:
+    """What a paid reader reserves and settles for one take's reads: the reservation goes under the render's cap at
+    the take's place, the read's ledger line names the shot and the seed, and spent adds up what the reads billed."""
+
+    shared: _Set
+    shot: Shot
+    seed: int
+    spent: float = 0.0
+
+    @property
+    def place(self) -> str:
+        return f"{self.shot.title} take {self.seed}"
+
+    def reserve(self, usd: float) -> None:
+        self.shared.budget.reserve(usd, self.place, self.shared.resume)
+
+    def settle(self, line: dict | None, reserved: float) -> None:
+        self.shared.budget.settle({**line, "shot": self.shot.title, "seed": self.seed} if line else None, reserved)
+        self.spent += (line or {}).get("usd") or 0.0
+
+
+def eye(readers: Sequence[Reader]) -> str:
+    """The eye's name, from its readers'."""
+    return " and ".join(reader.name for reader in readers)
+
+
+def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], tape: Path, ledger: Ledger, made: dict,
+           takes: int = 4, limit: int = 1, price: Price | None = None, cap: float | None = None,
+           resume: str = "videotape render", report: Callable[[Filmed], None] = lambda filmed: None) -> Render:
     """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
-    and write them into the tape. made is the block that says what made the tape, which tape.json carries. report is
-    told each shot as it finishes."""
+    and write them into the tape. The readers are the model's eye, which reads each take of a key. made is the block
+    that says what made the tape, which tape.json carries. report is told each shot as it finishes."""
     started = time.perf_counter()
-    if price and cap is None:
-        raise RenderError("VT402", "before the first call", f"{model.name} bills per call, and no cap is set",
+    billed = [*([model.name] if price else []), *(reader.name for reader in readers if reader.paid)]
+    if billed and cap is None:
+        raise RenderError("VT402", "before the first call", f"{' and '.join(billed)} bill{'s' if len(billed) == 1 else ''}"
+                          " per call, and no cap is set",
                           f"set the most this render may spend, as in {resume} --cap-usd 20, or for good in "
                           "[tool.videotape]:\ncap_usd = 20")
     for folder in ("takes", "keys", "moves"):
@@ -179,8 +209,8 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
     carried = dailies.carried(tape)
     words = shlex.split(resume)
     retake = f" --story {story.name}" + (f" --out {words[words.index('--out') + 1]}" if "--out" in words else "")
-    shared = _Set(model, eye, tape, {key.state: tape / key.image for key in plan.keys}, Budget(ledger, price, cap), resume,
-                  retake, threading.Event(), {}, threading.Lock())
+    shared = _Set(model, tuple(readers), tape, {key.state: tape / key.image for key in plan.keys},
+                  Budget(ledger, price, cap), resume, retake, threading.Event(), {}, threading.Lock())
     seeds = {shot.title: _seeds(shot, takes, carried) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
     stopped: RenderError | None = None
@@ -229,14 +259,14 @@ def render(plan: Plan, story: Story, model: Model, eye: Eye, tape: Path, ledger:
     result = Render(tape, keys, moves, elapsed)
     corrupt = _corrupt(carried, result)
     if stopped is not None:
-        dailies.write(tape, dailies.record(plan.title, eye.name, result, story, ledger.tape, corrupt, takes, False),
+        dailies.write(tape, dailies.record(plan.title, eye(readers), result, story, ledger.tape, corrupt, takes, False),
                       ledger.totals())
         raise stopped
     opening = result.keys[0].kept
     write_atomically(tape / "moves" / "opening.mp4", lambda out: shutil.copyfile(opening.path, out))
     manifest = {**_manifest(plan, result), "made": made}
     write_atomically(tape / "tape.json", lambda out: out.write_text(json.dumps(manifest, indent=2) + "\n"))
-    dailies.write(tape, dailies.record(plan.title, eye.name, result, story, ledger.tape, corrupt, takes), ledger.totals())
+    dailies.write(tape, dailies.record(plan.title, eye(readers), result, story, ledger.tape, corrupt, takes), ledger.totals())
     return result
 
 
@@ -260,10 +290,23 @@ def _corrupt(carried: Carried, result: Render) -> Carried:
 def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int]) -> Filmed:
     words = text(clauses)
     filmed = _film_shot(shared, key, clauses, seeds, retakes, lambda seed, out: shared.model.text_to_video(words, seed, out),
-                        (), lambda path: score(frames.last_frame(path), key, shared.eye))
+                        (), lambda path, purse: _read(shared, key, path, purse))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
     write_atomically(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
     return filmed
+
+
+def _read(shared: _Set, key: Key, path: Path, purse: _Purse) -> KeyChecks:
+    """Every reader's read of the take's picture, then the key's checks on them. A paid read is reserved under the
+    cap before it is sent and reaches the ledger after. A read that fails stops the render at the take, as a model's
+    call that fails does, and since only a whole read is cached, running the render again reads the take again."""
+    frame = frames.last_frame(path)
+    try:
+        reads = [reader.see(frame, purse) for reader in shared.readers]
+    except ModelError as error:
+        raise RenderError(error.code, purse.place, error.message, "run the render again, which resumes and reads this "
+                          f"take again:\n{shared.resume}") from None
+    return score(key, reads)
 
 
 def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], retakes: list[int]) -> Filmed:
@@ -272,14 +315,14 @@ def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], reta
     pinned = frames.read_png(start), frames.read_png(end)
     filmed = _film_shot(shared, move, clauses, seeds, retakes,
                         lambda seed, out: shared.model.first_last_frame(words, start, end, seed, out), (start, end),
-                        lambda path: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
+                        lambda path, purse: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
     write_atomically(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
     return filmed
 
 
 def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], retakes: list[int],
                film: Callable[[int, Path], Receipt | None], images: tuple[Path, ...],
-               check: Callable[[Path], Checks]) -> Filmed:
+               check: Callable[[Path, _Purse], Checks]) -> Filmed:
     """Film the shot's takes seed by seed. Each take comes from the cache or the model, then its checks. The seeds up
     to the limit are filmed until one passes, and a take on disk is always read. The retake seeds are filmed whatever
     passed before, and with them the shot keeps the best of all its takes."""
@@ -317,24 +360,28 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
 
 
 def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
-          film: Callable[[int, Path], Receipt | None], check: Callable[[Path], Checks]) -> Take | RenderError:
+          film: Callable[[int, Path], Receipt | None], check: Callable[[Path, _Purse], Checks]) -> Take | RenderError:
     """One take and its checks, one shot at a time per take name, so two shots that share a take film it once. A
     take whose file does not decode is downloaded again from the request the model recorded beside it, and is VT403
-    when it is still corrupt, or when the model recorded nothing to download again."""
+    when it is still corrupt, or when the model recorded nothing to download again. The take's price is the model's
+    and what its reads billed this run."""
     path = _take_path(shared.model, shot, words, images, seed, shared.tape)
+    purse = _Purse(shared, shot, seed)
     with shared.one_at_a_time(path):
         cached, timing = _film(shared, shot, path, seed, place, film)
         try:
-            checks = check(path)
+            checks = check(path, purse)
         except DecodeError as corrupt:
             if _downloaded_again(shared, path, place) is None:
                 return RenderError("VT403", place, corrupt.message, f"nothing; seed {seed} is skipped from now on")
             try:
-                checks = check(path)
+                checks = check(path, purse)
             except DecodeError as again:
                 return RenderError("VT403", place, f"downloaded again, and still: {again.message}",
                                    f"nothing; seed {seed} is skipped from now on")
-    return Take(seed, path, cached, checks, timing.get("seconds"), timing.get("gpu"), timing.get("usd"))
+    usd = timing.get("usd")
+    paid = (usd or 0.0) + purse.spent if usd is not None or purse.spent else None
+    return Take(seed, path, cached, checks, timing.get("seconds"), timing.get("gpu"), paid)
 
 
 def _downloaded_again(shared: _Set, path: Path, place: str) -> Receipt | None:
@@ -388,9 +435,9 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
         return True, json.loads(timing.read_text()) if timing.exists() else {}
     started = time.perf_counter()
     receipt = _downloaded_again(shared, path, place)
-    reserved = receipt is None
-    if reserved:
-        shared.budget.reserve(place, shared.resume)
+    reserved = (shared.budget.price.usd if shared.budget.price else 0.0) if receipt is None else 0.0
+    if receipt is None:
+        shared.budget.reserve(reserved, place, shared.resume)
         try:
             receipt = write_atomically(path, lambda out: film(seed, out))
         except ModelError as error:

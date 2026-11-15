@@ -223,6 +223,7 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
     guide = steps()
     monkeypatch.setattr(standin, "_default_flaw", flawed(guide))
     monkeypatch.delenv("FAL_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setitem(sys.modules, "torch", None)
     opened = list[list[str]]()
     if not real_player:

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from conftest import FIXTURES, copy_of, planned, told, words
-from videotape import frames, ledger
+from videotape import claude, frames, ledger
 from videotape.fal import Fal, Receipt
 from videotape.hosted import OnFal
 from videotape.model import MODELS
@@ -130,7 +130,7 @@ def on_fal(case: Case, tmp_path: Path, monkeypatch) -> tuple[Path, Queue]:
     fal = Queue(case.name, tmp_path / "clips", case.size)
     listing = MODELS[case.name]
     monkeypatch.setitem(MODELS, case.name, dataclasses.replace(
-        listing, model=lambda: OnFal(listing.kind, Fal(KEY, send=fal, sleep=lambda _: None)), eye=lambda tape: StandInEye()))
+        listing, model=lambda: OnFal(listing.kind, Fal(KEY, send=fal, sleep=lambda _: None)), readers=(StandInEye,)))
     return directory, fal
 
 
@@ -238,8 +238,10 @@ def test_doctor_checks_fal_key_for_a_project_on_the_model(case, tmp_path, cli, c
 def test_plan_estimates_the_model_and_warns_of_a_prompt_past_its_limit(case, tmp_path, cli, capsys):
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "plan", "--story", "chalk", "--model", case.name) == 0
-    assert capsys.readouterr().out.splitlines()[-1] == \
-        f"{case.name}: 11 shots, 11 to 44 calls, ${11 * case.usd:.2f} to ${44 * case.usd:.2f} at {case.rate}"
+    read = claude.estimate(1280, 704)
+    assert capsys.readouterr().out.splitlines()[-1] == (
+        f"{case.name}: 11 shots, 11 to 44 calls, ${11 * case.usd:.2f} to ${44 * case.usd:.2f} at {case.rate}, and 5 to "
+        f"20 reads by claude-opus-5-5, at most ${5 * read:.2f} to ${20 * read:.2f}")
     chalk = directory / "stories" / "chalk.toml"
     look = "A chalkboard cafe. " * 400
     assert 7_000 < len(look) < 20_000

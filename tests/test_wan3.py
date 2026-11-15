@@ -171,8 +171,7 @@ def hosted_by(queue: type[Hosted], tmp_path: Path, monkeypatch) -> tuple[Path, H
     (tmp_path / "clips").mkdir()
     fal = queue(tmp_path / "clips")
     monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: OnFal(WAN3, Fal(KEY, send=fal, sleep=lambda _: None)),
-                                                  lambda tape: StandInEye(), price=WAN3.price, limit=2,
-                                                  kind=WAN3))
+                                                  (StandInEye,), price=WAN3.price, limit=2, kind=WAN3))
     return directory, fal
 
 
@@ -378,7 +377,7 @@ def test_a_call_that_fails_after_its_submit_keeps_its_reservation(tmp_path):
 
     chalk, tape = told(directory), directory / "tape-wan3"
     with pytest.raises(RenderError) as error:
-        render(planned(directory), chalk, model, StandInEye(), tape, ledger.of(directory, tape),
+        render(planned(directory), chalk, model, [StandInEye()], tape, ledger.of(directory, tape),
                made(project.find(directory), chalk, model), takes=1, limit=2, price=WAN3.price, cap=1.5, report=report)
     assert error.value.code in ("VT401", "VT402")
     assert 0.5 * len(fal.posts) <= 1.5 and len(fal.posts) == 3
@@ -488,7 +487,8 @@ def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, cli, capsys, m
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
     said = f"error VT104 .env: {CODES['VT104'].example.removeprefix('fail VT104 ')}\nfix: {CODES['VT104'].fix}\n"
     assert capsys.readouterr() == ("", said)
-    assert said == f"error VT104 .env: {doctor.key('wan3.0').what}\nfix: {doctor.key('wan3.0').fix}\n"
+    fal_key = doctor.keys("wan3.0")[0]
+    assert said == f"error VT104 .env: {fal_key.what}\nfix: {fal_key.fix}\n"
     assert sent == []
     assert sorted(path.name for path in directory.iterdir()) == ["cafe.py", "data", "pyproject.toml", "stories"]
 
@@ -498,7 +498,7 @@ def test_a_key_in_the_projects_env_file_goes_only_into_the_submits_authorization
     directory = copy_of("cafe", tmp_path)
     (directory / ".env").write_text(f'# from fal.ai/dashboard/keys\nFAL_KEY="{KEY}"\n')
     monkeypatch.delenv("FAL_KEY", raising=False)
-    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], eye=lambda tape: StandInEye()))
+    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], readers=(StandInEye,)))
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda request, timeout: sent.append(request) or Answer(b'{"detail": "no request today"}'))
@@ -512,7 +512,7 @@ def test_a_key_a_header_cannot_carry_is_refused_without_printing_it(tmp_path, cl
     monkeypatch.setenv("FAL_KEY", f"{KEY[:8]}\n{KEY[8:]}")
     assert cli(directory, "render", "--story", "chalk", "--model", "wan3.0", "--out", "tape-wan3") == 1
     out, err = capsys.readouterr()
-    check = doctor.key("wan3.0")
+    check = doctor.keys("wan3.0")[0]
     assert (out, err, check.ok) == ("", f"error VT104 .env: {check.what}\nfix: {check.fix}\n", False)
     assert check.what == "FAL_KEY holds a character an HTTP header cannot carry, such as a line break"
 

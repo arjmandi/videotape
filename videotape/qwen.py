@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
 
-from videotape.checks import Spot
+from videotape.checks import Free, Purse, Read, Spot
 from videotape.errors import ScreenplayError
 from videotape.frames import Box, Frame
 from videotape.atomic import write_atomically
@@ -64,16 +64,25 @@ def _elements(reply: str) -> list:
 
 
 class QwenEye:
+    """Qwen3-VL-8B, run here, which reads every piece of text on a picture and says which sit in a button. It
+    reports no marks and no charts, and caches each reply in the tape's looks/, by the picture's hash."""
+
     name = "qwen3-vl-8b"
+    key = None
+    paid = False
+
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        return 0.0
 
     def __init__(self, tape: Path):
         if not installed():
-            raise ScreenplayError("VT105", self.name, "this model's eye runs through videotape's qwen extra, which is "
-                                  "not installed here", ADD_EXTRA)
+            raise ScreenplayError("VT105", self.name, "is a reader of this model's eye and runs through videotape's "
+                                  "qwen extra, which is not installed here", ADD_EXTRA)
         self.looks = tape / "looks"
         self.qwen: _Qwen | None = None
 
-    def see(self, frame: Frame) -> tuple[Spot, ...]:
+    def see(self, frame: Frame, purse: Purse = Free()) -> Read:
         fields = [MODEL_ID, PROMPT, MAX_NEW_TOKENS, frame.width, frame.height, hashlib.sha256(frame.rgb).hexdigest()]
         path = self.looks / f"{hashlib.sha256(json.dumps(fields).encode()).hexdigest()}.json"
         if not path.exists():
@@ -81,7 +90,7 @@ class QwenEye:
             reply = self.qwen.ask(frame)
             self.looks.mkdir(parents=True, exist_ok=True)
             write_atomically(path, lambda partial: partial.write_text(json.dumps({"model": MODEL_ID, "reply": reply}, indent=2) + "\n"))
-        return spots(json.loads(path.read_text())["reply"], frame.width, frame.height)
+        return Read(self.name, spots(json.loads(path.read_text())["reply"], frame.width, frame.height))
 
 
 class _Qwen:

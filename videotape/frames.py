@@ -98,10 +98,13 @@ def _raw(frame: Frame) -> tuple[str, ...]:
     return ("-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{frame.width}x{frame.height}", "-i", "-")
 
 
-def _decode(source: Path, *filters: str) -> Frame:
+def _decode(source: Path | bytes, *filters: str) -> Frame:
+    """One frame of a clip or an image at a path, or of an image given as its bytes."""
     # A PPM names its own size in its header, so one decode reads a frame of whatever size the clip has.
+    where = ("-f", "image2pipe", "-i", "-") if isinstance(source, bytes) else ("-i", str(source))
     try:
-        ppm = _ffmpeg("-i", str(source), *filters, "-frames:v", "1", "-f", "image2pipe", "-c:v", "ppm", "-")
+        ppm = _ffmpeg(*where, *filters, "-frames:v", "1", "-f", "image2pipe", "-c:v", "ppm", "-",
+                      feed=source if isinstance(source, bytes) else None)
     except NoTool:
         raise
     except FfmpegError as error:
@@ -114,17 +117,28 @@ def _decode(source: Path, *filters: str) -> Frame:
     return Frame(width, height, ppm[header.end():])
 
 
-def _shown(path: Path) -> str:
+def _shown(source: Path | bytes) -> str:
     """A path as an error names it: relative to the working directory when it is inside it."""
-    return os.path.relpath(path) if path.is_absolute() and path.is_relative_to(Path.cwd()) else str(path)
+    if isinstance(source, bytes):
+        return f"a PNG of {len(source)} bytes"
+    return os.path.relpath(source) if source.is_absolute() and source.is_relative_to(Path.cwd()) else str(source)
+
+
+def png(frame: Frame) -> bytes:
+    return _ffmpeg(*_raw(frame), "-f", "image2pipe", "-c:v", "png", "-", feed=frame.rgb)
 
 
 def write_png(frame: Frame, path: Path) -> None:
-    path.write_bytes(_ffmpeg(*_raw(frame), "-f", "image2pipe", "-c:v", "png", "-", feed=frame.rgb))
+    path.write_bytes(png(frame))
 
 
 def read_png(path: Path) -> Frame:
     return _decode(path)
+
+
+def png_frame(data: bytes) -> Frame:
+    """The frame of a PNG given as its bytes."""
+    return _decode(data)
 
 
 def first_frame(clip: Path) -> Frame:

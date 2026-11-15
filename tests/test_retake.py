@@ -35,7 +35,7 @@ def extra_on_thanks_espresso(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 def stand_in(monkeypatch, flaw) -> StandIn:
     model = StandIn(flaw=flaw)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, lambda tape: StandInEye(), limit=8, kind=model))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, (StandInEye,), limit=8, kind=model))
     return model
 
 

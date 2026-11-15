@@ -12,12 +12,12 @@ import re
 import shutil
 import subprocess
 import tomllib
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from videotape import dailies, frames, player, story
-from videotape.checks import MAX_DIFFERENCE, Eye, Item, score
+from videotape.checks import MAX_DIFFERENCE, Item, Reader, score
 from videotape.errors import ScreenplayError, shown
 from videotape.frames import Frame
 from videotape.made import made, manifest
@@ -70,7 +70,7 @@ def publish(found: Project, tape: Path, render: str) -> Published:
         _name(staged / "Contents" / "Info.plist", planned.title, found.name, told.name)
         inside = staged / "Contents" / "Resources" / "tape"
         clips = _encode(tape, manifest, inside)
-        _rests(planned, record, listing.eye(tape), tape, inside, clips)
+        _rests(planned, record, [reader(tape) for reader in listing.readers if not reader.paid], tape, inside, clips)
         print(f"encoded {len(clips)} clips as HEVC; on each one's last frame, where TapePlayer rests, every check "
               "its key passed still passes", flush=True)
         _run("codesign", "--force", "--deep", "--sign", "-", str(staged))
@@ -208,10 +208,11 @@ def _encode(tape: Path, manifest: dict, inside: Path) -> dict[str, str]:
     return clips
 
 
-def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clips: dict[str, str]) -> None:
+def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, inside: Path, clips: dict[str, str]) -> None:
     """VT604 when the last frame of an encoded clip, where TapePlayer rests, fails a check that passed in the record:
-    the eye's checks of the state it lands on, which its key passed, and the seam with that state's key image, which
-    the move's kept take passed."""
+    the readers' checks of the state it lands on, which its key passed, and the seam with that state's key image,
+    which the move's kept take passed. Only the readers that cost nothing read the encoded frames again, so a check
+    only a paid reader makes is not judged here."""
     keys = {key.state.name: key for key in planned.keys}
     recorded = {key["state"]: key for key in record["keys"]}
     seams = {move["move"]: next(take for take in move["takes"] if take["kept"]) for move in record["moves"]}
@@ -224,7 +225,7 @@ def _rests(planned: Plan, record: dict, eye: Eye, tape: Path, inside: Path, clip
         if state not in images:
             images[state] = frames.read_png(tape / recorded[state]["key"])
         end = frames.difference(frame, images[state])
-        items = [*score(frame, keys[state], eye).items(),
+        items = [*score(keys[state], [reader.see(frame) for reader in readers]).items(),
                  Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)]
         broken = [item for check, item in zip(_numbered((item.code, item.about) for item in items), items)
                   if not item.passed and check not in failed]

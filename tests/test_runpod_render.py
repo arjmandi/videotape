@@ -91,14 +91,15 @@ def test_the_remote_scripts_parse_and_run_the_render_in_the_project_with_the_sto
     bash_parses(render)
     assert render.splitlines()[-3:] == [
         "cd /workspace/videotape", "cd examples/contrail",
-        "uv run --project /workspace/videotape videotape render --story terminal --model wan2.2-5b --takes 3"]
+        "uv run --project /workspace/videotape videotape render --story terminal --model wan2.2-5b --takes 3 --cap-usd 20.00"]
     assert script.fetched(built) == "examples/contrail/tapes/terminal"
     assert script.dailies_command(built) == ["uv", "run", "--project", str(ROOT), "videotape", "dailies", "--story", "terminal"]
     cafe = script.plan("tests/fixtures/cafe", "chalk", "tape-wan2", 1, "NVIDIA H100 80GB HBM3", 5.0, 3.99, "catalog",
                        PUBLIC_KEY)
     assert script.render_script(cafe).splitlines()[-2:] == [
         "cd tests/fixtures/cafe",
-        "uv run --project /workspace/videotape videotape render --story chalk --model wan2.2-5b --takes 1 --out tape-wan2"]
+        "uv run --project /workspace/videotape videotape render --story chalk --model wan2.2-5b --takes 1 --cap-usd 5.00 "
+        "--out tape-wan2"]
     assert script.fetched(cafe) == "tests/fixtures/cafe/tape-wan2"
     assert script.dailies_command(cafe) == ["uv", "run", "--project", str(ROOT), "videotape", "dailies", "--out", "tape-wan2"]
 
@@ -148,8 +149,8 @@ def test_the_pods_take_lines_and_its_pod_line_land_in_the_projects_ledger_for_th
                            f"{tmp_path}/examples/contrail/tape-wan2/")]
     assert pod.ran == ["cat /workspace/videotape/examples/contrail/ledger.jsonl"]
     assert [json.loads(line)["kind"] for line in book.read_text().splitlines()] == ["take", "take", "take", "pod"]
-    assert Ledger(book, "tape-wan2").totals() == {"takes": 2, "gpu_seconds": 190.5, "pods": 1, "pod_hours": 0.5, "usd": 2.0}
-    assert Ledger(book, "tapes/terminal").totals() == {"takes": 1, "gpu_seconds": 0.5, "pods": 0, "pod_hours": 0.0, "usd": 0.0}
+    assert Ledger(book, "tape-wan2").totals() == {"takes": 2, "gpu_seconds": 190.5, "pods": 1, "pod_hours": 0.5, "reads": 0, "usd": 2.0}
+    assert Ledger(book, "tapes/terminal").totals() == {"takes": 1, "gpu_seconds": 0.5, "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
 
 
 def test_describe_names_every_part_of_the_plan(script, built):
@@ -159,7 +160,7 @@ def test_describe_names_every_part_of_the_plan(script, built):
                  "$20.00 buys 5.01 h", "17445 s", "host CUDA >= 13.0", "160 GB container disk",
                  "PUBLIC_KEY, HF_HUB_ENABLE_HF_TRANSFER, PYTORCH_CUDA_ALLOC_CONF", "uv sync --extra wan --extra qwen",
                  "cd examples/contrail && uv run --project /workspace/videotape videotape render --story terminal "
-                 "--model wan2.2-5b --takes 3",
+                 "--model wan2.2-5b --takes 3 --cap-usd 20.00",
                  "append the pod line to examples/contrail/ledger.jsonl",
                  "run videotape dailies --story terminal in examples/contrail"):
         assert part in text, part
@@ -173,7 +174,7 @@ def test_dry_run_in_a_project_without_a_key_prints_the_plan_and_creates_nothing(
     assert ("project       examples/contrail in the story posters, 3 takes per shot, tape examples/contrail/tapes/posters"
             in result.stdout.splitlines())
     assert ("render        cd examples/contrail && uv run --project /workspace/videotape videotape render --story posters "
-            "--model wan2.2-5b --takes 3") in result.stdout.splitlines()
+            "--model wan2.2-5b --takes 3 --cap-usd 20.00") in result.stdout.splitlines()
     assert result.stdout.rstrip().endswith("dry run: nothing was created.")
     assert "$3.99/h (assumed, catalog read of 2026-11-09; set RUNPOD_API_KEY for the live price)" in result.stdout
     assert (ROOT / ".runpod" / "id_ed25519.pub").read_text().startswith("ssh-ed25519 ")
@@ -184,6 +185,22 @@ def test_a_real_run_without_a_key_stops_before_anything_else():
                             cwd=CONTRAIL, env={"PATH": "/usr/bin:/bin"})
     assert result.returncode == 2
     assert result.stderr.strip() == "error: RUNPOD_API_KEY is not set; export it, or pass --dry-run to see the plan"
+    result = subprocess.run([SCRIPT, "--story", "terminal", "--cap-usd", "20"], capture_output=True, text=True,
+                            cwd=CONTRAIL, env={"PATH": "/usr/bin:/bin", "RUNPOD_API_KEY": "rp-not-a-real-key"})
+    assert result.returncode == 2
+    assert result.stderr.strip() == ("error: ANTHROPIC_API_KEY is not set, and the pod's render reads each key with Claude; "
+                                     "export it, or pass --dry-run to see the plan")
+
+
+def test_the_pod_gets_the_readers_key_which_the_plan_never_prints(script, built, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert "ANTHROPIC_API_KEY" not in script.env(built)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
+    assert script.env(built)["ANTHROPIC_API_KEY"] == "sk-ant-not-a-real-key"
+    assert script.create_body(built)["env"]["ANTHROPIC_API_KEY"] == "sk-ant-not-a-real-key"
+    text = script.describe(built)
+    assert "PUBLIC_KEY, HF_HUB_ENABLE_HF_TRANSFER, PYTORCH_CUDA_ALLOC_CONF, ANTHROPIC_API_KEY" in text
+    assert "sk-ant-not-a-real-key" not in text and "<the key, never printed>" in text
 
 
 def test_a_story_the_project_does_not_have_stops_it_before_a_pod_is_rented():

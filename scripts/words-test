@@ -11,11 +11,8 @@ to words-test.md at the repository's root, and the call's tokens and cost to one
 The call is paid. The script first counts the request's input tokens with the token counting endpoint, which is free,
 and calls only when --cap-usd is given and the estimate, those tokens and the most output the request allows, is under
 the cap. ANTHROPIC_API_KEY comes from the environment or the repository's .env, and is never printed. It runs in the
-repository's environment, since it reads videotape's command and errors.
-
-The Messages API over plain HTTP (platform.claude.com/docs/en/api/messages): POST https://api.anthropic.com/v1/messages
-and /v1/messages/count_tokens with the headers x-api-key and anthropic-version. This model always thinks, and its
-thinking is billed as output tokens. The model is pinned, so the request names no fallback model, and a refusal fails.
+repository's environment, since it reads videotape's command and errors, and calls the API through videotape.claude,
+as the reader does.
 """
 
 from __future__ import annotations
@@ -26,14 +23,12 @@ import json
 import os
 import re
 import sys
-import urllib.error
-import urllib.request
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from collections.abc import Iterator
 from pathlib import Path
 from unittest import mock
 
-from videotape import cli, errors, ledger, project
+from videotape import claude, cli, errors, project
+from videotape.claude import MODEL, Reply, Send, price
 
 ROOT = Path(__file__).resolve().parent.parent
 README = ROOT / "README.md"
@@ -43,16 +38,7 @@ LEDGER = ROOT / "ledger.jsonl"
 ENV = ROOT / ".env"
 WORDS = "## The words Videotape uses"
 
-API = "https://api.anthropic.com/v1/messages"
-COUNT = f"{API}/count_tokens"
-VERSION = "2026-10-21"
-MODEL = "claude-opus-5-5"
 MAX_TOKENS = 24000
-# This model's default, set so that a change of default does not change the test.
-EFFORT = "medium"
-# Dollars for a million tokens of claude-opus-5-5 on the Claude API, from Anthropic's model table as of 2026-10-06.
-# The request asks for no caching, so input and output tokens are the whole bill.
-USD_PER_MILLION = {"input_tokens": 4.00, "output_tokens": 20.00}
 WIDTH = 120
 
 ASK = """Below are three things from videotape, a framework for writing an app as a screenplay that a video model \
@@ -78,40 +64,8 @@ nothing about style, and nothing about the words section itself. If no place doe
 {messages}
 </errors>"""
 
-Send = Callable[[urllib.request.Request], bytes]
-
-
 class WordsTestError(Exception):
     pass
-
-
-@dataclass(frozen=True)
-class Reply:
-    """What the call answered: its text, the model that wrote it, the tokens it billed, why it stopped, and the raw
-    response."""
-
-    text: str
-    model: str
-    tokens: dict[str, int]
-    stop: str
-    raw: dict
-
-    @property
-    def usd(self) -> float:
-        return price(self.tokens)
-
-    def spent(self) -> str:
-        return (f"{self.model}: {self.tokens['input_tokens']:,} input tokens, {self.tokens['output_tokens']:,} output "
-                f"tokens, ${self.usd:.4f}")
-
-
-def price(tokens: dict[str, int]) -> float:
-    return sum(tokens[kind] * usd for kind, usd in USD_PER_MILLION.items()) / 1_000_000
-
-
-def _urlopen(request: urllib.request.Request) -> bytes:
-    with urllib.request.urlopen(request, timeout=900) as response:
-        return response.read()
 
 
 def words(readme: str) -> str:
@@ -179,48 +133,8 @@ def messages() -> list[str]:
 
 def request() -> dict:
     content = ASK.format(words=words(README.read_text()), helps="\n\n".join(helps()), messages="\n\n".join(messages()))
-    return {"model": MODEL, "max_tokens": MAX_TOKENS, "output_config": {"effort": EFFORT},
+    return {"model": MODEL, "max_tokens": MAX_TOKENS, "output_config": {"effort": claude.EFFORT},
             "messages": [{"role": "user", "content": content}]}
-
-
-def _post(url: str, body: dict, key: str, send: Send, what: str) -> dict:
-    """One request, sent once. The key goes only into the x-api-key header, and is scrubbed from any error."""
-    asked = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
-        "Content-Type": "application/json", "x-api-key": key, "anthropic-version": VERSION})
-    try:
-        answered = send(asked)
-    except urllib.error.HTTPError as error:
-        failure = f"{what} failed with HTTP {error.code}: {error.read().decode(errors='replace')[:500]}"
-        raise WordsTestError(failure.replace(key, "<ANTHROPIC_API_KEY>")) from None
-    except OSError as error:
-        raise WordsTestError(f"{what} failed: {error}".replace(key, "<ANTHROPIC_API_KEY>")) from None
-    try:
-        raw = json.loads(answered)
-    except ValueError:
-        raise WordsTestError(f"{what} answered with something other than JSON: {answered[:300]!r}") from None
-    if not isinstance(raw, dict):
-        raise WordsTestError(f"{what} answered with something other than an object: {answered[:300]!r}")
-    return raw
-
-
-def counted(body: dict, key: str, send: Send) -> int:
-    """The request's input tokens, from the token counting endpoint, which is free."""
-    raw = _post(COUNT, {"model": body["model"], "messages": body["messages"]}, key, send, "the count")
-    tokens = raw.get("input_tokens")
-    if isinstance(tokens, bool) or not isinstance(tokens, int):
-        raise WordsTestError(f"the count answered without input_tokens: {json.dumps(raw)[:300]}")
-    return tokens
-
-
-def call(body: dict, key: str, send: Send) -> Reply:
-    """The paid call. A reply that billed tokens is returned whole or not, so that its cost reaches the ledger."""
-    raw = _post(API, body, key, send, "the call")
-    try:
-        tokens = {kind: int(raw["usage"][kind]) for kind in USD_PER_MILLION}
-        text = "".join(block["text"] for block in raw["content"] if block["type"] == "text").strip()
-        return Reply(text, raw["model"], tokens, raw["stop_reason"], raw)
-    except (KeyError, TypeError, ValueError):
-        raise WordsTestError(f"the call answered with something other than a message: {json.dumps(raw)[:300]}") from None
 
 
 def report(reply: Reply) -> str:
@@ -230,7 +144,7 @@ def report(reply: Reply) -> str:
             f"section another meaning.\n\n## The places\n\n{reply.text}\n\n## Tokens and cost\n\n- {reply.spent()}\n")
 
 
-def main(argv: list[str] | None = None, send: Send = _urlopen) -> int:
+def main(argv: list[str] | None = None, send: Send = claude._urlopen) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cap-usd", type=float, help="the most the call may spend; the script calls only when its "
                         "estimate is under this")
@@ -250,17 +164,16 @@ def main(argv: list[str] | None = None, send: Send = _urlopen) -> int:
         return 1
     try:
         body = request()
-        tokens = counted(body, key, send)
+        tokens = claude.counted(body, key, send)
         most = price({"input_tokens": tokens, "output_tokens": MAX_TOKENS})
         print(f"estimate  {tokens:,} input tokens and at most {MAX_TOKENS:,} output tokens, at most ${most:.4f}, "
               f"cap ${args.cap_usd:.2f}", flush=True)
         if most >= args.cap_usd:
             raise WordsTestError(f"the estimate of ${most:.4f} is not under the cap of ${args.cap_usd:.2f}, so nothing "
                                  "was sent")
-        reply = call(body, key, send)
+        reply = claude.call(body, key, send)
         with LEDGER.open("a") as file:
-            file.write(json.dumps({"kind": "words-test", "model": reply.model, "tokens": reply.tokens,
-                                   "usd": round(reply.usd, 6), "at": ledger.now()}, sort_keys=True) + "\n")
+            file.write(json.dumps(claude.bill("words-test", reply), sort_keys=True) + "\n")
         if args.record:
             Path(args.record).write_text(json.dumps(reply.raw, indent=2) + "\n")
         if reply.stop != "end_turn" or not reply.text:
@@ -268,6 +181,9 @@ def main(argv: list[str] | None = None, send: Send = _urlopen) -> int:
                                  f"a whole answer; it cost ${reply.usd:.4f}")
     except WordsTestError as error:
         print(f"error: {error}", file=sys.stderr)
+        return 1
+    except errors.ModelError as error:
+        print(f"error: {error.message}", file=sys.stderr)
         return 1
     REPORT.write_text(report(reply))
     shown = os.path.relpath(REPORT) if REPORT.is_relative_to(Path.cwd()) else REPORT

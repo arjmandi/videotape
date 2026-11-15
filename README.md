@@ -82,11 +82,13 @@ ok   VT102 ffmpeg and ffprobe are on PATH
 ok   VT103 Xcode 27.0, at /Applications/Xcode.app/Contents/Developer, for TapePlayer
 fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env
   fix: copy .env.example to .env and set FAL_KEY there, or export it
+fail VT104 wan3.0's reader claude-opus-5-5 needs ANTHROPIC_API_KEY, and it is not in the environment or .env
+  fix: copy .env.example to .env and set ANTHROPIC_API_KEY there, or export it
 fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here
   fix: in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync
 ```
 
-The first `uv run` makes the project's Python environment. `VT104` fails because wan3.0 runs Wan 3.0 on fal, which needs the API key `FAL_KEY`. `VT105` fails because wan3.0's eye, Qwen3-VL-8B, runs through videotape's `qwen` extra, which the project leaves out so that it installs fast. Leave both for now. [Render with a real model](#render-with-a-real-model) adds them. The stand-in is a model that needs no API key and no GPU, and costs nothing. It films each key as a plain picture: a box for each line of the state's words. A render with the stand-in tests everything but the pictures.
+The first `uv run` makes the project's Python environment. `VT104` fails because wan3.0 runs Wan 3.0 on fal, which needs the API key `FAL_KEY`, and because Claude, a reader of its eye, needs `ANTHROPIC_API_KEY`. `VT105` fails because its other reader, Qwen3-VL-8B, runs through videotape's `qwen` extra, which the project leaves out so that it installs fast. Leave all three for now. [Render with a real model](#render-with-a-real-model) adds them. The stand-in is a model that needs no API key and no GPU, and costs nothing. It films each key as a plain picture: a box for each line of the state's words. A render with the stand-in tests everything but the pictures.
 
 Render the starter's story with the stand-in:
 
@@ -147,7 +149,7 @@ home              1           1
 todo              1           1
 
 0 errors, 0 warnings
-wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s
+wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.34 to $1.37
 ```
 
 A render films one shot for each state and one for each action. A key is the shot of a state at rest. A move is the shot of an action. It films the press, from the key of the state it leaves to the key of the state it lands on. The last line is the estimate for the project's model. A render makes one call for each shot if every first take passes, and four if none passes before the last.
@@ -691,7 +693,7 @@ home() -> search() "Where to?"
 
 ### Render
 
-A render films every key first, then each move as soon as both of its keys are done, several shots at once. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, and each move starts and ends on its keys. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
+A render films every key first, then each move as soon as both of its keys are done, several shots at once. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, each chart's title, labels and values match the data, the chosen day or tab is drawn marked and no other, and each move starts and ends on its keys. The stand-in's eye is its own reader. A real model's eye is two readers, Qwen3-VL-8B and Claude, and a line reads back exactly from both or the check fails. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
 
 The render prints a line for each shot as it finishes, then the totals, then each failing shot with the command to run next. It writes the tape to `tapes/terminal/`, and a line for each take to `ledger.jsonl`. The stand-in passes every shot within four takes, and a real model does not. So the output here comes from `tests/test_guide.py`, whose stand-in films every other shot clean on its first take, and fails two keys on every take:
 
@@ -723,10 +725,10 @@ uv run videotape dailies --story terminal
 ```
 
 ```text
-wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "usd": 0.0}
+wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
 ```
 
-`dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what the eye read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. `explain` prints a code's long form:
+`dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what each reader read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. `explain` prints a code's long form:
 
 ```sh
 uv run videotape explain VT502
@@ -735,7 +737,7 @@ uv run videotape explain VT502
 ```text
 VT502: a line was misread
 
-Every line of a state is read back from its key, and a line reads back exactly or the check fails. The character error rate says how far off it was, and the dailies show the line's box when the eye saw one.
+Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly from every reader or the check fails. The character error rate says how far off each reading was, and the dailies show each reader's reading and the line's box when a reader saw one. A DatePicker shows a month, and a day without an option shows no label, so an option's label read where the key has no such line fails this check too.
 
 Example:
     vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"
@@ -790,7 +792,7 @@ Search for Seattle, pick a day and a flight, and book it.
 
 ### Render with a real model
 
-wan3.0 runs Wan 3.0 on fal, which bills for each call. Its eye, Qwen3-VL-8B, needs Apple silicon or a CUDA GPU. Read the estimate before you render:
+wan3.0 runs Wan 3.0 on fal, which bills for each call. Its eye is two readers: Qwen3-VL-8B, which runs here and needs Apple silicon or a CUDA GPU, and Claude, which runs as a service, needs `ANTHROPIC_API_KEY`, and bills for each take of a key it reads, under the same cap. Read the estimate before you render:
 
 ```sh
 uv run videotape plan --story terminal --model wan3.0
@@ -799,10 +801,12 @@ uv run videotape plan --story terminal --model wan3.0
 ```text
 Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
 ...
-wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s
+wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s, and 58 to 232 reads by claude-opus-5-5, at most $9.97 to $39.86
 ```
 
-To render with it, first add videotape's `qwen` extra, which runs the eye. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` there, and set `model = "wan3.0"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for `VT104` and `VT105`. A render without `FAL_KEY` stops before its first call with doctor's `VT104` and doctor's fix. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`.
+A read's estimate charges every output token the reply may take, so a read costs less than its share here, and a reply is cached in the tape, so a render run again pays for no read twice.
+
+To render with it, first add videotape's `qwen` extra, which runs Qwen3-VL-8B, the reader of the eye that runs here. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` and `ANTHROPIC_API_KEY` there, and set `model = "wan3.0"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for both `VT104` lines and for `VT105`. A render without either API key stops before its first call with doctor's `VT104` and doctor's fix. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`.
 
 Two more models run on fal, with the same `FAL_KEY`, the same eye and a cap. Name one with `--model`, or set it as `model` in `pyproject.toml`. minimax-h3 runs MiniMax H3 at 1344x768, for $0.06 a second, so $0.30 a call, and allows prompts of up to 7,000 characters. gemini-omni-flash-1.2 runs Gemini Omni Flash 1.2 at 720p, for $0.0819 a second. fal also bills its prompt, by the token, and no answer says for how much, so the estimate and the cap count the most a prompt can cost, $0.03 a call. fal takes no seed for gemini-omni-flash-1.2, so there the seed only names a take, and a render run again reuses the take of each seed as it does for any model. A tape takes the size of its model's clips, and TapePlayer's window takes the tape's shape.
 
@@ -831,10 +835,10 @@ Each word below has one meaning in this guide, and each meaning has one word.
 
 - **accept**. To mark a failing check of a shot's kept take as fine, with a reason. The accept holds while the shot keeps that take. `videotape accept`.
 - **action**. What pressing an element does. It leads to the state that the element's `to=` names, and a render films it as a move.
-- **API key**. A secret that a model run as a service needs, such as `FAL_KEY` for wan3.0, minimax-h3 and gemini-omni-flash-1.2, which run on fal. It comes from the environment or the project's `.env`.
+- **API key**. A secret that a model or a reader run as a service needs, such as `FAL_KEY` for wan3.0, minimax-h3 and gemini-omni-flash-1.2, which run on fal, and `ANTHROPIC_API_KEY` for Claude. It comes from the environment or the project's `.env`.
 - **appearance**. A story's words for how one type of element looks, under `[elements]`.
-- **cap**. The most a render may spend on a model that bills per call. `cap_usd` in `[tool.videotape]` sets it, and `--cap-usd` sets it for one render.
-- **check**. One test that a take must pass: each action's words are found on the key (`VT501`), each line reads back exactly (`VT502`), the key shows no control the state lacks (`VT503`), and a move starts and ends on its keys (`VT508`).
+- **cap**. The most a render may spend on a model or a reader that bills per call. `cap_usd` in `[tool.videotape]` sets it, and `--cap-usd` sets it for one render.
+- **check**. One test that a take must pass: each action's words are found on the key (`VT501`), each line reads back exactly from every reader (`VT502`), the key shows no control the state lacks (`VT503`), each chart's title, labels and values match the data (`VT504`), a move starts and ends on its keys (`VT508`), and the chosen day or tab is drawn marked and no other (`VT509`).
 - **clause**. One part of a prompt, with its source: the engine, a part of the story, or an element of the screenplay.
 - **dailies**. The review of a tape: `dailies.json`, which holds what the render knew of each shot, and `dailies.html`, the page that shows it, failures first. `videotape dailies`.
 - **data table**. The records of one record class, loaded from a JSON array in `data/` with `vt.table`.
@@ -842,12 +846,12 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **element**. One thing that a state shows: `Heading`, `Text`, `Button`, `SearchBar`, `DatePicker`, `DateStrip`, `List`, `BarChart`, `LineChart`, or `Tabs`. An `Option` is a part of a search bar or a date picker, and a `Row` is a part of a list.
 - **error code**. `VT` and three digits, which name one kind of error. `videotape explain <code>` prints its long form.
 - **estimate**. The last line of `videotape plan`: the shots, the calls a render makes if every first take passes and if none passes before the last, and their price.
-- **eye**. What reads a take back for its checks: Qwen3-VL-8B for every model but the stand-in, and the stand-in's own reader for the stand-in.
+- **eye**. What reads a take back for its checks, made of one or more readers: the stand-in's own reader for the stand-in, and Qwen3-VL-8B with Claude for every other model.
 - **hotspot**. Where a person presses an action on a key: the box in which the eye found the action's words.
 - **key**. The shot of one state at rest, filmed from its own prompt. The last frame of its kept take is the state's picture in the tape, and the moves to and from the state start and end on that picture.
 - **kept take**. The take a shot keeps: the first that passes every check, or the best when none passes.
 - **label**. The name of a tape: the app's name and version and the story's name and version, as in `contrail 0.1.0 + terminal 1.0.0`.
-- **ledger**. `ledger.jsonl` in the project, with one line for each take filmed and its price.
+- **ledger**. `ledger.jsonl` in the project, with one line for each take filmed and its price, and one for each paid read.
 - **lock**. `videotape.lock` in the project, with the label, the made id, and the file hashes of each tape published. A label is published with one made id only.
 - **look**. The sentence or two of a story that every key's prompt starts with.
 - **made id**. One hash of everything that made a tape: the screenplay that `[tool.videotape]` names, the app's Python files and data, the story, the model and its settings, and videotape itself. Two tapes with one made id were made from the same things.
@@ -857,6 +861,8 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **project**. The folder whose `pyproject.toml` has a `[tool.videotape]` section that names the screenplay.
 - **prompt**. The words a model is given for one shot, made of clauses from the story and the screenplay. `videotape shots` prints them.
 - **publish**. To turn a tape into a signed Mac app in `dist/` that plays it. `videotape publish`.
+- **read**. One reader's report on one picture: every line of text it saw with its box, which look like controls, which are drawn marked, and each chart's title, labels and values. A read by Claude is paid, reserved under the cap before it is sent, cached in the tape's `looks/`, and written to the ledger.
+- **reader**. One part of an eye, which reads a picture and reports a read: the stand-in's own, Qwen3-VL-8B, which runs here through the `qwen` extra and reports no marks and no charts, or Claude, which runs as a service and reports both.
 - **record**. One value of a record class, a `vt.Record` with typed fields. `key=` names the fields that tell two records apart.
 - **render**. To film every shot of the plan in one story into a tape. `videotape render`.
 - **retake**. To film new takes of one shot, with seeds after the highest it has tried, and keep the best of all its takes. `videotape retake`.

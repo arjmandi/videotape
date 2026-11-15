@@ -67,7 +67,7 @@ def plan_app(args) -> int:
     _warn(warnings)
     print(f"0 errors, {_count(len(warnings), 'warning')}")
     if listing:
-        print(estimate(args.model or found.model, listing, len(planned.shots), found.takes))
+        print(estimate(args.model or found.model, listing, len(planned.shots), len(planned.keys), found.takes))
     return 0
 
 
@@ -173,11 +173,12 @@ def _render(found: Project, args) -> int:
     told, warnings = _told(found, planned, args.story, listing)
     _warn((*planned.warnings, *warnings))
     tape = _tape(found, told.name, args.out)
-    model, eye, takes = listing.model(), listing.eye(tape), args.takes or found.takes
+    model, takes = listing.model(), args.takes or found.takes
+    readers = [reader(tape) for reader in listing.readers]
     cap = args.cap_usd if args.cap_usd is not None else found.cap_usd
     book = ledger.of(found.root, tape)
-    if listing.price:
-        print(f"{estimate(model.name, listing, len(planned.shots), takes)}, "
+    if listing.price or any(reader.paid for reader in readers):
+        print(f"{estimate(model.name, listing, len(planned.shots), len(planned.keys), takes)}, "
               f"{f'cap ${cap:.2f}' if cap is not None else 'no cap'}, ${book.totals()['usd']:.2f} spent", flush=True)
     numbers = {shot: number for number, shot in enumerate(planned.shots, 1)}
 
@@ -189,7 +190,7 @@ def _render(found: Project, args) -> int:
         print(f"{numbers[filmed.shot]}. {filmed.shot.title}  kept take {filmed.kept.seed}, {verdict}, {filmed_takes}, "
               f"${filmed.usd:.2f}, {filmed.seconds:.1f} s", flush=True)
 
-    result = render(planned, told, model, eye, tape, book, made(found, told, model), takes=takes, limit=listing.limit,
+    result = render(planned, told, model, readers, tape, book, made(found, told, model), takes=takes, limit=listing.limit,
                     price=listing.price, cap=cap, resume=_resume(args, told.name), report=report)
     record = dailies.read(tape)
     print(f"{_count(len(result.shots), 'shot')}, {_count(sum(f.rendered for f in result.shots), 'take')} filmed, "
