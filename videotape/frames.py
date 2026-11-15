@@ -125,6 +125,17 @@ def difference(a: Frame, b: Frame) -> float:
 ENCODE = ("-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", str(FPS), "-movflags", "+faststart", "-f", "mp4", "-y")
 
 
+# libx265 runs in software and gives the same bytes from the same clip on every run, where VideoToolbox's file differs
+# from run to run, so publishing a tape again encodes the frames its checks passed on. hvc1 is the tag AVFoundation plays.
+HEVC = ("-c:v", "libx265", "-crf", "23", "-x265-params", "log-level=error", "-tag:v", "hvc1", "-pix_fmt", "yuv420p", "-an",
+        "-movflags", "+faststart", "-f", "mp4", "-y")
+
+
+def hevc(clip: Path, out: Path) -> None:
+    """The clip encoded as HEVC, frame for frame."""
+    _ffmpeg("-i", str(clip), *HEVC, str(out))
+
+
 def crossfade(start: Path, end: Path, out: Path) -> None:
     _ffmpeg("-loop", "1", "-framerate", str(FPS), "-t", "0.5", "-i", str(start),
             "-loop", "1", "-framerate", str(FPS), "-t", "0.9", "-i", str(end),

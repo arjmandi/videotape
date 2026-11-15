@@ -205,6 +205,18 @@ CODES: dict[str, Code] = {
         '[scenes]\nhome = "The main hall, facing the big departure board."\n'
         'search = "Up close at the departure board."',
     ),
+    "VT305": Code(
+        "the tape's label is published already, as another tape",
+        "A tape's label names the app and the story, each by its version, as in contrail 0.1.0 + starter 1.0.0, and "
+        "its id hashes everything that made it. Publish records the label and id of each app it ships in "
+        "videotape.lock, at the project's root, which the project commits. This tape's label is in the lock with "
+        "another id: the code, the data, the story, the model or videotape changed, and neither version did, so two "
+        "different apps would ship under one name. Publish ships nothing.",
+        "error VT305 videotape.lock: contrail 0.1.0 + starter 1.0.0 was published as 3f9a0c1d2e4b, and this tape "
+        "under the same label is 7b2e9d4c1a0f: the data changed",
+        "fix: give the tape a label of its own: bump version in pyproject.toml, or in stories/starter.toml for a "
+        "change to the story, then render and publish again",
+    ),
     "VT306": Code(
         "a story is not TOML, or a table holds something other than words",
         'A story is a TOML file: lines of name = "words", above and under the headings [scenes], [elements] and '
@@ -319,6 +331,27 @@ CODES: dict[str, Code] = {
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
         "retake the move, change the story's move for that element type, or accept it with a reason",
     ),
+    "VT601": Code(
+        "the tape is out of date with its sources",
+        "tape.json's made block hashes everything that made the tape: the app's code and data, the story, the model's "
+        "settings and videotape itself, with an id that hashes them all. Publish makes the block again from the "
+        "project as it is now, for the tape's story and model, and compares the two ids. They differ, so the app "
+        "would ship a tape drawn from sources the project no longer has. The error says what changed. A render that "
+        "stopped before its last shot also leaves its tape out of date. Publish ships nothing.",
+        "error VT601 tapes/starter: the app's code changed since the tape was rendered",
+        "fix: render the tape again with the model that made it, then publish it:\n"
+        "videotape render --story starter --model stand-in",
+    ),
+    "VT602": Code(
+        "the tape has failing checks nobody accepted",
+        "Every key and move of a tape is checked when it renders. A check its kept take fails stays failing until a "
+        "retake passes it or a person accepts it with a reason, and an accept holds only for the take it was given "
+        "on. Publish reads the tape's dailies.json and ships nothing while a failure there is not accepted.",
+        "error VT602 tapes/starter: 1 check fails that nobody accepted: key todo() VT503",
+        "fix: look at it with videotape dailies --story starter, then retake the shot or accept the failure with a "
+        "reason; for the first:\nvideotape retake \"todo()\" --story starter\n"
+        "videotape accept \"todo()\" VT503 --story starter --reason \"...\"",
+    ),
     "VT603": Code(
         "TapePlayer did not build",
         "play and publish build TapePlayer, the macOS app that plays a tape, from the Swift source videotape carries. "
@@ -329,6 +362,18 @@ CODES: dict[str, Code] = {
         "xcode-select: error: tool 'xcodebuild' requires Xcode, but active developer directory "
         "'/Library/Developer/CommandLineTools' is a command line tools instance",
         "run videotape doctor, which checks for Xcode; when it passes, the log says what failed",
+    ),
+    "VT604": Code(
+        "a check fails on the HEVC frame the player rests on",
+        "Publish encodes each clip of the tape as HEVC, which makes a Wan tape's app smaller than the clips a render keeps."
+        " A clip's last frame is where the player rests until the next press, so publish reads each encoded "
+        "clip's last frame, runs the tape's eye on it against the state the clip lands on, and compares it with that "
+        "state's key image. A check that passed on the key and fails on this frame means the encoding lost what the "
+        "check needs. Publish ships nothing.",
+        "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where the player rests on todo(), fails 2 "
+        "checks its key passed, the first VT501 Back: not found",
+        "fix: retake the shot, whose next take may come through the encoding, then publish again:\n"
+        "videotape retake \"home() -> todo()\" --story starter",
     ),
 }
 

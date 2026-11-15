@@ -7,7 +7,7 @@ from collections import Counter
 from difflib import get_close_matches
 from pathlib import Path
 
-from videotape import dailies, doctor, errors, ledger, new, player, project, story
+from videotape import dailies, doctor, errors, ledger, new, player, project, publish, story
 from videotape.checks import ChecksError
 from videotape.errors import CODES, RenderError, ScreenplayError
 from videotape.fal import FalError
@@ -277,6 +277,16 @@ def play(args) -> int:
     return 0
 
 
+def publish_app(args) -> int:
+    found = project.find(Path.cwd())
+    done = publish.publish(found, _tape(found, args.story, args.out))
+    print(f"published {errors.shown(done.app)}, {done.size / 1e6:.1f} MB, zipped to {errors.shown(done.zip)}, "
+          f"{done.zip.stat().st_size / 1e6:.1f} MB")
+    print(f"label {done.label}\nid {done.id}")
+    print(f"{publish.LOCK} holds the label now; commit it" if done.locked else f"{publish.LOCK} held the label already")
+    return 0
+
+
 def _manifest(tape: str) -> dict:
     """A tape's tape.json, which says what made it."""
     file = Path(tape) / "tape.json"
@@ -366,6 +376,10 @@ def main(argv=None) -> int:
     playing = commands.add_parser("play", help="open a tape in TapePlayer, building it first when it needs to")
     _tape_flags(playing)
     playing.set_defaults(run=play)
+    publishing = commands.add_parser("publish", help="make a tape into a Mac app in dist/ that plays it, signed ad hoc "
+                                     "and zipped, and record it in videotape.lock")
+    _tape_flags(publishing)
+    publishing.set_defaults(run=publish_app)
     diffing = commands.add_parser("diff", help="say whether two tapes are of the same app and the same story, and how "
                                   "many states and moves they share")
     diffing.add_argument("a", help="a tape directory")

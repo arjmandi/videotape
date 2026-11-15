@@ -170,7 +170,8 @@ def hosted_by(queue: type[Hosted], tmp_path: Path, monkeypatch) -> tuple[Path, H
     (tmp_path / "clips").mkdir()
     fal = queue(tmp_path / "clips")
     monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: wan3.Wan3(Fal(KEY, send=fal, sleep=lambda _: None)),
-                                                  lambda tape: StandInEye(), price=wan3.PRICE, limit=2))
+                                                  lambda tape: StandInEye(), price=wan3.PRICE, limit=2,
+                                                  kind=wan3.Wan3))
     return directory, fal
 
 

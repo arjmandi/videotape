@@ -24,10 +24,14 @@ os.environ["BROWSER"] = "true"
 
 
 def forget(found: project.Project) -> None:
-    """Drop a project's modules, so a copy or an edit of the project is imported afresh."""
+    """Drop a project's modules, and its folder from the import path, so a copy or an edit of the project is imported
+    afresh. A regular package anywhere on the path wins over a namespace package before it, so a starter's contrail
+    package, left on the path, would stand in for examples/contrail's, which has no __init__.py."""
     top = found.screenplay.partition(":")[0].partition(".")[0]
     for name in [name for name in sys.modules if name == top or name.startswith(f"{top}.")]:
         del sys.modules[name]
+    while str(found.root) in sys.path:
+        sys.path.remove(str(found.root))
 
 
 def planned(directory: Path) -> Plan:
@@ -66,15 +70,16 @@ def videotape(directory: Path, *arguments: str) -> subprocess.CompletedProcess[s
 
 
 VARIES = re.compile(r"(?P<shot>(?<=^error VT\d{3} ).+?(?= take \d|: ))|(?P<ffmpeg>(?<=decode to one frame: ).+$)"
-                    r"|(?P<story>(?<=--story )\S+)|(?P<path>\S*/\S*)|(?P<number>(?<![\w.])\d+(?:\.\d+)?)", re.MULTILINE)
-WILDCARDS = {"shot": r"(?:(?! take \d).)+", "ffmpeg": r".+", "story": r"\S+", "path": r"\S+",
+                    r"|(?P<story>(?<=--story )\S+)|(?P<path>\S*/\S*)|(?P<hash>\b[0-9a-f]{12,64}\b)"
+                    r"|(?P<number>(?<![\w.])\d+(?:\.\d+)?)", re.MULTILINE)
+WILDCARDS = {"shot": r"(?:(?! take \d).)+", "ffmpeg": r".+", "story": r"\S+", "path": r"\S+", "hash": r"[0-9a-f]{12,64}",
              "number": r"\d+(?:\.\d+)?"}
 
 
 def as_explained(code: str) -> re.Pattern[str]:
-    """The lines a render prints for a code, as videotape explain shows them in its example and its next step, with
-    what differs from run to run left open: the shot, a path and the hash in it, a number, the story a command names,
-    and what ffmpeg said."""
+    """The lines a command prints for a code, as videotape explain shows them in its example and its next step or fix,
+    with what differs from run to run left open: the shot, a path and the hash in it, a hash, a number, the story a
+    command names, and what ffmpeg said."""
     entry = CODES[code]
     example = f"{entry.example}\n{entry.fix}"
     pattern, at = "", 0
@@ -96,12 +101,19 @@ def environment():
 
 @pytest.fixture
 def cli(monkeypatch):
-    """Run videotape's main in a project, in this process, so a test can swap the model it renders with."""
-    def run(directory: Path, *arguments: str) -> int:
-        monkeypatch.chdir(directory)
+    """Run videotape's main in a project, in this process, so a test can swap the model it renders with. The project
+    is forgotten before and after, so it never stands in for another project with a package of the same name."""
+    def forget_any(directory: Path) -> None:
         try:
             forget(project.find(directory))
         except ScreenplayError:
             pass  # A project that is not one has no modules to forget, and the command reports it.
-        return main(list(arguments))
+
+    def run(directory: Path, *arguments: str) -> int:
+        monkeypatch.chdir(directory)
+        forget_any(directory)
+        try:
+            return main(list(arguments))
+        finally:
+            forget_any(directory)
     return run

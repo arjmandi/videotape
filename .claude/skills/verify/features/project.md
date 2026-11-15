@@ -11,14 +11,14 @@ A developer starts an app with `videotape new <name>`, run in any folder, which 
 - `project-doctor` prints the machine's three checks and the project's two, and fails `VT104` when the starter's `FAL_KEY` is not set.
 - `project-doctor-machine` prints only the machine's checks outside a project.
 - `project-doctor-fails` fails each check on a made-up machine, proven by `uv run pytest tests/test_doctor.py`.
-- `project-quickstart` runs `new`, `cd`, `doctor`, `render` and `play` from an empty folder with no uv or videotape cache, and reports each step's time and TapePlayer's first build apart.
+- `project-quickstart` runs `new`, `cd`, `doctor`, `render` and `play` from an empty folder with no uv or videotape cache, then `publish`, which is not one of the steps to a played tape, and reports each step's time and TapePlayer's first build apart.
 
 ## How to get to it (user POV)
 
 - In an empty folder, run `uvx --from <checkout or git URL> videotape new <name>`, then `cd <name>`, `uv run videotape doctor`, `uv run videotape render --story starter --model stand-in` and `uv run videotape play --story starter`.
 - In any folder with videotape installed, run `videotape doctor`.
 - Copy `.env.example` to `.env` and set `FAL_KEY` there, then run `uv run videotape doctor` again.
-- From the repo root, run `scripts/quickstart-test`, or `scripts/quickstart-test --skip-play` to stop before play.
+- From the repo root, run `scripts/quickstart-test`, or `scripts/quickstart-test --skip-play` to skip play.
 
 ## Driving it with vt-verify
 
@@ -56,7 +56,7 @@ Preconditions:
   The Python and Xcode versions are this machine's. With `examples/contrail` as the folder, as `project-doctor-contrail`, `.exit` is `0` and the last two lines are `ok   VT104 stand-in needs no key` and `ok   VT105 stand-in's checks need no GPU`.
 - **Doctor outside a project.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" project-doctor-machine "$M" -- doctor`. `.exit` is `0` and `.stdout` is the first three lines above.
 - **Fails.** Run `uv run pytest tests/test_doctor.py -v`. Each of `VT101` to `VT105` fails on a machine made up of scripts on PATH and a monkeypatched platform, each failing line is that code's `explain` example, a blank `FAL_KEY=` in `.env` counts as no key, and a wrong `model` fails `VT107` after the machine's lines.
-- **Quickstart.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" project-quickstart -- env -u FAL_KEY scripts/quickstart-test --skip-play`. `.exit` is `0`. `.stdout` echoes each step after `$ `, with the output of `new`, of `doctor` with only `VT104` failing, and of the render, then a table of the four steps run with their seconds, then `5 steps to a played tape, at most 5` and `<s> s to a rendered tape without TapePlayer's first build, at most 300 s`. Without `--skip-play` it also runs play, which builds TapePlayer, opens it on the screen and quits it; the play line then names `TapePlayer's first build <s> s`.
+- **Quickstart.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" project-quickstart -- env -u FAL_KEY scripts/quickstart-test --skip-play`. `.exit` is `0`. `.stdout` echoes each step after `$ `, with the output of `new`, of `doctor` with only `VT104` failing, and of the render and the publish, which builds TapePlayer and ends `videotape.lock holds the label now; commit it`, then a table of the five steps run with their seconds, the publish line naming `TapePlayer's first build <s> s`, then `5 steps to a played tape, at most 5` and `<s> s to a rendered tape without TapePlayer's first build, at most 300 s`. Without `--skip-play` it also runs play before publish, which builds TapePlayer, opens it on the screen and quits it; the play line then names the first build, and publish uses the cached player.
 - **Proof.** For each journey cite `.cmd`, `.exit` and the asserted lines, and for `project-new` the file list.
 
 ## Gotchas

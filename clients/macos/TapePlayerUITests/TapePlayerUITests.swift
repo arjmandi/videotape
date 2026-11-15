@@ -52,14 +52,48 @@ final class TapePlayerUITests: XCTestCase {
         XCTAssertGreaterThan(booked, home + 5, "the window is clearly not the booking's key: \(summary)")
     }
 
-    /// Walks the terminal tape along a route planned from its tape.json: every hotspot of every state at least once,
-    /// "sea", "honolulu" and "san" typed into the search bar, Escape on the sheet, and Back from at least five states.
-    /// Each landing checks the state's name and that its static texts are its words.
+    /// Walks the terminal tape, typing "sea", "honolulu" and "san" into its search bar.
     @MainActor
     func testWalksEveryJourneyOfTheTerminalTape() throws {
         let (app, url) = try launch()
         let tape = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: url.appending(path: "tape.json")))
-        let walk = try Walk.plan(tape)
+        try walk(app, tape) { _ in typed }
+    }
+
+    /// Copies the app that TEST_RUNNER_PUBLISHED_APP names into a new folder outside the checkout, clears what macOS
+    /// keeps for its bundle id, launches the copy with no argument, and walks the tape it carries, typing each option's
+    /// label and then text that picks none into the first search bar it reaches. Skipped when the variable is unset.
+    @MainActor
+    func testWalksEveryJourneyOfAPublishedApp() throws {
+        let published = ProcessInfo.processInfo.environment["PUBLISHED_APP"] ?? ""
+        try XCTSkipIf(published.isEmpty, "Set TEST_RUNNER_PUBLISHED_APP to the path of an app videotape publish made.")
+        let folder = FileManager.default.temporaryDirectory.appending(path: "published-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let copy = folder.appending(path: URL(filePath: published).lastPathComponent)
+        try FileManager.default.copyItem(at: URL(filePath: published), to: copy)
+        let bundle = try XCTUnwrap(Bundle(url: copy), "\(published) is an app bundle")
+        let name = try XCTUnwrap(bundle.object(forInfoDictionaryKey: "CFBundleName") as? String)
+        try forget(XCTUnwrap(bundle.bundleIdentifier))
+        let tape = try JSONDecoder().decode(
+            Manifest.self, from: Data(contentsOf: copy.appending(path: "Contents/Resources/tape/tape.json"))
+        )
+        let app = XCUIApplication(url: copy)
+        app.launch()
+        defer { app.terminate() }
+        try walk(app, tape) { search in search.options.map { ($0.label, $0.label) } + [(unmatched(search), nil)] }
+        for item in ["About", "Hide", "Quit"] {
+            XCTAssertTrue(app.menuBars.menuItems["\(item) \(name)"].exists, "the app menu says \(item) \(name)")
+        }
+    }
+
+    /// Walks the tape along a route planned from its tape.json: every hotspot of every state at least once, the texts
+    /// `typing` gives typed into the first search bar it reaches, Escape on the sheet, and Back from at least five
+    /// states, or from each state of a tape with fewer. Each landing checks the state's name and that its static texts
+    /// are its words. The first failed step ends the walk.
+    @MainActor
+    private func walk(_ app: XCUIApplication, _ tape: Manifest, typing: Typing) throws {
+        let walk = try Walk.plan(tape, typing: typing)
         let image = app.images["tape"]
         XCTAssertTrue(image.wait(for: \.label, toEqual: tape.opening.lands, timeout: 30), "the opening rests on the entry")
         XCTAssertEqual(app.windows.firstMatch.title, tape.made.label, "the window is titled with the tape's label")
@@ -140,6 +174,24 @@ final class TapePlayerUITests: XCTestCase {
         return (app, tape)
     }
 
+    /// Removes what macOS keeps for an app by its bundle id, so a launch is like the first on another Mac.
+    private func forget(_ id: String) throws {
+        let library = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library")
+        for kept in ["Caches/\(id)", "Saved Application State/\(id).savedState", "HTTPStorages/\(id)",
+                     "HTTPStorages/\(id).binarycookies", "WebKit/\(id)", "Application Support/\(id)"] {
+            let url = library.appending(path: kept)
+            if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
+                try FileManager.default.removeItem(at: url)
+            }
+        }
+        let defaults = Process()
+        defaults.executableURL = URL(filePath: "/usr/bin/defaults")
+        defaults.arguments = ["delete", id]
+        defaults.standardError = FileHandle.nullDevice
+        try defaults.run()
+        defaults.waitUntilExit()
+    }
+
     /// Clicks a hotspot as soon as its state rests and offers it.
     @MainActor
     private func press(_ button: XCUIElement, _ offered: String) {
@@ -210,8 +262,17 @@ private struct Manifest: Decodable {
     let made: Made
 }
 
-/// What the test types into the search bar, and the option each picks, or nil for no match.
+/// What the walk types into a search bar, and the option each text picks, or nil for no match.
+private typealias Typing = (Manifest.Search) -> [(text: String, option: String?)]
+
+/// What the test types into the terminal tape's search bar, and the option each picks, or nil for no match.
 private let typed: [(text: String, option: String?)] = [("sea", "Seattle (SEA)"), ("honolulu", "Honolulu (HNL)"), ("san", nil)]
+
+/// Text that picks none of the search's options: no word of any label starts with it, ignoring case.
+private func unmatched(_ search: Manifest.Search) -> String {
+    let words = search.options.flatMap { $0.label.lowercased().split { !$0.isLetter && !$0.isNumber } }
+    return ["zzz", "qqq", "xjx", "jqj"].first { text in !words.contains { $0.hasPrefix(text) } } ?? "zzz"
+}
 
 private enum Walk {
     enum Action: CustomStringConvertible {
@@ -246,9 +307,9 @@ private enum Walk {
 
     /// Plans the walk from the tape's graph. From the state it is at, it presses the first hotspot not yet pressed, goes
     /// back from a state with none, or follows the shortest route to a state with one, typing into a search bar where
-    /// that is the way. The first time it rests on a state with a search bar it types each text and goes back, then
-    /// opens the sheet once more and cancels it.
-    static func plan(_ tape: Manifest) throws -> [Step] {
+    /// that is the way. The first time it rests on a state with a search bar it types each text `typing` gives for it
+    /// and goes back, then opens the sheet once more and cancels it.
+    static func plan(_ tape: Manifest, typing: Typing) throws -> [Step] {
         for (state, scene) in tape.scenes {
             for hotspot in scene.hotspots where try lands(hotspot.move, tape) == state {
                 throw Unwalkable(description: "\(state)'s \(hotspot.label) lands on itself, which the walk cannot tell from staying")
@@ -280,7 +341,7 @@ private enum Walk {
             if let search = tape.scenes[at]!.search, typedInto == nil {
                 typedInto = at
                 let clickable = tape.scenes[at]!.hotspots.contains { $0.label == search.bar }
-                for (index, entry) in typed.enumerated() {
+                for (index, entry) in typing(search).enumerated() {
                     var next = search.noMatch.lands
                     if let option = entry.option {
                         guard let found = search.options.first(where: { $0.label == option }) else {
@@ -297,21 +358,24 @@ private enum Walk {
                 go(.press(label), to: try lands(tape.scenes[at]!.hotspots.first { $0.label == label }!.move, tape))
             } else if unused.values.allSatisfy(\.isEmpty) {
                 break
-            } else if try edges(of: at, tape).isEmpty {
+            } else if try edges(of: at, tape, typing).isEmpty {
                 back()
             } else {
-                for edge in try route(from: at, tape, toward: { !unused[$0]!.isEmpty }) {
+                for edge in try route(from: at, tape, typing, toward: { !unused[$0]!.isEmpty }) {
                     go(edge.action, to: edge.lands)
                 }
             }
         }
-        while wentBackFrom.count < 5, !history.isEmpty {
+        let backs = min(5, tape.scenes.count)
+        while wentBackFrom.count < backs, !history.isEmpty {
             back()
         }
-        guard wentBackFrom.count >= 5 else {
-            throw Unwalkable(description: "the walk went back from \(wentBackFrom.count) states, fewer than five")
+        guard wentBackFrom.count >= backs else {
+            throw Unwalkable(description: "the walk went back from \(wentBackFrom.count) states, fewer than \(backs)")
         }
-        guard typedInto != nil else { throw Unwalkable(description: "no state the walk reached has a search bar") }
+        guard typedInto != nil || tape.scenes.values.allSatisfy({ $0.search == nil }) else {
+            throw Unwalkable(description: "no state the walk reached has a search bar")
+        }
         return steps
     }
 
@@ -328,7 +392,7 @@ private enum Walk {
 
     /// Every way out of a state: its pressable hotspots, then typing each option's label into its search bar, then
     /// typing the text that matches no option.
-    private static func edges(of state: String, _ tape: Manifest) throws -> [(action: Action, lands: String)] {
+    private static func edges(of state: String, _ tape: Manifest, _ typing: Typing) throws -> [(action: Action, lands: String)] {
         var edges: [(action: Action, lands: String)] = []
         for hotspot in pressable(state, tape) {
             edges.append((.press(hotspot.label), try lands(hotspot.move, tape)))
@@ -337,7 +401,7 @@ private enum Walk {
             for option in search.options {
                 edges.append((.search(option.label, bar: nil), try lands(option.move, tape)))
             }
-            if let miss = typed.first(where: { $0.option == nil }) {
+            if let miss = typing(search).first(where: { $0.option == nil }) {
                 edges.append((.search(miss.text, bar: nil), search.noMatch.lands))
             }
         }
@@ -346,14 +410,14 @@ private enum Walk {
 
     /// The shortest route from `state` to one that satisfies `toward`.
     private static func route(
-        from state: String, _ tape: Manifest, toward: (String) -> Bool
+        from state: String, _ tape: Manifest, _ typing: Typing, toward: (String) -> Bool
     ) throws -> [(action: Action, lands: String)] {
         var cameFrom: [String: (state: String, action: Action)] = [:]
         var queue = [state]
         var seen: Set<String> = [state]
         while !queue.isEmpty {
             let here = queue.removeFirst()
-            for edge in try edges(of: here, tape) {
+            for edge in try edges(of: here, tape, typing) {
                 guard seen.insert(edge.lands).inserted else { continue }
                 cameFrom[edge.lands] = (here, edge.action)
                 if toward(edge.lands) {

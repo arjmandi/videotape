@@ -5,13 +5,14 @@
 
 The steps run in a new temporary folder, with a uv cache and a videotape cache of their own, so nothing built before
 helps them: uvx builds videotape from this checkout, uv run builds it again for the project, and play builds
-TapePlayer. The report gives each step's wall time, and TapePlayer's first build apart, read from play's
-"built TapePlayer in <s> s" line. The test fails when a step fails, when more than 5 steps lead to a played tape, or
-when they take more than 5 minutes without that build.
+TapePlayer. Then publish makes the tape into an app in dist/, which is not one of the steps to a played tape. The
+report gives each step's wall time, and TapePlayer's first build apart, read from the "built TapePlayer in <s> s" line
+of the step that built it. The test fails when a step fails, when more than 5 steps lead to a played tape, or when
+they take more than 5 minutes without that build.
 
 doctor may fail VT104 when FAL_KEY is unset, since the starter renders with wan3.0 by default; any other fail fails
-the test. play opens TapePlayer on the screen, and the test quits it by its bundle id once it runs. --skip-play stops
-before play. --keep keeps the folder and prints where it is. Standard library only.
+the test. play opens TapePlayer on the screen, and the test quits it by its bundle id once it runs. --skip-play skips
+play, and publish builds TapePlayer instead. --keep keeps the folder and prints where it is. Standard library only.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ STEPS = [
     "uv run videotape doctor",
     "uv run videotape render --story starter --model stand-in",
     PLAY,
+    "uv run videotape publish --story starter",
 ]
 TO_A_PLAYED_TAPE = STEPS.index(PLAY) + 1
 MOST_STEPS = 5
@@ -59,7 +61,7 @@ def passed(ran: Ran) -> bool:
 
 
 def first_build(ran: Ran) -> float:
-    """How long TapePlayer's first build took, from the line play prints after it, or 0 when it built nothing."""
+    """How long TapePlayer's first build took, from the line play or publish prints after it, or 0 when it built nothing."""
     built = re.search(r"^built TapePlayer in ([\d.]+) s$", ran.said, re.M)
     return float(built.group(1)) if built else 0.0
 
@@ -90,11 +92,11 @@ def quit_player() -> bool:
     return False
 
 
-def report(ran: list[Ran], build: float, seconds: float, skipped: bool) -> list[str]:
+def report(ran: list[Ran], seconds: float, skipped: bool) -> list[str]:
     width = max(len(r.step.format(repo=ROOT)) for r in ran)
     lines = [f"{'step':<{width}}  seconds"]
     for r in ran:
-        built = f"  TapePlayer's first build {build:.1f} s" if r.step == PLAY and build else ""
+        built = f"  TapePlayer's first build {first_build(r):.1f} s" if first_build(r) else ""
         lines.append(f"{r.step.format(repo=ROOT):<{width}}  {r.seconds:7.1f}{built}")
     return [*lines, "", f"{TO_A_PLAYED_TAPE} steps to a played tape, at most {MOST_STEPS}",
             f"{seconds:.1f} s to a {'rendered' if skipped else 'played'} tape without TapePlayer's first build, at "
@@ -103,8 +105,7 @@ def report(ran: list[Ran], build: float, seconds: float, skipped: bool) -> list[
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--skip-play", action="store_true", help="stop before play, which opens TapePlayer on the "
-                        "screen")
+    parser.add_argument("--skip-play", action="store_true", help="skip play, which opens TapePlayer on the screen")
     parser.add_argument("--keep", action="store_true", help="keep the temporary folder, and print where it is")
     args = parser.parse_args(argv)
     scratch = Path(tempfile.mkdtemp(prefix="quickstart-"))
@@ -113,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     environment = {key: value for key, value in os.environ.items()
                    if key not in ("VIRTUAL_ENV", "UV_PROJECT_ENVIRONMENT")}
     environment |= {"UV_CACHE_DIR": str(scratch / "uv-cache"), "VIDEOTAPE_CACHE_DIR": str(scratch / "videotape-cache")}
-    steps = STEPS[:STEPS.index(PLAY)] if args.skip_play else STEPS
+    steps = [step for step in STEPS if not (args.skip_play and step == PLAY)]
     ran: list[Ran] = []
     try:
         for step in steps:
@@ -134,8 +135,8 @@ def main(argv: list[str] | None = None) -> int:
         else:
             shutil.rmtree(scratch, ignore_errors=True)
     build = next((first_build(r) for r in ran if r.step == PLAY), 0.0)
-    seconds = sum(r.seconds for r in ran[:TO_A_PLAYED_TAPE]) - build
-    print("\n" + "\n".join(report(ran, build, seconds, args.skip_play)))
+    seconds = sum(r.seconds for r in ran if STEPS.index(r.step) < TO_A_PLAYED_TAPE) - build
+    print("\n" + "\n".join(report(ran, seconds, args.skip_play)))
     if TO_A_PLAYED_TAPE > MOST_STEPS or seconds > MOST_SECONDS:
         print(f"FAIL the quickstart is over its budget of {MOST_STEPS} steps and {MOST_SECONDS} s", file=sys.stderr)
         return 1

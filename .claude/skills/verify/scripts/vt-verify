@@ -7,7 +7,7 @@ cd "$ROOT" || exit 2
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
-  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> <project-dir> -- <videotape args...> | exec <run-dir> <name> [-C <dir>] -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-press <run-dir> <tape-dir> [<label> | --type <text> | --back ...] | player-test <run-dir> [<xcodebuild args...>] | player-cuts <run-dir> [cuts]" >&2
+  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> <project-dir> -- <videotape args...> | exec <run-dir> <name> [-C <dir>] -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-press <run-dir> <tape-dir> [<label> | --type <text> | --back ...] | player-test <run-dir> [--published <app>] [<xcodebuild args...>] | player-cuts <run-dir> [cuts]" >&2
   exit 2
 }
 
@@ -132,8 +132,14 @@ PY
   player-test)
     [ $# -ge 2 ] || usage
     mkdir -p "$2"; dir="$(cd "$2" && pwd)"; shift 2
+    # xcodebuild hands a TEST_RUNNER_ variable to the UI tests without its prefix, and env puts it in the .cmd file.
+    published=()
+    if [ "${1:-}" = --published ]; then
+      [ -d "${2:-}" ] || { echo "FAIL --published needs the path of an app videotape publish made" >&2; exit 2; }
+      published=(env "TEST_RUNNER_PUBLISHED_APP=$(cd "$2" && pwd)"); shift 2
+    fi
     rm -rf "$dir/player-test.xcresult" "$dir/player-test.attachments"
-    capture "$dir" player-test . clients/macos/test.sh -resultBundlePath "$dir/player-test.xcresult" "$@"
+    capture "$dir" player-test . ${published[@]+"${published[@]}"} clients/macos/test.sh -resultBundlePath "$dir/player-test.xcresult" "$@"
     code=$?
     [ -d "$dir/player-test.xcresult" ] && xcrun xcresulttool export attachments --path "$dir/player-test.xcresult" \
       --output-path "$dir/player-test.attachments" >/dev/null && echo "player-test: attachments -> $dir/player-test.attachments"

@@ -93,7 +93,8 @@ class StandIn:
         self.calls: list[Call] = []
         self.drawn: dict[Path, tuple[Drawn, ...]] = {}
 
-    def settings(self, mode: Mode) -> dict:
+    @staticmethod
+    def settings(mode: Mode) -> dict:
         return {}
 
     def text_to_video(self, prompt: str, seed: int, out: Path) -> None:

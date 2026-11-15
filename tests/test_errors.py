@@ -69,9 +69,10 @@ def in_its_story(code: str) -> tuple[str, ...]:
     return ("--story", "neon") if code >= "VT300" else ()
 
 
-PLANNED = sorted(code for code in CODES if "VT200" <= code < "VT400")
+PLANNED = sorted(code for code in CODES if "VT200" <= code < "VT400" and code != "VT305")
 """The codes a plan can raise from a screenplay or a story, each with a fixture. The project's codes and doctor's are
-covered by their own tests, and the render's and the checks' codes need a model and are covered by the render tests."""
+covered by their own tests, the render's and the checks' codes need a model and are covered by the render tests, and
+VT305, a label published already, is publish's and covered by its tests."""
 
 
 def test_a_fixture_triggers_every_code_the_plan_can_raise():
