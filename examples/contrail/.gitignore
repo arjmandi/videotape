@@ -1,5 +1,5 @@
-ledger.jsonl
 tapes/
 dist/
 .env
+ledger.jsonl
 .DS_Store

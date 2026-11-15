@@ -17,3 +17,4 @@ examples/**/tape-*/
 examples/**/compare.html
 examples/**/compare-frames/
 .DS_Store
+.env

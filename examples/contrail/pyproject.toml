@@ -14,6 +14,8 @@ videotape = { path = "../..", editable = true }
 [tool.videotape]
 screenplay = "contrail.screenplay:app"
 model = "stand-in"
+takes = 4
+cap_usd = 200
 
 [tool.pyright]
 typeCheckingMode = "strict"
