@@ -12,7 +12,7 @@ This directory is the maintained source for verifying what a videotape user can 
 ## Driving conventions
 
 - Every CLI drive goes through `vt-verify run "$RUN" <name> <project-dir> -- <videotape args>`, which runs the command inside the project. Use the journey's name as `<name>` so artifacts map to journeys.
-- The README's commands in `examples/contrail`, and the scripts under `scripts/`, go through `vt-verify exec "$RUN" <name> [-C <dir>] -- <command>`.
+- The guide's commands, from `README.md` at the repo root, in `examples/contrail`, and the scripts under `scripts/`, go through `vt-verify exec "$RUN" <name> [-C <dir>] -- <command>`.
 - TapePlayer drives go through `vt-verify player-build "$RUN"`, `vt-verify player-press "$RUN" <tape-dir> [<label> | --type <text> | --back]...`, `vt-verify player-test "$RUN"` and `vt-verify player-cuts "$RUN"`, or through a person at the screen, as [player.md](./player.md) says.
 - Treat every command and quoted string as literal.
 - Assert on exact lines from `$RUN/<name>.stdout`, `$RUN/<name>.stderr` and `$RUN/<name>.exit`.
@@ -48,3 +48,4 @@ Keep implementation details out of the map. Name only user paths, commands, requ
 - [GPU render](./gpu-render.md) covers rendering with Wan 2.2 on a rented Runpod GPU through `scripts/runpod-render --story <name>`, run inside the project: the dry run, the refusals, the local `--model wan2.2-5b` errors, the paid runs behind the user's cap, `--out`, and the ledger.
 - [Wan 3.0 render](./wan3-render.md) covers rendering with Wan 3.0 on fal into another tape of the project: the missing-key error, the requests and answers the tests prove, the paid run behind the user's cap, the price line, the cached rerun, and the ledger.
 - [Reader test](./reader-test.md) covers `scripts/reader-test`: the missing-key error, the requests and answers the tests prove, and the paid run behind the user's cap.
+- [Guide](./guide.md) covers `README.md`, the developer's guide: its whole files held to `examples/contrail` byte for byte, its commands run in order by `tests/test_guide.py` with the output it shows, the same run with TapePlayer behind the `player` marker, and `scripts/words-test`: the missing-key error, the requests and answers the tests prove, and the paid call behind the user's cap.

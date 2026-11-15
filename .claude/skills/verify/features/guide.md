@@ -1,0 +1,45 @@
+# Guide
+
+`README.md` at the repo root is the developer's guide. It builds Contrail from an empty folder in six parts: start a project with `videotape new contrail`, what a screenplay holds, connect the data, write the screenplay, write the stories, and render, review, fix and publish. It ends with a section, `## The words Videotape uses`, that gives each of the framework's words one meaning. Each file the guide shows whole, in a fence such as ```` ```python title=contrail/data.py ````, is that file of `examples/contrail`, byte for byte. A ```` ```sh ```` block holds commands, one to a line, and a ```` ```text ```` block right after it shows what its last command prints. `tests/test_guide.py` runs the commands in order: first in the project `new` writes, then, from the guide's first whole file on, with `examples/contrail` copied over that project. The stand-in is made to fail the state the guide retakes, on the render's takes, and the state it accepts, on every take, so both commands act on a real failure. `scripts/words-test` asks Claude where the help texts and error messages name a concept by another word than the words section gives it, and writes the answer to `words-test.md`.
+
+## Sub-features
+
+- `guide-files` holds each whole file the guide shows to `examples/contrail`, and each non-empty `contrail/*.py` and `stories/*.toml` there to a whole file in the guide.
+- `guide-commands` runs the guide's commands in order, each exiting 1 exactly when the output the guide shows has a `fail` line, and printing each line the guide shows, with paths and numbers left open. It stops before `publish` while the CLI lacks it.
+- `guide-player` is the same run with TapePlayer opened by each `play` and quit, behind the `player` marker.
+- `words-test` builds the request, counts its tokens, refuses a call over the cap, prices the answer, writes the report and the ledger line, and never shows the key, all proven by `uv run pytest tests/test_words_test.py` with no network.
+- `words-no-key` stops without `ANTHROPIC_API_KEY` in the environment or the repo's `.env`, with exit 1, before any request.
+- `words-paid` is the paid call. It costs money, and waits for a key and the user's cap.
+
+## How to get to it (user POV)
+
+- Read `README.md` and follow it in an empty folder, from `uvx --from <git URL or checkout> videotape new contrail`.
+- From the repo root, run `uv run pytest tests/test_guide.py`.
+- Export `ANTHROPIC_API_KEY`, or set it in the repo's `.env`, then run `uv run scripts/words-test --cap-usd 1` from the repo root and read `words-test.md`.
+
+## Driving it with vt-verify
+
+Preconditions:
+
+- Baseline preconditions from the README hold.
+- For `guide-player`, the user said yes in this session to TapePlayer taking over the screen.
+- For `words-paid`, the user named a cap in this session and `ANTHROPIC_API_KEY` is in the shell's environment or the repo's `.env`. Never run it on your own initiative, and never ask for the key or type it into a command.
+
+- **Files.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" guide-files -- uv run pytest tests/test_guide.py -k byte_for_byte`. `.exit` is `0`, and `.stdout` ends with `1 passed, 3 deselected`. A changed byte in a whole file fails it with `README.md:<line> is not <file>`.
+- **Commands.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" guide-commands -- uv run pytest tests/test_guide.py`. `.exit` is `0`, and `.stdout` ends with `3 passed, 1 deselected` after about 95 s: about 60 s for the first render of the terminal tape (166 takes) and about 40 s for the retake's render, which checks every cached take again. A line the guide shows that the command did not print fails it with `README.md:<line> <command> did not print [...]` and the whole output.
+- **Commands by hand.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" guide-plan-terminal -C examples/contrail -- uv run videotape plan --story terminal`. `.exit` is `0`, the first `.stdout` line is `Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots`, and the last two are `0 errors, 0 warnings` and `stand-in: 160 shots, 160 to 640 calls, free`. Run the same with `-- uv run videotape shots --story terminal --state "home()"` as `guide-shots-home`: `.exit` is `0` and `.stdout` starts with `key home()`, `  engine                      Static shot.` and the `story look` line the guide shows. Run `-- uv run pyright contrail` as `guide-types`: `.exit` is `0` and `.stdout` is `0 errors, 0 warnings, 0 informations`.
+- **Player.** Only with the user's yes, run `.claude/skills/verify/scripts/vt-verify exec "$RUN" guide-player -- uv run pytest tests/test_guide.py -m player`. Each `play` builds TapePlayer when its source changed, opens it on the tape, and the test quits it by its bundle id, `dev.videotape.TapePlayer`. `.stdout` ends with `1 passed, 3 deselected`. Not driven yet.
+- **Words test.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" words-test -- uv run pytest tests/test_words_test.py -v`. All 13 tests pass, among them `test_without_a_key_it_says_so_and_sends_nothing`, `test_an_estimate_over_the_cap_counts_the_tokens_for_free_and_sends_no_paid_call`, `test_under_the_cap_it_counts_then_sends_the_words_every_help_text_and_every_error_to_claude_opus`, `test_the_answer_is_saved_with_the_model_tokens_and_cost_and_the_ledger_gets_one_line` and `test_the_key_never_appears_in_an_error`.
+- **No key.** Run `env -u ANTHROPIC_API_KEY https_proxy=http://127.0.0.1:9 .claude/skills/verify/scripts/vt-verify exec "$RUN" words-no-key -- uv run scripts/words-test --cap-usd 1` with no `.env` at the repo root. `.exit` is `1`, `.stdout` is empty, and `.stderr` is exactly `error: ANTHROPIC_API_KEY is not set, in the environment or in <repo>/.env`. Neither `words-test.md` nor `ledger.jsonl` exists at the repo root afterward.
+- **Paid run.** Verified unreachable: it waits for a key and the user's approved cap, $1. Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" words-paid -- uv run scripts/words-test --cap-usd 1 --record "$RUN/words-test.json"`. `.stdout` is two lines: `estimate  <N> input tokens and at most 24,000 output tokens, at most $<X>, cap $1.00`, then `call      claude-opus-5-5: <N> input tokens, <N> output tokens, $<Y> -> words-test.md`. The request is about 50,000 characters, so `<X>` is about $0.54. `.exit` is `0`. `words-test.md` holds the answer under `## The places` and the token and cost line, and `ledger.jsonl` at the repo root gains one line with `"kind": "words-test"`, the model, the tokens and the dollars. Then run `grep -rlF -e "$ANTHROPIC_API_KEY" words-test.md ledger.jsonl "$RUN"`, which must print nothing and exit 1.
+- **Proof.** For `guide-files`, `guide-commands` and `words-test` cite `.exit` and the summary line of `.stdout`. For `words-no-key` cite `.cmd`, `.exit` and `.stderr`. For the paid run cite `.exit`, both `.stdout` lines, the ledger line and the empty key grep.
+
+## Gotchas
+
+- `pyproject.toml`'s `addopts` deselects the `player` marker, as it does `qwen`. `-m player` selects it, and also takes over the screen, so never run it without the user's yes.
+- The guide's output blocks for `render` and `retake` come from the made-up failures, not from a plain stand-in render, which passes every shot within four takes. Driving `retake` or `accept` by hand on the terminal tape prints other lines than the guide's.
+- The commands' test copies `examples/contrail` with videotape's path made absolute, so `uv run pyright contrail` and `uv run python -c ...` make their own `.venv` in the copy, from uv's cache. With an empty cache they need the network.
+- `uv run` in a project that depends on this checkout rebuilds videotape after any run that wrote new bytecode under `videotape/__pycache__`, because `[tool.uv] cache-keys` lists `videotape/**/*`. The rebuild prints `Building videotape @ file://...` and three more lines on stderr. The guide's blocks leave those lines out.
+- The run stops at `uv run videotape publish` while `videotape --help` lists no `publish`. Once it does, the test fails with `videotape has publish now, so run README.md:<line>`, and `NOT_YET` in `tests/test_guide.py` goes, with the output block the guide leaves for publish.
+- `scripts/words-test` reads the help texts from videotape's own parser and the messages from the package's source, so it must run in the repo's environment, through `uv run`. The repo's `.env` is git-ignored.
+- The script prices the call at $4 for a million input tokens and $20 for a million output tokens, Anthropic's prices for `claude-opus-5-5` as of 2026-10-06. The estimate takes all 24,000 output tokens the request allows, so the real cost is lower.
