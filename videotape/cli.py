@@ -330,7 +330,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="videotape", description="Run in an app's project, the folder whose "
                                      "pyproject.toml names its screenplay in [tool.videotape].")
     commands = parser.add_subparsers(dest="command", required=True)
-    planning = commands.add_parser("plan", help="walk every state the app can reach, before anything renders")
+    planning = commands.add_parser("plan", help="walk every state the app can reach, with the keys and moves a render "
+                                   "films")
     planning.add_argument("--story", help="also read this story, which is stories/<story>.toml in the project")
     planning.add_argument("--model", choices=sorted(MODELS), help="the model whose prompt limit the story's prompts "
                           "must fit (default: model in [tool.videotape])")
@@ -357,16 +358,18 @@ def main(argv=None) -> int:
     _render_flags(rendering)
     rendering.set_defaults(run=render_tape)
     retaking = commands.add_parser("retake", help="film new takes of one shot and keep the best of all its takes")
-    retaking.add_argument("shot", help='a state, as in "home()", or a move, as in "home() -> search()"')
+    retaking.add_argument("shot", help='a key, named by its state as in "home()", or a move, as in '
+                          '"home() -> search()"')
     retaking.add_argument("--story", required=True, help="the story whose tape it is")
     retaking.add_argument("--takes", type=positive, default=1, help="how many new takes to film (default 1)")
     _render_flags(retaking)
     retaking.set_defaults(run=retake)
     accepting = commands.add_parser("accept", help="mark a failing check as fine, with a reason")
-    accepting.add_argument("shot", help='a state, as in "home()", or a move, as in "home() -> search()"')
+    accepting.add_argument("shot", help='a key, named by its state as in "home()", or a move, as in '
+                           '"home() -> search()"')
     accepting.add_argument("code", choices=sorted(code for code in CODES if code[:3] == "VT5"))
     accepting.add_argument("--story", required=True, help="the story whose tape it is")
-    accepting.add_argument("--reason", required=True, help="why this failure is fine")
+    accepting.add_argument("--reason", required=True, help="why this failing check is fine")
     accepting.add_argument("--out", help="the tape's folder, for a tape that render wrote with --out")
     accepting.set_defaults(run=accept)
     rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies.html from its dailies.json and the "

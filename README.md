@@ -132,7 +132,7 @@ A scene is a function that returns the elements of one screen, from top to botto
 
 An element with `to=` holds an action. Pressing it leads to the state that `to=` names. The screenplay holds every word on the screen and nothing of how the screen looks. A story says how it looks.
 
-`plan` walks every state the app can reach, from the first scene, before anything renders:
+`plan` walks every state the app can reach, from the first scene, before a render films anything:
 
 ```sh
 uv run videotape plan
