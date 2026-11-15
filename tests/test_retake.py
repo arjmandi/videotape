@@ -15,11 +15,18 @@ from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 RENDER = ("render", "--story", "chalk")
 ORDER_LATTE = 'reading "Latte"'
 THANKS_ESPRESSO = '"One Espresso coming up."'
+THANKS_LATTE = '"One Latte coming up."'
 
 
 def misspelt_until_five(mode: Mode, prompt: str, seed: int) -> Flaw:
     """order(Latte)'s key is misspelt on every seed below 5."""
     return Flaw.MISSPELL if ORDER_LATTE in prompt and mode is Mode.TEXT_TO_VIDEO and seed < 5 else Flaw.NONE
+
+
+def misspelt_thanks_latte(mode: Mode, prompt: str, seed: int) -> Flaw:
+    """thanks(Latte)'s key is misspelt on every seed: its Done button on seed 1, so the button is not found, and its
+    heading on seed 2, which the shot then keeps."""
+    return Flaw.MISSPELL if THANKS_LATTE in prompt and mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
 
 
 def extra_on_thanks_espresso(mode: Mode, prompt: str, seed: int) -> Flaw:
@@ -133,7 +140,8 @@ def test_accept_records_a_failing_check_with_its_reason_and_render_then_passes_a
     assert (accepted["shot"], accepted["code"], accepted["reason"]) == ("key thanks(Espresso)", "VT503", reason)
     assert accepted["at"].endswith("+00:00")
     [failure] = record["failures"]
-    assert failure["accepted"] == {"reason": reason, "at": accepted["at"]}
+    assert accepted["seed"] == failure["take"] == 1
+    assert (failure["accepted"], failure["accepted_before"]) == ({"reason": reason, "at": accepted["at"]}, None)
     page = (tape / "dailies.html").read_text()
     assert '<span class="badge accepted">accepted</span>' in page and f"<p class=\"reason\">Accepted: {reason}</p>" in page
     assert "1 failing, 0 to act on, 1 accepted" in page
@@ -177,3 +185,59 @@ def test_an_accept_survives_a_render_that_films_the_shot_again(tmp_path, cli, ca
     record = dailies.read(tape)
     assert [a["reason"] for a in record["accepted"]] == ["a logo"]
     assert json.dumps(record["failures"][0]["accepted"]["reason"]) == '"a logo"'
+
+
+def test_an_accept_holds_for_its_take_and_a_retake_that_keeps_another_fails_again_beside_the_earlier_reason(
+        tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / "tapes" / "chalk"
+    stand_in(monkeypatch, misspelt_thanks_latte)
+    assert cli(directory, *RENDER, "--takes", "1") == 1
+    reason = "the heading reads well enough"
+    assert cli(directory, "accept", "thanks(Latte)", "VT502", "--story", "chalk", "--reason", reason) == 0
+    [accepted] = dailies.read(tape)["accepted"]
+    assert accepted["seed"] == 1
+    capsys.readouterr()
+
+    assert cli(directory, "retake", "thanks(Latte)", "--story", "chalk") == 1
+    out, err = capsys.readouterr()
+    assert "5. key thanks(Latte)  kept take 2, fails VT502, 1 take filmed" in out
+    assert err.splitlines() == ['fail: 5. key thanks(Latte)  VT502 Thanks: read "xhanks", CER 0.167',
+                                '  next: videotape retake "thanks(Latte)" --story chalk']
+    record = dailies.read(tape)
+    [failure] = record["failures"]
+    assert (failure["take"], failure["accepted"]) == (2, None)
+    assert failure["accepted_before"] == {"reason": reason, "at": accepted["at"], "seed": 1}
+    assert record["accepted"] == [accepted]
+    page = (tape / "dailies.html").read_text()
+    assert f'<p class="again">Accepted on take 1: {reason}; this is take 2, so look again</p>' in page
+    assert "1 failing, 1 to act on, 0 accepted" in page and "badge accepted" not in page
+
+    again = "the new heading reads well enough too"
+    assert cli(directory, "accept", "thanks(Latte)", "VT502", "--story", "chalk", "--reason", again) == 0
+    assert [accept["seed"] for accept in dailies.read(tape)["accepted"]] == [2]
+    capsys.readouterr()
+    assert cli(directory, *RENDER, "--takes", "1") == 0
+    out, err = capsys.readouterr()
+    assert "5. key thanks(Latte)  kept take 2, fails VT502, cached" in out
+    assert err.splitlines() == ['accepted: 5. key thanks(Latte)  VT502 Thanks: read "xhanks", CER 0.167',
+                                f"  reason: {again}"]
+    [failure] = dailies.read(tape)["failures"]
+    assert (failure["accepted"]["reason"], failure["accepted_before"]) == (again, None)
+
+
+def test_an_accept_that_names_no_take_holds_for_none(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / "tapes" / "chalk"
+    stand_in(monkeypatch, extra_on_thanks_espresso)
+    cli(directory, *RENDER)
+    cli(directory, "accept", "thanks(Espresso)", "VT503", "--story", "chalk", "--reason", "a logo")
+    record = dailies.read(tape)
+    del record["accepted"][0]["seed"]
+    (tape / "dailies.json").write_text(json.dumps(record))
+    capsys.readouterr()
+    assert cli(directory, *RENDER) == 1
+    assert capsys.readouterr().err.startswith("fail: 4. key thanks(Espresso)  VT503 ")
+    [failure] = dailies.read(tape)["failures"]
+    assert failure["accepted"] is None and failure["accepted_before"]["seed"] is None
+    assert "Accepted on an earlier render: a logo; this is take 1, so look again" in (tape / "dailies.html").read_text()

@@ -99,6 +99,7 @@ figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; marg
 .failure .about { margin: 0 0 4px; }
 .failure .evidence { color: var(--fail); font-size: 13px; margin: 0 0 8px; overflow-wrap: anywhere; }
 .failure .reason { color: var(--pass); font-size: 13px; margin: 0 0 8px; }
+.failure .again { color: var(--kept); font-size: 13px; margin: 0 0 8px; }
 .next { margin: 0; padding-left: 20px; font-size: 13px; }
 .next li { margin: 2px 0; overflow-wrap: anywhere; }
 code { background: var(--kept-soft); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
@@ -166,10 +167,17 @@ def write(tape: Path, record: dict, totals: dict) -> None:
     write_atomically(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
 
 
-def accepted(record: dict, shot: str, code: str) -> dict | None:
-    """The accept that covers a failure of this code on this shot, if a person recorded one."""
-    return next((accept for accept in record.get("accepted", []) if (accept["shot"], accept["code"]) == (shot, code)),
-                None)
+def verdict(accepts: list[dict], shot: str, code: str, take: int) -> dict:
+    """What a person said of a failure of this code on this take of the shot. An accept holds for the take it was
+    given on, so one given on another take, or before an accept named its take, is shown as accepted_before, and the
+    failure fails again until a person looks at the new take."""
+    accept = next((accept for accept in accepts if (accept["shot"], accept["code"]) == (shot, code)), None)
+    if accept is None:
+        return {"accepted": None, "accepted_before": None}
+    said = {"reason": accept["reason"], "at": accept["at"]}
+    if accept.get("seed") == take:
+        return {"accepted": said, "accepted_before": None}
+    return {"accepted": None, "accepted_before": {**said, "seed": accept.get("seed")}}
 
 
 def _shot_record(filmed: Filmed, tape: Path) -> dict:
@@ -197,7 +205,6 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
     name, where = named(shot), f" --out {out}" if out else ""
     box = failure.box or _found_elsewhere(failure, filmed)
     frame = "first" if failure.code == "VT508" and failure.about == "start" else "last"
-    accept = next((a for a in carry.accepted if (a["shot"], a["code"]) == (shot.title, failure.code)), None)
     return {
         **asdict(failure),
         "take": kept.seed,
@@ -210,7 +217,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
             "screenplay": _screenplay_line(shot),
             "accept": f'videotape accept "{name}" {failure.code} --story {story.name}{where} --reason "..."',
         },
-        "accepted": {"reason": accept["reason"], "at": accept["at"]} if accept else None,
+        **verdict(carry.accepted, shot.title, failure.code, kept.seed),
     }
 
 
@@ -349,6 +356,10 @@ def _failure_card(failure: dict) -> str:
     steps = failure["next"]
     badge = ' <span class="badge accepted">accepted</span>' if accepted else ""
     reason = f'<p class="reason">Accepted: {escape(accepted["reason"])}</p>' if accepted else ""
+    if before := failure.get("accepted_before"):
+        on = f'take {before["seed"]}' if before["seed"] is not None else "an earlier render"
+        reason = (f'<p class="again">Accepted on {on}: {escape(before["reason"])}; this is take {failure["take"]}, '
+                  "so look again</p>")
     return f"""<div class="failure{" accepted" if accepted else ""}">
 <img src="{escape(failure["crop"])}" alt="Where {escape(failure["about"])} should be on {escape(failure["shot"])}" loading="lazy">
 <div>

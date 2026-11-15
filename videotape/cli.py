@@ -212,7 +212,8 @@ def retake(args) -> int:
 
 
 def accept(args) -> int:
-    """Record an accepted failure in the tape's record, when the shot fails with that code."""
+    """Record an accepted failure in the tape's record, when the shot fails with that code. The accept holds for the
+    shot's kept take, the one the person looked at."""
     found = project.find(Path.cwd())
     planned = _planned(found)
     shots = _shots_named(planned, args.shot, "state or move")
@@ -230,12 +231,12 @@ def accept(args) -> int:
         print(f"{shot.title} does not fail {args.code}" + (f"; it fails {', '.join(codes)}" if codes else "; it passes")
               + ", so nothing is recorded")
         return 1
-    accepted = {"shot": shot.title, "code": args.code, "reason": args.reason, "at": ledger.now()}
+    accepted = {"shot": shot.title, "code": args.code, "reason": args.reason, "at": ledger.now(),
+                "seed": failing[0]["take"]}
     others = [a for a in record.get("accepted", []) if (a["shot"], a["code"]) != (shot.title, args.code)]
     record["accepted"] = [*others, accepted]
-    for failure in record["failures"]:
-        if (failure["shot"], failure["code"]) == (shot.title, args.code):
-            failure["accepted"] = {"reason": args.reason, "at": accepted["at"]}
+    for failure in failing:
+        failure.update(dailies.verdict(record["accepted"], shot.title, args.code, failure["take"]))
     dailies.write(tape, record, ledger.of(found.root, tape).totals())
     print(f"accepted {args.code} on {shot.title}: {args.reason}")
     return 0
