@@ -1,17 +1,20 @@
 ---
 name: verify
-description: Drive the videotape CLI in an app's project (`videotape plan [--story <name>]`, `videotape shots --story <name> [--state <state>]`, `videotape explain <code>`, `videotape render --story <name> [--model <name>] [--takes N] [--out <tape>]`, `videotape dailies --story <name>` and `videotape diff <tape> <tape>`) the way an app developer does, and build and test the TapePlayer macOS app that plays a rendered tape. Capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, a screenplay, its data or its stories under examples/, scripts/, or clients/macos/, before claiming the plan, the prompts and their sources, the error codes, the rendered tape and dailies, what made a tape, the checks, the Wan renders, the reader test, or TapePlayer behave.
+description: Drive the videotape CLI in an app's project (`videotape plan [--story <name>]`, `videotape shots --story <name> [--state <state>]`, `videotape explain <code>`, `videotape render --story <name> [--model <name>] [--takes N] [--cap-usd N] [--out <tape>]`, `videotape retake "<state>" --story <name> [--takes N]`, `videotape accept "<state>" <code> --story <name> --reason "<why>"`, `videotape dailies --story <name>`, `videotape play --story <name>` and `videotape diff <tape> <tape>`) the way an app developer does, and build and test the TapePlayer macOS app that plays a rendered tape. Capture the command, stdout, stderr, exit code and rendered tape as proof. Use after any change to the videotape package, the CLI, a screenplay, its data or its stories under examples/, scripts/, or clients/macos/, before claiming the plan and its estimate, the prompts and their sources, the error codes, the rendered tape and dailies, the cap and the resume, a retake or an accept, what made a tape, the checks, the Wan renders, the reader test, or TapePlayer behave.
 ---
 
 # Verify videotape
 
 videotape lets a developer write an app as a screenplay: typed records, scenes that are functions of their arguments, and a closed set of elements. The screenplay holds the app's words and nothing of its looks. A story holds the looks: one TOML file under `stories/` in the project, named by its file. An app lives in a project, the folder whose `pyproject.toml` names the screenplay in `[tool.videotape]`. Every command but `diff` runs inside the project and finds it from the working directory upward, so no command takes a folder.
 
-- `videotape plan` walks every state the app can reach and prints each scene's states and moves. `--story <name>` also checks that story, and `--model <name>` checks its prompts against that model's limit.
-- `videotape shots --story <name>` prints every shot's prompt, one clause to a line with the clause's source beside it. `--state <state>` prints one state's key and the moves that leave it.
-- `videotape explain <code>` prints the long form of an error code, `VT201` to `VT211` for a screenplay and its data, and `VT301` to `VT307` for a story. There is no `VT305`.
-- `videotape render --story <name>` draws a key for each state and a move for each action into `tapes/<name>/` in the project, with the model that `[tool.videotape]` names, and writes `dailies.html` there for review. `--model` names another model, `--takes N` sets the takes per shot, and `--out <tape>` writes another tape. `tape.json` carries a `made` block that says which code, data, story, model and engine made the tape.
-- `videotape dailies --story <name>` rewrites a tape's dailies page from its record and the project's `ledger.jsonl`. `--out <tape>` names a tape that `render --out` wrote.
+- `videotape plan` walks every state the app can reach and prints each scene's states and moves, then the estimate for the project's model: the shots, the calls from one take each up to the limit, and their price. `--story <name>` also checks that story, and `--model <name>` checks its prompts against that model's limit.
+- `videotape shots --story <name>` prints every shot's prompt, one clause to a line with the clause's source beside it. `--state <state>` prints one state's key and the moves that leave it. `render` and `shots` print the story check's warnings to stderr, as `plan` does.
+- `videotape explain <code>` prints the long form of a code: `VT201` to `VT211` for a screenplay and its data, `VT301` to `VT309` for a story, `VT401` to `VT404` for a render, and `VT501`, `VT502`, `VT503` and `VT508` for a check. There is no `VT305`.
+- `videotape render --story <name>` draws a key for each state and a move for each action into `tapes/<name>/` in the project, with the model that `[tool.videotape]` names. Each shot films one take at a time, seeds 1, 2, 3 and on, and stops at the first take that passes every check, up to `takes` in `[tool.videotape]` (4 unless set) or `--takes N`. Shots that do not depend on each other film at once, up to the model's limit. It prints one line per shot as it finishes, the totals, and each failing shot with the command to run next, and exits 1 when a kept take fails a check nobody accepted. Run again, it resumes from every take on disk. `--model` names another model, `--out <tape>` writes another tape, and `--cap-usd N` caps what a model that bills per call may spend, which `cap_usd` in `[tool.videotape]` also sets. `tape.json` carries each state's words and search beside its hotspots, and a `made` block that says which code, data, story, model and engine made the tape.
+- `videotape retake "<state>" --story <name>` films new takes of that state's key, with seeds after the highest it has tried, and keeps the best of all its takes; `--takes N` films N of them. A move is named `"<state> -> <state>"`, or by its full title when two moves join the same states. The moves pinned to a key that changed render again.
+- `videotape accept "<state>" <code> --story <name> --reason "<why>"` records a failing check as accepted in the tape's record, so the dailies show it as accepted and `render` passes it. A check that is not failing is refused, and nothing is recorded.
+- `videotape dailies --story <name>` rewrites a tape's dailies page from its record and the project's `ledger.jsonl`, and opens it with the default browser. `--out <tape>` names a tape that `render --out` wrote. Set `BROWSER=true` to open nothing.
+- `videotape play --story <name>` builds TapePlayer with `clients/macos/build.sh` when the app is missing or older than a file it is built from, then opens the tape in it. It takes over the screen, so never run it yourself; `uv run pytest tests/test_play.py` proves the build decision and the command with the launcher injected.
 - `videotape diff <tape> <tape>` says whether two tapes are of the same app and the same story, and how many states and moves they share.
 
 The stand-in model needs no GPU, and its own reader checks its keys. `--model wan2.2-5b` renders with Wan 2.2 and needs a CUDA GPU, which `scripts/runpod-render` rents on Runpod; see [features/gpu-render.md](features/gpu-render.md). `--model wan3.0` renders with Wan 3.0 on fal, which bills per call and needs `FAL_KEY`; see [features/wan3-render.md](features/wan3-render.md). Qwen3-VL-8B checks the keys of both. `scripts/reader-test` asks Claude what Contrail does from its screenplay alone; see [features/reader-test.md](features/reader-test.md). There is no server, port or database. A drive is one command run. Its proof is the captured terminal output and exit code, plus the files a render writes and a screenshot of the dailies page.
@@ -51,9 +54,14 @@ RUN=.verify/runs/$(date -u +%Y%m%dT%H%M%SZ)
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- plan --story <story>
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- shots --story <story>
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- render --story <story>
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- retake "<state>" --story <story>
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- accept "<state>" VT503 --story <story> --reason "<why>"
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- dailies --story <story>
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- diff tapes/<story> tapes/<other-story>
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> . -- explain VT208
 ```
+
+`vt-verify run` does not set `BROWSER`, so export `BROWSER=true` in the shell before a `dailies` drive, or the page opens in the user's browser. Never drive `play`: it opens TapePlayer on the screen.
 
 `run` changes into `<project-dir>` and invokes the repo's `.venv/bin/videotape <args>`, and writes, under `$RUN`:
 
@@ -86,7 +94,7 @@ Projects to drive:
 
 - `examples/contrail` is the shipped example, a flight booking app with 58 states and two stories, `terminal` and `posters`. Its expected output is in [features/plan.md](features/plan.md) and [features/stories.md](features/stories.md).
 - `tests/fixtures/cafe` is a small app with 5 states and one story, `chalk`, for the render journeys that need a copy or an edit.
-- `tests/fixtures/errors/vt201` to `vt211` and `vt301` to `vt307` hold one project per error code. Each `vt3xx` project has one story, `neon`. Do not edit a fixture to make a journey pass.
+- `tests/fixtures/errors/vt201` to `vt211` and `vt301` to `vt309` hold one project per code a plan can raise. Each `vt3xx` project has one story, `neon`, except `vt309`, whose only story is `glow`. The render's and the checks' codes need a model and have no fixture; the render tests force each one. Do not edit a fixture to make a journey pass.
 - For a new case, write a project into a fresh directory `"${TMPDIR:-/tmp}"/videotape-verify-<name>`, drive it, and delete that directory in cleanup. A project is a `pyproject.toml` with `[tool.videotape] screenplay = "app:app"` beside an `app.py`, and a render also needs a story, such as `stories/bare.toml` with a `version` and a `look`. `run` keeps a copy of its files with the evidence.
 
 Keep `$RUN` from the `date` line above. Don't rebuild it from `ls` output: on this machine `ls` is aliased to a tool that prefixes icons, and the evidence lands in a stray, un-ignored directory.
@@ -104,7 +112,7 @@ Proof lives in `$RUN` (`.verify/runs/<timestamp>/`, gitignored) and survives cle
 - for a project you wrote, includes its `<name>.project/` copy so the reader sees the input;
 - names the `info build` line from doctor.
 
-`uv run pytest` is a separate check. A passing suite does not replace a drive. `uv run pytest -m qwen` runs the slow tests that load Qwen3-VL-8B. Run them alone, never beside another process that loads the model.
+`uv run pytest` is a separate check. A passing suite does not replace a drive. `uv run --python 3.14 pytest` from the repo root runs it on Python 3.14 as well. `uv run pytest -m qwen` runs the slow tests that load Qwen3-VL-8B. Run them alone, never beside another process that loads the model.
 
 ## Cleanup
 

@@ -10,6 +10,9 @@ from videotape import errors
 from videotape.plan import MAX_STATES
 from videotape.screenplay import Screenplay
 
+TAKES = 4
+"""How many takes a shot gets at most, unless [tool.videotape] sets takes. A shot stops at the first take that passes."""
+
 
 class ProjectError(RuntimeError):
     pass
@@ -24,6 +27,9 @@ class Project:
     screenplay: str
     model: str | None
     max_states: int
+    takes: int
+    cap_usd: float | None
+    """The most a render of this project may spend on a model that bills per call, before it stops."""
 
     def load(self) -> Screenplay:
         """Import the module [tool.videotape] names, with the project on the import path, and return its screenplay."""
@@ -55,14 +61,18 @@ def find(start: Path) -> Project:
     table = settings.get("tool", {}).get("videotape")
     if not isinstance(table, dict):
         raise ProjectError(f'{file} has no [tool.videotape] table; add one with screenplay = "module:app"')
-    screenplay, model, max_states = table.get("screenplay"), table.get("model"), table.get("max_states", MAX_STATES)
+    screenplay, model = table.get("screenplay"), table.get("model")
+    max_states, takes, cap = table.get("max_states", MAX_STATES), table.get("takes", TAKES), table.get("cap_usd")
     if not isinstance(screenplay, str) or not all(screenplay.partition(":")):
         raise ProjectError(f'{file}: [tool.videotape] needs screenplay = "module:app", the module and the name '
                            f"of its vt.Screenplay, and has {screenplay!r}")
     if model is not None and not isinstance(model, str):
         raise ProjectError(f"{file}: [tool.videotape] model is {model!r}, not a model's name")
-    if isinstance(max_states, bool) or not isinstance(max_states, int) or max_states < 1:
-        raise ProjectError(f"{file}: [tool.videotape] max_states is {max_states!r}, not a whole number of states")
+    for setting, value, noun in (("max_states", max_states, "states"), ("takes", takes, "takes")):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise ProjectError(f"{file}: [tool.videotape] {setting} is {value!r}, not a whole number of {noun}")
+    if cap is not None and (isinstance(cap, bool) or not isinstance(cap, (int, float)) or cap < 0):
+        raise ProjectError(f"{file}: [tool.videotape] cap_usd is {cap!r}, not a number of dollars")
     name, version = (settings.get("project", {}).get(key) for key in ("name", "version"))
     return Project(root, name if isinstance(name, str) else root.name, version if isinstance(version, str) else None,
-                   screenplay, model, max_states)
+                   screenplay, model, max_states, takes, float(cap) if cap is not None else None)

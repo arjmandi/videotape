@@ -7,7 +7,7 @@ cd "$ROOT" || exit 2
 CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 usage() {
-  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> <project-dir> -- <videotape args...> | exec <run-dir> <name> [-C <dir>] -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-press <run-dir> <tape-dir> [<label>...] | player-test <run-dir> | player-cuts <run-dir> [cuts]" >&2
+  echo "usage: vt-verify launch [qwen|wan] | doctor | run <run-dir> <name> <project-dir> -- <videotape args...> | exec <run-dir> <name> [-C <dir>] -- <command...> | screenshot <run-dir> <name> <html-file> [height] | player-build <run-dir> | player-press <run-dir> <tape-dir> [<label> | --type <text> | --back ...] | player-test <run-dir> [<xcodebuild args...>] | player-cuts <run-dir> [cuts]" >&2
   exit 2
 }
 
@@ -130,10 +130,10 @@ PY
     capture "$dir" player-press . "$(swift build --package-path "$press" --scratch-path clients/macos/build/player-press --show-bin-path)/player-press" "$tape" "$@"
     ;;
   player-test)
-    [ $# -eq 2 ] || usage
-    mkdir -p "$2"; dir="$(cd "$2" && pwd)"
+    [ $# -ge 2 ] || usage
+    mkdir -p "$2"; dir="$(cd "$2" && pwd)"; shift 2
     rm -rf "$dir/player-test.xcresult" "$dir/player-test.attachments"
-    capture "$dir" player-test . clients/macos/test.sh -resultBundlePath "$dir/player-test.xcresult"
+    capture "$dir" player-test . clients/macos/test.sh -resultBundlePath "$dir/player-test.xcresult" "$@"
     code=$?
     [ -d "$dir/player-test.xcresult" ] && xcrun xcresulttool export attachments --path "$dir/player-test.xcresult" \
       --output-path "$dir/player-test.attachments" >/dev/null && echo "player-test: attachments -> $dir/player-test.attachments"

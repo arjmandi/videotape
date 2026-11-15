@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from importlib.util import find_spec
 from pathlib import Path
 
-from videotape.checks import ChecksError, cer
+from videotape.checks import ChecksError, Spot
 from videotape.frames import Box, Frame
 from videotape.publish import publish
 
@@ -15,17 +15,10 @@ PROMPT = ('Find every piece of text in this image. Answer with a JSON array and 
           'Copy each text exactly, keeping its case and punctuation. Give each separate line or label its own element. '
           'For a button, bbox_2d covers the whole button, not only its text.')
 MAX_NEW_TOKENS = 1024
-FIND_MAX_CER = 0.2
-
-
-@dataclass(frozen=True)
-class Spot:
-    text: str
-    box: Box
-    button: bool
 
 
 def spots(reply: str, width: int, height: int) -> tuple[Spot, ...]:
+    """What Qwen saw, as spots. An element it called a button is a control."""
     found = []
     for element in _elements(reply):
         try:
@@ -70,14 +63,7 @@ class QwenEye:
         self.looks = tape / "looks"
         self.qwen: _Qwen | None = None
 
-    def read(self, frame: Frame) -> list[str]:
-        return [spot.text for spot in self.look(frame)]
-
-    def find(self, frame: Frame, words: str) -> Box | None:
-        best = min(self.look(frame), key=lambda spot: (cer(words, spot.text), not spot.button), default=None)
-        return best.box if best and cer(words, best.text) <= FIND_MAX_CER else None
-
-    def look(self, frame: Frame) -> tuple[Spot, ...]:
+    def see(self, frame: Frame) -> tuple[Spot, ...]:
         fields = [MODEL_ID, PROMPT, MAX_NEW_TOKENS, frame.width, frame.height, hashlib.sha256(frame.rgb).hexdigest()]
         path = self.looks / f"{hashlib.sha256(json.dumps(fields).encode()).hexdigest()}.json"
         if not path.exists():

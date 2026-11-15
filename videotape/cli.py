@@ -1,20 +1,22 @@
 import argparse
 import json
+import shlex
 import sys
+import webbrowser
 from collections import Counter
 from difflib import get_close_matches
 from pathlib import Path
 
-from videotape import dailies, errors, ledger, project, story
+from videotape import dailies, errors, ledger, player, project, story
 from videotape.checks import ChecksError
-from videotape.errors import CODES, ScreenplayError
+from videotape.errors import CODES, RenderError, ScreenplayError
 from videotape.fal import FalError
 from videotape.frames import FfmpegError
 from videotape.made import made
-from videotape.model import MODELS, Listing
-from videotape.plan import Key, Plan, plan
+from videotape.model import MODELS, Listing, estimate
+from videotape.plan import Key, Plan, Shot, plan
 from videotape.project import Project, ProjectError
-from videotape.render import render, uncached
+from videotape.render import Filmed, render
 from videotape.standin import StandInError
 from videotape.story import Story
 from videotape.wan import WanError
@@ -43,14 +45,19 @@ def _count(number: int, noun: str) -> str:
     return f"{number} {noun}{'' if number == 1 else 's'}"
 
 
+def _warn(warnings: tuple[ScreenplayError, ...]) -> None:
+    for warning in warnings:
+        print(warning.report("warning"), file=sys.stderr)
+
+
 def plan_app(args) -> int:
     found = project.find(Path.cwd())
     if args.model and not args.story:
         raise ProjectError("--model checks a story's prompts against that model, so pass --story with it")
-    planned = _planned(found)
+    planned, listing = _planned(found), _listing(found, args.model)
     warnings, in_story = planned.warnings, ""
     if args.story:
-        told, more = _told(found, planned, args.story, _listing(found, args.model))
+        told, more = _told(found, planned, args.story, listing)
         warnings, in_story = (*warnings, *more), f" + {told.name} {told.version}"
     states, moves = len(planned.keys), len(planned.moves)
     per_scene = Counter(key.state.scene.name for key in planned.keys)
@@ -62,16 +69,31 @@ def plan_app(args) -> int:
     for name in planned.scenes:
         print(f"{name:<13}{per_scene[name]:>6}{out[name]:>12}")
     print()
-    for warning in warnings:
-        print(warning.report("warning"), file=sys.stderr)
+    _warn(warnings)
     print(f"0 errors, {_count(len(warnings), 'warning')}")
+    if listing:
+        print(estimate(args.model or found.model, listing, len(planned.shots), found.takes))
     return 0
+
+
+def _shots_named(planned: Plan, name: str, what: str) -> list[Shot]:
+    """The shots a name picks out: a state's key, a move as "<state> -> <state>", or a move by its full title. A
+    name that is none of these is an error naming the closest."""
+    names = {key.state.name: [key] for key in planned.keys}
+    for move in planned.moves:
+        names.setdefault(f"{move.start.name} -> {move.land.name}", []).append(move)
+        names[move.title] = [move]
+    if name in names:
+        return names[name]
+    close = get_close_matches(name, names, n=3)
+    raise ProjectError(f'the app has no {what} "{name}"' + (f"; the closest are {', '.join(close)}" if close else ""))
 
 
 def print_shots(args) -> int:
     found = project.find(Path.cwd())
     planned = _planned(found)
-    told, _ = _told(found, planned, args.story, _listing(found, None))
+    told, warnings = _told(found, planned, args.story, _listing(found, None))
+    _warn((*planned.warnings, *warnings))
     shots = planned.shots
     if args.state:
         names = [key.state.name for key in planned.keys]
@@ -103,29 +125,120 @@ def _tape(found: Project, name: str | None, out: str | None) -> Path:
     return Path(out) if out else found.root / "tapes" / name
 
 
-def render_tape(args) -> int:
-    found = project.find(Path.cwd())
+def _resume(args, story: str) -> str:
+    """The render command that resumes this one."""
+    words = ["videotape", "render", "--story", story]
+    for flag in ("model", "takes", "out"):
+        if getattr(args, flag, None):
+            words += [f"--{flag}", str(getattr(args, flag))]
+    if getattr(args, "cap_usd", None) is not None:
+        words += ["--cap-usd", f"{args.cap_usd:.2f}"]
+    return shlex.join(words)
+
+
+def _render(found: Project, args) -> int:
+    """Render the story's tape with the project's or the named model, print a line per shot as it finishes, the
+    totals, and each failing shot with what to run next."""
     listing = _listing(found, args.model)
     if listing is None:
         raise ProjectError("no model to render with; pass --model, or set model in [tool.videotape]")
     planned = _planned(found)
-    told, _ = _told(found, planned, args.story, listing)
+    told, warnings = _told(found, planned, args.story, listing)
+    _warn((*planned.warnings, *warnings))
     tape = _tape(found, told.name, args.out)
-    model, eye = listing.model(), listing.eye(tape)
-    if model.price and (calls := uncached(planned, told, model, args.takes, tape)):
-        print(model.price.estimate(model.name, calls), flush=True)
-    result = render(planned, told, model, eye, tape, ledger.of(found.root, tape), made(found, told, model),
-                    takes=args.takes)
-    for number, filmed in enumerate(result.shots, 1):
-        status = f"rendered {_count(filmed.rendered, 'take')}" if filmed.rendered else "cached"
-        print(f"{number}. {filmed.shot.title}  {status}, kept take {filmed.kept.seed}")
-    print(f"rendered {sum(bool(filmed.rendered) for filmed in result.shots)} of {_count(len(result.shots), 'shot')}"
-          f" -> {errors.shown(tape)}")
-    failures = [f"{number}. {filmed.shot.title}  kept take {filmed.kept.seed} fails {item.name}: {item.result}"
-                for number, filmed in enumerate(result.shots, 1) for item in filmed.kept.checks.failures]
-    for failure in failures:
-        print(f"fail: {failure}", file=sys.stderr)
-    return 1 if failures else 0
+    model, eye, takes = listing.model(), listing.eye(tape), args.takes or found.takes
+    cap = args.cap_usd if args.cap_usd is not None else found.cap_usd
+    book = ledger.of(found.root, tape)
+    if listing.price:
+        print(f"{estimate(model.name, listing, len(planned.shots), takes)}, "
+              f"{f'cap ${cap:.2f}' if cap is not None else 'no cap'}, ${book.totals()['usd']:.2f} spent", flush=True)
+    numbers = {shot: number for number, shot in enumerate(planned.shots, 1)}
+
+    def report(filmed: Filmed) -> None:
+        for error in filmed.reported:
+            print(error.report(), file=sys.stderr, flush=True)
+        verdict = "passed" if filmed.passed else f"fails {' '.join(sorted({f.code for f in filmed.failures}))}"
+        filmed_takes = f"{_count(filmed.rendered, 'take')} filmed" if filmed.rendered else "cached"
+        print(f"{numbers[filmed.shot]}. {filmed.shot.title}  kept take {filmed.kept.seed}, {verdict}, {filmed_takes}, "
+              f"${filmed.usd:.2f}, {filmed.seconds:.1f} s", flush=True)
+
+    result = render(planned, told, model, eye, tape, book, made(found, told, model), takes=takes, limit=listing.limit,
+                    price=listing.price, cap=cap, resume=_resume(args, told.name), report=report)
+    record = dailies.read(tape)
+    print(f"{_count(len(result.shots), 'shot')}, {_count(sum(f.rendered for f in result.shots), 'take')} filmed, "
+          f"${sum(f.usd for f in result.shots):.2f}, {result.seconds:.1f} s, tape {record['tape']['bytes'] / 1e6:.1f} MB"
+          f" -> {errors.shown(tape)}", flush=True)
+    failing = 0
+    for failure in record["failures"]:
+        line = f"{numbers[next(s for s in planned.shots if s.title == failure['shot'])]}. {failure['shot']}  " \
+               f"{failure['code']} {failure['about']}: {failure['evidence']}"
+        if failure["accepted"]:
+            print(f"accepted: {line}\n  reason: {failure['accepted']['reason']}", file=sys.stderr)
+        else:
+            failing += 1
+            print(f"fail: {line}\n  next: {failure['next']['retake']}", file=sys.stderr)
+    return 1 if failing else 0
+
+
+def render_tape(args) -> int:
+    return _render(project.find(Path.cwd()), args)
+
+
+def retake(args) -> int:
+    """Film new takes of a shot, with seeds after the highest it has tried, and render again so the best of all its
+    takes is kept and the moves pinned to a key that changed are drawn again."""
+    found = project.find(Path.cwd())
+    planned = _planned(found)
+    shots = _shots_named(planned, args.shot, "state or move")
+    if len(shots) > 1:
+        raise ProjectError(f'"{args.shot}" names {_count(len(shots), "move")}; name one by its full title: '
+                           + "; ".join(shot.title for shot in shots))
+    [shot] = shots
+    tape = _tape(found, args.story, args.out)
+    if not (tape / "dailies.json").is_file():
+        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the story first")
+    record = dailies.read(tape)
+    tried = [take["seed"] for filmed in (*record["keys"], *record["moves"]) if filmed["title"] == shot.title
+             for take in filmed["takes"]]
+    retakes = record.get("retakes", {})
+    highest = max([record["takes"], *tried, *retakes.get(shot.title, [])])
+    retakes[shot.title] = [*retakes.get(shot.title, []), *range(highest + 1, highest + 1 + args.takes)]
+    dailies.write(tape, {**record, "retakes": retakes}, ledger.of(found.root, tape).totals())
+    print(f"retaking {shot.title} with seed{'s' if args.takes > 1 else ''} "
+          f"{', '.join(map(str, retakes[shot.title][-args.takes:]))}", flush=True)
+    # The render keeps the limit the tape was rendered with, so a retake changes only the shot it names.
+    args.takes = record["takes"]
+    return _render(found, args)
+
+
+def accept(args) -> int:
+    """Record an accepted failure in the tape's record, when the shot fails with that code."""
+    found = project.find(Path.cwd())
+    planned = _planned(found)
+    shots = _shots_named(planned, args.shot, "state or move")
+    if len(shots) > 1:
+        raise ProjectError(f'"{args.shot}" names {_count(len(shots), "move")}; name one by its full title: '
+                           + "; ".join(shot.title for shot in shots))
+    [shot] = shots
+    tape = _tape(found, args.story, args.out)
+    if not (tape / "dailies.json").is_file():
+        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the story first")
+    record = dailies.read(tape)
+    failing = [f for f in record["failures"] if (f["shot"], f["code"]) == (shot.title, args.code)]
+    if not failing:
+        codes = sorted({f["code"] for f in record["failures"] if f["shot"] == shot.title})
+        print(f"{shot.title} does not fail {args.code}" + (f"; it fails {', '.join(codes)}" if codes else "; it passes")
+              + ", so nothing is recorded")
+        return 1
+    accepted = {"shot": shot.title, "code": args.code, "reason": args.reason, "at": ledger.now()}
+    others = [a for a in record.get("accepted", []) if (a["shot"], a["code"]) != (shot.title, args.code)]
+    record["accepted"] = [*others, accepted]
+    for failure in record["failures"]:
+        if (failure["shot"], failure["code"]) == (shot.title, args.code):
+            failure["accepted"] = {"reason": args.reason, "at": accepted["at"]}
+    dailies.write(tape, record, ledger.of(found.root, tape).totals())
+    print(f"accepted {args.code} on {shot.title}: {args.reason}")
+    return 0
 
 
 def rewrite_dailies(args) -> int:
@@ -134,7 +247,19 @@ def rewrite_dailies(args) -> int:
     if not (tape / "dailies.json").is_file():
         raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the screenplay first")
     dailies.write(tape, dailies.read(tape), ledger.of(found.root, tape).totals())
-    print(f"wrote {errors.shown(tape / 'dailies.html')} with {json.dumps(dailies.read(tape)['ledger'])}")
+    page = tape / "dailies.html"
+    print(f"wrote {errors.shown(page)} with {json.dumps(dailies.read(tape)['ledger'])}")
+    webbrowser.open(page.resolve().as_uri())
+    return 0
+
+
+def play(args) -> int:
+    found = project.find(Path.cwd())
+    tape = _tape(found, args.story, args.out)
+    if not (tape / "tape.json").is_file():
+        raise ChecksError(f"no tape.json in {errors.shown(tape)}; render the story first")
+    for command in player.play(tape):
+        print(shlex.join(command))
     return 0
 
 
@@ -163,6 +288,20 @@ def diff_tapes(args) -> int:
     return 0
 
 
+def _tape_flags(command: argparse.ArgumentParser, required: bool = True) -> None:
+    which = command.add_mutually_exclusive_group(required=required)
+    which.add_argument("--story", help="the story whose tape it is, tapes/<story> in the project")
+    which.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
+
+
+def _render_flags(command: argparse.ArgumentParser) -> None:
+    command.add_argument("--model", choices=sorted(MODELS), help="the model to render with (default: model in "
+                         "[tool.videotape])")
+    command.add_argument("--cap-usd", type=float, help="the most this render may spend on a model that bills per "
+                         "call (default: cap_usd in [tool.videotape])")
+    command.add_argument("--out", help="the tape directory to write (default: tapes/<story> in the project)")
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="videotape", description="Run in an app's project, the folder whose "
                                      "pyproject.toml names its screenplay in [tool.videotape].")
@@ -180,18 +319,32 @@ def main(argv=None) -> int:
     explaining.add_argument("code", choices=sorted(CODES))
     explaining.set_defaults(run=explain)
     rendering = commands.add_parser("render", help="render the app in a story into a tape: a key per state and a "
-                                    "move per action")
+                                    "move per action; a render run again resumes")
     rendering.add_argument("--story", required=True, help="the story, which is stories/<story>.toml in the project")
-    rendering.add_argument("--model", choices=sorted(MODELS), help="the model to render with (default: model in "
-                           "[tool.videotape])")
-    rendering.add_argument("--takes", type=positive, default=3, help="takes per shot; the best by its checks is kept (default 3)")
-    rendering.add_argument("--out", help="the tape directory to write (default: tapes/<story> in the project)")
+    rendering.add_argument("--takes", type=positive, help="the most takes a shot gets; it stops at the first that "
+                           "passes (default: takes in [tool.videotape], or 4)")
+    _render_flags(rendering)
     rendering.set_defaults(run=render_tape)
-    rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies page from its record and the ledger")
-    which = rewriting.add_mutually_exclusive_group(required=True)
-    which.add_argument("--story", help="the story whose tape it is, tapes/<story> in the project")
-    which.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
+    retaking = commands.add_parser("retake", help="film new takes of one shot and keep the best of all its takes")
+    retaking.add_argument("shot", help='a state, as in "home()", or a move, as in "home() -> search()"')
+    retaking.add_argument("--story", required=True, help="the story whose tape it is")
+    retaking.add_argument("--takes", type=positive, default=1, help="how many new takes to film (default 1)")
+    _render_flags(retaking)
+    retaking.set_defaults(run=retake)
+    accepting = commands.add_parser("accept", help="record a failing check as accepted, with a reason")
+    accepting.add_argument("shot", help='a state, as in "home()", or a move, as in "home() -> search()"')
+    accepting.add_argument("code", choices=sorted(code for code in CODES if code[:3] == "VT5"))
+    accepting.add_argument("--story", required=True, help="the story whose tape it is")
+    accepting.add_argument("--reason", required=True, help="why this failure is fine")
+    accepting.add_argument("--out", help="the tape directory, for a tape that render wrote with --out")
+    accepting.set_defaults(run=accept)
+    rewriting = commands.add_parser("dailies", help="rewrite a tape's dailies page from its record and the ledger, "
+                                    "and open it")
+    _tape_flags(rewriting)
     rewriting.set_defaults(run=rewrite_dailies)
+    playing = commands.add_parser("play", help="open a tape in TapePlayer, building it first when it needs to")
+    _tape_flags(playing)
+    playing.set_defaults(run=play)
     diffing = commands.add_parser("diff", help="say whether two tapes are of the same app and the same story, and how "
                                   "many states and moves they share")
     diffing.add_argument("a", help="a tape directory")
@@ -201,6 +354,9 @@ def main(argv=None) -> int:
     try:
         return args.run(args)
     except ScreenplayError as error:
+        print(error.report(), file=sys.stderr)
+        return 1
+    except RenderError as error:
         print(error.report(), file=sys.stderr)
         return 1
     except (ProjectError, FfmpegError, ChecksError, WanError, FalError, StandInError) as error:

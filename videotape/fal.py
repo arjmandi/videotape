@@ -4,6 +4,7 @@ Hosts, paths and the auth header follow fal's queue REST docs (fal.ai/docs/model
 https://queue.fal.run/<endpoint> with "Authorization: Key <FAL_KEY>" answers with a request id, a status_url and a
 response_url, polled until the status is COMPLETED."""
 
+import http.client
 import itertools
 import json
 import time
@@ -44,9 +45,15 @@ class Price:
     usd_per_second: float
     seconds: int
 
-    def estimate(self, model: str, calls: int) -> str:
-        return (f"{model}: {calls} call{'' if calls == 1 else 's'}, ${calls * self.seconds * self.usd_per_second:.2f}"
-                f" at ${self.usd_per_second:.2f}/s")
+    @property
+    def usd(self) -> float:
+        """What one call costs."""
+        return self.seconds * self.usd_per_second
+
+    def span(self, least: int, most: int) -> str:
+        """What this many calls cost, as a range when they differ."""
+        prices = f"${least * self.usd:.2f} to ${most * self.usd:.2f}" if most > least else f"${least * self.usd:.2f}"
+        return f"{prices} at ${self.usd_per_second:.2f}/s"
 
 
 def _urlopen(request: urllib.request.Request) -> bytes:
@@ -65,12 +72,20 @@ class Fal:
 
     def run(self, endpoint: str, arguments: dict) -> dict:
         """Submit one request, wait for it, and return fal's three answers: submitted, the last status, and the result."""
+        return self.wait(endpoint, self.submit(endpoint, arguments))
+
+    def submit(self, endpoint: str, arguments: dict) -> dict:
+        """Submit one request, once, and return fal's answer: the request id and where to poll and fetch it."""
         submitted = self._json(self._queue(f"{QUEUE}/{endpoint}", arguments), 1, f"submit to {endpoint}")
         try:
-            request_id, status_url, response_url = (submitted["request_id"], submitted["status_url"],
-                                                    submitted["response_url"])
+            submitted["request_id"], submitted["status_url"], submitted["response_url"]
         except (KeyError, TypeError):
             raise FalError(self._scrub(f"submit to {endpoint} answered without a request: {submitted}")) from None
+        return submitted
+
+    def wait(self, endpoint: str, submitted: dict) -> dict:
+        """Poll a submitted request until it is done, fetch its result, and return fal's three answers."""
+        request_id, status_url, response_url = submitted["request_id"], submitted["status_url"], submitted["response_url"]
         for _ in range(WAIT_SECONDS // POLL_SECONDS):
             status = self._json(self._queue(status_url), TRIES, f"status of {endpoint} request {request_id}")
             if status.get("status") == "COMPLETED":
@@ -105,7 +120,8 @@ class Fal:
         except json.JSONDecodeError:
             answer = None
         if not isinstance(answer, dict):
-            raise FalError(self._scrub(f"{what} answered with something other than a JSON object: {body[:300]!r}"))
+            shown = self._scrub(body.decode(errors="replace"))[:300]
+            raise FalError(f"{what} answered with something other than a JSON object: {shown!r}")
         return answer
 
     def _call(self, request: urllib.request.Request, tries: int, what: str) -> bytes:
@@ -114,8 +130,9 @@ class Fal:
                 return self._send(request)
             except urllib.error.HTTPError as error:
                 retry = error.code == 429 or error.code >= 500
-                failure = f"{what} failed with HTTP {error.code}: {error.read().decode(errors='replace')[:500]}"
-            except OSError as error:
+                said = self._scrub(error.read().decode(errors="replace"))[:500]
+                failure = f"{what} failed with HTTP {error.code}: {said}"
+            except (OSError, http.client.HTTPException) as error:
                 retry, failure = True, f"{what} failed: {error}"
             if not retry or attempt == tries:
                 raise FalError(self._scrub(failure))

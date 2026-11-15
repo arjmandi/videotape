@@ -25,11 +25,11 @@ ERRORS = {
               "make the scene build for these arguments, or keep this state out of every to="),
     "VT204": ("app.py:11", "no action reaches the scene help",
               "lead to it from a scene that is reached, as in to=help(), or delete it"),
-    "VT205": ("app.py:9", "no data file at drinks.json",
-              'create it, or correct the path; "drinks.json" is relative to the folder of pyproject.toml'),
-    "VT206": ("drinks.json:3", 'record 2 field "price" is "six", not a whole number', "write a whole number"),
+    "VT205": ("app.py:9", "no data file at data/drinks.json",
+              'create it, or correct the path; "data/drinks.json" is relative to the folder of pyproject.toml'),
+    "VT206": ("data/drinks.json:3", 'record 2 field "price" is "six", not a whole number', "write a whole number"),
     "VT207": ("app.py:15", 'Drink has no field "cost", in state home()', "name one of its fields: name, price"),
-    "VT208": ("app.py:15", "get(name='Mocha') matched no Drink from drinks.json, in state home()",
+    "VT208": ("app.py:15", "get(name='Mocha') matched no Drink from data/drinks.json, in state home()",
               "ask for a row the data holds, or count the matches with where(...).count()"),
     "VT209": ("home()", 'two actions have the label "Open"', "give each action its own label"),
     "VT210": ("count(5)", "the plan reached more than 5 states",
@@ -43,6 +43,9 @@ ERRORS = {
               "write Button, the closest of the screenplay's element types"),
     "VT306": ("stories/neon.toml:2", "the story is not TOML: Invalid value",
               'write each line as name = "words", under [scenes], [elements] or [moves], or above all three'),
+    "VT308": ("stories/neon.toml:5", "home under [scenes] quotes '\u201cOpen\u201d.'",
+              "take the quotes out; the screenplay owns every word on screen, so describe their look"),
+    "VT309": ("stories", 'no story "neon"', "name one of the stories there, glow"),
 }
 WARNINGS = {
     "VT211": [("home()", 'the line "Café Lumière" has the characters è é', f"write it with {PLAIN}"),
@@ -57,6 +60,8 @@ WARNINGS = {
 SUMMARIES = {"VT211": "Cafe 0.1.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot",
              "VT304": "Shop 0.1.0 + neon 1.0.0: 2 scenes, 2 states, 2 keys, 1 move, 3 shots",
              "VT307": "Shop 0.1.0 + neon 1.0.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot"}
+ESTIMATES = {"VT307": ["wan2.2-5b: 1 shot, 1 to 4 calls, free"]}
+"""The plan ends with the estimate for the project's model, and only the vt307 fixture names one."""
 
 
 def in_its_story(code: str) -> tuple[str, ...]:
@@ -64,9 +69,14 @@ def in_its_story(code: str) -> tuple[str, ...]:
     return ("--story", "neon") if code >= "VT300" else ()
 
 
-def test_a_fixture_triggers_every_code():
-    assert sorted(path.name.upper() for path in (FIXTURES / "errors").iterdir()) == sorted(CODES)
-    assert sorted([*ERRORS, *WARNINGS]) == sorted(CODES)
+PLANNED = sorted(code for code in CODES if code < "VT400")
+"""The codes a plan can raise, each with a fixture. The render's and the checks' codes need a model and are covered
+by the render tests."""
+
+
+def test_a_fixture_triggers_every_code_the_plan_can_raise():
+    assert sorted(path.name.upper() for path in (FIXTURES / "errors").iterdir()) == PLANNED
+    assert sorted([*ERRORS, *WARNINGS]) == PLANNED
 
 
 @pytest.mark.parametrize("code", sorted(ERRORS))
@@ -101,12 +111,15 @@ def test_a_warning_prints_its_code_its_place_and_its_fix_and_the_plan_goes_on(co
                                     for place, message, fix in WARNINGS[code])
     assert result.stdout.splitlines()[0] == SUMMARIES[code]
     count = len(WARNINGS[code])
-    assert result.stdout.splitlines()[-1] == f"0 errors, {count} warning{'' if count == 1 else 's'}"
+    estimate = ESTIMATES.get(code, [])
+    assert result.stdout.splitlines()[-1 - len(estimate):] == [
+        f"0 errors, {count} warning{'' if count == 1 else 's'}", *estimate]
 
 
 def test_a_key_of_a_scene_without_a_direction_gets_only_the_look_before_its_elements():
     result = videotape(FIXTURES / "errors" / "vt304", "shots", "--story", "neon", "--state", "detail()")
-    assert (result.stderr, result.returncode) == ("", 0)
+    [(place, message, fix)] = WARNINGS["VT304"]
+    assert (result.stderr, result.returncode) == (f"warning VT304 {place}: {message}\nfix: {fix}\n", 0)
     assert result.stdout.splitlines()[:4] == [
         "key detail()", "  engine                      Static shot.",
         "  story look                  A narrow shop on a rainy street at night.",
@@ -116,9 +129,10 @@ def test_a_key_of_a_scene_without_a_direction_gets_only_the_look_before_its_elem
 def test_the_stand_in_reads_any_length_of_prompt_so_the_same_story_has_no_vt307_with_it():
     result = videotape(FIXTURES / "errors" / "vt307", "plan", "--story", "neon", "--model", "stand-in")
     assert (result.stderr, result.returncode) == ("", 0)
-    assert result.stdout.splitlines()[-1] == "0 errors, 0 warnings"
+    assert result.stdout.splitlines()[-2:] == ["0 errors, 0 warnings", "stand-in: 1 shot, 1 to 4 calls, free"]
     over = videotape(FIXTURES / "errors" / "vt307", "plan", "--story", "neon", "--model", "wan3.0")
-    assert (over.stderr, over.stdout.splitlines()[-1]) == ("", "0 errors, 0 warnings")
+    assert (over.stderr, over.stdout.splitlines()[-2:]) == (
+        "", ["0 errors, 0 warnings", "wan3.0: 1 shot, 1 to 4 calls, $0.50 to $2.00 at $0.10/s"])
 
 
 def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framework_can_raise():
@@ -133,7 +147,8 @@ def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framewo
         assert title == f"{code}: {entry.title}"
         assert len(long.split()) > 15
         assert example.startswith("Example:\n    ") and len(example.splitlines()) > 1
-        assert "\n\nFix:\n    " in f"\n\n{fix}" and len(fix.splitlines()) > 1
+        what = "Next" if code >= "VT400" else "Fix"
+        assert f"\n\n{what}:\n    " in f"\n\n{fix}" and len(fix.splitlines()) > 1
 
 
 def test_explain_rejects_a_code_that_does_not_exist(tmp_path):

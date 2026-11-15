@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,8 @@ VIDEOTAPE = Path(sys.executable).with_name("videotape")
 
 # A test edits a screenplay and loads it again within a second, which a cached .pyc would hide.
 sys.dont_write_bytecode = True
+# videotape dailies opens the page with webbrowser, and true opens nothing.
+os.environ["BROWSER"] = "true"
 
 
 def forget(found: project.Project) -> None:
@@ -56,7 +59,8 @@ def copy_of(fixture: str, to: Path) -> Path:
 def videotape(directory: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
     """Run the installed videotape command in a project, the way a developer does."""
     return subprocess.run([str(VIDEOTAPE), *arguments], cwd=directory, capture_output=True, text=True,
-                          env={"PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "PYTHONDONTWRITEBYTECODE": "1"})
+                          env={"PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "PYTHONDONTWRITEBYTECODE": "1",
+                               "BROWSER": "true"})
 
 
 @pytest.fixture

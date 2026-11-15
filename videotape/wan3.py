@@ -2,12 +2,14 @@
 kept key it starts on to the kept key it lands on. Its takes are only compared with the 5B's, never trained on."""
 
 import base64
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
 
 from videotape.fal import Fal, FalError, Price, Receipt
 from videotape.plan import Mode
+from videotape.publish import publish
 
 # fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-10: Wan30TextToVideoInput and
 # Wan30ImageToVideoInput, whose start_image_url is the "First frame of the generated video" and end_image_url the
@@ -29,6 +31,15 @@ PRICE = Price(usd_per_second=0.10, seconds=SETTINGS["duration"])
 class Wan3Request:
     endpoint: str
     arguments: dict
+
+
+class RecordedFailure(FalError):
+    """A recorded request's poll or download failed. A render never submits it again on its own, so the error names
+    the record, which deleting lets a render submit a new, paid take."""
+
+    def __init__(self, message: str, record: Path) -> None:
+        super().__init__(message)
+        self.record = record
 
 
 def request(mode: Mode, prompt: str, seed: int, start: Path | None = None, end: Path | None = None) -> Wan3Request:
@@ -76,10 +87,36 @@ class Wan3:
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> Receipt:
         return self._film(request(Mode.FIRST_AND_LAST_FRAME, prompt, seed, start, end), out)
 
+    def download_again(self, out: Path) -> Receipt | None:
+        record = request_record(out)
+        if not record.exists():
+            return None
+        return self._fetch(record, json.loads(record.read_text()), out)
+
     def _film(self, built: Wan3Request, out: Path) -> Receipt:
-        url, receipt = bill(self.fal.run(built.endpoint, built.arguments))
-        self.fal.download(url, out)
+        """One take, submitted once. fal's answer to the submit is recorded beside the take before the wait, so a
+        render that dies between submitting and downloading polls and downloads that request on resume instead of
+        paying for it again. The record holds the endpoint, the request id and its urls, never the key."""
+        if (receipt := self.download_again(out)) is not None:
+            return receipt
+        record = request_record(out)
+        submitted = {"endpoint": built.endpoint, **self.fal.submit(built.endpoint, built.arguments)}
+        publish(record, lambda partial: partial.write_text(json.dumps(submitted, indent=2) + "\n"))
+        return self._fetch(record, submitted, out)
+
+    def _fetch(self, record: Path, submitted: dict, out: Path) -> Receipt:
+        try:
+            url, receipt = bill(self.fal.wait(submitted["endpoint"], submitted))
+            self.fal.download(url, out)
+        except FalError as error:
+            raise RecordedFailure(str(error), record) from None
         return receipt
+
+
+def request_record(out: Path) -> Path:
+    """Where a take's submitted request is recorded: beside the take, under the take's name. A render films a take
+    into <name>.partial.mp4 and publishes it as <name>.mp4, so the record goes by the name before the first dot."""
+    return out.with_name(f"{out.name.partition('.')[0]}.request.json")
 
 
 def from_environment() -> Wan3:

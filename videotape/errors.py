@@ -1,4 +1,5 @@
-"""Every logical error a screenplay, its data or a story can have: its code, what it means, an example, and the fix."""
+"""Every error a screenplay, its data, a story, a render or a check can have: its code, what it means, an example,
+and the fix or the next step."""
 
 import os
 import sys
@@ -50,10 +51,11 @@ CODES: dict[str, Code] = {
         'Lead to it from a scene that is reached, as in vt.Button("Help", to=help()), or delete it.',
     ),
     "VT205": Code(
-        "a data file is missing",
+        "a data file is missing, or is not under data/",
         "vt.table and vt.one load their file when the module is imported. A path is relative to the project, the "
-        "folder that holds pyproject.toml, and no file is at this one.",
-        'flights = vt.table(Flight, "data/flight.json")',
+        "folder that holds pyproject.toml, and it is under data/, so that the data hash in a tape's made block covers "
+        "every record the app loads. Either no file is at this path, or the path leads outside data/.",
+        'flights = vt.table(Flight, "flights.json")',
         'flights = vt.table(Flight, "data/flights.json")',
     ),
     "VT206": Code(
@@ -140,12 +142,13 @@ CODES: dict[str, Code] = {
         'search = "Up close at the departure board."',
     ),
     "VT306": Code(
-        "a story is not TOML",
+        "a story is not TOML, or a table holds something other than words",
         'A story is a TOML file: lines of name = "words", above and under the headings [scenes], [elements] and '
         "[moves]. This file breaks TOML's rules, most often with words that are not in quotes or a quote that never "
-        "closes. The error names the line and says what TOML's reader found there.",
-        "look = A quiet airport terminal at first light.",
-        'look = "A quiet airport terminal at first light."',
+        "closes, or one of its tables holds a number, a list or another table where words belong. The error names "
+        "the line and says what is there.",
+        "look = A quiet airport terminal at first light.\n\n[scenes]\nhome = 3",
+        'look = "A quiet airport terminal at first light."\n\n[scenes]\nhome = "The main hall."',
     ),
     "VT307": Code(
         "a prompt is longer than the model takes",
@@ -156,6 +159,100 @@ CODES: dict[str, Code] = {
         "The stand-in has no limit. The plan goes on.",
         'look = """\nA quiet international airport terminal at first light, and four hundred more words.\n"""',
         "Shorten the look, the scene's direction or the appearances in the story, or show fewer lines in the state.",
+    ),
+    "VT308": Code(
+        "a story quotes words",
+        "The screenplay owns every word on screen, and a story says only how they look. A video model letters "
+        "whatever a prompt quotes, so a story that quotes words puts them on every key it reaches, beside the "
+        "screenplay's own. A straight double quote or a curly one anywhere in a story's words is this error, which "
+        "names the line.",
+        'SearchBar = "a white slot that says \\"Where to?\\" in black letters"',
+        'SearchBar = "a wide white slot with black letters"',
+    ),
+    "VT309": Code(
+        "no story has this name",
+        "A story is stories/<name>.toml in the project, and --story names it by the file's stem. No file under "
+        "stories/ has this name. The fix lists the stories that are there, or names the file to add when there are "
+        "none.",
+        "videotape plan --story poster",
+        "videotape plan --story posters",
+    ),
+    "VT401": Code(
+        "a model call failed",
+        "A render asks the model for one take at a time, and this call did not come back with a clip. The error "
+        "prints the provider's message and the request id when there is one, and never a key. The takes already on "
+        "disk and the requests already submitted are kept, so running the render again resumes from them, and a "
+        "submitted request is polled and downloaded, never submitted again on its own. A request fal has recorded "
+        "beside its take and refuses for good, as when its safety checker flags the output, fails the same way on "
+        "every run, so the next step names its record: deleting that file lets the render submit a new, paid take.",
+        "error VT401 key home() take 2: result of alibaba/wan-3.0/text-to-video request 01a1... failed with HTTP 422",
+        "next: run the render again, which resumes; this request is polled, not submitted again:\n"
+        "videotape render --story terminal --model wan3.0 --cap-usd 20.00\n"
+        "or delete tapes/terminal/takes/3f9a....request.json first, and the render submits a new, paid take",
+    ),
+    "VT402": Code(
+        "the next call would pass the cap",
+        "A model that bills per call renders under a cap: cap_usd in [tool.videotape], or --cap-usd. What a tape has "
+        "spent is the sum of its lines in the project's ledger, so running the render again never resets it. Before "
+        "each paid call the render stops when the call would pass the cap, says what was spent, and lets the calls "
+        "in flight finish and be recorded. The cap is checked against each call's listed price, and the ledger "
+        "records what the call then billed, which can differ a little, so the spend can end a little past the cap. "
+        "A paid model with no cap at all does not start.",
+        "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
+        "and $0.00 reserved for the calls in flight, at the listed price of $0.50 a call",
+        "next: raise the cap and run the render again, which resumes:\n"
+        "videotape render --story terminal --cap-usd 10.00\nor set it for good in [tool.videotape]:\ncap_usd = 10",
+    ),
+    "VT403": Code(
+        "a take's file is corrupt",
+        "A take came back as a file that does not decode into a frame. A model that bills per call keeps its request "
+        "beside the take, so the take is downloaded again first. When it is still corrupt, or when the model has "
+        "nothing to download again, the seed is recorded in the tape's record as corrupt, reported, skipped, and "
+        "never filmed again. The shot goes on with its next seed.",
+        "error VT403 key home() take 1: takes/3f9a....mp4 did not decode to one rgb24 frame",
+        "next: nothing; seed 1 is skipped from now on, and the shot goes on with seed 2",
+    ),
+    "VT404": Code(
+        "ffmpeg failed",
+        "A render decodes frames, writes key images and copies clips with ffmpeg and ffprobe, and one of them "
+        "failed or is not on PATH. The error prints the command and what ffmpeg said. This is about the machine, "
+        "not the model or the screenplay.",
+        "error VT404 key home() take 1: ffmpeg is not on PATH",
+        "next: install ffmpeg, as in brew install ffmpeg, and run the render again",
+    ),
+    "VT501": Code(
+        "an action was not found on its key",
+        "Every action of a state is found on the state's key by its words, and its box becomes the hotspot a "
+        "person presses. The eye found no box reading these words, within the character error the find allows, "
+        "on the kept take, so the action has no hotspot in the tape and cannot be pressed. The dailies show where "
+        "the box should be, from another take that found it when there is one.",
+        'vt.Button("Book for $89", to=booked(f)), with no box reading "Book for $89" on the key',
+        "retake the shot, change the story line that draws the element, change the screenplay, or accept it with a "
+        "reason",
+    ),
+    "VT502": Code(
+        "a word was misread",
+        "Every line of a state is read back from its key, and a line reads back exactly or the check fails. The "
+        "character error rate says how far off it was, and the dailies show the line's box when the eye saw one.",
+        'vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"',
+        "retake the shot, shorten or simplify the line in the screenplay, or accept it with a reason",
+    ),
+    "VT503": Code(
+        "the model invented a control",
+        "The kept take shows a control-like box whose words are none of the state's lines, so a person would try "
+        "to press something the app does not have. The eye lists every control-like box with its text, and one is "
+        "invented when its text matches no line within the character error the find allows.",
+        'a lit panel reading "Cancel" on a key whose state has no such line',
+        "retake the shot, change the story's appearance for the element type that drew it, or accept it with a "
+        "reason, as in --reason \"a printed logo, not a control\"",
+    ),
+    "VT508": Code(
+        "a seam between a move and its key is too wide",
+        "A move is drawn from the key it leaves to the key it lands on, and its first and last frames are compared "
+        "with those two keys. A difference over 0.05 at either end is a visible jump when the tape plays. The "
+        "dailies name which end and by how much.",
+        "end: difference 0.279, when the move's last frame is far from the key it lands on",
+        "retake the move, change the story's move for that element type, or accept it with a reason",
     ),
 }
 
@@ -176,10 +273,25 @@ class ScreenplayError(Exception):
         return ScreenplayError(self.code, self.place, f"{self.message}, in state {state}", self.fix)
 
 
+class RenderError(Exception):
+    """One error a render stops on, or reports and goes on from: its code, the shot and take it is at, what went
+    wrong, and the next step."""
+
+    def __init__(self, code: str, place: str, message: str, next: str) -> None:
+        if code not in CODES:
+            raise KeyError(f"{code} has no entry in CODES, so videotape explain could not explain it")
+        super().__init__(f"{code} {place}: {message}")
+        self.code, self.place, self.message, self.next = code, place, message, next
+
+    def report(self) -> str:
+        return f"error {self.code} {self.place}: {self.message}\nnext: {self.next}"
+
+
 def explain(code: str) -> str:
     entry = CODES[code]
+    what = "Next" if code >= "VT400" else "Fix"
     return (f"{code}: {entry.title}\n\n{entry.long}\n\nExample:\n{_indented(entry.example)}\n\n"
-            f"Fix:\n{_indented(entry.fix)}")
+            f"{what}:\n{_indented(entry.fix)}")
 
 
 def _indented(text: str) -> str:

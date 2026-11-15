@@ -147,6 +147,9 @@ class Wan:
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> None:
         self._run(request(Mode.FIRST_AND_LAST_FRAME, prompt, start, end, seed), out)
 
+    def download_again(self, out: Path) -> None:
+        return None
+
     def _run(self, req: Request, out: Path) -> None:
         import torch
 

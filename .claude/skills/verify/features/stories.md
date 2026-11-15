@@ -62,7 +62,7 @@ Preconditions:
 - **Every shot.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-shots-all examples/contrail -- shots --story terminal`. `.exit` is `0`, `.stdout` has 1221 lines, and `grep -c '^[^ ]' "$RUN/stories-shots-all.stdout"` prints `160`, one title per shot. The first title is `key home()`, and its clauses end `reading "Home", "Trips", and "Profile", with "Home" chosen.` and `Sharp, legible lettering.` The 59th title, `grep -n '^[^ ]' "$RUN/stories-shots-all.stdout" | sed -n 59p`, is line 815, `home() -> search() "Where to?"`, and the two lines under it are `  screenplay home, SearchBar      The search bar "Where to?" is pressed.` and `  story moves.SearchBar           The slot lights up. The camera steps closer to the departure board.` The source column is as wide as the longest source the command prints, so it is narrower with `--state`.
 - **Same words.** Run the same with `--story posters` as `stories-shots-all-posters`. `diff <(grep -o '"[^"]*"' "$RUN/stories-shots-all.stdout") <(grep -o '"[^"]*"' "$RUN/stories-shots-all-posters.stdout")` prints nothing and exits 0.
 - **Moves.** `grep -o '^  story moves\.[A-Za-z]*' "$RUN/stories-shots-all.stdout" | sort | uniq -c` prints `40   story moves.Button`, `21   story moves.List`, `8   story moves.SearchBar`, `6   story moves.Tabs` and `27   story moves.default`, which are the 9 days of the date pickers and the 18 of the date strips. The same on `stories-shots-all-posters.stdout` prints one line, `102   story moves.default`.
-- **Missing.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-no-story examples/contrail -- shots --story poster`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is `error: no story "poster" in stories; the stories are posters and terminal`. `plan --story poster` and `render --story poster` print the same, and `command ls examples/contrail/tapes` shows no `poster`. With `-- shots --story posters --state "results(SEA, 2026-12-21)"`, `.stderr` is `error: the app has no state "results(SEA, 2026-12-21)"; the closest are results(SEA, 2026-12-11), results(SEA, 2026-12-12), results(SEA, 2026-12-13)`. With `-- shots` alone, `.exit` is `2` and `.stderr` ends with `videotape shots: error: the following arguments are required: --story`, and `-- render` alone ends the same way for `videotape render`.
+- **Missing.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-no-story examples/contrail -- shots --story poster`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is `error VT309 stories: no story "poster"` over `fix: name one of the stories there, posters and terminal`. `plan --story poster` and `render --story poster` print the same, and `command ls examples/contrail/tapes` shows no `poster`. With `-- shots --story posters --state "results(SEA, 2026-12-21)"`, `.stderr` is `error: the app has no state "results(SEA, 2026-12-21)"; the closest are results(SEA, 2026-12-11), results(SEA, 2026-12-12), results(SEA, 2026-12-13)`. With `-- shots` alone, `.exit` is `2` and `.stderr` ends with `videotape shots: error: the following arguments are required: --story`, and `-- render` alone ends the same way for `videotape render`.
 - **Made.** Run `.venv/bin/python -c 'import json; m = json.load(open("examples/contrail/tapes/terminal/tape.json"))["made"]; print(list(m)); print(m["label"]); print(m["app"]["name"], m["app"]["version"], m["story"], m["model"]); print(all(len(h) == 64 for h in (m["id"], m["app"]["code"], m["app"]["data"], m["engine"])))'`. It prints `['label', 'id', 'app', 'story', 'model', 'engine']`, then `contrail 0.1.0 + terminal 1.0.0`, then `contrail 0.1.0 {'name': 'terminal', 'version': '1.0.0', 'hash': '0b012621d2d6da91c4ab4fff5ce5c2ede46c642ed001570e7bb6299466fb8811'} {'name': 'stand-in', 'settings': {'text-to-video': {}, 'first-and-last-frame': {}}}`, then `True`. `shasum -a 256 examples/contrail/stories/terminal.toml` prints the same hash. The posters tape's label is `contrail 0.1.0 + posters 1.0.0`.
 - **Diff.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" stories-diff -C examples/contrail -- uv run videotape diff tapes/terminal tapes/posters`. `.exit` is `0`, `.stderr` is empty, and `.stdout` is these six lines, with each tape's own 64-character id in place of `<id>`:
   ```
@@ -74,34 +74,33 @@ Preconditions:
   102 moves shared, of 102 and 102
   ```
   The two ids differ, and each is the `id` of that tape's `made` block. With `tapes/terminal tapes/terminal`, both lines carry one id and the third and fourth lines are `same app` and `same story`. With `tapes/terminal tapes/neon`, `.exit` is `1` and `.stderr` is `error: no tape.json in tapes/neon; render the screenplay first`.
-- **Edit one direction.** Needs the scratch cafe `$S` after `render-cascade` in [render.md](./render.md). Run `perl -pi -e 's/order = "One panel of the board, up close."/order = "One panel of the board, up close, by candlelight."/' "$S/stories/chalk.toml"`, then `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-cascade "$S" -- render --story chalk`. `.exit` is `0` and `.stdout` is exactly:
+- **Edit one direction.** Needs the scratch cafe `$S` after `render-cascade` in [render.md](./render.md). Run `perl -pi -e 's/order = "One panel of the board, up close."/order = "One panel of the board, up close, by candlelight."/' "$S/stories/chalk.toml"`, then `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-cascade "$S" -- render --story chalk`. `.exit` is `0`. The shot lines come in the order the shots finish, so sort them: `grep '^[0-9]*\. ' "$RUN/stories-cascade.stdout" | sort -n | sed -E 's/, [0-9.]+ s$//'` prints:
   ```
-  1. key menu()  cached, kept take 3
-  2. key order(Espresso)  rendered 3 takes, kept take 3
-  3. key order(Latte)  rendered 3 takes, kept take 1
-  4. key thanks(Espresso)  cached, kept take 2
-  5. key thanks(Latte)  cached, kept take 1
-  6. menu() -> order(Espresso) "Espresso, $3"  rendered 3 takes, kept take 3
-  7. menu() -> order(Latte) "Latte, $5"  rendered 3 takes, kept take 1
-  8. order(Espresso) -> thanks(Espresso) "Order"  rendered 3 takes, kept take 2
-  9. order(Latte) -> thanks(Latte) "Order"  rendered 3 takes, kept take 2
-  10. thanks(Espresso) -> menu() "Done"  cached, kept take 1
-  11. thanks(Latte) -> menu() "Done"  cached, kept take 1
-  rendered 6 of 11 shots -> tapes/chalk
+  1. key menu()  kept take 2, passed, cached, $0.00
+  2. key order(Espresso)  kept take 3, passed, 3 takes filmed, $0.00
+  3. key order(Latte)  kept take 1, passed, 1 take filmed, $0.00
+  4. key thanks(Espresso)  kept take 2, passed, cached, $0.00
+  5. key thanks(Latte)  kept take 1, passed, cached, $0.00
+  6. menu() -> order(Espresso) "Espresso, $3"  kept take 3, passed, 3 takes filmed, $0.00
+  7. menu() -> order(Latte) "Latte, $5"  kept take 1, passed, 1 take filmed, $0.00
+  8. order(Espresso) -> thanks(Espresso) "Order"  kept take 2, passed, 2 takes filmed, $0.00
+  9. order(Latte) -> thanks(Latte) "Order"  kept take 2, passed, 2 takes filmed, $0.00
+  10. thanks(Espresso) -> menu() "Done"  kept take 1, passed, cached, $0.00
+  11. thanks(Latte) -> menu() "Done"  kept take 1, passed, cached, $0.00
   ```
-  The two keys of the order scene render, and so do the four moves that start or land on them, though no move's prompt changed. `$RUN/stories-cascade.project/chalk.toml` shows the edited line.
+  The two keys of the order scene film again, and so do the four moves that start or land on them, though no move's prompt changed. The last line starts `11 shots, 12 takes filmed, $0.00, `. `$RUN/stories-cascade.project/chalk.toml` shows the edited line.
 - **What renders again.** Run `uv run pytest tests/test_rerender.py -v`. All 8 tests pass. It took 2 minutes 38 seconds on an M3 Max. The module renders Contrail once in `terminal` with one take per shot, makes each change in a copy of that render, and renders again. The results scene's direction films its 9 keys and the 45 moves that touch them. The DatePicker's appearance films the 3 keys that show one and 12 moves. The look films all 58 keys and 102 moves. One fare in `data/flights.json` films the 5 keys that show it and 17 moves.
 - **Proof.** For each journey cite `.cmd`, `.exit` and the asserted `.stdout` or `.stderr` lines. Also cite the empty `diff` for `stories-words`, the `shasum` line for `stories-made`, and the `.project/chalk.toml` copy for `stories-cascade`.
 
 ## Gotchas
 
 - A story's hash is of its file's bytes, so a comment or a blank line changes it, and `diff` then says `another story` though every prompt is the same.
-- `same app` compares the hash of the app's code and the hash of `data/`. The code is every `.py` file of the package that holds the screenplay, or the one module when there is no package. An app that keeps its data outside `data/`, as the cafe fixture keeps `drinks.json`, has the hash of no files for its data, so a change to that data does not show in `diff`.
+- `same app` compares the hash of the app's code and the hash of `data/`. The code is every `.py` file of the package that holds the screenplay, or the one module when there is no package. `vt.table` and `vt.one` load only files under `data/` (a path outside it is `VT205`), so the data hash covers every record the app loads.
 - The `made` block is written with `tape.json` at the end of every render. Its engine hash is of the videotape code that wrote it, and takes that came from the cache may have been drawn by earlier code. After a change to videotape itself, a cached render changes `tape.json` and nothing else.
 - A file's hash covers its path from the project and its bytes. A rename changes it. The order the files are read in does not.
 - The ids differ between checkouts whenever videotape's own code differs, so never assert an id from this file. Assert the label and the story's hash.
 - `shots` prints nothing a model has drawn. It needs no ffmpeg and no model, and runs in well under a second on Contrail.
-- `shots` and `render` check the story against the project's model, and print no warnings. `plan --story <name>` prints them.
+- `shots` and `render` check the story against the project's model and print its warnings to stderr, as `plan --story <name>` does, before their own output.
 - A line that ends with a period is quoted with it, so a clause can end `fare.".`, with the line's own period inside the quotes and the clause's after them.
 - A chosen option or tab is quoted a second time, as in `with "Sat 12" chosen`. The stand-in draws that line once.
 - The stand-in draws only a prompt's quoted lines, and marks every key with a row of 64 faint cells along its bottom edge, each a little lighter or darker by one bit of the whole prompt's hash. That is how a change to a look, a direction or an appearance changes a stand-in key, and through the key the moves pinned to it.

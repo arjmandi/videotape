@@ -8,7 +8,7 @@ class Drink(vt.Record, key="name"):
     price: int
 
 
-drinks = vt.table(Drink, "drinks.json")
+drinks = vt.table(Drink, "data/drinks.json")
 app = vt.Screenplay("Corner Cafe")
 
 
