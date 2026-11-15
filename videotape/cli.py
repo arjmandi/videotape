@@ -29,8 +29,6 @@ def _planned(found: Project) -> Plan:
 def _listing(found: Project, named: str | None) -> Listing | None:
     """The model a command names, or else the project's, or none when neither names one."""
     name = named or found.model
-    if name is not None and name not in MODELS:
-        raise ProjectError(f'[tool.videotape] sets model = "{name}", and the models are {", ".join(sorted(MODELS))}')
     return MODELS[name] if name else None
 
 

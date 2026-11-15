@@ -20,6 +20,27 @@ class Code:
 
 
 CODES: dict[str, Code] = {
+    "VT106": Code(
+        "no project here",
+        "A project is the folder that holds an app's pyproject.toml, with a [tool.videotape] table that names the "
+        "app's screenplay. Every command but new, doctor, explain and diff runs in a project, and finds it from the "
+        "working folder upward. Neither this folder nor any above it holds a pyproject.toml, or the nearest one has "
+        "no [tool.videotape] table.",
+        "error VT106 pyproject.toml: no pyproject.toml here or in any folder above",
+        "run the command in the app's project, or start one:\nvideotape new shop\nor add the table to the project's "
+        'pyproject.toml:\n[tool.videotape]\nscreenplay = "shop.screenplay:app"',
+    ),
+    "VT107": Code(
+        "a value in [tool.videotape] is wrong",
+        "[tool.videotape] in the project's pyproject.toml names the screenplay as module:name, the module that holds "
+        "it and the name of its vt.Screenplay. It may set model, one of the models videotape has, max_states and "
+        "takes, whole numbers of at least 1, and cap_usd, a number of dollars. A value here is none of what its "
+        "setting takes, the screenplay it names is not a vt.Screenplay in the project, or the file is not TOML. The "
+        "error names the setting and what it holds.",
+        'error VT107 pyproject.toml: [tool.videotape] model is "wan3", and videotape has no such model',
+        "set each to what it takes:\n[tool.videotape]\n"
+        'screenplay = "shop.screenplay:app"\nmodel = "wan3.0"\ntakes = 4\ncap_usd = 20',
+    ),
     "VT201": Code(
         "the screenplay has no scenes",
         "The app opens on the state of the screenplay's first scene, called with no arguments. A screenplay with no "

@@ -8,6 +8,7 @@ import pytest
 
 from videotape import project, story
 from videotape.cli import main
+from videotape.errors import ScreenplayError
 from videotape.plan import Plan, Shot, plan
 from videotape.story import Story
 
@@ -78,6 +79,9 @@ def cli(monkeypatch):
     """Run videotape's main in a project, in this process, so a test can swap the model it renders with."""
     def run(directory: Path, *arguments: str) -> int:
         monkeypatch.chdir(directory)
-        forget(project.find(directory))
+        try:
+            forget(project.find(directory))
+        except ScreenplayError:
+            pass  # A project that is not one has no modules to forget, and the command reports it.
         return main(list(arguments))
     return run
