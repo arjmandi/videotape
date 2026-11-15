@@ -73,7 +73,7 @@ Preconditions:
   58 states shared, of 58 and 58
   102 moves shared, of 102 and 102
   ```
-  The two ids differ, and each is the `id` of that tape's `made` block. With `tapes/terminal tapes/terminal`, both lines carry one id and the third and fourth lines are `same app` and `same story`. With `tapes/terminal tapes/neon`, `.exit` is `1` and `.stderr` is `error: no tape.json in tapes/neon; render the screenplay first`.
+  The two ids differ, and each is the `id` of that tape's `made` block. With `tapes/terminal tapes/terminal`, both lines carry one id and the third and fourth lines are `same app` and `same story`. With `tapes/terminal tapes/neon`, `.exit` is `1` and `.stderr` is `error: no tape.json in tapes/neon; render the story first`.
 - **Edit one direction.** Needs a copy of the cafe rendered once and not edited. `render-cascade` in [render.md](./render.md) edits `$S`, so make another: `U="${TMPDIR:-/tmp}"/videotape-verify-story; rm -rf "$U"; cp -R tests/fixtures/cafe "$U"; rm -rf "${U:?}"/{tape,tapes,ledger.jsonl,__pycache__}`, then `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-cafe "$U" -- render --story chalk`, which prints the same lines as `render-cafe`. Run `perl -pi -e 's/order = "One panel of the board, up close."/order = "One panel of the board, up close, by candlelight."/' "$U/stories/chalk.toml"`, then `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-cascade "$U" -- render --story chalk`. `.exit` is `0`. The shot lines come in the order the shots finish, so sort them: `grep '^[0-9]*\. ' "$RUN/stories-cascade.stdout" | sort -n | sed -E 's/, [0-9.]+ s$//'` prints:
   ```
   1. key menu()  kept take 2, passed, cached, $0.00

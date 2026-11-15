@@ -199,7 +199,7 @@ def test_diff_after_the_code_changes_is_another_app_and_counts_the_states_and_mo
 def test_diff_says_which_tape_has_no_tape_json_or_does_not_say_what_made_it(two, cli, capsys):
     directory, _ = two
     assert cli(directory, "diff", "tapes/chalk", "tapes/neon") == 1
-    assert capsys.readouterr() == ("", "error: no tape.json in tapes/neon; render the screenplay first\n")
+    assert capsys.readouterr() == ("", "error: no tape.json in tapes/neon; render the story first\n")
     old = directory / "tape-old"
     old.mkdir()
     manifest = json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())

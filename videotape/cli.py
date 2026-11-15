@@ -260,7 +260,7 @@ def rewrite_dailies(args) -> int:
     found = project.find(Path.cwd())
     tape = _tape(found, args.story, args.out)
     if not (tape / "dailies.json").is_file():
-        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the screenplay first")
+        raise ChecksError(f"no dailies.json in {errors.shown(tape)}; render the story first")
     dailies.write(tape, dailies.read(tape), ledger.of(found.root, tape).totals())
     page = tape / "dailies.html"
     print(f"wrote {errors.shown(page)} with {json.dumps(dailies.read(tape)['ledger'])}")
@@ -291,7 +291,7 @@ def _manifest(tape: str) -> dict:
     """A tape's tape.json, which says what made it."""
     file = Path(tape) / "tape.json"
     if not file.is_file():
-        raise ChecksError(f"no tape.json in {tape}; render the screenplay first")
+        raise ChecksError(f"no tape.json in {tape}; render the story first")
     manifest = json.loads(file.read_text())
     if "made" not in manifest:
         raise ChecksError(f"{file} does not say what made it; render the tape again")
