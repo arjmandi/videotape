@@ -4,7 +4,7 @@ its commands run in order, each printing what the guide shows of it.
 The commands start in the project videotape new writes. From the guide's first whole file on, they run in that project
 with examples/contrail copied over it, since the guide has the reader write Contrail's files there. The stand-in is
 made to fail the key of the state the guide retakes and of the state it accepts, so that both commands act on a real
-failure. torch cannot be imported, as in a project new wrote, which leaves out videotape's qwen extra."""
+failure. torch is not installed, as in a project new wrote, which leaves out videotape's qwen extra."""
 
 import dataclasses
 import hashlib
@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 from conftest import CONTRAIL, planned, told
-from videotape import dailies, player, project, standin, story
+from videotape import dailies, player, project, qwen, standin, story
 from videotape.cli import main
 from videotape.plan import Shot
 from videotape.standin import Flaw
@@ -224,6 +224,13 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
     monkeypatch.setattr(standin, "_default_flaw", flawed(guide))
     monkeypatch.delenv("FAL_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    real = qwen.distribution
+
+    def without_torch(name: str):
+        if name == "torch":
+            raise qwen.PackageNotFoundError(name)
+        return real(name)
+    monkeypatch.setattr(qwen, "distribution", without_torch)
     monkeypatch.setitem(sys.modules, "torch", None)
     opened = list[list[str]]()
     if not real_player:

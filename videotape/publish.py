@@ -55,16 +55,19 @@ def publish(found: Project, tape: Path, render: str) -> Published:
     block = manifest["made"]
     told = story.named(found.root, block["story"]["name"])
     listing = MODELS[block["model"]["name"]]
+    planned = plan(found.load(), found.max_states)
+    app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
+    zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")
+    staged = staging / app.name
+    # Before the lock is read, so a lock an earlier publish left aside counts its labels.
+    _put_back(staging, [app, zipped, found.root / LOCK])
     _fresh(tape, block, made(found, told, listing.kind), record)
     _accepted(tape, record)
     lock = read_lock(found.root)
     _unlocked(found.root, lock, block, told.path)
-    planned = plan(found.load(), found.max_states)
     built = player.built()
-    app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
-    zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")
-    staged = staging / app.name
     shutil.rmtree(staging, ignore_errors=True)
+    swapped = False
     try:
         shutil.copytree(built, staged, symlinks=True)
         _name(staged / "Contents" / "Info.plist", planned.title, found.name, told.name)
@@ -81,8 +84,11 @@ def publish(found: Project, tape: Path, render: str) -> Published:
         if locked:
             write_lock(staging / LOCK, {**lock, block["label"]: entry(block)})
         _swap(staging, [app, zipped, *([found.root / LOCK] if locked else [])])
+        swapped = True
     finally:
-        shutil.rmtree(staging, ignore_errors=True)
+        aside = staging / "aside"
+        if swapped or not (aside.is_dir() and any(aside.iterdir())):
+            shutil.rmtree(staging, ignore_errors=True)
     return Published(app, zipped, block["label"], block["id"], locked)
 
 
@@ -109,11 +115,26 @@ def _swap(staging: Path, places: list[Path]) -> None:
         raise
 
 
+def _put_back(staging: Path, places: list[Path]) -> None:
+    """After a publish stopped while it put the earlier app, zip or lock back, move each one still aside back to its
+    place when the place is empty. Refuse when a place holds another file, so no earlier file is deleted."""
+    aside = staging / "aside"
+    if not aside.is_dir():
+        return
+    for place in places:
+        if (aside / place.name).exists() and not place.exists():
+            (aside / place.name).rename(place)
+    if left := sorted(path.name for path in aside.iterdir()):
+        raise ScreenplayError("VT607", shown(aside), f"holds {', '.join(left)}, which an earlier publish moved aside and "
+                              "was stopped before it put back", "move back the ones to keep, delete the folder, and "
+                              "publish again")
+
+
 def entry(block: dict) -> dict[str, str]:
     """What the lock records of a tape: its id, and what its id is made of, the screenplay by its module:app and the
     model by its name."""
     settings = hashlib.sha256(json.dumps(block["model"]["settings"], sort_keys=True).encode()).hexdigest()
-    return {"id": block["id"], "screenplay": block["app"]["screenplay"], "code": block["app"]["code"],
+    return {"id": block["id"], "screenplay": block["app"].get("screenplay", ""), "code": block["app"]["code"],
             "data": block["app"]["data"], "story": block["story"]["hash"], "model": block["model"]["name"],
             "settings": settings, "engine": block["engine"]}
 

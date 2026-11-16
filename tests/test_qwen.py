@@ -5,7 +5,7 @@ import pytest
 
 import videotape as vt
 from conftest import FIXTURES, copy_of
-from videotape import standin
+from videotape import qwen, standin
 from videotape.checks import Reading, Spot, cer, find, read, score
 from videotape.errors import CODES
 from videotape.frames import Box, Frame
@@ -58,6 +58,13 @@ def test_elements_without_text_or_a_box_are_skipped():
 
 
 def test_a_model_other_than_the_stand_in_is_checked_by_qwen_which_needs_its_extra(tmp_path, cli, capsys, monkeypatch):
+    real = qwen.distribution
+
+    def without_torch(name: str):
+        if name == "torch":
+            raise qwen.PackageNotFoundError(name)
+        return real(name)
+    monkeypatch.setattr(qwen, "distribution", without_torch)
     monkeypatch.setitem(sys.modules, "torch", None)
     monkeypatch.setenv("FAL_KEY", "fal-test-key-0123456789abcdef")
     sent = []
