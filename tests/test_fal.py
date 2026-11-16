@@ -127,3 +127,49 @@ def test_the_key_is_sent_only_to_the_queue():
     with pytest.raises(ModelError, match="https://example.com/steal/status, which is not on https://queue.fal.run"):
         Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert [url for _, url, _ in queue.sent()] == ["https://queue.fal.run/alibaba/wan-3.0/image-to-video"]
+
+
+REFUSED = ('{"detail":[{"loc":["body"],"msg":"The content could not be processed because it contained material flagged by '
+           'a content checker.","type":"content_policy_violation","url":"https://docs.fal.ai/errors#content_policy_violation",'
+           '"input":"","categories":["model_moderated"]}]}')
+"""fal's answer to the result of request 01a1e4a2-f25e-7972-979d-3aebd879c48c on the paid screen test of 2026-11-16."""
+
+
+def test_a_result_refused_for_its_content_is_vt409_and_is_not_asked_for_again():
+    response, queue = exchange()
+    result = response["submitted"]["response_url"]
+    queue.answers[("GET", result)] = [http(422, REFUSED)]
+    with pytest.raises(ModelError) as error:
+        Fal(KEY, send=queue, sleep=lambda _: None).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
+    assert error.value.code == "VT409"
+    assert error.value.message == (f"result of alibaba/wan-3.0/image-to-video request {response['submitted']['request_id']} "
+                                   "was refused for its content: HTTP 422 content_policy_violation, model_moderated")
+    assert [url for _, url, _ in queue.sent()].count(result) == 1
+
+
+def test_a_submit_refused_for_its_content_is_vt409_too():
+    _, queue = exchange(submit=[http(422, REFUSED)])
+    with pytest.raises(ModelError) as error:
+        Fal(KEY, send=queue, sleep=lambda _: None).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
+    assert (error.value.code, error.value.message) == (
+        "VT409", "submit to alibaba/wan-3.0/image-to-video was refused for its content: HTTP 422 "
+                 "content_policy_violation, model_moderated")
+    assert [method for method, _, _ in queue.sent()] == ["POST"]
+
+
+@pytest.mark.parametrize("answer, tries", [
+    (http(422, '{"detail":[{"loc":["body","prompt"],"msg":"field required","type":"value_error.missing"}]}'), 1),
+    (http(422, '{"detail": "content policy"}'), 1),
+    (http(422, "not json"), 1),
+    (http(500, "runner crashed"), 5),
+])
+def test_a_422_that_is_no_content_refusal_and_a_500_keep_vt401(answer, tries):
+    response, queue = exchange()
+    result = response["submitted"]["response_url"]
+    queue.answers[("GET", result)] = [answer] * tries
+    with pytest.raises(ModelError) as error:
+        Fal(KEY, send=queue, sleep=lambda _: None).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
+    assert error.value.code == "VT401"
+    assert error.value.message.startswith(f"result of alibaba/wan-3.0/image-to-video request "
+                                          f"{response['submitted']['request_id']} failed with HTTP {answer.code}: ")
+    assert [url for _, url, _ in queue.sent()].count(result) == tries
