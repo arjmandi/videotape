@@ -516,34 +516,72 @@ def test_a_marks_file_that_is_not_the_reports_says_so_and_films_nothing(script, 
 
 
 class RefusingOnFal(OnFal):
-    """wan3.0 refusing every first take for its content, as fal's content checker does."""
+    """wan3.0 refusing the takes of its seeds for their content, as fal's content checker does, on every prompt or
+    on the one prompt given."""
+
+    def __init__(self, seeds: set[int], prompt: str | None = None):
+        super().__init__("wan3.0", MODELS["wan3.0"].price, FLAWS["wan3.0"])
+        self.refused, self.prompt = seeds, prompt
 
     def text_to_video(self, prompt: str, seed: int, out: Path) -> Receipt:
-        if seed == 1:
-            raise ModelError("request r-1 was refused for its content: HTTP 422 content_policy_violation, "
+        if seed in self.refused and self.prompt in (None, prompt):
+            raise ModelError(f"request r-{seed} was refused for its content: HTTP 422 content_policy_violation, "
                              "model_moderated", "VT409", "nothing; a render skips the take's seed from now on")
         return super().text_to_video(prompt, seed, out)
 
 
-def test_a_refused_take_shows_as_refused_fails_the_first_take_and_counts_its_elements_not_drawn_right(script, tmp_path,
-                                                                                                      monkeypatch):
+def refusing(monkeypatch, film: RefusingOnFal) -> None:
     monkeypatch.chdir(ROOT)
     fake(monkeypatch)
-    film = RefusingOnFal("wan3.0", MODELS["wan3.0"].price, FLAWS["wan3.0"])
     monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], model=lambda: film))
+
+
+def taken(script, directory: Path) -> list:
+    found = project.find(directory)
+    keys = script.sampled(script.plan(found.load(), found.max_states)).keys
+    return script.gathered(directory, keys, {("wan3.0", "terminal"): directory / "tapes/screen-test/wan3.0/terminal"})
+
+
+WAN3_TERMINAL = ("--models", "wan3.0", "--stories", "terminal", "--cap-usd", "60")
+
+
+def test_a_refused_take_shows_as_refused_fails_the_first_take_and_counts_its_elements_not_drawn_right(script, tmp_path,
+                                                                                                      monkeypatch):
+    refusing(monkeypatch, RefusingOnFal({1}))
     directory = contrail(tmp_path)
-    code, out, err = screen(script, directory, "--models", "wan3.0", "--stories", "terminal", "--cap-usd", "60")
+    code, out, err = screen(script, directory, *WAN3_TERMINAL)
     assert code == 0 and err.count("error VT409 ") == 8, err
     report = (directory / "tapes" / "screen-test" / "report.html").read_text()
     assert report.count('<span class="badge failing">refused VT409</span>') == 8
     assert '<td data-model="wan3.0" data-story="terminal" data-yield="0 of 8">0 of 8</td>' in report
-    found = project.find(directory)
-    keys = script.sampled(script.plan(found.load(), found.max_states)).keys
-    takes = script.gathered(directory, keys, {("wan3.0", "terminal"): directory / "tapes/screen-test/wan3.0/terminal"})
-    refused = [take for take in takes if take.refused]
+    refused = [take for take in taken(script, directory) if take.refused]
     assert [take.seed for take in refused] == [1] * 8 and not any(take.passed for take in refused)
     assert all(not element.passed for take in refused for element in take.elements)
-    assert len(refused[0].elements) == len(keys[0].shown)
+    assert [take.usd for take in refused] == [MODELS["wan3.0"].price.usd] * 8
+
+    again = screen(script, directory, *WAN3_TERMINAL)
+    assert again[0] == 0 and "VT409" not in again[2]
+    assert [take.seed for take in taken(script, directory) if take.refused] == [1] * 8
+    assert (directory / "tapes" / "screen-test" / "report.html").read_text().count("refused VT409</span>") == 8
+
+
+def test_a_key_whose_both_takes_are_refused_still_has_its_report_with_both_counted_against_the_model(script, tmp_path,
+                                                                                                     monkeypatch):
+    directory = contrail(tmp_path)
+    found = project.find(directory)
+    sample = script.sampled(script.plan(found.load(), found.max_states))
+    from videotape import story
+    from videotape.story import prompt, text
+    first = text(prompt(sample.keys[0], story.named(directory, "terminal")))
+    forget(found)
+    refusing(monkeypatch, RefusingOnFal({1, 2}, first))
+    code, out, err = screen(script, directory, *WAN3_TERMINAL)
+    assert code == 0 and f"error VT409 {sample.keys[0].title}: every take of the shot was refused" in err, err
+    refused = [take for take in taken(script, directory) if take.refused]
+    assert [(take.state, take.seed) for take in refused] == [(sample.keys[0].state.name, 1),
+                                                             (sample.keys[0].state.name, 2)]
+    assert len([take for take in taken(script, directory) if not take.refused]) == 14
+    assert (directory / "tapes" / "screen-test" / "report.html").is_file()
 
 
 def test_the_pick_has_the_most_element_types_at_the_bar_then_the_fewest_invented_controls_then_the_lowest_cost(script):

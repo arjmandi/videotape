@@ -50,7 +50,7 @@ from videotape.made import made
 from videotape.checks import CHOICES, Reader
 from videotape.model import MODELS, Listing, Model
 from videotape.plan import Key, Plan, plan
-from videotape.render import Filmed, eye, render
+from videotape.render import EveryTakeRefused, Filmed, eye, render
 
 SAMPLER = ("home()", "search()", "dates(JFK)", "results(SEA, 2026-12-12)", "flight(CT 104, 2026-12-13)",
            "booked(CT 300, 2026-12-11)", "my_trips()", "profile()")
@@ -442,13 +442,16 @@ def gathered(root: Path, keys: Sequence[Key], tapes: dict[tuple[str, str], Path]
     """Every take of the tapes, from each tape's dailies, with its cost from the project's ledger: its call and its
     reads. Each take's last frame is written into its tape's pictures/, once for each time the take is filmed."""
     by_state = {key.state.name: key for key in keys}
+    by_title = {key.title: key for key in keys}
     takes = []
     for (model, told), tape in tapes.items():
         costs = Counter[tuple[str, int]]()
         for line in ledger.of(root, tape).lines():
             if "shot" in line and "seed" in line:
                 costs[line["shot"], line["seed"]] += line.get("usd") or 0.0
-        for key in dailies.read(tape)["keys"]:
+        held = dailies.read(tape)
+        refused = [(by_title[title], seed) for title, seeds in held.get("unfilmed", {}).items() for seed in seeds]
+        for key in held["keys"]:
             for filmed in key["takes"]:
                 take = Take(model, told, key["state"], filmed["seed"], filmed["clip"], filmed["seconds"],
                             costs[key["title"], filmed["seed"]], tuple(filmed["items"]),
@@ -458,10 +461,11 @@ def gathered(root: Path, keys: Sequence[Key], tapes: dict[tuple[str, str], Path]
                     picture.parent.mkdir(exist_ok=True)
                     write_atomically(picture, lambda out: frames.write_png(frames.last_frame(clip), out))
                 takes.append(take)
-            for seed in key.get("refused", []):
-                items, elements = refusal(by_state[key["state"]])
-                takes.append(Take(model, told, key["state"], seed, "", None, costs[key["title"], seed], items, elements,
-                                  refused=True))
+            refused += [(by_state[key["state"]], seed) for seed in key.get("refused", [])]
+        for key, seed in refused:
+            items, elements = refusal(key)
+            takes.append(Take(model, told, key.state.name, seed, "", None, costs[key.title, seed], items, elements,
+                              refused=True))
     return takes
 
 
@@ -874,6 +878,9 @@ def _run(args: argparse.Namespace, marks: tuple[Mark, ...] | None) -> int:
         try:
             _film(found, sample, told[one], name, models[name], readers[name, one], tape,
                   None if cap is None else cap - others, command(args, cap))
+        except EveryTakeRefused as error:
+            # The other keys of the tape are filmed, and the report counts this one's refused takes against the model.
+            print(error.report(), file=sys.stderr, flush=True)
         except RenderError as error:
             if error.code != "VT402" or cap is None:
                 raise
