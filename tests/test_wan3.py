@@ -15,7 +15,7 @@ from conftest import FIXTURES, as_explained, copy_of, planned, told, words
 from videotape import dailies, doctor, ledger, project
 from videotape.errors import CODES, ModelError, RenderError
 from videotape.fal import Fal, Receipt
-from videotape.hosted import WAN3, WAN3_FIELDS, FalRequest, OnFal, from_environment, request_record
+from videotape.hosted import WAN3, WAN3_FIELDS, FalRequest, OnFal, RecordedFailure, from_environment, request_record
 from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
@@ -542,3 +542,35 @@ def test_the_key_from_the_environment_goes_only_into_the_submits_authorization_h
     assert [(request.full_url, request.get_header("Authorization")) for request in sent] == [
         ("https://queue.fal.run/alibaba/wan-3.0/text-to-video", f"Key {KEY}")]
     assert KEY not in str(error.value)
+
+
+REFUSED = ('{"detail":[{"loc":["body"],"msg":"The content could not be processed because it contained material flagged by '
+           'a content checker.","type":"content_policy_violation","url":"https://docs.fal.ai/errors#content_policy_violation",'
+           '"input":"","categories":["model_moderated"]}]}')
+"""fal's answer to the result of request 01a1e4a2-f25e-7972-979d-3aebd879c48c on the paid screen test of 2026-11-16."""
+
+
+class Moderated(Hosted):
+    """fal refuses request 0's result for its content, as the paid screen test's wan3.0 did in posters."""
+
+    def _answer(self, request: urllib.request.Request) -> bytes:
+        if request.full_url == "https://queue.fal.run/alibaba/wan-3.0/requests/request-0":
+            raise http(422, REFUSED)
+        return super()._answer(request)
+
+
+def test_a_recorded_request_refused_for_its_content_keeps_vt409_and_names_its_record(tmp_path):
+    (tmp_path / "clips").mkdir()
+    fal = Moderated(tmp_path / "clips")
+    model = OnFal(WAN3, Fal(KEY, send=fal, sleep=lambda _: None))
+    out = tmp_path / "take.mp4"
+    with pytest.raises(RecordedFailure) as error:
+        model.text_to_video("a poster", 1, out)
+    assert (error.value.code, error.value.record) == ("VT409", request_record(out))
+    assert error.value.message == ("result of alibaba/wan-3.0/text-to-video request request-0 was refused for its content: "
+                                   "HTTP 422 content_policy_violation, model_moderated")
+    assert json.loads(request_record(out).read_text())["request_id"] == "request-0"
+    with pytest.raises(RecordedFailure) as again:
+        model.download_again(out)
+    assert (again.value.code, again.value.record) == ("VT409", request_record(out))
+    assert len(fal.posts) == 1
