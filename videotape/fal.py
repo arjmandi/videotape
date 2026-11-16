@@ -136,9 +136,12 @@ class Fal:
             try:
                 return self._send(request)
             except urllib.error.HTTPError as error:
+                said = self._scrub(error.read().decode(errors="replace"))
+                if (flagged := refusal(error.code, said)) is not None:
+                    raise ModelError(f"{what} was refused for its content: HTTP 422 content_policy_violation, {flagged}",
+                                     "VT409", "nothing; a render skips the take's seed from now on")
                 retry = error.code == 429 or error.code >= 500
-                said = self._scrub(error.read().decode(errors="replace"))[:500]
-                failure = f"{what} failed with HTTP {error.code}: {said}"
+                failure = f"{what} failed with HTTP {error.code}: {said[:500]}"
             except (OSError, http.client.HTTPException) as error:
                 retry, failure = True, f"{what} failed: {error}"
             if not retry or attempt == tries:
@@ -147,3 +150,19 @@ class Fal:
 
     def _scrub(self, message: str) -> str:
         return message.replace(self._key, "<FAL_KEY>") if self._key else message
+
+
+def refusal(status: int, body: str) -> str | None:
+    """The categories fal's content checker flagged, when an answer refuses a request for its content, else None.
+    fal.ai/docs/errors, read 2026-11-16: content_policy_violation is HTTP 422, not retryable, with the detail's type
+    naming it, and a model's own moderation appends model_moderated to its categories."""
+    if status != 422:
+        return None
+    try:
+        detail = json.loads(body).get("detail")
+    except (ValueError, AttributeError):
+        return None
+    for item in detail if isinstance(detail, list) else []:
+        if isinstance(item, dict) and item.get("type") == "content_policy_violation":
+            return ", ".join(map(str, item.get("categories") or [])) or "no category"
+    return None
