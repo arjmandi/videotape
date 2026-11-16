@@ -133,6 +133,14 @@ class Budget:
         return bool(request_id) and any(line.get("request_id") == request_id for line in self.ledger.lines())
 
 
+def _with_takes(command: str, takes: int) -> str:
+    """The resume command with another limit on takes."""
+    words = shlex.split(command)
+    if "--takes" in words:
+        del words[words.index("--takes"):words.index("--takes") + 2]
+    return shlex.join([*words, "--takes", str(takes)])
+
+
 def _without_cap(command: str) -> str:
     """The resume command without the cap it ran under, which the next step raises."""
     return command.partition(" --cap-usd ")[0]
@@ -395,8 +403,9 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
     if not takes and refused and not corrupt and not skipped:
         for error in reported:
             print(error.report(), file=sys.stderr, flush=True)
-        raise EveryTakeRefused(shot.title, tuple(refused), f'retake the shot with new seeds: videotape retake '
-                               f'"{dailies.named(shot)}"{shared.retake}')
+        raise EveryTakeRefused(shot.title, tuple(refused), "render again with more takes, which films new seeds after "
+                               f"these, or change the story's words for the shot, as in:\n"
+                               f"{_with_takes(shared.resume, max(refused) + 2)}")
     if not takes:
         raise RenderError("VT403", shot.title, "every take of the shot is corrupt",
                           f"raise takes in [tool.videotape] or pass --takes, or retake the shot: "
@@ -420,7 +429,7 @@ def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: 
         try:
             checks = check(path, purse)
         except DecodeError as corrupt:
-            if _downloaded_again(shared, path, place) is None:
+            if _again(shared, shot, path, seed, place) is None:
                 return RenderError("VT403", place, corrupt.message, f"nothing; seed {seed} is skipped from now on")
             try:
                 checks = check(path, purse)
@@ -442,6 +451,17 @@ def _downloaded_again(shared: _Set, path: Path, place: str) -> Receipt | None:
     if receipt is not None:
         partial(path).replace(path)
     return receipt
+
+
+def _again(shared: _Set, shot: Shot, path: Path, seed: int, place: str) -> Receipt | None:
+    """The take downloaded again from its recorded request, as _downloaded_again does, with a refusal recorded and
+    skipped as one met when the take was filmed is."""
+    try:
+        return _downloaded_again(shared, path, place)
+    except RenderError as error:
+        if error.code == "VT409":
+            _refused(shared, shot, path, seed, place, error, 0.0)
+        raise
 
 
 def _failed(error: ModelError, place: str, resume: str) -> RenderError:
@@ -482,12 +502,7 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
     if path.exists():
         return True, json.loads(timing.read_text()) if timing.exists() else {}
     started = time.perf_counter()
-    try:
-        receipt = _downloaded_again(shared, path, place)
-    except RenderError as error:
-        if error.code == "VT409":
-            _refused(shared, shot, path, seed, place, error, 0.0)
-        raise
+    receipt = _again(shared, shot, path, seed, place)
     reserved = (shared.budget.price.usd if shared.budget.price else 0.0) if receipt is None else 0.0
     if receipt is None:
         shared.budget.reserve(reserved, place, shared.resume)

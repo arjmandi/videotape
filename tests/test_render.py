@@ -900,11 +900,32 @@ def test_every_take_of_a_shot_refused_films_the_other_shots_then_stops_with_vt40
         rendered(directory, Refusing({1, 2}, on=THANKS_LATTE, flaw=clean), takes=2)
     assert (error.value.code, error.value.place, error.value.message) == (
         "VT409", "key thanks(Latte)", "every take of the shot was refused for its content")
-    assert error.value.next.endswith('videotape retake "thanks(Latte)" --story chalk')
+    assert error.value.next.endswith("\nvideotape render --takes 4")
     record = dailies.read(directory / TAPE)
     assert record["unfilmed"] == {"key thanks(Latte)": [1, 2]} and record["complete"] is False
     assert [shot["title"] for shot in record["keys"]] == [title for title in TITLES if title.startswith("key ")
                                                           and title != "key thanks(Latte)"]
+
+
+class GarbledRefusedAgain(GarbledBilled):
+    """Garbles its first takes, and refuses each garbled one for its content when it is downloaded again."""
+
+    def download_again(self, out):
+        if out not in self.garbled:
+            return None
+        raise ModelError("request r-1 was refused for its content: HTTP 422 content_policy_violation, model_moderated",
+                         "VT409", "nothing; a render skips the take's seed from now on")
+
+
+def test_a_refusal_met_downloading_a_corrupt_take_again_is_recorded_counted_and_skipped(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    rendered(directory, GarbledRefusedAgain({1}, flaw=clean), takes=2, price=Price(0.1, 5), cap=20)
+    record = dailies.read(directory / TAPE)
+    assert [shot["refused"] for shot in (*record["keys"], *record["moves"])] == [[1]] * 11 and record["corrupt"] == {}
+    assert len([line for line in ledger.of(directory, directory / TAPE).lines() if line.get("refused")]) == 11
+    model = GarbledRefusedAgain(set(), flaw=clean)
+    rendered(directory, model, takes=2, price=Price(0.1, 5), cap=20)
+    assert model.calls == [] and len(list((directory / TAPE / "takes").glob("*.refused.json"))) == 11
 
 
 def test_a_shot_with_a_corrupt_seed_and_a_refused_one_stops_with_vt403(tmp_path):
