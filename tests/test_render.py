@@ -824,6 +824,52 @@ def test_every_take_corrupt_stops_the_render_with_vt403(tmp_path):
     assert error.value.next.endswith('videotape retake "menu()" --story chalk')
 
 
+class Refusing(StandIn):
+    """Refuses the takes of its seeds for their content, as fal's content checker does."""
+
+    def __init__(self, seeds: set[int], **kwargs):
+        super().__init__(**kwargs)
+        self.refused, self.asked = seeds, list[int]()
+
+    def _film(self, mode, prompt, seed, start, end, out):
+        self.asked.append(seed)
+        if seed in self.refused:
+            raise ModelError(f"request r-{seed} was refused for its content: HTTP 422 content_policy_violation, "
+                             "model_moderated", "VT409", "nothing; a render skips the take's seed from now on")
+        super()._film(mode, prompt, seed, start, end, out)
+
+
+def test_a_refused_take_is_vt409_its_seed_is_skipped_from_then_on_and_the_shot_goes_on(tmp_path, cli, capsys,
+                                                                                        monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    model = Refusing({1}, flaw=clean)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(model))
+    assert cli(directory, *RENDER) == 0
+    out, err = capsys.readouterr()
+    assert err.splitlines()[:2] == [
+        "error VT409 key menu() take 1: request r-1 was refused for its content: HTTP 422 content_policy_violation, "
+        "model_moderated", "next: nothing; a render skips the take's seed from now on"]
+    assert err.count("error VT409 ") == 11 and "VT401" not in err
+    assert [seed for _, _, seed, *_ in lines(out)] == [2] * 11
+    record = dailies.read(directory / TAPE)
+    assert record["refused"] == {title: [1] for title in TITLES} and record["corrupt"] == {}
+    assert record["keys"][0]["refused"] == [1]
+    assert "Refused for its content and skipped: seed 1." in (directory / TAPE / "dailies.html").read_text()
+    model.asked.clear()
+    assert cli(directory, *RENDER) == 0
+    assert model.asked == [] and "VT409" not in capsys.readouterr().err
+    assert dailies.read(directory / TAPE)["refused"] == record["refused"]
+
+
+def test_every_take_refused_stops_the_render_with_vt409(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    with pytest.raises(RenderError) as error:
+        rendered(directory, Refusing({1, 2}, flaw=clean), takes=2)
+    assert (error.value.code, error.value.place, error.value.message) == (
+        "VT409", "key menu()", "every take of the shot was refused for its content")
+    assert error.value.next.endswith('videotape retake "menu()" --story chalk')
+
+
 class Failing(StandIn):
     def __init__(self, on: str, **kwargs):
         super().__init__(**kwargs)

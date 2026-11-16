@@ -27,18 +27,21 @@ PAD = 24
 @dataclass(frozen=True)
 class Carried:
     """What a tape's record carries from one render to the next, each by the shot's title: the seeds a retake added,
-    the seeds whose takes were corrupt, and the failures a person accepted."""
+    the seeds whose takes were corrupt, the failures a person accepted, and the seeds the model refused for their
+    content."""
 
     retakes: dict[str, list[int]] = field(default_factory=dict)
     corrupt: dict[str, list[int]] = field(default_factory=dict)
     accepted: list[dict] = field(default_factory=list)
+    refused: dict[str, list[int]] = field(default_factory=dict)
 
 
 def carried(tape: Path) -> Carried:
     if not (tape / "dailies.json").is_file():
         return Carried()
     held = read(tape)
-    return Carried(dict(held.get("retakes", {})), dict(held.get("corrupt", {})), list(held.get("accepted", [])))
+    return Carried(dict(held.get("retakes", {})), dict(held.get("corrupt", {})), list(held.get("accepted", [])),
+                   dict(held.get("refused", {})))
 
 
 def named(shot: Shot) -> str:
@@ -124,7 +127,8 @@ document.querySelectorAll("video").forEach(video => near.observe(video));
 def record(title: str, checks: str, render: Render, story: Story, tape_name: str, carry: Carried, takes: int,
            complete: bool = True) -> dict:
     """What a render knows about its keys and moves, with every failure of a kept take and its next steps, and what
-    carries on to the next render: the accepts, the retake seeds, the corrupt seeds, and the limit on takes. complete
+    carries on to the next render: the accepts, the retake seeds, the corrupt and refused seeds, and the limit on
+    takes. complete
     is false for a render that stopped short of its last shot. The ledger totals and the tape's size are read at
     write time."""
     out = None if tape_name == f"tapes/{story.name}" else tape_name
@@ -145,6 +149,7 @@ def record(title: str, checks: str, render: Render, story: Story, tape_name: str
         "yield": {"first_take": sum(filmed.takes[0].checks.passed for filmed in shots), "shots": len(shots)},
         "retakes": carry.retakes,
         "corrupt": carry.corrupt,
+        "refused": carry.refused,
         "accepted": carry.accepted,
     }
 
@@ -206,6 +211,7 @@ def _shot_record(filmed: Filmed, tape: Path) -> dict:
                    **({"start": take.checks.start, "end": take.checks.end} if isinstance(shot, Move) else {}),
                    "items": _items(take.checks)} for take in filmed.takes],
         "corrupt": list(filmed.corrupt),
+        "refused": list(filmed.refused),
     }
 
 
@@ -445,6 +451,9 @@ def _shot(number: int, shot: dict) -> str:
     if shot.get("corrupt"):
         notes.append(f'<p class="note fail">Corrupt and skipped: seed{"s" if len(shot["corrupt"]) > 1 else ""} '
                      f'{", ".join(map(str, shot["corrupt"]))}.</p>')
+    if shot.get("refused"):
+        notes.append(f'<p class="note fail">Refused for its content and skipped: seed{"s" if len(shot["refused"]) > 1 else ""} '
+                     f'{", ".join(map(str, shot["refused"]))}.</p>')
     notes.append(f'<p class="note">The kept take {_time(shot)}.</p>')
     if "key" in shot:
         notes.append(f'<div class="key"><img src="{escape(shot["key"])}" alt="Key for {escape(shot["state"])}" loading="lazy">'

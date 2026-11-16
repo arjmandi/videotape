@@ -48,8 +48,10 @@ class Filmed:
     takes: tuple[Take, ...]
     kept: Take
     reported: tuple[RenderError, ...] = ()
-    """What went wrong on the way and was skipped: a corrupt take per seed in corrupt."""
+    """What went wrong on the way and was skipped: a corrupt take per seed in corrupt, a refused one per seed in
+    refused."""
     corrupt: tuple[int, ...] = ()
+    refused: tuple[int, ...] = ()
 
     @property
     def rendered(self) -> int:
@@ -260,7 +262,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     keys = tuple(finished[key] for key in plan.keys if key in finished)
     moves = tuple(finished[move] for move in plan.moves if move in finished)
     result = Render(tape, keys, moves, elapsed)
-    corrupt = _corrupt(carried, result)
+    corrupt = _carried(carried, result)
     if stopped is not None:
         dailies.write(tape, dailies.record(plan.title, eye(readers), result, story, ledger.tape, corrupt, takes, False),
                       ledger.totals())
@@ -275,21 +277,26 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
 
 def _seeds(shot: Shot, takes: int, carried: Carried, every: bool) -> tuple[list[int], list[int]]:
     """The seeds a shot tries until one passes, 1 up to the limit, and the seeds it films whatever passed, the ones a
-    retake added, each without the seeds its record marks corrupt. With every, each seed is filmed whatever passed."""
-    corrupt, retakes = carried.corrupt.get(shot.title, []), carried.retakes.get(shot.title, [])
+    retake added, each without the seeds its record marks corrupt or refused. With every, each seed is filmed
+    whatever passed."""
+    corrupt = [*carried.corrupt.get(shot.title, []), *carried.refused.get(shot.title, [])]
+    retakes = carried.retakes.get(shot.title, [])
     first = [seed for seed in range(1, takes + 1) if seed not in corrupt]
     again = [seed for seed in retakes if seed not in corrupt]
     return ([], [*first, *again]) if every else (first, again)
 
 
-def _corrupt(carried: Carried, result: Render) -> Carried:
-    """The record to carry on, with every seed found corrupt in this run added."""
-    corrupt = {title: list(seeds) for title, seeds in carried.corrupt.items()}
-    for filmed in result.shots:
-        for seed in filmed.corrupt:
-            if seed not in corrupt.setdefault(filmed.shot.title, []):
-                corrupt[filmed.shot.title].append(seed)
-    return Carried(carried.retakes, corrupt, carried.accepted)
+def _carried(carried: Carried, result: Render) -> Carried:
+    """The record to carry on, with every seed found corrupt or refused in this run added."""
+    def added(held: dict[str, list[int]], found: Callable[[Filmed], tuple[int, ...]]) -> dict[str, list[int]]:
+        seeds = {title: list(seeds) for title, seeds in held.items()}
+        for filmed in result.shots:
+            for seed in found(filmed):
+                if seed not in seeds.setdefault(filmed.shot.title, []):
+                    seeds[filmed.shot.title].append(seed)
+        return seeds
+    return Carried(carried.retakes, added(carried.corrupt, lambda filmed: filmed.corrupt), carried.accepted,
+                   added(carried.refused, lambda filmed: filmed.refused))
 
 
 def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int]) -> Filmed:
@@ -330,9 +337,10 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
                check: Callable[[Path, _Purse], Checks]) -> Filmed:
     """Film the shot's takes seed by seed. Each take comes from the cache or the model, then its checks. The seeds up
     to the limit are filmed until one passes, and a take on disk is always read. The retake seeds are filmed whatever
-    passed before, and with them the shot keeps the best of all its takes."""
+    passed before, and with them the shot keeps the best of all its takes. A take the model refused for its content,
+    VT409, is reported and its seed skipped, as a corrupt one is."""
     words = text(clauses)
-    takes, reported, corrupt = list[Take](), list[RenderError](), list[int]()
+    takes, reported, corrupt, refused = list[Take](), list[RenderError](), list[int](), list[int]()
     passed = False
     try:
         for seed, always in [*((seed, False) for seed in seeds), *((seed, True) for seed in retakes)]:
@@ -341,7 +349,14 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
             if shared.stop.is_set():
                 raise _Stopped()
             place = f"{shot.title} take {seed}"
-            taken = _take(shared, shot, words, images, seed, place, film, check)
+            try:
+                taken = _take(shared, shot, words, images, seed, place, film, check)
+            except RenderError as error:
+                if error.code != "VT409":
+                    raise
+                reported.append(error)
+                refused.append(seed)
+                continue
             if isinstance(taken, RenderError):
                 reported.append(taken)
                 corrupt.append(seed)
@@ -356,12 +371,15 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
     except FfmpegError as error:
         raise RenderError("VT404", f"{shot.title}", error.message,
                           "install ffmpeg, as in brew install ffmpeg, and run the render again") from None
+    if not takes and not corrupt:
+        raise RenderError("VT409", shot.title, "every take of the shot was refused for its content",
+                          f'retake the shot with new seeds: videotape retake "{dailies.named(shot)}"{shared.retake}')
     if not takes:
         raise RenderError("VT403", shot.title, "every take of the shot is corrupt",
                           f"raise takes in [tool.videotape] or pass --takes, or retake the shot: "
                           f'videotape retake "{dailies.named(shot)}"{shared.retake}')
     return Filmed(shot, clauses, tuple(takes), min(takes, key=lambda take: take.checks.rank(take.seed)),
-                  tuple(reported), tuple(corrupt))
+                  tuple(reported), tuple(corrupt), tuple(refused))
 
 
 def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,
