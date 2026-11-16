@@ -35,6 +35,7 @@ Preconditions are [wan3-render.md](./wan3-render.md)'s, with the same rules for 
 
 ## Gotchas
 
+- fal answers a take its content checker flags with HTTP 422 `content_policy_violation`, which its errors page lists as not retryable and does not say is billed. That is `VT409`: the render reports it, skips the seed for good through the record's `refused`, and goes on. fal sends no receipt, so the ledger holds no line for it, and a refused call's reservation stays under the cap until the render ends.
 - Neither model's answer carries a duration, so the ledger's `duration` is the five seconds the request asked for, and `usd` is that times the rate, plus $0.03 for gemini-omni-flash-1.2.
 - fal bills gemini-omni-flash-1.2's prompt at $1.50 per million tokens, and no answer says how many. The price counts the most a prompt at fal's 20,000-character limit can cost, $0.03 a call, so the estimate, the cap and the ledger never count less than fal bills, and count up to $0.03 a call more. Contrail's longest prompt, 1,121 characters, costs at most $0.0017. fal's page says a move's two images are not billed.
 - fal takes no seed for gemini-omni-flash-1.2. A take is still named by its seed, and a render run again reuses the take on disk, so a rerun is free and gives the same tape. A take filmed again, after its clip and its request record are both gone, gets new pixels.

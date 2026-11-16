@@ -56,6 +56,7 @@ Preconditions:
 
 ## Gotchas
 
+- A take the model refused for its content, `VT409`, has no clip. The report shows it as `refused VT409` beside the other takes, counts it as the key's first take when its seed is lowest, and counts every element of its key as not drawn right, so a model is not rewarded for the takes it refuses. The calibration leaves it out, since it has no picture to mark.
 - The tapes under `tapes/screen-test/` cost money. Never delete them, their `takes/` or `looks/`, or their lines in the project's `ledger.jsonl`, or a rerun pays again.
 - A screen-test tape holds keys and no move, so its `tape.json` has no hotspots and no search. Never play or publish it.
 - The cap is the whole screen test's. Each tape renders under what the cap leaves after the other tapes' lines in the ledger, from this run and any run before, so a rerun with the same cap after a whole run spends nothing and fits.
