@@ -14,7 +14,7 @@ from conftest import CONTRAIL, as_explained, copy_of, planned, told, words
 from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
 from videotape.errors import ModelError, RenderError
-from videotape.fal import Receipt
+from videotape.fal import Price, Receipt
 from videotape.ledger import Ledger
 from videotape.made import made
 from videotape.model import MODELS, Listing
@@ -825,18 +825,25 @@ def test_every_take_corrupt_stops_the_render_with_vt403(tmp_path):
 
 
 class Refusing(StandIn):
-    """Refuses the takes of its seeds for their content, as fal's content checker does."""
+    """Refuses the takes of its seeds for their content, as fal's content checker does, on every prompt or on those
+    that hold on, and fails seeds in failing with VT401."""
 
-    def __init__(self, seeds: set[int], **kwargs):
+    def __init__(self, seeds: set[int], on: str = "", failing: frozenset[int] = frozenset(), **kwargs):
         super().__init__(**kwargs)
-        self.refused, self.asked = seeds, list[int]()
+        self.refused, self.on, self.failing, self.asked = seeds, on, failing, list[tuple[str, int]]()
 
     def _film(self, mode, prompt, seed, start, end, out):
-        self.asked.append(seed)
-        if seed in self.refused:
+        self.asked.append((prompt, seed))
+        if self.on in prompt and seed in self.refused:
             raise ModelError(f"request r-{seed} was refused for its content: HTTP 422 content_policy_violation, "
                              "model_moderated", "VT409", "nothing; a render skips the take's seed from now on")
+        if self.on in prompt and seed in self.failing:
+            raise ModelError(f"request r-{seed} failed with HTTP 500")
         super()._film(mode, prompt, seed, start, end, out)
+
+
+class BilledRefusing(Refusing, Billed):
+    pass
 
 
 def test_a_refused_take_is_vt409_its_seed_is_skipped_from_then_on_and_the_shot_goes_on(tmp_path, cli, capsys,
@@ -848,26 +855,68 @@ def test_a_refused_take_is_vt409_its_seed_is_skipped_from_then_on_and_the_shot_g
     out, err = capsys.readouterr()
     assert err.splitlines()[:2] == [
         "error VT409 key menu() take 1: request r-1 was refused for its content: HTTP 422 content_policy_violation, "
-        "model_moderated", "next: nothing; a render skips the take's seed from now on"]
+        "model_moderated", "next: nothing; seed 1 is skipped from now on"]
     assert err.count("error VT409 ") == 11 and "VT401" not in err
     assert [seed for _, _, seed, *_ in lines(out)] == [2] * 11
     record = dailies.read(directory / TAPE)
-    assert record["refused"] == {title: [1] for title in TITLES} and record["corrupt"] == {}
-    assert record["keys"][0]["refused"] == [1]
+    assert [shot["refused"] for shot in (*record["keys"], *record["moves"])] == [[1]] * 11 and record["corrupt"] == {}
+    assert len(list((directory / TAPE / "takes").glob("*.refused.json"))) == 11
     assert "Refused for its content and skipped: seed 1." in (directory / TAPE / "dailies.html").read_text()
     model.asked.clear()
     assert cli(directory, *RENDER) == 0
     assert model.asked == [] and "VT409" not in capsys.readouterr().err
-    assert dailies.read(directory / TAPE)["refused"] == record["refused"]
+    assert [shot["refused"] for shot in (*record["keys"], *record["moves"])] == [
+        shot["refused"] for shot in (*dailies.read(directory / TAPE)["keys"], *dailies.read(directory / TAPE)["moves"])]
 
 
-def test_every_take_refused_stops_the_render_with_vt409(tmp_path):
+def test_a_refusal_is_kept_when_its_shot_then_stops_on_another_error_and_is_not_asked_for_again(tmp_path):
     directory = copy_of("cafe", tmp_path)
     with pytest.raises(RenderError) as error:
-        rendered(directory, Refusing({1, 2}, flaw=clean), takes=2)
+        rendered(directory, Refusing({1}, on=THANKS_LATTE, failing=frozenset({2}), flaw=clean), takes=2)
+    assert (error.value.code, error.value.place) == ("VT401", "key thanks(Latte) take 2")
+    model = Refusing(set(), flaw=clean)
+    rendered(directory, model, takes=2)
+    assert (1, 1) not in [(THANKS_LATTE in prompt, seed) for prompt, seed in model.asked]
+    [latte] = [shot for shot in dailies.read(directory / TAPE)["keys"] if shot["title"] == "key thanks(Latte)"]
+    assert latte["refused"] == [1] and [take["seed"] for take in latte["takes"]] == [2]
+
+
+def test_a_refused_call_goes_in_the_ledger_once_at_its_listed_price_so_the_cap_counts_it(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    price = Price(0.1, 5)
+    rendered(directory, BilledRefusing({1}, on=THANKS_LATTE, flaw=clean), takes=2, price=price, cap=20)
+    book = ledger.of(directory, directory / TAPE)
+    refused = [line for line in book.lines() if line.get("refused")]
+    assert [(line["shot"], line["seed"], line["usd"]) for line in refused] == [("key thanks(Latte)", 1, 0.5)]
+    spent = book.totals()["usd"]
+    rendered(directory, BilledRefusing(set(), flaw=clean), takes=2, price=price, cap=20)
+    assert [line for line in ledger.of(directory, directory / TAPE).lines() if line.get("refused")] == refused
+    assert ledger.of(directory, directory / TAPE).totals()["usd"] == spent
+
+
+def test_every_take_of_a_shot_refused_films_the_other_shots_then_stops_with_vt409(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    with pytest.raises(RenderError) as error:
+        rendered(directory, Refusing({1, 2}, on=THANKS_LATTE, flaw=clean), takes=2)
     assert (error.value.code, error.value.place, error.value.message) == (
-        "VT409", "key menu()", "every take of the shot was refused for its content")
-    assert error.value.next.endswith('videotape retake "menu()" --story chalk')
+        "VT409", "key thanks(Latte)", "every take of the shot was refused for its content")
+    assert error.value.next.endswith('videotape retake "thanks(Latte)" --story chalk')
+    record = dailies.read(directory / TAPE)
+    assert record["unfilmed"] == {"key thanks(Latte)": [1, 2]} and record["complete"] is False
+    assert [shot["title"] for shot in record["keys"]] == [title for title in TITLES if title.startswith("key ")
+                                                          and title != "key thanks(Latte)"]
+
+
+def test_a_shot_with_a_corrupt_seed_and_a_refused_one_stops_with_vt403(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / TAPE
+    rendered(directory, StandIn(flaw=clean), takes=1)
+    record = dailies.read(tape)
+    dailies.write(tape, {**record, "corrupt": {"key thanks(Latte)": [1]}}, ledger.of(directory, tape).totals())
+    with pytest.raises(RenderError) as error:
+        rendered(directory, Refusing({2}, on=THANKS_LATTE, flaw=clean), takes=2)
+    assert (error.value.code, error.value.place, error.value.message) == (
+        "VT403", "key thanks(Latte)", "every take of the shot is corrupt")
 
 
 class Failing(StandIn):

@@ -27,21 +27,18 @@ PAD = 24
 @dataclass(frozen=True)
 class Carried:
     """What a tape's record carries from one render to the next, each by the shot's title: the seeds a retake added,
-    the seeds whose takes were corrupt, the failures a person accepted, and the seeds the model refused for their
-    content."""
+    the seeds whose takes were corrupt, and the failures a person accepted."""
 
     retakes: dict[str, list[int]] = field(default_factory=dict)
     corrupt: dict[str, list[int]] = field(default_factory=dict)
     accepted: list[dict] = field(default_factory=list)
-    refused: dict[str, list[int]] = field(default_factory=dict)
 
 
 def carried(tape: Path) -> Carried:
     if not (tape / "dailies.json").is_file():
         return Carried()
     held = read(tape)
-    return Carried(dict(held.get("retakes", {})), dict(held.get("corrupt", {})), list(held.get("accepted", [])),
-                   dict(held.get("refused", {})))
+    return Carried(dict(held.get("retakes", {})), dict(held.get("corrupt", {})), list(held.get("accepted", [])))
 
 
 def named(shot: Shot) -> str:
@@ -125,11 +122,11 @@ document.querySelectorAll("video").forEach(video => near.observe(video));
 
 
 def record(title: str, checks: str, render: Render, story: Story, tape_name: str, carry: Carried, takes: int,
-           complete: bool = True) -> dict:
+           complete: bool = True, unfilmed: dict[str, list[int]] | None = None) -> dict:
     """What a render knows about its keys and moves, with every failure of a kept take and its next steps, and what
-    carries on to the next render: the accepts, the retake seeds, the corrupt and refused seeds, and the limit on
-    takes. complete
-    is false for a render that stopped short of its last shot. The ledger totals and the tape's size are read at
+    carries on to the next render: the accepts, the retake seeds, the corrupt seeds, and the limit on takes. complete
+    is false for a render that stopped short of its last shot, and unfilmed names each shot whose every take the
+    model refused for its content, with those seeds. The ledger totals and the tape's size are read at
     write time."""
     out = None if tape_name == f"tapes/{story.name}" else tape_name
     shots = render.shots
@@ -149,8 +146,8 @@ def record(title: str, checks: str, render: Render, story: Story, tape_name: str
         "yield": {"first_take": sum(filmed.takes[0].checks.passed for filmed in shots), "shots": len(shots)},
         "retakes": carry.retakes,
         "corrupt": carry.corrupt,
-        "refused": carry.refused,
         "accepted": carry.accepted,
+        "unfilmed": unfilmed or {},
     }
 
 

@@ -8,6 +8,7 @@ import hashlib
 import json
 import shlex
 import shutil
+import sys
 import threading
 import time
 from collections.abc import Callable, Sequence
@@ -21,7 +22,7 @@ from videotape.dailies import Carried
 from videotape.errors import ModelError, RenderError, shown
 from videotape.fal import Price, Receipt
 from videotape.frames import Box, DecodeError, FfmpegError, Shape
-from videotape.hosted import RecordedFailure
+from videotape.hosted import RecordedFailure, request_record
 from videotape.ledger import Ledger, now
 from videotape.model import Model
 from videotape.plan import Key, Move, Plan, Shot
@@ -162,6 +163,24 @@ class _Set:
             return self.locks.setdefault(path, threading.Lock())
 
 
+class RefusedTake(RenderError):
+    """VT409 at a take: the model refused it for its content. cached when an earlier render met the refusal, which
+    the take's .refused.json beside it records, so nothing is polled or submitted for it again."""
+
+    def __init__(self, place: str, message: str, seed: int, cached: bool) -> None:
+        super().__init__("VT409", place, message, f"nothing; seed {seed} is skipped from now on")
+        self.cached = cached
+
+
+class EveryTakeRefused(RenderError):
+    """VT409 at a shot whose every take the model refused, with those seeds. The render films the other shots and
+    then stops on it, since the moves pinned to its key have no picture to start or end on."""
+
+    def __init__(self, place: str, seeds: tuple[int, ...], next: str) -> None:
+        super().__init__("VT409", place, "every take of the shot was refused for its content", next)
+        self.seeds = seeds
+
+
 class _Stopped(Exception):
     """A shot that did not film because the render had stopped."""
 
@@ -219,6 +238,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     seeds = {shot.title: _seeds(shot, takes, carried, every) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
     stopped: RenderError | None = None
+    unfilmed: dict[Shot, EveryTakeRefused] = {}
     # Every key is submitted first. A move is submitted when both of its keys are done, since it is pinned to their
     # images. With one worker the keys all run before any move, so Wan 2.2 swaps its checkpoint once.
     with ThreadPoolExecutor(max_workers=limit) as pool:
@@ -239,6 +259,9 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
                     try:
                         filmed = future.result()
                     except (CancelledError, _Stopped):
+                        continue
+                    except EveryTakeRefused as error:
+                        unfilmed[shot] = error
                         continue
                     except RenderError as error:
                         if stopped is None:
@@ -262,9 +285,11 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     keys = tuple(finished[key] for key in plan.keys if key in finished)
     moves = tuple(finished[move] for move in plan.moves if move in finished)
     result = Render(tape, keys, moves, elapsed)
-    corrupt = _carried(carried, result)
+    corrupt = _corrupt(carried, result)
+    stopped = stopped or next(iter(unfilmed.values()), None)
     if stopped is not None:
-        dailies.write(tape, dailies.record(plan.title, eye(readers), result, story, ledger.tape, corrupt, takes, False),
+        dailies.write(tape, dailies.record(plan.title, eye(readers), result, story, ledger.tape, corrupt, takes, False,
+                                           {shot.title: list(error.seeds) for shot, error in unfilmed.items()}),
                       ledger.totals())
         raise stopped
     opening = result.keys[0].kept
@@ -275,33 +300,29 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     return result
 
 
-def _seeds(shot: Shot, takes: int, carried: Carried, every: bool) -> tuple[list[int], list[int]]:
+def _seeds(shot: Shot, takes: int, carried: Carried, every: bool) -> tuple[list[int], list[int], int]:
     """The seeds a shot tries until one passes, 1 up to the limit, and the seeds it films whatever passed, the ones a
-    retake added, each without the seeds its record marks corrupt or refused. With every, each seed is filmed
-    whatever passed."""
-    corrupt = [*carried.corrupt.get(shot.title, []), *carried.refused.get(shot.title, [])]
-    retakes = carried.retakes.get(shot.title, [])
+    retake added, each without the seeds its record marks corrupt. With every, each seed is filmed whatever passed."""
+    corrupt, retakes = carried.corrupt.get(shot.title, []), carried.retakes.get(shot.title, [])
     first = [seed for seed in range(1, takes + 1) if seed not in corrupt]
     again = [seed for seed in retakes if seed not in corrupt]
-    return ([], [*first, *again]) if every else (first, again)
+    skipped = len(corrupt)
+    return ([], [*first, *again], skipped) if every else (first, again, skipped)
 
 
-def _carried(carried: Carried, result: Render) -> Carried:
-    """The record to carry on, with every seed found corrupt or refused in this run added."""
-    def added(held: dict[str, list[int]], found: Callable[[Filmed], tuple[int, ...]]) -> dict[str, list[int]]:
-        seeds = {title: list(seeds) for title, seeds in held.items()}
-        for filmed in result.shots:
-            for seed in found(filmed):
-                if seed not in seeds.setdefault(filmed.shot.title, []):
-                    seeds[filmed.shot.title].append(seed)
-        return seeds
-    return Carried(carried.retakes, added(carried.corrupt, lambda filmed: filmed.corrupt), carried.accepted,
-                   added(carried.refused, lambda filmed: filmed.refused))
+def _corrupt(carried: Carried, result: Render) -> Carried:
+    """The record to carry on, with every seed found corrupt in this run added."""
+    corrupt = {title: list(seeds) for title, seeds in carried.corrupt.items()}
+    for filmed in result.shots:
+        for seed in filmed.corrupt:
+            if seed not in corrupt.setdefault(filmed.shot.title, []):
+                corrupt[filmed.shot.title].append(seed)
+    return Carried(carried.retakes, corrupt, carried.accepted)
 
 
-def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int]) -> Filmed:
+def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: int) -> Filmed:
     words = text(clauses)
-    filmed = _film_shot(shared, key, clauses, seeds, retakes, lambda seed, out: shared.model.text_to_video(words, seed, out),
+    filmed = _film_shot(shared, key, clauses, seeds, retakes, skipped, lambda seed, out: shared.model.text_to_video(words, seed, out),
                         (), lambda path, purse: _read(shared, key, path, purse))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
     write_atomically(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
@@ -321,24 +342,25 @@ def _read(shared: _Set, key: Key, path: Path, purse: _Purse) -> KeyChecks:
     return score(key, reads)
 
 
-def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], retakes: list[int]) -> Filmed:
+def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: int) -> Filmed:
     words = text(clauses)
     start, end = shared.images[move.start], shared.images[move.land]
     pinned = frames.read_png(start), frames.read_png(end)
-    filmed = _film_shot(shared, move, clauses, seeds, retakes,
+    filmed = _film_shot(shared, move, clauses, seeds, retakes, skipped,
                         lambda seed, out: shared.model.first_last_frame(words, start, end, seed, out), (start, end),
                         lambda path, purse: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
     write_atomically(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
     return filmed
 
 
-def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], retakes: list[int],
+def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: int,
                film: Callable[[int, Path], Receipt | None], images: tuple[Path, ...],
                check: Callable[[Path, _Purse], Checks]) -> Filmed:
     """Film the shot's takes seed by seed. Each take comes from the cache or the model, then its checks. The seeds up
     to the limit are filmed until one passes, and a take on disk is always read. The retake seeds are filmed whatever
     passed before, and with them the shot keeps the best of all its takes. A take the model refused for its content,
-    VT409, is reported and its seed skipped, as a corrupt one is."""
+    VT409, is reported the first time and skipped, as a corrupt one is. skipped counts the seeds its record already
+    marks corrupt, which it does not try."""
     words = text(clauses)
     takes, reported, corrupt, refused = list[Take](), list[RenderError](), list[int](), list[int]()
     passed = False
@@ -351,11 +373,10 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
             place = f"{shot.title} take {seed}"
             try:
                 taken = _take(shared, shot, words, images, seed, place, film, check)
-            except RenderError as error:
-                if error.code != "VT409":
-                    raise
-                reported.append(error)
+            except RefusedTake as error:
                 refused.append(seed)
+                if not error.cached:
+                    reported.append(error)
                 continue
             if isinstance(taken, RenderError):
                 reported.append(taken)
@@ -371,9 +392,11 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
     except FfmpegError as error:
         raise RenderError("VT404", f"{shot.title}", error.message,
                           "install ffmpeg, as in brew install ffmpeg, and run the render again") from None
-    if not takes and not corrupt:
-        raise RenderError("VT409", shot.title, "every take of the shot was refused for its content",
-                          f'retake the shot with new seeds: videotape retake "{dailies.named(shot)}"{shared.retake}')
+    if not takes and refused and not corrupt and not skipped:
+        for error in reported:
+            print(error.report(), file=sys.stderr, flush=True)
+        raise EveryTakeRefused(shot.title, tuple(refused), f'retake the shot with new seeds: videotape retake '
+                               f'"{dailies.named(shot)}"{shared.retake}')
     if not takes:
         raise RenderError("VT403", shot.title, "every take of the shot is corrupt",
                           f"raise takes in [tool.videotape] or pass --takes, or retake the shot: "
@@ -391,6 +414,8 @@ def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: 
     path = _take_path(shared.model, shot, words, images, seed, shared.tape)
     purse = _Purse(shared, shot, seed)
     with shared.one_at_a_time(path):
+        if (refusal := _refusal(path)).is_file():
+            raise RefusedTake(place, json.loads(refusal.read_text())["message"], seed, cached=True)
         cached, timing = _film(shared, shot, path, seed, place, film)
         try:
             checks = check(path, purse)
@@ -457,14 +482,22 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
     if path.exists():
         return True, json.loads(timing.read_text()) if timing.exists() else {}
     started = time.perf_counter()
-    receipt = _downloaded_again(shared, path, place)
+    try:
+        receipt = _downloaded_again(shared, path, place)
+    except RenderError as error:
+        if error.code == "VT409":
+            _refused(shared, shot, path, seed, place, error, 0.0)
+        raise
     reserved = (shared.budget.price.usd if shared.budget.price else 0.0) if receipt is None else 0.0
     if receipt is None:
         shared.budget.reserve(reserved, place, shared.resume)
         try:
             receipt = write_atomically(path, lambda out: film(seed, out))
         except ModelError as error:
-            raise _failed(error, place, shared.resume) from None
+            failed = _failed(error, place, shared.resume)
+            if failed.code == "VT409":
+                _refused(shared, shot, path, seed, place, failed, reserved)
+            raise failed from None
     filmed = {"seconds": round(time.perf_counter() - started, 3), "gpu": shared.model.device}
     if receipt:
         filmed |= {"request_id": receipt.request_id, "duration": receipt.duration, "usd": receipt.usd}
@@ -473,6 +506,26 @@ def _film(shared: _Set, shot: Shot, path: Path, seed: int, place: str,
     response = {"response": receipt.response} if receipt else {}
     write_atomically(timing, lambda out: out.write_text(json.dumps({**filmed, **response}) + "\n"))
     return not written, {**filmed, **response}
+
+
+def _refusal(path: Path) -> Path:
+    """Where a take the model refused for its content says so, beside the take it never became."""
+    return path.with_suffix(".refused.json")
+
+
+def _refused(shared: _Set, shot: Shot, path: Path, seed: int, place: str, error: RenderError, reserved: float) -> None:
+    """Record a refusal and raise it as a take to skip. fal does not say whether it bills a refused request, so the
+    ledger counts it once at the listed price, and the cap with it, and the refusal is written beside the take, so
+    no later render polls or submits it again."""
+    record = request_record(path)
+    request = json.loads(record.read_text()).get("request_id") if record.is_file() else None
+    shared.budget.settle({"kind": "take", "at": now(), "model": shared.model.name, "shot": shot.title,
+                          "mode": shot.mode.value, "seed": seed, "seconds": 0.0, "gpu": shared.model.device,
+                          "request_id": request, "refused": True,
+                          "usd": shared.budget.price.usd if shared.budget.price else 0.0}, reserved)
+    write_atomically(_refusal(path), lambda out: out.write_text(json.dumps(
+        {"message": error.message, "request_id": request, "at": now()}) + "\n"))
+    raise RefusedTake(place, error.message, seed, cached=False) from None
 
 
 def _fraction(box: Box, size: Shape) -> dict:
