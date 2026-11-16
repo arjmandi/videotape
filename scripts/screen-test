@@ -879,8 +879,9 @@ def _run(args: argparse.Namespace, marks: tuple[Mark, ...] | None) -> int:
             _film(found, sample, told[one], name, models[name], readers[name, one], tape,
                   None if cap is None else cap - others, command(args, cap))
         except EveryTakeRefused as error:
-            # The other keys of the tape are filmed, and the report counts this one's refused takes against the model.
-            print(error.report(), file=sys.stderr, flush=True)
+            print(RenderError(error.code, error.place, error.message, f"nothing; the tape's other keys are filmed, and "
+                              f"the report counts {_count(len(error.seeds), 'refused take')} against {name}").report(),
+                  file=sys.stderr, flush=True)
         except RenderError as error:
             if error.code != "VT402" or cap is None:
                 raise

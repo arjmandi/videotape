@@ -576,7 +576,9 @@ def test_a_key_whose_both_takes_are_refused_still_has_its_report_with_both_count
     forget(found)
     refusing(monkeypatch, RefusingOnFal({1, 2}, first))
     code, out, err = screen(script, directory, *WAN3_TERMINAL)
-    assert code == 0 and f"error VT409 {sample.keys[0].title}: every take of the shot was refused" in err, err
+    assert code == 0 and (f"error VT409 {sample.keys[0].title}: every take of the shot was refused for its content\n"
+                          "next: nothing; the tape's other keys are filmed, and the report counts 2 refused takes against "
+                          "wan3.0\n") in err, err
     refused = [take for take in taken(script, directory) if take.refused]
     assert [(take.state, take.seed) for take in refused] == [(sample.keys[0].state.name, 1),
                                                              (sample.keys[0].state.name, 2)]
