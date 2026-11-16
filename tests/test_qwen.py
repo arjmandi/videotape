@@ -1,5 +1,7 @@
 import sys
+import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -74,6 +76,32 @@ def test_a_model_other_than_the_stand_in_is_checked_by_qwen_which_needs_its_extr
     assert capsys.readouterr() == ("", "error VT105 qwen3-vl-8b: is a reader of this model's eye and runs through "
                                        f"videotape's qwen extra, which is not installed here\nfix: {CODES['VT105'].fix}\n")
     assert sent == [] and not (directory / "tape-wan3").exists()
+
+
+def test_takes_read_at_once_load_qwen_once_and_ask_it_one_at_a_time(tmp_path, monkeypatch):
+    """A model that films two shots at once has both read at once, and every tape of a screen test reads with its own
+    eye: they share one Qwen3-VL-8B, loaded once, and ask it one picture at a time."""
+    built, asking, most = [], [0], [0]
+
+    class Slow:
+        def __init__(self):
+            time.sleep(0.2)
+            built.append(self)
+
+        def ask(self, frame: Frame) -> str:
+            asking[0] += 1
+            most[0] = max(most[0], asking[0])
+            time.sleep(0.05)
+            asking[0] -= 1
+            return "[]"
+    monkeypatch.setattr(qwen, "installed", lambda: True)
+    monkeypatch.setattr(qwen, "_Qwen", Slow)
+    monkeypatch.setattr(qwen, "_LOADED", [])
+    eyes = [QwenEye(tmp_path / f"tape-{n}") for n in range(2)]
+    frames = [Frame(4, 4, bytes([n]) * 48) for n in range(4)]
+    with ThreadPoolExecutor(4) as pool:
+        list(pool.map(lambda n: eyes[n % 2].see(frames[n]), range(4)))
+    assert (len(built), most[0]) == (1, 1)
 
 
 def test_the_stand_in_is_checked_by_its_own_reader_and_needs_no_extra(tmp_path, cli, monkeypatch):

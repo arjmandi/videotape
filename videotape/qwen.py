@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import threading
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, distribution, requires
 from pathlib import Path
@@ -88,17 +89,29 @@ class QwenEye:
             raise ScreenplayError("VT105", self.name, "is a reader of this model's eye and runs through videotape's "
                                   "qwen extra, which is not installed here", ADD_EXTRA)
         self.looks = tape / "looks"
-        self.qwen: _Qwen | None = None
 
     def see(self, frame: Frame, purse: Purse = Free()) -> Read:
         fields = [MODEL_ID, PROMPT, MAX_NEW_TOKENS, frame.width, frame.height, hashlib.sha256(frame.rgb).hexdigest()]
         path = self.looks / f"{hashlib.sha256(json.dumps(fields).encode()).hexdigest()}.json"
         if not path.exists():
-            self.qwen = self.qwen or _Qwen()
-            reply = self.qwen.ask(frame)
+            reply = _ask(frame)
             self.looks.mkdir(parents=True, exist_ok=True)
             write_atomically(path, lambda partial: partial.write_text(json.dumps({"model": MODEL_ID, "reply": reply}, indent=2) + "\n"))
         return Read(self.name, spots(json.loads(path.read_text())["reply"], frame.width, frame.height))
+
+
+_LOADED: list["_Qwen"] = []
+_ONE_AT_A_TIME = threading.Lock()
+
+
+def _ask(frame: Frame) -> str:
+    """Qwen3-VL-8B's reply about the picture. A render reads the takes of two shots at once, and a screen test reads
+    with an eye for each of its tapes, so they share one model, loaded on the first read, and ask it one picture at a
+    time: transformers' first import is not safe from two threads, and each model holds the weights in memory."""
+    with _ONE_AT_A_TIME:
+        if not _LOADED:
+            _LOADED.append(_Qwen())
+        return _LOADED[0].ask(frame)
 
 
 class _Qwen:
