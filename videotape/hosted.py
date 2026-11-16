@@ -123,11 +123,12 @@ FAL_MODELS = (WAN3, MINIMAX_H3, GEMINI_OMNI_FLASH)
 
 
 class RecordedFailure(ModelError):
-    """A recorded request's poll or download failed. A render never submits it again on its own, so the error names
-    the record, which deleting lets a render submit a new, paid take."""
+    """A recorded request's poll or download failed, with the code of the failure it wraps: VT409 when fal refused
+    the take for its content, else VT401. A render never submits it again on its own, so the error names the record,
+    which deleting lets a render submit a new, paid take."""
 
-    def __init__(self, message: str, record: Path) -> None:
-        super().__init__(message)
+    def __init__(self, failed: ModelError, record: Path) -> None:
+        super().__init__(failed.message, failed.code, failed.fix)
         self.record = record
 
 
@@ -176,7 +177,7 @@ class OnFal:
             url, receipt = self.model.bill(self.fal.wait(submitted["endpoint"], submitted))
             self.fal.download(url, out)
         except ModelError as error:
-            raise RecordedFailure(error.message, record) from None
+            raise RecordedFailure(error, record) from None
         return receipt
 
 
