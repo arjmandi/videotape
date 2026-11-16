@@ -234,6 +234,9 @@ class Take:
     usd: float
     items: tuple[dict, ...]
     elements: tuple[Element, ...]
+    refused: bool = False
+    """Whether the model refused the take for its content, VT409, so it has no clip, and every element of it counts
+    as not drawn right."""
 
     @property
     def tape(self) -> str:
@@ -424,6 +427,17 @@ class Screen:
         return max(weakest, key=lambda found: found[2].share)
 
 
+def refusal(key: Key) -> tuple[tuple[dict, ...], tuple[Element, ...]]:
+    """A refused take's checks: one failing VT409 for the take and one for each element of its key, so a model is
+    not rewarded for the takes it refuses."""
+    def failed(about: str, element: str | None) -> dict:
+        return {"code": "VT409", "about": about, "result": "refused for its content", "passed": False, "box": None,
+                "element": element, "readings": []}
+    elements = tuple(Element(at, element.type, tuple(line.words for line in element.lines),
+                             (failed(element.type, element.type),)) for at, element in enumerate(key.shown))
+    return (failed("the take", None), *(item for element in elements for item in element.items)), elements
+
+
 def gathered(root: Path, keys: Sequence[Key], tapes: dict[tuple[str, str], Path]) -> list[Take]:
     """Every take of the tapes, from each tape's dailies, with its cost from the project's ledger: its call and its
     reads. Each take's last frame is written into its tape's pictures/, once for each time the take is filmed."""
@@ -444,6 +458,10 @@ def gathered(root: Path, keys: Sequence[Key], tapes: dict[tuple[str, str], Path]
                     picture.parent.mkdir(exist_ok=True)
                     write_atomically(picture, lambda out: frames.write_png(frames.last_frame(clip), out))
                 takes.append(take)
+            for seed in key.get("refused", []):
+                items, elements = refusal(by_state[key["state"]])
+                takes.append(Take(model, told, key["state"], seed, "", None, costs[key["title"], seed], items, elements,
+                                  refused=True))
     return takes
 
 
@@ -606,6 +624,13 @@ them, take by take. Then the first takes that pass every check, and the time and
 
 
 def _take(take: Take) -> str:
+    if take.refused:
+        return (f'<figure class="take refused" data-model="{escape(take.model)}" data-story="{escape(take.story)}" '
+                f'data-key="{escape(take.state)}" data-seed="{take.seed}" data-usd="{take.usd:.2f}">'
+                f'<p class="note fail">The model refused this take for its content, VT409, so nothing was filmed and '
+                f'every element of it counts as not drawn right.</p><figcaption><strong>Take {take.seed}</strong>'
+                f'<span class="badge failing">refused VT409</span><span class="badge">{_money(take.usd)}</span>'
+                "</figcaption></figure>")
     # A failing check stays in view, so the models compare at a glance, and the passing ones fold away.
     failing = [item for item in take.items if not item["passed"]]
     passing = [item for item in take.items if item["passed"]]
@@ -640,7 +665,7 @@ def _takes(screen: Screen) -> str:
 
 def _calibration(screen: Screen) -> str:
     model, told = CALIBRATION
-    takes = screen.of(model, told)
+    takes = [take for take in screen.of(model, told) if not take.refused]
     if not takes:
         return ""
     right = {(mark.clip, mark.element): mark.right for mark in screen.marks}

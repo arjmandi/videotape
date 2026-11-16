@@ -24,6 +24,7 @@ from conftest import CONTRAIL, forget
 from test_claude import KEY as CLAUDE_KEY, Claude
 from videotape import claude, project, qwen
 from videotape.claude import ClaudeReader
+from videotape.errors import ModelError
 from videotape.fal import Price, Receipt
 from videotape.model import MODELS
 from videotape.plan import Mode
@@ -512,6 +513,37 @@ def test_a_marks_file_that_is_not_the_reports_says_so_and_films_nothing(script, 
     err = capsys.readouterr().err
     assert stopped.value.code == 2 and f"argument --marks: {tmp_path / 'marks.json'} {said}" in err
     assert "download it again from the report's Download marks.json button" in err
+
+
+class RefusingOnFal(OnFal):
+    """wan3.0 refusing every first take for its content, as fal's content checker does."""
+
+    def text_to_video(self, prompt: str, seed: int, out: Path) -> Receipt:
+        if seed == 1:
+            raise ModelError("request r-1 was refused for its content: HTTP 422 content_policy_violation, "
+                             "model_moderated", "VT409", "nothing; a render skips the take's seed from now on")
+        return super().text_to_video(prompt, seed, out)
+
+
+def test_a_refused_take_shows_as_refused_fails_the_first_take_and_counts_its_elements_not_drawn_right(script, tmp_path,
+                                                                                                      monkeypatch):
+    monkeypatch.chdir(ROOT)
+    fake(monkeypatch)
+    film = RefusingOnFal("wan3.0", MODELS["wan3.0"].price, FLAWS["wan3.0"])
+    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], model=lambda: film))
+    directory = contrail(tmp_path)
+    code, out, err = screen(script, directory, "--models", "wan3.0", "--stories", "terminal", "--cap-usd", "60")
+    assert code == 0 and err.count("error VT409 ") == 8, err
+    report = (directory / "tapes" / "screen-test" / "report.html").read_text()
+    assert report.count('<span class="badge failing">refused VT409</span>') == 8
+    assert '<td data-model="wan3.0" data-story="terminal" data-yield="0 of 8">0 of 8</td>' in report
+    found = project.find(directory)
+    keys = script.sampled(script.plan(found.load(), found.max_states)).keys
+    takes = script.gathered(directory, keys, {("wan3.0", "terminal"): directory / "tapes/screen-test/wan3.0/terminal"})
+    refused = [take for take in takes if take.refused]
+    assert [take.seed for take in refused] == [1] * 8 and not any(take.passed for take in refused)
+    assert all(not element.passed for take in refused for element in take.elements)
+    assert len(refused[0].elements) == len(keys[0].shown)
 
 
 def test_the_pick_has_the_most_element_types_at_the_bar_then_the_fewest_invented_controls_then_the_lowest_cost(script):
