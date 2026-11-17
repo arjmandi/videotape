@@ -38,9 +38,10 @@ def recorded(name: str) -> dict:
     return json.loads(path.read_text())
 
 
-def message(text: str, stop: str = "end_turn", input_tokens: int = 1800, output_tokens: int = 900) -> dict:
+def message(text: str, stop: str = "end_turn", input_tokens: int = 2191, output_tokens: int = 900) -> dict:
     """A reply in the shape the API documents, with this text and these tokens. Written by hand, since the read cache
-    keeps a reply's text and tokens and not the message they came in."""
+    keeps a reply's text and tokens and not the message they came in. Every read of the paid screen test billed 2,191
+    input tokens, for a picture of as many tokens as the cafe's."""
     return {"id": "msg_01ClaudeRead000000000000", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
             "content": [{"type": "thinking", "thinking": "", "signature": "EqoBCkgIBxABGAIiQL0aZ2VuZXJpYy1zaWduYXR1cmU="},
                         {"type": "text", "text": text}],
@@ -281,7 +282,7 @@ def test_a_render_pays_for_each_keys_read_under_the_cap_and_writes_each_to_the_l
     assert sorted(line["shot"] for line in reads) == sorted(f"key {state}" for state in (
         "menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)"))
     assert all((line["tape"], line["seed"], line["model"], line["tokens"], line["usd"]) == (
-        "tapes/chalk", 1, "claude-opus-5-5", {"input_tokens": 1800, "output_tokens": 900}, 0.0252) for line in reads)
+        "tapes/chalk", 1, "claude-opus-5-5", {"input_tokens": 2191, "output_tokens": 900}, 0.026764) for line in reads)
     totals = ledger.of(directory, directory / "tapes" / "chalk").totals()
     assert (totals["takes"], totals["reads"], totals["usd"]) == (11, 5, 0.13)
     record = dailies.read(directory / "tapes" / "chalk")
@@ -337,12 +338,12 @@ def test_a_reply_that_is_not_whole_stops_the_render_and_its_cost_still_reaches_t
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "render", "--story", "chalk", "--takes", "1", "--cap-usd", "2") == 1
     assert re.fullmatch(r"error VT401 key .+ take 1: claude-opus-5-5's read stopped with 'max_tokens' after 11 "
-                        r"characters, not a whole read; it cost \$0\.1710\nnext: run the render again, which resumes and "
+                        r"characters, not a whole read; it cost \$0\.1726\nnext: run the render again, which resumes and "
                         r"reads this take again:\nvideotape render --story chalk --takes 1 --cap-usd 2\.00\n",
                         capsys.readouterr().err)
     reads = [json.loads(line) for line in (directory / "ledger.jsonl").read_text().splitlines() if '"read"' in line]
     [line] = [line for line in reads if line["tokens"]["output_tokens"] == 8192]
-    assert line["usd"] == 0.17104
+    assert line["usd"] == 0.172604
     # The reads that came back whole are cached; the one cut short is not, so the next render asks again.
     assert len(list((directory / "tapes" / "chalk" / "looks").iterdir())) == len(reads) - 1
 

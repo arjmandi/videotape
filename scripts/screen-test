@@ -154,6 +154,11 @@ def _cents_up(usd: float) -> float:
     return math.ceil(round(usd * 100, 6)) / 100
 
 
+def _spent(root: Path, tape: Path) -> float:
+    """What the ledger holds for a tape, summed before any rounding: its totals() round each tape to the cent."""
+    return sum(line.get("usd") or 0.0 for line in ledger.of(root, tape).lines())
+
+
 def sampled(planned: Plan) -> Plan:
     """The plan's keys of SAMPLER's states, in SAMPLER's order, and no move. VT212 for a state the plan lacks."""
     keys = {key.state.name: key for key in planned.keys}
@@ -874,7 +879,7 @@ def _run(args: argparse.Namespace, marks: tuple[Mark, ...] | None) -> int:
     # The tapes render one after another, each under what the cap leaves after the others' lines in the ledger, so
     # one cap holds for them all.
     for (name, one), tape in tapes.items():
-        others = sum(ledger.of(found.root, other).totals()["usd"] for other in tapes.values() if other != tape)
+        others = sum(_spent(found.root, other) for other in tapes.values() if other != tape)
         try:
             _film(found, sample, told[one], name, models[name], readers[name, one], tape,
                   None if cap is None else cap - others, command(args, cap))
@@ -885,11 +890,11 @@ def _run(args: argparse.Namespace, marks: tuple[Mark, ...] | None) -> int:
         except RenderError as error:
             if error.code != "VT402" or cap is None:
                 raise
-            spent = sum(ledger.of(found.root, other).totals()["usd"] for other in tapes.values())
+            spent = sum(_spent(found.root, other) for other in tapes.values())
             raise RenderError("VT402", error.place, f"the next call would pass the screen test's cap of ${cap:.2f}, "
                               f"with ${spent:.2f} spent on its tapes", "run the screen test again with a higher cap, "
                               f"which resumes, as in:\n{command(args, 2 * cap)}") from None
-    spent = {name: sum(ledger.of(found.root, tapes[name, one]).totals()["usd"] for one in told) for name in args.models}
+    spent = {name: sum(_spent(found.root, tapes[name, one]) for one in told) for name in args.models}
     taken = gathered(found.root, sample.keys, tapes)
     screen = Screen(sample.title, tuple(args.models), tuple(told), sample.keys, tuple(taken), spent, marks or (),
                     None if marks is None else agreement(marks, taken))
