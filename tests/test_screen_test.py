@@ -13,7 +13,6 @@ import math
 import re
 import shutil
 import sys
-import urllib.request
 import uuid
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -48,14 +47,9 @@ def script():
     return module
 
 
-def no_network(request):
-    raise AssertionError(f"a test reached for the network: {request.full_url}")
-
-
 @pytest.fixture(autouse=True)
-def offline(monkeypatch):
-    """Nothing here sends a request, and no API key comes from the machine running the tests."""
-    monkeypatch.setattr(urllib.request, "urlopen", no_network)
+def keyless(monkeypatch):
+    """No API key comes from the machine running the tests."""
     for key in ("FAL_KEY", "ANTHROPIC_API_KEY", "RUNPOD_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 
@@ -228,7 +222,6 @@ def screened(script, tmp_path_factory):
     """Contrail's screen test of the three stand-ins in both stories, run once for the tests that read it."""
     with pytest.MonkeyPatch.context() as patch:
         patch.chdir(ROOT)
-        patch.setattr(urllib.request, "urlopen", no_network)
         fakes = fake(patch)
         directory = contrail_copy(tmp_path_factory.mktemp("screened") / "contrail")
         return directory, fakes, screen(script, directory, *RUN)

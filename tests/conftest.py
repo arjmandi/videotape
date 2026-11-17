@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -74,10 +75,11 @@ def contrail_copy(folder: Path) -> Path:
 
 
 def videotape(directory: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
-    """Run the installed videotape command in a project, the way a developer does."""
+    """Run the installed videotape command in a project, the way a developer does. Its requests go to a proxy that
+    answers none, so a command run in examples/contrail pays nothing with the API keys a developer keeps in its .env."""
     return subprocess.run([str(VIDEOTAPE), *arguments], cwd=directory, capture_output=True, text=True,
                           env={"PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "PYTHONDONTWRITEBYTECODE": "1",
-                               "BROWSER": "true"})
+                               "BROWSER": "true", "https_proxy": "http://127.0.0.1:9"})
 
 
 VARIES = re.compile(r"(?P<shot>(?<=^error VT\d{3} ).+?(?= take \d|: ))|(?P<ffmpeg>(?<=decode to one frame: ).+$)"
@@ -98,6 +100,17 @@ def as_explained(code: str) -> re.Pattern[str]:
         pattern += re.escape(example[at:part.start()]) + WILDCARDS[part.lastgroup or ""]
         at = part.end()
     return re.compile(f"^{pattern}{re.escape(example[at:])}$", re.MULTILINE)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def offline():
+    """No test reaches the network, so none pays fal or Claude with an API key the environment or a .env holds. fal's
+    queue and Claude's reads both go out through urlopen, and a test that needs their answers stands in for them."""
+    def refuse(request, *args, **kwargs):
+        raise AssertionError(f"a test reached for the network: {getattr(request, 'full_url', request)}")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(urllib.request, "urlopen", refuse)
+        yield
 
 
 @pytest.fixture(autouse=True)

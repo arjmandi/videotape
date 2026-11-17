@@ -102,16 +102,6 @@ class Purse:
         self.calls.append(("settle", line, reserved))
 
 
-def no_network(request):
-    raise AssertionError(f"a test reached for the network: {request.full_url}")
-
-
-@pytest.fixture(autouse=True)
-def offline(monkeypatch):
-    """No test here sends anything: what stands in for the network answers every request."""
-    monkeypatch.setattr(urllib.request, "urlopen", no_network)
-
-
 @pytest.fixture
 def reader(tmp_path, monkeypatch):
     """A reader of the tape at tmp_path, with its key in the environment, that sends through the Claude it is given."""

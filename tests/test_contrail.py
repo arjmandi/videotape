@@ -1,9 +1,12 @@
 import json
 import os
+import urllib.request
+
+import pytest
 
 import conftest
 from conftest import CONTRAIL, contrail_copy, planned, videotape
-from videotape import project
+from videotape import claude, fal, project
 
 PLAN = """\
 Contrail 0.1.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
@@ -109,3 +112,9 @@ def test_a_copy_of_contrail_leaves_the_api_keys_in_its_env_behind(tmp_path, monk
     project.find(source)
     assert {key: os.environ.get(key) for key in ("FAL_KEY", "ANTHROPIC_API_KEY")} == {
         "FAL_KEY": "fal-not-a-real-key", "ANTHROPIC_API_KEY": "sk-ant-not-a-real-key"}
+
+
+def test_no_test_reaches_fal_or_claude_so_none_pays_with_the_keys_it_finds():
+    for send in (fal._urlopen, claude._urlopen):
+        with pytest.raises(AssertionError, match="^a test reached for the network: http://127.0.0.1:9/$"):
+            send(urllib.request.Request("http://127.0.0.1:9/"))
