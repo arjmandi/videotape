@@ -62,6 +62,17 @@ def test_a_line_passes_vt502_only_when_every_reader_reads_it_exactly_and_the_rec
     assert checks.rank(1) > score(key, [exact]).rank(1)
 
 
+def test_a_period_at_the_end_of_a_line_fails_vt502_unless_the_line_has_none_and_another_reader_reads_it_exactly():
+    key = key_of(vt.Text("7h 10m, 1 stop"))
+    period = Read("qwen", spots("7h 10m, 1 stop."))
+    assert failed(score(key, [period, Read("claude", spots("7h 10m, 1 stop"))])) == []
+    assert failed(score(key, [period, replace(period, reader="claude")])) == [("VT502", "7h 10m, 1 stop")]
+    assert failed(score(key, [period])) == [("VT502", "7h 10m, 1 stop")]
+    latte = key_of(vt.Text("One Latte coming up."))
+    assert failed(score(latte, [Read("qwen", spots("One Latte coming up..")),
+                                Read("claude", spots("One Latte coming up."))])) == [("VT502", "One Latte coming up.")]
+
+
 def test_an_action_is_found_only_when_every_reader_finds_it_and_the_hotspot_is_the_first_readers_box():
     key = key_of(vt.Heading("Thanks"), vt.Button("Order", to=key_of(vt.Text("Done")).state))
     first = Read("stand-in", spots("Thanks", "Order", controls=("Order",)))
@@ -567,14 +578,27 @@ def test_a_weekday_and_day_tile_off_the_strips_line_is_an_invented_control():
     assert failed(score(key, [seen])) == [("VT503", "Mon 14")]
 
 
+def recorded(name: str) -> list[Read]:
+    return [Read(one["reader"], tuple(Spot(spot["text"], Box(**spot["box"]), spot["control"]) for spot in one["spots"]),
+                 None if one["marked"] is None else tuple(Box(**box) for box in one["marked"]),
+                 None if one["charts"] is None else ())
+            for one in json.loads((FIXTURES / "recorded" / "reads" / f"{name}.json").read_text())]
+
+
 def test_a_strip_whose_weekdays_the_readers_read_apart_from_their_days_reads_whole():
     """Both readers of gemini-omni-flash-1.2's take 2 of results(SEA, 2026-12-12) in the paid run read each tile as
     "Fri", "11" and "$99": Qwen one under another, Claude all in the tile's box, with Saturday's marked."""
-    recorded = json.loads((FIXTURES / "recorded" / "reads" / "gemini-posters-results-take-2.json").read_text())
-    reads = [Read(one["reader"], tuple(Spot(spot["text"], Box(**spot["box"]), spot["control"]) for spot in one["spots"]),
-                  None if one["marked"] is None else tuple(Box(**box) for box in one["marked"]),
-                  None if one["charts"] is None else ()) for one in recorded]
     key = next(key for key in planned(CONTRAIL).keys if key.state.name == "results(SEA, 2026-12-12)")
-    checks = score(key, reads)
+    checks = score(key, recorded("gemini-posters-results-take-2"))
     assert [(item.code, item.about) for item in checks.items() if item.element == "DateStrip" and not item.passed] == []
     assert checks.invented == ()
+
+
+def test_a_period_qwen_adds_to_a_line_claude_reads_exactly_passes_vt502():
+    key = next(key for key in planned(CONTRAIL).keys if key.state.name == "flight(CT 104, 2026-12-13)")
+    [item] = [item for item in score(key, recorded("wan3-terminal-flight-ct104-take-2")).items()
+              if item.about == "1:30 PM to 11:40 PM, 7h 10m, 1 stop"]
+    assert [(seen.reader, seen.text) for seen in item.readings] == [
+        ("qwen3-vl-8b", "1:30 PM to 11:40 PM, 7h 10m, 1 stop."),
+        ("claude-opus-5-5", "1:30 PM to 11:40 PM, 7h 10m, 1 stop")]
+    assert (item.code, item.passed) == ("VT502", True)
