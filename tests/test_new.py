@@ -79,7 +79,7 @@ def test_the_starter_plans_without_a_warning_and_renders_clean_with_the_stand_in
     assert capsys.readouterr().out.splitlines()[0] == "Shop 0.1.0: 2 scenes, 2 states, 2 keys, 2 moves, 4 shots"
     assert cli(project, "plan", "--story", "starter") == 0
     assert capsys.readouterr().out.splitlines()[-2:] == ["0 errors, 0 warnings",
-                                                         "wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.34 to $1.37"]
+                                                         "wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.35 to $1.38"]
     assert cli(project, "render", "--story", "starter", "--model", "stand-in") == 0
     out, err = capsys.readouterr()
     assert err == "" and out.splitlines()[-1].startswith("4 shots, ")

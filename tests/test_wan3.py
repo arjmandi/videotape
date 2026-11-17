@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES, as_explained, copy_of, planned, told, words
+from conftest import FIXTURES, RECORDED, as_explained, copy_of, planned, told, words
 from videotape import dailies, doctor, ledger, project
 from videotape.errors import CODES, ModelError, RenderError
 from videotape.fal import Fal, Receipt
@@ -567,8 +567,8 @@ def test_a_recorded_request_refused_for_its_content_keeps_vt409_and_names_its_re
     with pytest.raises(RecordedFailure) as error:
         model.text_to_video("a poster", 1, out)
     assert (error.value.code, error.value.record) == ("VT409", request_record(out))
-    assert error.value.message == ("result of alibaba/wan-3.0/text-to-video request request-0 was refused for its content: "
-                                   "HTTP 422 content_policy_violation, model_moderated")
+    [refused] = [json.loads(path.read_text()) for path in (RECORDED / "wan3.0").glob("*.refused.json")]
+    assert error.value.message == refused["message"].replace(refused["request_id"], "request-0")
     assert json.loads(request_record(out).read_text())["request_id"] == "request-0"
     with pytest.raises(RecordedFailure) as again:
         model.download_again(out)

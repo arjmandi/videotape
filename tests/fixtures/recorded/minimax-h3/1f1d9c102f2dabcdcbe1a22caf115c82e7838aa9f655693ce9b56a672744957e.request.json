@@ -1,0 +1,13 @@
+{
+  "endpoint": "minimax/h3/text-to-video",
+  "status": "IN_QUEUE",
+  "request_id": "01a1e530-34f7-7442-90f1-79671cbd7daa",
+  "response_url": "https://queue.fal.run/minimax/h3/requests/01a1e530-34f7-7442-90f1-79671cbd7daa",
+  "status_url": "https://queue.fal.run/minimax/h3/requests/01a1e530-34f7-7442-90f1-79671cbd7daa/status",
+  "cancel_url": "https://queue.fal.run/minimax/h3/requests/01a1e530-34f7-7442-90f1-79671cbd7daa/cancel",
+  "logs": null,
+  "metrics": {},
+  "queue_position": 0,
+  "user_queue_position": 0,
+  "user_queued_count": 1
+}

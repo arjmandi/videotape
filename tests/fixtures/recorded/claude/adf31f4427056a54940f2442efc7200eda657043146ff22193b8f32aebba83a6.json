@@ -1,0 +1,9 @@
+{
+  "model": "claude-opus-5-5",
+  "reply": "{\"lines\":[{\"text\":\"Don\",\"box\":{\"x\":1126,\"y\":22,\"w\":154,\"h\":80},\"control\":false,\"marked\":false},{\"text\":\"CT 300 to Seattle, Friday, December 11\",\"box\":{\"x\":362,\"y\":42,\"w\":682,\"h\":228},\"control\":false,\"marked\":false},{\"text\":\"Confirmation B5C25E.\",\"box\":{\"x\":522,\"y\":180,\"w\":268,\"h\":92},\"control\":false,\"marked\":false},{\"text\":\"Departs 8:15 AM.\",\"box\":{\"x\":364,\"y\":250,\"w\":156,\"h\":68},\"control\":false,\"marked\":false}],\"charts\":[]}",
+  "tokens": {
+    "input_tokens": 2191,
+    "output_tokens": 219
+  },
+  "usd": 0.013144
+}

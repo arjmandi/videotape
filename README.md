@@ -149,7 +149,7 @@ home              1           1
 todo              1           1
 
 0 errors, 0 warnings
-wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.34 to $1.37
+wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.35 to $1.38
 ```
 
 A render films one shot for each state and one for each action. A key is the shot of a state at rest. A move is the shot of an action. It films the press, from the key of the state it leaves to the key of the state it lands on. The last line is the estimate for the project's model. A render makes one call for each shot if every first take passes, and four if none passes before the last.
@@ -801,7 +801,7 @@ uv run videotape plan --story terminal --model wan3.0
 ```text
 Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
 ...
-wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s, and 58 to 232 reads by claude-opus-5-5, at most $9.97 to $39.86
+wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04
 ```
 
 A read's estimate charges every output token the reply may take, so a read costs less than its share here, and a reply is cached in the tape, so a render run again pays for no read twice.

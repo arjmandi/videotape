@@ -1,0 +1,9 @@
+{
+  "model": "claude-opus-5-5",
+  "reply": "{\"lines\":[{\"text\":\"Book for $22\",\"box\":{\"x\":1000,\"y\":0,\"w\":280,\"h\":90},\"control\":true,\"marked\":false},{\"text\":\"Sunday, December 13\",\"box\":{\"x\":466,\"y\":84,\"w\":242,\"h\":90},\"control\":false,\"marked\":false},{\"text\":\"CT 104 to New York\",\"box\":{\"x\":268,\"y\":163,\"w\":166,\"h\":70},\"control\":false,\"marked\":false},{\"text\":\"1:30 PM to 11:40 PM, 7h 10m, 1 stop\",\"box\":{\"x\":467,\"y\":127,\"w\":300,\"h\":76},\"control\":false,\"marked\":false},{\"text\":\"Airbus A321neo, Earns 2,586 miles.\",\"box\":{\"x\":467,\"y\":176,\"w\":262,\"h\":64},\"control\":false,\"marked\":false}],\"charts\":[]}",
+  "tokens": {
+    "input_tokens": 2191,
+    "output_tokens": 285
+  },
+  "usd": 0.014464
+}

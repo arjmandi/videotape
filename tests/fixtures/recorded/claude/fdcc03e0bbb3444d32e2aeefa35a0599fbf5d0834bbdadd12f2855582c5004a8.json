@@ -1,0 +1,9 @@
+{
+  "model": "claude-opus-5-5",
+  "reply": "{\"lines\":[{\"text\":\"Where to?\",\"box\":{\"x\":316,\"y\":0,\"w\":312,\"h\":95},\"control\":false,\"marked\":false},{\"text\":\"Where to?\",\"box\":{\"x\":320,\"y\":117,\"w\":240,\"h\":80},\"control\":false,\"marked\":false},{\"text\":\"Natngo Pu\",\"box\":{\"x\":88,\"y\":195,\"w\":66,\"h\":20},\"control\":false,\"marked\":false},{\"text\":\"Stacaring ca\",\"box\":{\"x\":88,\"y\":214,\"w\":66,\"h\":20},\"control\":false,\"marked\":false},{\"text\":\"Boston (BOS)\",\"box\":{\"x\":283,\"y\":192,\"w\":633,\"h\":72},\"control\":true,\"marked\":false},{\"text\":\"end Acustrialis\",\"box\":{\"x\":0,\"y\":285,\"w\":80,\"h\":18},\"control\":false,\"marked\":false},{\"text\":\"Chicago (ORD)\",\"box\":{\"x\":283,\"y\":262,\"w\":633,\"h\":72},\"control\":true,\"marked\":false},{\"text\":\"Honolulu (HNL)\",\"box\":{\"x\":283,\"y\":334,\"w\":633,\"h\":60},\"control\":true,\"marked\":false},{\"text\":\"Los Angeles (LAX)\",\"box\":{\"x\":283,\"y\":393,\"w\":633,\"h\":70},\"control\":true,\"marked\":false},{\"text\":\"New York (JFK)\",\"box\":{\"x\":283,\"y\":455,\"w\":633,\"h\":75},\"control\":true,\"marked\":false},{\"text\":\"Seattle (SEA)\",\"box\":{\"x\":283,\"y\":512,\"w\":633,\"h\":95},\"control\":true,\"marked\":false}],\"charts\":[]}",
+  "tokens": {
+    "input_tokens": 2191,
+    "output_tokens": 539
+  },
+  "usd": 0.019544
+}

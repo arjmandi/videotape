@@ -1,6 +1,7 @@
 """minimax-h3 and gemini-omni-flash-1.2 film on fal through the adapter wan3.0 films through, each with its own
-endpoints, request fields, seed, price and prompt limit. No paid call recorded their answers: tests/fixtures/
-fal-models.txt says where the shape of each comes from."""
+endpoints, request fields, seed, price and prompt limit. fal's answers to a key are those the paid screen test
+recorded, in tests/fixtures/recorded/. Its answers to a move are written by hand, since the screen test films no move:
+tests/fixtures/fal-models.txt says where their shape comes from."""
 
 import base64
 import dataclasses
@@ -13,10 +14,10 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES, copy_of, planned, told, words
+from conftest import FIXTURES, RECORDED, copy_of, planned, told, words
 from videotape import claude, frames, ledger, qwen
 from videotape.fal import Fal, Receipt
-from videotape.hosted import OnFal
+from videotape.hosted import OnFal, request_record
 from videotape.model import MODELS
 from videotape.plan import Mode
 from videotape.standin import StandInEye
@@ -56,7 +57,16 @@ GEMINI = Case("gemini-omni-flash-1.2",
 CASES = pytest.mark.parametrize("case", [H3, GEMINI], ids=lambda case: case.name)
 
 
+def take(name: str) -> dict:
+    """What the paid screen test wrote beside one key's take of the model, fal's answers under response."""
+    [path] = [path for path in (RECORDED / name).glob("*.json") if path.name.count(".") == 1]
+    return json.loads(path.read_text())
+
+
 def recorded(name: str, mode: str) -> dict:
+    """fal's three answers to one call: a key's from the paid screen test, a move's written by hand."""
+    if mode == "text-to-video":
+        return take(name)["response"]
     return json.loads((FIXTURES / f"{name}-{mode}.json").read_text())
 
 
@@ -118,8 +128,13 @@ class Queue:
                         f"color=c=0x{(number * 0x1F3D5B) % 0xFFFFFF:06x}:size={width}x{height}:rate=24:duration=0.5",
                         "-pix_fmt", "yuv420p", "-y", str(clip)], check=True)
         self.answers[video] = clip.read_bytes()
-        return json.dumps({**response["submitted"], "request_id": f"request-{number}", "status_url": f"{queue}/status",
-                           "response_url": queue}).encode()
+        return json.dumps({**said(response["submitted"]), "request_id": f"request-{number}",
+                           "status_url": f"{queue}/status", "response_url": queue}).encode()
+
+
+def said(submitted: dict) -> dict:
+    """fal's answer to a submit, without the endpoint videotape adds to it before it records it."""
+    return {name: value for name, value in submitted.items() if name != "endpoint"}
 
 
 def on_fal(case: Case, tmp_path: Path, monkeypatch) -> tuple[Path, Queue]:
@@ -160,6 +175,25 @@ def test_an_answer_without_a_duration_is_billed_for_the_five_seconds_the_request
         url, receipt = MODELS[case.name].kind.bill(response)
         assert url == response["result"]["video"]["url"]
         assert receipt == Receipt(response["submitted"]["request_id"], 5.0, case.usd, response)
+
+
+@pytest.mark.parametrize("name", ["wan3.0", "minimax-h3", "gemini-omni-flash-1.2"])
+def test_a_key_fal_answers_as_in_the_paid_run_is_recorded_and_billed_as_the_paid_run_recorded_and_billed_it(name,
+                                                                                                           tmp_path):
+    taken = take(name)
+    [submit] = (RECORDED / name).glob("*.request.json")
+    submitted, answered = json.loads(submit.read_text()), taken["response"]
+    answers = {("POST", f"https://queue.fal.run/{submitted['endpoint']}"): json.dumps(said(submitted)).encode(),
+               ("GET", submitted["status_url"]): json.dumps(answered["status"]).encode(),
+               ("GET", submitted["response_url"]): json.dumps(answered["result"]).encode(),
+               ("GET", answered["result"]["video"]["url"]): b"the video"}
+    model = OnFal(MODELS[name].kind, Fal(KEY, send=lambda request: answers[(request.get_method(), request.full_url)],
+                                         sleep=lambda _: None))
+    out = tmp_path / f"{submit.name.partition('.')[0]}.partial.mp4"
+    receipt = model.text_to_video("a key", 1, out)
+    assert request_record(out).read_text() == submit.read_text()
+    assert receipt == Receipt(taken["request_id"], taken["duration"], taken["usd"], answered)
+    assert out.read_bytes() == b"the video"
 
 
 @CASES

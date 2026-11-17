@@ -1,0 +1,9 @@
+{
+  "model": "claude-opus-5-5",
+  "reply": "{\"lines\":[{\"text\":\"Trips\",\"box\":{\"x\":78,\"y\":4,\"w\":212,\"h\":112},\"control\":false,\"marked\":false},{\"text\":\"Profile\",\"box\":{\"x\":676,\"y\":0,\"w\":226,\"h\":62},\"control\":true,\"marked\":false},{\"text\":\"Trips\",\"box\":{\"x\":578,\"y\":40,\"w\":96,\"h\":76},\"control\":true,\"marked\":true},{\"text\":\"Home\",\"box\":{\"x\":496,\"y\":70,\"w\":80,\"h\":82},\"control\":true,\"marked\":false},{\"text\":\"Upcoming\",\"box\":{\"x\":260,\"y\":211,\"w\":62,\"h\":18},\"control\":false,\"marked\":false},{\"text\":\"San Francisco to New York\",\"box\":{\"x\":258,\"y\":248,\"w\":200,\"h\":16},\"control\":true,\"marked\":false},{\"text\":\"Friday, December 18\",\"box\":{\"x\":258,\"y\":264,\"w\":200,\"h\":16},\"control\":true,\"marked\":false},{\"text\":\"San Francisco to Honolulu\",\"box\":{\"x\":258,\"y\":279,\"w\":200,\"h\":16},\"control\":true,\"marked\":false},{\"text\":\"Friday, January 8\",\"box\":{\"x\":258,\"y\":295,\"w\":202,\"h\":18},\"control\":true,\"marked\":true},{\"text\":\"Recent\",\"box\":{\"x\":260,\"y\":313,\"w\":36,\"h\":14},\"control\":false,\"marked\":false},{\"text\":\"San Francisco to Los Angeles\",\"box\":{\"x\":258,\"y\":330,\"w\":200,\"h\":16},\"control\":true,\"marked\":false},{\"text\":\"Oct 16\",\"box\":{\"x\":422,\"y\":332,\"w\":30,\"h\":12},\"control\":false,\"marked\":false},{\"text\":\"Chicago to San Francisco\",\"box\":{\"x\":258,\"y\":346,\"w\":200,\"h\":16},\"control\":true,\"marked\":false},{\"text\":\"Aug 9\",\"box\":{\"x\":422,\"y\":348,\"w\":26,\"h\":12},\"control\":false,\"marked\":false},{\"text\":\"San Francisco to Chicago\",\"box\":{\"x\":258,\"y\":362,\"w\":200,\"h\":16},\"control\":true,\"marked\":false},{\"text\":\"Aug 7\",\"box\":{\"x\":422,\"y\":364,\"w\":26,\"h\":12},\"control\":false,\"marked\":false}],\"charts\":[]}",
+  "tokens": {
+    "input_tokens": 2191,
+    "output_tokens": 755
+  },
+  "usd": 0.023864
+}

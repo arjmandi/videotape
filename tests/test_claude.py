@@ -1,7 +1,7 @@
-"""Claude as the second reader of a key's picture. tests/fixtures/claude-read.json holds one reply written by hand in
-the shape the Messages API documents. No test sends a request: the HTTP layer is a stand-in that answers each request
-with a recorded reply, or with a reply built from what the stand-in's own eye reads on the picture the request
-carries, so a render through the reader needs no network and no key but a made-up one."""
+"""Claude as the second reader of a key's picture. tests/fixtures/recorded/claude/ holds 16 reads the paid screen test
+cached, each a reply's text, its tokens and their price. No test sends a request: the HTTP layer is a stand-in that
+answers each request with a reply it is given, or with a reply built from what the stand-in's own eye reads on the
+picture the request carries, so a render through the reader needs no network and no key but a made-up one."""
 
 import base64
 import io
@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-from conftest import FIXTURES, copy_of
+from conftest import RECORDED, copy_of
 from videotape import claude, dailies, frames, ledger, standin
 from videotape.checks import Chart, Read, Spot
 from videotape.claude import ClaudeReader
@@ -25,22 +25,39 @@ from videotape.standin import StandIn, StandInEye
 
 KEY = "sk-ant-test-key-0123456789abcdef"
 MESSAGES = "https://api.anthropic.com/v1/messages"
+READS = sorted((RECORDED / "claude").glob("*.json"))
+PROFILE = "7dd745d51d"
+"""The recorded read of a profile, with a chart and a line drawn marked."""
+BOOKING = "0d37ae9aa3"
+"""The recorded read of a flight, with neither."""
 
 
-def recorded() -> dict:
-    return json.loads((FIXTURES / "claude-read.json").read_text())
+def recorded(name: str) -> dict:
+    """The recorded read whose cache name starts with name."""
+    [path] = [path for path in READS if path.name.startswith(name)]
+    return json.loads(path.read_text())
 
 
-def message(text: str, stop: str = "end_turn", input_tokens: int = 1800, output_tokens: int = 900) -> dict:
-    """A reply in the shape the API returns, with this text."""
-    return {**recorded(), "content": [recorded()["content"][0], {"type": "text", "text": text}], "stop_reason": stop,
+def message(text: str, stop: str = "end_turn", input_tokens: int = 2191, output_tokens: int = 900) -> dict:
+    """A reply in the shape the API documents, with this text and these tokens. Written by hand, since the read cache
+    keeps a reply's text and tokens and not the message they came in. Every read of the paid screen test billed 2,191
+    input tokens, for a picture of as many tokens as the cafe's."""
+    return {"id": "msg_01ClaudeRead000000000000", "type": "message", "role": "assistant", "model": "claude-opus-5-5",
+            "content": [{"type": "thinking", "thinking": "", "signature": "EqoBCkgIBxABGAIiQL0aZ2VuZXJpYy1zaWduYXR1cmU="},
+                        {"type": "text", "text": text}],
+            "stop_reason": stop, "stop_sequence": None,
             "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens, "cache_creation_input_tokens": 0,
                       "cache_read_input_tokens": 0}}
 
 
+def replied(read: dict) -> dict:
+    """The reply a recorded read came in."""
+    return message(read["reply"], **read["tokens"])
+
+
 class Claude:
-    """Answers each request with the next recorded reply, or, given none, with what the stand-in's eye reads on the
-    picture the request carries. An answer that is an exception is raised."""
+    """Answers each request with the next answer it is given, or, given none, with what the stand-in's eye reads on
+    the picture the request carries, which no paid run read. An answer that is an exception is raised."""
 
     def __init__(self, *answers):
         self.answers = list(answers)
@@ -112,7 +129,7 @@ def a_frame(*rows: list[str]) -> frames.Frame:
 
 def test_the_request_sends_the_picture_as_png_before_a_prompt_that_holds_none_of_its_words_and_asks_for_json(reader):
     frame = a_frame(["Thanks"], ["One Espresso coming up."], ["Done"])
-    made, hosted = reader(recorded())
+    made, hosted = reader(replied(recorded(BOOKING)))
     made.see(frame, Purse())
     [request] = hosted.seen
     assert (request.get_method(), request.full_url) == ("POST", MESSAGES)
@@ -142,27 +159,39 @@ def objects(schema: dict) -> list[dict]:
 
 
 def test_the_reply_parses_into_a_read_with_every_line_its_box_the_controls_the_marks_and_each_chart(reader):
-    made, _ = reader(recorded())
-    seen = made.see(a_frame(["Sat 12"]), Purse())
+    made, _ = reader(replied(recorded(PROFILE)))
+    seen = made.see(a_frame(["Profile"]), Purse())
     assert seen.reader == "claude-opus-5-5"
-    assert seen.spots[:3] == (Spot("San Francisco to Seattle", Box(96, 48, 620, 56), False),
-                              Spot("Sat 12", Box(96, 140, 118, 118), True), Spot("$89", Box(120, 214, 60, 28), False))
-    assert [spot.text for spot in seen.spots] == ["San Francisco to Seattle", "Sat 12", "$89", "Sun 13", "$99",
-                                                  "Miles flown in 2026", "Jan", "Feb", "Mar", "Bonk now"]
-    assert [spot.text for spot in seen.spots if spot.control] == ["Sat 12", "Sun 13", "Bonk now"]
-    assert seen.marked == (Box(96, 140, 118, 118),)
-    assert seen.charts == (Chart("Miles flown in 2026", ("Jan", "Feb", "Mar"), (0.0, 2586.0, 5100.0)),)
+    assert seen.spots[:3] == (Spot("ra", Box(140, 0, 60, 40), False),
+                              Spot("Silver member, 48,250 miles", Box(536, 113, 235, 112), False),
+                              Spot("Miles flown in 2026", Box(71, 143, 209, 62), False))
+    assert [spot.text for spot in seen.spots] == [
+        "ra", "Silver member, 48,250 miles", "Miles flown in 2026", "Jan", "679", "6,530", "Jun", "Home", "Trips",
+        "Profile", "Jul", "11,326", "15,018", "Sep", "Nov", "Oct", "15,355", "15,355", "Oct", "15,355", "Nov"]
+    assert [spot.text for spot in seen.spots if spot.control] == ["Home", "Trips", "Profile"]
+    assert seen.marked == (Box(749, 268, 196, 147),)
+    assert seen.charts == (Chart("Miles flown in 2026", ("Oct", "15,355", "15,355", "Nov"),
+                                 (4697.0, 5270.0, 5805.0, 6530.0)),)
 
 
 def test_a_reply_without_a_chart_or_a_mark_is_an_empty_report_not_a_missing_one(reader):
-    text = json.dumps({"lines": [{"text": "Thanks", "box": {"x": 1, "y": 2, "w": 30, "h": 10}, "control": False,
-                                  "marked": False}], "charts": []})
-    made, _ = reader(message(text))
-    seen = made.see(a_frame(["Thanks"]), Purse())
-    assert (seen.spots, seen.marked, seen.charts) == ((Spot("Thanks", Box(1, 2, 30, 10), False),), (), ())
+    made, _ = reader(replied(recorded(BOOKING)))
+    seen = made.see(a_frame(["Book for $22"]), Purse())
+    assert (seen.spots[0], len(seen.spots), seen.marked, seen.charts) == (
+        Spot("Book for $22", Box(1000, 0, 280, 90), True), 5, (), ())
+
+
+@pytest.mark.parametrize("path", READS, ids=lambda path: path.name[:10])
+def test_each_reply_of_the_paid_run_reads_every_line_and_is_cached_as_the_paid_run_cached_it(reader, tmp_path, path):
+    read = json.loads(path.read_text())
+    made, _ = reader(replied(read))
+    assert len(made.see(a_frame(["Thanks"]), Purse()).spots) == len(json.loads(read["reply"])["lines"])
+    [looked] = (tmp_path / "tape" / "looks").iterdir()
+    assert json.loads(looked.read_text()) == read
 
 
 def test_a_box_past_the_pictures_edge_is_kept_within_it_and_an_empty_line_is_left_out(reader):
+    """Written by hand: no reply of the paid run put a box past its picture or gave a line with no words."""
     text = json.dumps({"lines": [{"text": " Done ", "box": {"x": 1270, "y": 700, "w": 30, "h": 10}, "control": True,
                                   "marked": False}, {"text": "  ", "box": {"x": 0, "y": 0, "w": 5, "h": 5},
                                                      "control": False, "marked": False}], "charts": []})
@@ -172,22 +201,19 @@ def test_a_box_past_the_pictures_edge_is_kept_within_it_and_an_empty_line_is_lef
 
 def test_a_read_is_cached_in_the_tape_by_the_pictures_hash_so_a_render_run_again_pays_nothing(reader, tmp_path):
     frame, other = a_frame(["Thanks"]), a_frame(["Done"])
-    made, hosted = reader(recorded(), message(json.dumps({"lines": [], "charts": []})))
+    made, hosted = reader(replied(recorded(PROFILE)), replied(recorded(BOOKING)))
     first = made.see(frame, Purse())
     assert made.see(frame, Purse()) == first and len(hosted.seen) == 1
     [cached] = list((tmp_path / "tape" / "looks").iterdir())
-    held = json.loads(cached.read_text())
-    assert (held["model"], held["tokens"], held["usd"]) == ("claude-opus-5-5", {"input_tokens": 1788, "output_tokens": 612},
-                                                            0.019392)
-    assert json.loads(held["reply"])["charts"][0]["title"] == "Miles flown in 2026"
-    assert made.see(other, Purse()).spots == () and len(hosted.seen) == 2
+    assert json.loads(cached.read_text()) == recorded(PROFILE)
+    assert len(made.see(other, Purse()).spots) == 5 and len(hosted.seen) == 2
     again, _ = reader()
     assert again.see(frame, Purse()) == first
 
 
 def test_a_paid_read_reserves_its_most_cost_before_it_is_sent_and_settles_its_bill_after(reader):
-    frame = a_frame(["Thanks"])
-    made, hosted = reader(recorded())
+    frame, profile = a_frame(["Thanks"]), recorded(PROFILE)
+    made, hosted = reader(replied(profile))
     purse = Purse()
     made.see(frame, purse)
     most = claude.estimate(1280, 704)
@@ -195,7 +221,7 @@ def test_a_paid_read_reserves_its_most_cost_before_it_is_sent_and_settles_its_bi
     assert (reserved, held, settled, released) == ("reserve", most, "settle", most)
     assert {key: line[key] for key in ("kind", "model", "request_id", "tokens", "usd")} == {
         "kind": "read", "model": "claude-opus-5-5", "request_id": "msg_01ClaudeRead000000000000",
-        "tokens": {"input_tokens": 1788, "output_tokens": 612}, "usd": 0.019392}
+        "tokens": profile["tokens"], "usd": profile["usd"]}
     assert line["at"].endswith("+00:00")
     assert made.see(frame, purse).spots and purse.calls[2:] == []
 
@@ -209,6 +235,13 @@ def test_the_most_a_read_costs_is_the_pictures_tokens_and_the_prompts_at_the_inp
     output = claude.MAX_TOKENS * 20.00 / 1_000_000
     assert 0 < claude.estimate(1280, 704) - (output + image) < 0.005
     assert 0.15 < claude.estimate(1280, 704) < 0.19
+
+
+def test_the_most_a_read_costs_covers_the_input_the_paid_run_was_billed_with_every_output_token_a_read_may_take():
+    """The paid screen test's reads are of 1280x720 pictures: their boxes reach x 1280 and y 720, and none passes."""
+    billed = {json.loads(path.read_text())["tokens"]["input_tokens"] for path in READS}
+    assert billed == {2191}
+    assert claude.price({"input_tokens": 2191, "output_tokens": claude.MAX_TOKENS}) <= claude.estimate(1280, 720)
 
 
 def test_every_model_but_the_stand_in_reads_with_qwen_and_claude_and_the_stand_in_with_its_own_reader():
@@ -255,7 +288,7 @@ def test_a_render_pays_for_each_keys_read_under_the_cap_and_writes_each_to_the_l
     assert sorted(line["shot"] for line in reads) == sorted(f"key {state}" for state in (
         "menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)"))
     assert all((line["tape"], line["seed"], line["model"], line["tokens"], line["usd"]) == (
-        "tapes/chalk", 1, "claude-opus-5-5", {"input_tokens": 1800, "output_tokens": 900}, 0.0252) for line in reads)
+        "tapes/chalk", 1, "claude-opus-5-5", {"input_tokens": 2191, "output_tokens": 900}, 0.026764) for line in reads)
     totals = ledger.of(directory, directory / "tapes" / "chalk").totals()
     assert (totals["takes"], totals["reads"], totals["usd"]) == (11, 5, 0.13)
     record = dailies.read(directory / "tapes" / "chalk")
@@ -305,23 +338,25 @@ def test_a_key_an_http_header_cannot_carry_is_vt104_too(tmp_path, cli, capsys, m
 
 def test_a_reply_that_is_not_whole_stops_the_render_and_its_cost_still_reaches_the_ledger(tmp_path, cli, capsys,
                                                                                           monkeypatch, read_by_claude):
+    """Written by hand: no read of the paid run was cut short."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
     read_by_claude.answers.append(message('{"lines": [', stop="max_tokens", output_tokens=8192))
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "render", "--story", "chalk", "--takes", "1", "--cap-usd", "2") == 1
     assert re.fullmatch(r"error VT401 key .+ take 1: claude-opus-5-5's read stopped with 'max_tokens' after 11 "
-                        r"characters, not a whole read; it cost \$0\.1710\nnext: run the render again, which resumes and "
+                        r"characters, not a whole read; it cost \$0\.1726\nnext: run the render again, which resumes and "
                         r"reads this take again:\nvideotape render --story chalk --takes 1 --cap-usd 2\.00\n",
                         capsys.readouterr().err)
     reads = [json.loads(line) for line in (directory / "ledger.jsonl").read_text().splitlines() if '"read"' in line]
     [line] = [line for line in reads if line["tokens"]["output_tokens"] == 8192]
-    assert line["usd"] == 0.17104
+    assert line["usd"] == 0.172604
     # The reads that came back whole are cached; the one cut short is not, so the next render asks again.
     assert len(list((directory / "tapes" / "chalk" / "looks").iterdir())) == len(reads) - 1
 
 
 def test_the_key_never_appears_in_an_error_and_a_refused_request_is_not_in_the_ledger(tmp_path, cli, capsys, monkeypatch,
                                                                                       read_by_claude):
+    """Written by hand: no read of the paid run failed."""
     monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
     refused = urllib.error.HTTPError(MESSAGES, 401, "Unauthorized", {},
                                      io.BytesIO(f'{{"error": {{"message": "invalid x-api-key {KEY}"}}}}'.encode()))
