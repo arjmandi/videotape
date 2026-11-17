@@ -157,6 +157,7 @@ def render_args(case: Case, cap: str = "20") -> tuple[str, ...]:
 def test_a_key_a_move_and_a_key_from_a_picture_send_fal_the_models_own_fields(case, tmp_path):
     fal = Queue(case.name, tmp_path, (64, 36))
     model = OnFal(MODELS[case.name].kind, Fal(KEY, send=fal, sleep=lambda _: None))
+    assert model.modes == set(Mode)
     start, end = png(tmp_path / "start.png", "red"), png(tmp_path / "end.png", "blue")
     (tmp_path / "takes").mkdir()
     model.text_to_video("a key", 1, tmp_path / "takes" / "key.partial.mp4")

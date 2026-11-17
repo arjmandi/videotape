@@ -14,7 +14,7 @@ import videotape as vt
 from conftest import as_explained, contrail_copy, copy_of, planned, told, words
 from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
-from videotape.errors import ModelError, RenderError
+from videotape.errors import ModelError, RenderError, ScreenplayError
 from videotape.fal import Price, Receipt
 from videotape.ledger import Ledger
 from videotape.made import made
@@ -368,6 +368,28 @@ def test_a_key_drawn_from_another_keys_picture_films_from_that_picture_and_names
     frames.write_png(frames.first_frame(filmed.kept.path), bases / "other.png")
     [again] = rendered((variant,), tape, images={base.state: bases / "other.png"}).keys
     assert len(model.calls) == 3 and again.kept.path != filmed.kept.path
+
+
+class Textual(StandIn):
+    """A model without the first-frame mode, as wan2.2-5b is."""
+
+    modes = frozenset({Mode.TEXT_TO_VIDEO, Mode.FIRST_AND_LAST_FRAME})
+
+
+def test_a_plan_with_a_key_drawn_from_a_picture_refuses_a_model_without_the_mode_before_its_first_call(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    full, chalk = planned(directory), told(directory)
+    espresso, latte = full.keys[1], full.keys[2]
+    keys = (espresso, FromKey(latte.id, latte.state, latte.shown, espresso.state))
+    model = Textual(flaw=clean)
+    with pytest.raises(ScreenplayError) as refused:
+        render(Plan(full.title, full.scenes, keys, (), ()), chalk, model, [StandInEye()], directory / TAPE,
+               ledger.of(directory, directory / TAPE), made(project.find(directory), chalk, model), takes=1)
+    assert (refused.value.code, refused.value.place) == ("VT111", "stand-in")
+    assert refused.value.message == ("films no key from another key's picture, and 1 key of the plan is drawn from "
+                                     "the base's picture")
+    assert "--model gemini-omni-flash-1.2" in refused.value.fix
+    assert model.calls == [] and not (directory / TAPE).exists() and not (directory / "ledger.jsonl").exists()
 
 
 def test_a_move_keeps_the_take_whose_frames_sit_closest_to_its_keys(first):

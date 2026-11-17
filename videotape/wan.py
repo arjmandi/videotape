@@ -123,6 +123,7 @@ class Wan:
 
     name = "wan2.2-5b"
     price = None
+    modes = frozenset({Mode.TEXT_TO_VIDEO, Mode.FIRST_AND_LAST_FRAME})
 
     def __init__(self):
         if find_spec("torch") is None or find_spec("diffusers") is None:

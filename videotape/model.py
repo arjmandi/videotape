@@ -31,6 +31,8 @@ class Model(Kind, Protocol):
     device: str
     # Set for a model that bills per call, so a render can say what it will spend before it spends it.
     price: Price | None
+    modes: frozenset[Mode]
+    """The modes the model films, so a render refuses a plan with a shot of another mode before its first call."""
 
     # A model that bills per call returns its receipt. A model on a GPU that bills by the hour returns None.
     def text_to_video(self, prompt: str, seed: int, out: Path) -> Receipt | None: ...

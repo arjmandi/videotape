@@ -90,6 +90,7 @@ def test_wan_on_a_machine_without_cuda_says_so_before_rendering(tmp_path, cli, c
 
 
 def test_wan_films_no_key_from_a_start_picture_and_names_a_model_on_fal_that_does(tmp_path):
+    assert wan.Wan.modes == {Mode.TEXT_TO_VIDEO, Mode.FIRST_AND_LAST_FRAME}
     with pytest.raises(ModelError) as refused:
         wan.Wan.__new__(wan.Wan).first_frame("a key", tmp_path / "start.png", 1, tmp_path / "take.mp4")
     assert refused.value.code == "VT111" and "--model gemini-omni-flash-1.2" in refused.value.fix

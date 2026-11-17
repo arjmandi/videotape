@@ -87,6 +87,7 @@ class StandIn:
     name = "stand-in"
     device = "cpu"
     price = None
+    modes = frozenset(Mode)
 
     def __init__(self, flaw: Callable[[Mode, str, int], Flaw] | None = None):
         self.flaw = flaw

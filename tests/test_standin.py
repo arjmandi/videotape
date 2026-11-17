@@ -72,6 +72,7 @@ def test_a_key_drawn_from_a_start_picture_opens_on_it_ends_on_the_prompts_lines_
     base, key = contrail_key("flight(CT 500, 2026-12-11)"), contrail_key("flight(CT 104, 2026-12-12)")
     terminal = told(CONTRAIL, "terminal")
     model = StandIn(flaw=clean)
+    assert model.modes == set(Mode)
     model.text_to_video(words(base, terminal), 1, tmp_path / "base.mp4")
     frames.write_png(frames.last_frame(tmp_path / "base.mp4"), tmp_path / "base.png")
     model.first_frame(words(key, terminal), tmp_path / "base.png", 1, tmp_path / "take.mp4")

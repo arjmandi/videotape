@@ -153,7 +153,7 @@ class OnFal:
 
     def __init__(self, model: FalModel, fal: Fal):
         self.model, self.fal = model, fal
-        self.name, self.price = model.name, model.price
+        self.name, self.price, self.modes = model.name, model.price, frozenset(model.endpoints)
 
     def settings(self, mode: Mode) -> dict:
         return self.model.settings(mode)

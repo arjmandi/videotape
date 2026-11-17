@@ -19,13 +19,13 @@ from pathlib import Path
 from videotape import dailies, frames
 from videotape.checks import Checks, Failure, KeyChecks, Reader, score, seams
 from videotape.dailies import Carried
-from videotape.errors import ModelError, RenderError, shown
+from videotape.errors import ModelError, RenderError, ScreenplayError, shown
 from videotape.fal import Price, Receipt
 from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.hosted import RecordedFailure, request_record
 from videotape.ledger import Ledger, now
 from videotape.model import Model
-from videotape.plan import FromKey, Key, Move, Plan, Shot
+from videotape.plan import FromKey, Key, Mode, Move, Plan, Shot
 from videotape.atomic import partial, write_atomically
 from videotape.screenplay import State
 from videotape.story import Prompt, Story, prompt, text
@@ -230,6 +230,12 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     some keys alone, as a screen test films, gives a tape whose scenes have no hotspots. images holds the key
     pictures of states outside the plan that a FromKey of the plan starts from."""
     started = time.perf_counter()
+    variants = sum(key.mode is Mode.FIRST_FRAME for key in plan.keys)
+    if variants and Mode.FIRST_FRAME not in model.modes:
+        raise ScreenplayError("VT111", model.name, f"films no key from another key's picture, and {variants} key"
+                              f"{'' if variants == 1 else 's'} of the plan {'is' if variants == 1 else 'are'} drawn "
+                              "from the base's picture", "render with a model on fal, whose image-to-video takes one "
+                              "picture, as in --model gemini-omni-flash-1.2, or with the stand-in")
     billed = [*([model.name] if price else []), *(reader.name for reader in readers if reader.paid)]
     if billed and cap is None:
         raise RenderError("VT402", "before the first call", f"{' and '.join(billed)} bill{'s' if len(billed) == 1 else ''}"

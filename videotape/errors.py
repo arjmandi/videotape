@@ -117,11 +117,13 @@ CODES: dict[str, Code] = {
         "videotape render --story starter --model stand-in",
     ),
     "VT111": Code(
-        "this machine cannot run wan2.2-5b",
+        "wan2.2-5b cannot run here, or cannot draw this plan",
         "wan2.2-5b runs Wan 2.2 5B here, not as a service: through videotape's wan extra, on one CUDA GPU with about "
         "80 GB, such as an H100. A Mac has no CUDA GPU. scripts/runpod-render rents one on Runpod, installs the extra "
         "there and renders the tape on it. wan3.0 runs Wan 3.0 on fal and needs only its API key, and the stand-in "
-        "runs anywhere. The render stops before its first take.",
+        "runs anywhere. wan2.2-5b also films no key from another key's picture, and a render draws the key of every "
+        "variant, a state of a scene after its base, from the base's picture, so a plan with a variant renders with a "
+        "model on fal or with the stand-in, which film one. Either way the render stops before its first take.",
         "error VT111 wan2.2-5b: needs videotape's wan extra, which is not installed here",
         "fix: render with wan2.2-5b on a CUDA GPU with about 80 GB, as scripts/runpod-render does, or with another "
         "model, as in videotape render --story starter --model stand-in",
