@@ -12,7 +12,7 @@ A story is one look of an app. It is `stories/<name>.toml` in the project, named
 - `stories-made` writes the `made` block and the label into `tape.json`.
 - `stories-diff` says `same app` and `another story` for Contrail's two tapes, with 58 states and 102 moves shared.
 - `stories-cascade` re-renders one scene's keys and the moves that touch them after that scene's direction changes, and nothing else.
-- `stories-rerender` counts on Contrail what a change to a direction, an appearance, the look or one fare renders again, proven by `uv run pytest tests/test_rerender.py`.
+- `stories-rerender` counts on Contrail what a change to a direction, an appearance, the look, one fare, or one fare that three scenes' bases show renders again, proven by `uv run pytest tests/test_rerender.py`: a key films again when its prompt changes or when it is a variant of a base that films again, and a move when its prompt changes or a key it touches films again.
 
 ## How to get to it (user POV)
 
@@ -30,7 +30,7 @@ Preconditions:
 
 - **One state.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-shots-state examples/contrail -- shots --story posters --state "results(SEA, 2026-12-12)"`. `.exit` is `0`, `.stderr` is empty, and `.stdout` is exactly:
   ```
-  key results(SEA, 2026-12-12)
+  key results(SEA, 2026-12-12) from results(HNL, 2026-12-11)
     engine                         Static shot.
     story look                     A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat shapes, a few bold colors (teal, coral, mustard, and cream), paper grain, and bold geometric sans-serif letters. The camera faces the wall straight on.
     story scenes.results           A poster of a printed timetable under a city skyline.
@@ -78,9 +78,9 @@ Preconditions:
   ```
   1. key menu()  kept take 2, passed, cached, $0.00
   2. key order(Espresso)  kept take 3, passed, 3 takes filmed, $0.00
-  3. key order(Latte)  kept take 1, passed, 1 take filmed, $0.00
+  3. key order(Latte) from order(Espresso)  kept take 1, passed, 1 take filmed, $0.00
   4. key thanks(Espresso)  kept take 2, passed, cached, $0.00
-  5. key thanks(Latte)  kept take 1, passed, cached, $0.00
+  5. key thanks(Latte) from thanks(Espresso)  kept take 1, passed, cached, $0.00
   6. menu() -> order(Espresso) "Espresso, $3"  kept take 3, passed, 3 takes filmed, $0.00
   7. menu() -> order(Latte) "Latte, $5"  kept take 1, passed, 1 take filmed, $0.00
   8. order(Espresso) -> thanks(Espresso) "Order"  kept take 2, passed, 2 takes filmed, $0.00
@@ -89,7 +89,7 @@ Preconditions:
   11. thanks(Latte) -> menu() "Done"  kept take 1, passed, cached, $0.00
   ```
   The two keys of the order scene film again, and so do the four moves that start or land on them, though no move's prompt changed. The last line starts `11 shots, 12 takes filmed, $0.00, `. `$RUN/stories-cascade.project/chalk.toml` shows the edited line.
-- **What renders again.** Run `uv run pytest tests/test_rerender.py -v`. All 8 tests pass. It took 1 minute 49 seconds on 2026-11-15, with each render filming its shots at once. The module renders Contrail once in `terminal` with one take per shot, makes each change in a copy of that render, and renders again. The results scene's direction films its 9 keys and the 45 moves that touch them. The DatePicker's appearance films the 3 keys that show one and 12 moves. The look films all 58 keys and 102 moves. One fare in `data/flights.json` films the 5 keys that show it and 17 moves.
+- **What renders again.** Run `uv run pytest tests/test_rerender.py -v`. All 10 tests pass. It took 1 minute 55 seconds on 2026-11-17, with each render filming its shots at once. The module renders Contrail once in `terminal` with one take per shot, makes each change in a copy of that render, and renders again. The results scene's direction films its 9 keys and the 45 moves that touch them. The DatePicker's appearance films the 3 keys that show one and 12 moves. The look films all 58 keys and 102 moves. One fare in `data/flights.json` films the 5 keys that show it and 17 moves.
 - **Proof.** For each journey cite `.cmd`, `.exit` and the asserted `.stdout` or `.stderr` lines. Also cite the empty `diff` for `stories-words`, the `shasum` line for `stories-made`, and the `.project/chalk.toml` copy for `stories-cascade`.
 
 ## Gotchas

@@ -76,3 +76,4 @@ Preconditions:
 - A check names the element type it judges, not which element of that type, so the report places each check on an element by what it is about, as the script's `judged` says. VT503 judges the whole key and no element.
 - The report keeps a person's ticks in the browser's storage; `marks.json` is what the script reads. A bad `marks.json` is an argument error, exit 2, as a bad flag of videotape's is.
 - The report never names an absolute path, so a copy of the project rebuilds the same page.
+- The screen test films each sampled key from its own prompt, text to video, as the paid run did, whatever the plan draws its state from: four of the eight states are variants in the plan, which a render draws from their base's picture. So the paid run's takes stay cached, and `tests/test_screen_test.py -k sampler` holds the sampled keys to that.
