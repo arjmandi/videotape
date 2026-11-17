@@ -4,6 +4,7 @@ given, so no test loads a model or sends a request."""
 
 import dataclasses
 import json
+import time
 from dataclasses import replace
 from datetime import date
 
@@ -12,7 +13,7 @@ import pytest
 import videotape as vt
 from conftest import CONTRAIL, a_story, copy_of, planned, words
 from videotape import dailies, standin
-from videotape.checks import Chart, Free, Read, Spot, score
+from videotape.checks import Chart, Free, Read, Spot, readings, score
 from videotape.frames import Box
 from videotape.model import MODELS, Listing
 from videotape.plan import Key, plan
@@ -188,13 +189,15 @@ def test_an_options_label_on_a_day_with_no_option_fails_vt502_as_the_date_picker
     picked = key_of(vt.Text("Picked"))
     key = key_of(vt.DatePicker({date(2026, 12, 5): vt.Option("$219", to=picked.state),
                                 date(2026, 12, 12): vt.Option("$1,019", to=picked.state)}))
-    seen = Read("stand-in", spots("December 2026", "5", "$219", "12", "$1,019", "$240", "19", "Book",
-                                  controls=("5", "12", "$240", "19", "Book")))
+    row = [("5", 24), ("$219", 60), ("12", 180), ("$1,019", 240), ("19", 420), ("$240", 480)]
+    seen = Read("stand-in", (Spot("December 2026", Box(24, 24, 243, 33), False),
+                             *(Spot(text, Box(x, 66, 27 * len(text), 33), text != "$219" and text != "$1,019")
+                               for text, x in row), Spot("Book", Box(24, 300, 120, 33), True)))
     checks = score(key, [seen])
     assert failed(checks) == [("VT502", "$240"), ("VT503", "Book")]
     [stray, *_] = checks.failures
-    assert (stray.result, stray.element, stray.box) == ('a day with no option shows "$240" at 0,200 100x33', "DatePicker",
-                                                        seen.spots[5].box)
+    assert (stray.result, stray.element, stray.box) == ('a day with no option shows "$240" at 480,66 108x33',
+                                                        "DatePicker", seen.spots[6].box)
     assert checks.rank(1)[1] == 1
 
 
@@ -403,3 +406,38 @@ def test_a_day_drawn_twice_is_misread_as_both_of_its_readings():
                             Spot("Sat 12\n$89", Box(580, 250, 180, 140), True)))
     assert [(item.code, item.about, item.result) for item in score(key, [seen]).failures] == [
         ("VT502", "Fri 11", 'read "Fri 11 / Fri 11", CER 1.500'), ("VT502", "$99", 'read "$99 / $99", CER 2.000')]
+
+
+DRAWN = {11: "$199", 12: "$179", 13: "$229"}
+
+
+@pytest.mark.parametrize("element, spot", [
+    (vt.Heading("2"), Spot("2", Box(60, 10, 40, 20), False)),
+    (vt.Text("$89"), Spot("$89", Box(120, 326, 40, 20), False)),
+], ids=["a number above it", "a fare below it"])
+def test_text_near_a_calendar_is_read_as_its_own_line(element, spot):
+    checks = score(jfk_beside(element), [Read("made-up", (*month(DRAWN), spot))])
+    assert checks.passed, failed(checks)
+
+
+def test_a_number_beside_a_calendars_row_is_an_invented_control():
+    seen = Read("made-up", (*month(DRAWN), Spot("7", Box(420, 100, 40, 20), True)))
+    assert failed(score(jfk(), [seen])) == [("VT503", "7")]
+
+
+def test_a_month_whose_rows_are_far_apart_is_read_whole():
+    stretched = tuple(replace(spot, box=replace(spot.box, y=spot.box.y + 60 * ((spot.box.y - 40) // 60)))
+                      for spot in month(DRAWN))
+    checks = score(jfk(), [Read("made-up", stretched)])
+    assert checks.passed, failed(checks)
+    assert checks.invented == ()
+
+
+def test_lines_of_the_same_words_read_in_two_spots_each_are_paired_quickly_however_many():
+    rows = [(Spot("2h 10m,", Box(0, 40 * row, 80, 30), False), Spot("Nonstop", Box(90, 40 * row, 80, 30), False))
+            for row in range(9)]
+    others = [Spot(f"x{number}", Box(600, 40 * number, 40, 30), False) for number in range(22)]
+    started = time.perf_counter()
+    paired = readings("made-up", ["2h 10m, Nonstop"] * 10, [spot for row in rows for spot in row] + others)
+    assert time.perf_counter() - started < 1
+    assert sum(seen.cer == 0 for seen, _ in paired) == 9

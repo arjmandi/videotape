@@ -33,7 +33,7 @@ lettering, so for it they stay in VT502."""
 from __future__ import annotations
 
 import re
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, Protocol
@@ -49,6 +49,8 @@ FIND_MAX_CER = 0.2
 VALUE_TOLERANCE = 0.1
 """How far a chart's value may sit from the data, as a fraction of the data's value."""
 CHOICES = ("option", "day", "tab")
+SEARCH = 20_000
+"""The most steps the search for the joins that read the most lines takes before it keeps the best it found."""
 """The action kinds of lines a person chooses among, of which the one that leads to its own state is drawn marked."""
 
 
@@ -408,7 +410,8 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
                for row in at.element.rows for cell in row if len(cell) == 2
                for part, line in (("day", cell[0]), ("label", cell[1])) if line is at.line}
     labels = {_shape(placed[index].line.words) for index, (_, part) in options.items() if part == "label"}
-    days = next((DAYS[at.element.type] for index, at in enumerate(placed) if index in options), DAYS["DatePicker"])
+    kind = next((at.element.type for index, at in enumerate(placed) if index in options), "DatePicker")
+    days = DAYS[kind]
     reads = [_apart(one, labels, days) for one in reads]
     seen: dict[str, dict[int, Seen]] = {}
     sources: dict[str, dict[int, tuple[Spot, ...]]] = {}
@@ -416,7 +419,7 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
     for one in reads:
         seen[one.reader], sources[one.reader] = {}, {}
         if options:
-            calendar = calendars[one.reader] = Calendar.of(one.spots, labels, days)
+            calendar = calendars[one.reader] = Calendar.of(one.spots, labels, days, kind == "DateStrip")
             for index, (day, part) in options.items():
                 spots = calendar.days(day) if part == "day" else calendar.labels(day)
                 read = " / ".join(spot.text for spot in spots)
@@ -475,7 +478,7 @@ def readings(reader: str, lines: Sequence[str], spots: Sequence[Spot]) -> tuple[
     joins = _joins(left)
     choices = {index: [pair for pair in joins if _joined(pair).text == line] for index, line in enumerate(lines)
                if index not in paired}
-    for index, pair in _most({index: pairs for index, pairs in choices.items() if pairs}).items():
+    for index, pair in _most({index: pairs for index, pairs in choices.items() if pairs}, lines).items():
         left.remove(pair[0]), left.remove(pair[1])
         paired[index] = Seen(reader, lines[index], 0.0, _joined(pair).box), pair
     for index, line in enumerate(lines):
@@ -510,25 +513,50 @@ def _joins(spots: Sequence[Spot]) -> list[tuple[Spot, Spot]]:
             and (_beside(a.box, b.box) or under(a.box, b.box))]
 
 
-def _most(choices: dict[int, list[tuple[Spot, Spot]]]) -> dict[int, tuple[Spot, Spot]]:
-    """For each line, one of the joins that read it, so that the most lines are read and no spot is read twice."""
-    order = sorted(choices, key=lambda index: len(choices[index]))
-    best: dict[int, tuple[Spot, Spot]] = {}
+def _most(choices: dict[int, list[tuple[Spot, Spot]]], lines: Sequence[str]) -> dict[int, tuple[Spot, Spot]]:
+    """For each line, one of the joins that read it, so that the most lines are read and no spot is read twice. Lines
+    of the same words are interchangeable, so they take their joins in one order and the first ones read, which keeps
+    the search to the choices that differ; past SEARCH steps it keeps the best found."""
+    groups: dict[str, list[int]] = {}
+    for index in sorted(choices):
+        groups.setdefault(lines[index], []).append(index)
+    order = [(indexes, choices[indexes[0]]) for indexes in groups.values()]
+    best: list[tuple[int, int]] = []
+    steps = 0
 
-    def walk(at: int, taken: frozenset[Spot], chosen: dict[int, tuple[Spot, Spot]]) -> None:
-        nonlocal best
-        if len(chosen) + len(order) - at <= len(best):
+    def reachable(at: int, start: int, left: int, taken: frozenset[Spot]) -> int:
+        def free(pairs: list[tuple[Spot, Spot]], first: int) -> int:
+            return sum(not taken & set(pair) for pair in pairs[first:])
+        if at == len(order):
+            return 0
+        return (min(left, free(order[at][1], start)) +
+                sum(min(len(indexes), free(pairs, 0)) for indexes, pairs in order[at + 1:]))
+
+    def walk(at: int, start: int, left: int, taken: frozenset[Spot], chosen: list[tuple[int, int]]) -> None:
+        nonlocal best, steps
+        steps += 1
+        if steps > SEARCH or len(chosen) + reachable(at, start, left, taken) <= len(best):
             return
         if at == len(order):
-            best = dict(chosen)
+            best = list(chosen)
             return
-        for pair in choices[order[at]]:
-            if not taken & set(pair):
-                walk(at + 1, taken | set(pair), {**chosen, order[at]: pair})
-        walk(at + 1, taken, chosen)
+        indexes, pairs = order[at]
+        if left:
+            for k in range(start, len(pairs)):
+                if not taken & set(pairs[k]):
+                    walk(at, k + 1, left - 1, taken | set(pairs[k]), [*chosen, (at, k)])
+        if at + 1 < len(order):
+            walk(at + 1, 0, len(order[at + 1][0]), taken, chosen)
+        else:
+            walk(at + 1, 0, 0, taken, chosen)
 
-    walk(0, frozenset(), {})
-    return best
+    if order:
+        walk(0, 0, len(order[0][0]), frozenset(), [])
+    read: dict[int, tuple[Spot, Spot]] = {}
+    for at, k in best:
+        indexes, pairs = order[at]
+        read[next(index for index in indexes if index not in read)] = pairs[k]
+    return read
 
 
 def _beside(a: Box, b: Box) -> bool:
@@ -570,37 +598,39 @@ DAYS = {"DatePicker": r"(?:[1-9]|[12]\d|3[01])", "DateStrip": r"[A-Z][a-z]{2} (?
 
 @dataclass(frozen=True)
 class Calendar:
-    """A DatePicker or a DateStrip as one reader saw it: the grid of its cells, which is the largest group of days and
-    labels read near each other, the label drawn on each day, and the labels of the grid on no day. A label is drawn
-    on the day it is read under, within the day's cell, beside, or with it as one spot. No other line is read from
-    the grid's days and the labels on them. A label of the grid on no day, which may be another element's, and days
-    and labels away from the grid are other text."""
+    """A DatePicker or a DateStrip as one reader saw it: the days of its grid, the label drawn on each, and the labels
+    within the grid on no day. A month's day is of the grid when it shares a row and a column with other days, or its
+    row alone when the grid is one row, so a number drawn beside the grid, above it or below it is other text. A
+    strip's days, a weekday and a day, are its grid wherever they are read, as a strip seen at an angle steps down. A label is drawn on a day of the grid when it is read with it as one spot,
+    just right of it, or close under it. No other line is read from the grid's days and the labels on them."""
 
     numbers: tuple[Spot, ...]
     drawn: tuple[tuple[Spot, Spot], ...]
     loose: tuple[Spot, ...]
 
     @classmethod
-    def of(cls, spots: Sequence[Spot], labels: set[str], days: str) -> Calendar:
-        def day(text: str) -> bool:
-            return bool(re.fullmatch(days, text))
-
-        cells = [spot for spot in spots if day(spot.text) or _shape(spot.text) in labels]
-        groups: list[list[Spot]] = []
-        for cell in cells:
-            near = [group for group in groups if any(_near(cell.box, other.box) for other in group)]
-            groups = [group for group in groups if group not in near] + [[cell, *(one for group in near for one in group)]]
-        grid = max(groups, key=lambda group: sum(day(one.text) for one in group), default=[])
-        numbers = tuple(one for one in cells if one in grid and day(one.text))
+    def of(cls, spots: Sequence[Spot], labels: set[str], days: str, strip: bool) -> Calendar:
+        found = [spot for spot in spots if re.fullmatch(days, spot.text)]
+        rows = [row for row in _clusters(found, lambda a, b: abs(_cy(a) - _cy(b)) <= max(a.h, b.h) / 2) if len(row) > 1]
+        if strip:
+            grid = found
+        elif len(rows) == 1:
+            grid = rows[0]
+        else:
+            gridded = [spot for row in rows for spot in row]
+            columns = _clusters(gridded, lambda a, b: abs(_cx(a) - _cx(b)) <= max(a.w, b.w) / 2)
+            grid = [spot for column in columns if len(column) > 1 for spot in column]
+        numbers = tuple(spot for spot in found if spot in grid)
         drawn: dict[Spot, Spot] = {}
-        loose = []
-        for label in (one for one in cells if one in grid and not day(one.text)):
+        named = [spot for spot in spots if _shape(spot.text) in labels]
+        for label in named:
             under = [day for day in numbers if day not in drawn and _on(label.box, day.box)]
             if under:
                 drawn[min(under, key=lambda day: _distance(label.box, day.box))] = label
-            else:
-                loose.append(label)
-        return cls(numbers, tuple((day, drawn[day]) for day in numbers if day in drawn), tuple(loose))
+        inside = _bounds([*(day.box for day in numbers), *(label.box for label in drawn.values())])
+        loose = tuple(label for label in named if label not in drawn.values() and inside
+                      and inside.x <= _cx(label.box) <= inside.x + inside.w and inside.y <= _cy(label.box) <= inside.y + inside.h)
+        return cls(numbers, tuple((day, drawn[day]) for day in numbers if day in drawn), loose)
 
     def days(self, day: str) -> tuple[Spot, ...]:
         """Each cell of the grid that reads the day: one when the day is drawn right, and more when it is drawn
@@ -618,27 +648,43 @@ class Calendar:
         return (*self.numbers, *(label for _, label in self.drawn))
 
     def strays(self, used: set[Spot]) -> list[Spot]:
-        """The grid's labels that no line was read from: on a day without an option, or on no day."""
+        """The grid's labels that no line was read from: on a day without an option, or within the grid on no day."""
         return [label for label in (*(label for _, label in self.drawn), *self.loose) if label not in used]
 
 
-def _near(a: Box, b: Box) -> bool:
-    """Whether two boxes are close enough to be cells of one grid: apart by no more than two and a half of the taller
-    one's height, across and down."""
-    reach = 2.5 * max(a.h, b.h)
-    return (max(a.x, b.x) - min(a.x + a.w, b.x + b.w) <= reach and
-            max(a.y, b.y) - min(a.y + a.h, b.y + b.h) <= reach)
+def _clusters(spots: Sequence[Spot], linked: Callable[[Box, Box], bool]) -> list[list[Spot]]:
+    """The spots in groups, each spot with every spot it is linked to, and so on through them."""
+    groups: list[list[Spot]] = []
+    for spot in spots:
+        near = [group for group in groups if any(linked(spot.box, other.box) for other in group)]
+        groups = [group for group in groups if group not in near] + [[*(one for group in near for one in group), spot]]
+    return groups
+
+
+def _cx(box: Box) -> float:
+    return box.x + box.w / 2
+
+
+def _cy(box: Box) -> float:
+    return box.y + box.h / 2
+
+
+def _bounds(boxes: Sequence[Box]) -> Box | None:
+    if not boxes:
+        return None
+    x, y = min(box.x for box in boxes), min(box.y for box in boxes)
+    return Box(x, y, max(box.x + box.w for box in boxes) - x, max(box.y + box.h for box in boxes) - y)
 
 
 def _on(label: Box, day: Box) -> bool:
     """Whether a label sits in the day's cell: read with the day as one spot, just right of it, or under it, the
-    narrower of the two centred across within the wider."""
+    narrower of the two centred across within the wider and its middle no lower than two of the taller's heights."""
     if label == day or _beside(day, label):
         return True
     narrow, wide = sorted((label, day), key=lambda box: box.w)
     across = wide.x <= narrow.x + narrow.w / 2 <= wide.x + wide.w
     down = (label.y + label.h / 2) - (day.y + day.h / 2)
-    return across and 0 < down <= 3 * max(label.h, day.h)
+    return across and 0 < down <= 2 * max(label.h, day.h)
 
 
 def _distance(label: Box, day: Box) -> float:
