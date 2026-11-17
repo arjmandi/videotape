@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CONTRAIL, copy_of, planned, told
-from videotape import ledger, project, wan3
+from conftest import CONTRAIL, contrail_copy, copy_of, planned, told
+from videotape import hosted, ledger, new, project
 from videotape.errors import PACKAGE
 from videotape.fal import Fal
 from videotape.made import made
@@ -17,11 +17,6 @@ from videotape.render import render
 from videotape.standin import Flaw, StandIn, StandInEye
 
 HASH = re.compile(r"[0-9a-f]{64}")
-
-
-def contrail(to: Path) -> Path:
-    return Path(shutil.copytree(CONTRAIL, to / "contrail", ignore=shutil.ignore_patterns(
-        ".venv", "tape*", "ledger.jsonl", "__pycache__")))
 
 
 def block(directory: Path, story: str = "terminal", model=None) -> dict:
@@ -42,13 +37,13 @@ def test_a_tapes_made_block_names_the_app_the_story_the_model_and_the_engine_and
 
 
 def test_the_same_everything_has_one_id_wherever_the_project_is(tmp_path):
-    assert block(contrail(tmp_path)) == block(CONTRAIL)
+    assert block(contrail_copy(tmp_path / "contrail")) == block(CONTRAIL)
 
 
 def test_each_listed_models_class_gives_the_made_block_its_built_model_does_without_a_key(monkeypatch):
     monkeypatch.delenv("FAL_KEY", raising=False)
     found, terminal = project.find(CONTRAIL), told(CONTRAIL, "terminal")
-    assert made(found, terminal, MODELS["wan3.0"].kind) == made(found, terminal, wan3.Wan3(Fal("a key")))
+    assert made(found, terminal, MODELS["wan3.0"].kind) == made(found, terminal, hosted.OnFal(hosted.WAN3, Fal("a key")))
     assert made(found, terminal, MODELS["stand-in"].kind) == made(found, terminal, StandIn())
     assert {name: made(found, terminal, listing.kind)["model"]["name"] for name, listing in MODELS.items()} == \
         {name: name for name in MODELS}
@@ -68,7 +63,7 @@ def changed(directory: Path, after: dict) -> set[str]:
 
 
 def test_the_id_changes_with_the_code_the_data_the_story_and_the_models_settings_each_by_its_own_hash(tmp_path):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     copy_py = directory / "contrail" / "copy.py"
     copy_py.write_text(copy_py.read_text() + "\n# a comment\n")
     assert changed(directory, block(directory)) == {"app.code", "id"}
@@ -77,14 +72,14 @@ def test_the_id_changes_with_the_code_the_data_the_story_and_the_models_settings
     (directory / "contrail" / "words.py").rename(copy_py)
     assert renamed["app"]["code"] != block(directory)["app"]["code"]
 
-    directory = contrail(tmp_path / "data")
+    directory = contrail_copy(tmp_path / "data" / "contrail")
     (directory / "data" / ".DS_Store").write_bytes(b"left by a file browser")
     assert changed(directory, block(directory)) == set()
     flights = directory / "data" / "flights.json"
     flights.write_text(flights.read_text().replace('"fare": 89,', '"fare": 91,'))
     assert changed(directory, block(directory)) == {"app.data", "id"}
 
-    directory = contrail(tmp_path / "story")
+    directory = contrail_copy(tmp_path / "story" / "contrail")
     story = directory / "stories" / "terminal.toml"
     story.write_text(story.read_text().replace("low golden sun", "a low red sun"))
     assert changed(directory, block(directory)) == {"story", "id"}
@@ -93,7 +88,7 @@ def test_the_id_changes_with_the_code_the_data_the_story_and_the_models_settings
 
 
 def test_the_id_changes_with_the_screenplay_the_project_names_from_one_package(tmp_path):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     (directory / "contrail" / "again.py").write_text("from contrail.screenplay import app\n")
     before = block(directory)
     pyproject = directory / "pyproject.toml"
@@ -122,7 +117,7 @@ def cafe(tmp_path_factory) -> Path:
     directory = copy_of("cafe", tmp_path_factory.mktemp("made"))
     found, chalk, model = project.find(directory), told(directory), StandIn(flaw=clean)
     tape = directory / "tapes" / "chalk"
-    render(planned(directory), chalk, model, StandInEye(), tape, ledger.of(directory, tape), made(found, chalk, model),
+    render(planned(directory), chalk, model, [StandInEye()], tape, ledger.of(directory, tape), made(found, chalk, model),
            takes=1)
     return directory
 
@@ -138,7 +133,7 @@ def test_tape_json_carries_the_made_block_beside_what_the_player_reads(cafe):
 def test_the_cli_writes_the_made_block_of_the_model_it_rendered_with(cafe, tmp_path, cli, monkeypatch):
     directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
     tuned = Tuned(flaw=clean)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: tuned, lambda tape: StandInEye(), kind=tuned))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: tuned, (StandInEye,), kind=tuned))
     assert cli(directory, "render", "--story", "chalk", "--takes", "1", "--out", "tape-tuned") == 0
     written = json.loads((directory / "tape-tuned" / "tape.json").read_text())["made"]
     assert written == block(directory, "chalk", tuned)
@@ -160,7 +155,7 @@ def test_an_app_without_a_project_name_is_named_by_its_folder(tmp_path):
 def two(cafe, tmp_path, cli, monkeypatch, capsys):
     """A copy of the rendered cafe, and a way to render it again after a change, with a stand-in that never flaws."""
     directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), lambda tape: StandInEye(), kind=StandIn))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), (StandInEye,), kind=StandIn))
 
     def render_again(*arguments: str) -> None:
         assert cli(directory, "render", "--takes", "1", *arguments) == 0
@@ -208,13 +203,32 @@ def test_diff_after_the_code_changes_is_another_app_and_counts_the_states_and_mo
         "another app", "same story", "3 states shared, of 5 and 3", "3 moves shared, of 6 and 3"]
 
 
+def test_diff_of_two_screenplays_of_one_package_is_another_app_though_their_code_and_data_are_one(tmp_path, cli,
+                                                                                                   capsys):
+    folder = new.project("shop", tmp_path)
+    package = folder / "shop"
+    (package / "other.py").write_text((package / "screenplay.py").read_text().replace("of two scenes", "of two pages"))
+    assert cli(folder, "render", "--story", "starter", "--model", "stand-in", "--out", "tape-screenplay") == 0
+    pyproject = folder / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"shop.screenplay:app"', '"shop.other:app"'))
+    assert cli(folder, "render", "--story", "starter", "--model", "stand-in", "--out", "tape-other") == 0
+    capsys.readouterr()
+    apps = [json.loads((folder / tape / "tape.json").read_text())["made"]["app"]
+            for tape in ("tape-screenplay", "tape-other")]
+    assert [(app["code"], app["data"]) for app in apps[1:]] == [(apps[0]["code"], apps[0]["data"])]
+    assert diff(cli, capsys, folder, "tape-screenplay", "tape-other")[2:3] == ["another app"]
+
+
 def test_diff_says_which_tape_has_no_tape_json_or_does_not_say_what_made_it(two, cli, capsys):
     directory, _ = two
     assert cli(directory, "diff", "tapes/chalk", "tapes/neon") == 1
-    assert capsys.readouterr() == ("", "error: no tape.json in tapes/neon; render the story first\n")
+    assert capsys.readouterr() == ("", "error VT405 tapes/neon: has no tape.json, which a render writes when it "
+                                       "finishes\nnext: render the story first, or run a render that stopped again as "
+                                       "it ran, which resumes, as in:\nvideotape render --story <story>\n")
     old = directory / "tape-old"
     old.mkdir()
     manifest = json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())
     (old / "tape.json").write_text(json.dumps({name: part for name, part in manifest.items() if name != "made"}))
     assert cli(directory, "diff", "tape-old", "tapes/chalk") == 1
-    assert capsys.readouterr() == ("", "error: tape-old/tape.json does not say what made it; render the tape again\n")
+    assert capsys.readouterr() == ("", "error VT405 tape-old/tape.json: does not say what made the tape\n"
+                                       "next: render the story again, as in:\nvideotape render --story <story>\n")

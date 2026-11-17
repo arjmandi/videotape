@@ -1,0 +1,9 @@
+{
+  "model": "claude-opus-5-5",
+  "reply": "{\"lines\":[{\"text\":\"Good mrorni\",\"box\":{\"x\":255,\"y\":0,\"w\":1025,\"h\":175},\"control\":false,\"marked\":false},{\"text\":\"Hom\",\"box\":{\"x\":1145,\"y\":122,\"w\":135,\"h\":56},\"control\":true,\"marked\":false},{\"text\":\"Profile\",\"box\":{\"x\":662,\"y\":192,\"w\":124,\"h\":56},\"control\":true,\"marked\":false},{\"text\":\"Trips\",\"box\":{\"x\":500,\"y\":224,\"w\":84,\"h\":50},\"control\":true,\"marked\":false},{\"text\":\"Trips\",\"box\":{\"x\":360,\"y\":242,\"w\":96,\"h\":72},\"control\":true,\"marked\":true},{\"text\":\"Home\",\"box\":{\"x\":248,\"y\":266,\"w\":78,\"h\":44},\"control\":true,\"marked\":false},{\"text\":\"\u2190\",\"box\":{\"x\":250,\"y\":358,\"w\":40,\"h\":44},\"control\":true,\"marked\":false},{\"text\":\"Where to?\",\"box\":{\"x\":345,\"y\":300,\"w\":367,\"h\":110},\"control\":false,\"marked\":false},{\"text\":\"S1.2\",\"box\":{\"x\":244,\"y\":448,\"w\":60,\"h\":42},\"control\":false,\"marked\":false},{\"text\":\"Your next trip\",\"box\":{\"x\":360,\"y\":436,\"w\":312,\"h\":70},\"control\":false,\"marked\":false},{\"text\":\"S1.2\",\"box\":{\"x\":242,\"y\":526,\"w\":60,\"h\":46},\"control\":false,\"marked\":false},{\"text\":\"San Francisco to New York\",\"box\":{\"x\":360,\"y\":526,\"w\":894,\"h\":96},\"control\":false,\"marked\":false},{\"text\":\"S1.3\",\"box\":{\"x\":240,\"y\":602,\"w\":62,\"h\":48},\"control\":false,\"marked\":false},{\"text\":\"Friday, December 18\",\"box\":{\"x\":360,\"y\":610,\"w\":584,\"h\":110},\"control\":false,\"marked\":false},{\"text\":\"13.4\",\"box\":{\"x\":238,\"y\":676,\"w\":62,\"h\":44},\"control\":false,\"marked\":false}],\"charts\":[]}",
+  "tokens": {
+    "input_tokens": 2191,
+    "output_tokens": 678
+  },
+  "usd": 0.022324
+}

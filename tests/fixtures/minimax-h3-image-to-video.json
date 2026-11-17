@@ -1,0 +1,34 @@
+{
+  "submitted": {
+    "status": "IN_QUEUE",
+    "request_id": "01a1d2e3-0002-7b70-857e-d4305eafb002",
+    "response_url": "https://queue.fal.run/minimax/h3/requests/01a1d2e3-0002-7b70-857e-d4305eafb002",
+    "status_url": "https://queue.fal.run/minimax/h3/requests/01a1d2e3-0002-7b70-857e-d4305eafb002/status",
+    "cancel_url": "https://queue.fal.run/minimax/h3/requests/01a1d2e3-0002-7b70-857e-d4305eafb002/cancel",
+    "logs": null,
+    "metrics": {},
+    "queue_position": 0,
+    "user_queue_position": 0,
+    "user_queued_count": 1
+  },
+  "status": {
+    "status": "COMPLETED",
+    "request_id": "01a1d2e3-0002-7b70-857e-d4305eafb002",
+    "response_url": "https://queue.fal.run/minimax/h3/requests/01a1d2e3-0002-7b70-857e-d4305eafb002",
+    "status_url": "https://queue.fal.run/minimax/h3/requests/01a1d2e3-0002-7b70-857e-d4305eafb002/status",
+    "cancel_url": "https://queue.fal.run/minimax/h3/requests/01a1d2e3-0002-7b70-857e-d4305eafb002/cancel",
+    "logs": null,
+    "metrics": {
+      "inference_time": 88.5
+    }
+  },
+  "result": {
+    "video": {
+      "url": "https://v3b.fal.media/files/b/test/h3-move-welcome-entrance.mp4",
+      "content_type": "video/mp4",
+      "file_name": "h3-move-welcome-entrance.mp4",
+      "file_size": 5893120
+    },
+    "expanded_prompt": null
+  }
+}

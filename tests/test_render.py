@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import threading
@@ -10,17 +11,17 @@ from pathlib import Path
 import pytest
 
 import videotape as vt
-from conftest import CONTRAIL, as_explained, copy_of, planned, told, words
+from conftest import as_explained, contrail_copy, copy_of, planned, told, words
 from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
-from videotape.errors import RenderError
-from videotape.fal import Receipt
+from videotape.errors import ModelError, RenderError
+from videotape.fal import Price, Receipt
 from videotape.ledger import Ledger
 from videotape.made import made
 from videotape.model import MODELS, Listing
-from videotape.plan import Mode, plan
+from videotape.plan import Mode, Plan, plan
 from videotape.render import render
-from videotape.standin import EXTRA, Flaw, StandIn, StandInEye, StandInError
+from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 
 STATES = ("menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)")
 KEYS = {"menu()": "menu", "order(Espresso)": "order-espresso", "order(Latte)": "order-latte",
@@ -59,7 +60,7 @@ def clean(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 
 def stand_in(model: StandIn, **listing) -> Listing:
-    return Listing(lambda: model, lambda tape: StandInEye(), kind=model, **listing)
+    return Listing(lambda: model, (StandInEye,), kind=model, **listing)
 
 
 class Witness(StandIn):
@@ -78,7 +79,7 @@ RENDER = ("render", "--story", "chalk")
 
 def rendered(directory: Path, model, takes: int = 4, out: str = TAPE, **more):
     chalk = told(directory)
-    return render(planned(directory), chalk, model, StandInEye(), directory / out, ledger.of(directory, directory / out),
+    return render(planned(directory), chalk, model, [StandInEye()], directory / out, ledger.of(directory, directory / out),
                   made(project.find(directory), chalk, model), takes=takes, **more)
 
 
@@ -164,10 +165,9 @@ def test_the_tape_has_one_scene_for_each_state_with_its_words_its_hotspots_and_i
 
 def test_a_states_words_are_what_its_scene_shows_in_reading_order(tmp_path):
     """Contrail's words, computed by calling each scene and reading its elements, without the plan or the render."""
-    directory = Path(shutil.copytree(CONTRAIL, tmp_path / "contrail", ignore=shutil.ignore_patterns(
-        ".venv", "tape*", "ledger.jsonl", "__pycache__")))
+    directory = contrail_copy(tmp_path / "contrail")
     terminal, model, tape = told(directory, "terminal"), StandIn(flaw=clean), directory / "tapes" / "terminal"
-    render(planned(directory), terminal, model, StandInEye(), tape, ledger.of(directory, tape),
+    render(planned(directory), terminal, model, [StandInEye()], tape, ledger.of(directory, tape),
            made(project.find(directory), terminal, model), takes=1, limit=8)
     data = json.loads((tape / "tape.json").read_text())
     app = project.find(directory).load()
@@ -203,7 +203,7 @@ def test_a_search_bar_without_options_or_without_a_no_match_offers_no_search(tmp
     (tmp_path / "stories").mkdir()
     (tmp_path / "stories" / "bare.toml").write_text('version = "1.0.0"\nlook = "A bare room."\n')
     chalk, model = told(tmp_path, "bare"), StandIn(flaw=clean)
-    render(planned(tmp_path), chalk, model, StandInEye(), tmp_path / "tapes" / "bare",
+    render(planned(tmp_path), chalk, model, [StandInEye()], tmp_path / "tapes" / "bare",
            ledger.of(tmp_path, tmp_path / "tapes" / "bare"), made(project.find(tmp_path), chalk, model), takes=1)
     data = json.loads((tmp_path / "tapes" / "bare" / "tape.json").read_text())
     assert [name for name, scene in data["scenes"].items() if "search" in scene] == []
@@ -293,6 +293,48 @@ def test_a_key_keeps_the_take_whose_checks_pass_over_a_misspelt_one_and_one_with
     assert ("VT502", misspelt) in [(item.code, item.about) for item in misspelt_take.checks.failures]
     assert ("VT502", dropped) in [(item.code, item.about) for item in dropped_take.checks.failures]
     assert clean_take.checks.rank(3) < min(misspelt_take.checks.rank(1), dropped_take.checks.rank(2))
+
+
+def test_every_films_each_seed_up_to_the_limit_whatever_passed_before_and_keeps_the_best(tmp_path):
+    """A screen test films both takes of a key even when the first passes, so it can count how many first takes do."""
+    def latte_misspelt_first(mode: Mode, prompt: str, seed: int) -> Flaw:
+        return Flaw.MISSPELL if THANKS_LATTE in prompt and seed == 1 else Flaw.NONE
+
+    directory = copy_of("cafe", tmp_path)
+    model = StandIn(flaw=latte_misspelt_first)
+    result = rendered(directory, model, takes=2, every=True)
+    assert [[take.seed for take in filmed.takes] for filmed in result.shots] == [[1, 2]] * 11
+    assert sorted((call.prompt, call.seed) for call in model.calls) == sorted(
+        (words(filmed.shot, told(directory)), seed) for filmed in result.shots for seed in (1, 2))
+    assert {filmed.shot.title: filmed.kept.seed for filmed in result.shots} == {
+        title: 2 if title == "key thanks(Latte)" else 1 for title in TITLES}
+    record = dailies.read(directory / TAPE)
+    assert record["yield"] == {"first_take": 10, "shots": 11} and record["failures"] == []
+
+
+def test_a_plan_of_keys_alone_films_only_them_and_its_tape_has_their_words_without_hotspots_or_search(tmp_path):
+    """A screen test films a few of an app's keys and none of its moves."""
+    directory = contrail_copy(tmp_path / "contrail")
+    full = planned(directory)
+    keys = Plan(full.title, full.scenes, tuple(key for key in full.keys if key.state.name in ("home()", "search()")),
+                (), full.warnings)
+    terminal, model, tape = told(directory, "terminal"), StandIn(flaw=clean), directory / "tapes" / "sample"
+    result = render(keys, terminal, model, [StandInEye()], tape, ledger.of(directory, tape),
+                    made(project.find(directory), terminal, model), takes=1)
+    assert [filmed.shot.title for filmed in result.shots] == ["key home()", "key search()"]
+    assert [call.mode for call in model.calls] == [Mode.TEXT_TO_VIDEO] * 2
+    assert all(filmed.passed for filmed in result.shots)
+    data = json.loads((tape / "tape.json").read_text())
+    assert {name: scene for name, scene in data["scenes"].items()} == {
+        "home()": {"key": "keys/home.png", "words": ["Good morning, Alex", "Where to?", "Your next trip",
+                                                     "San Francisco to New York", "Friday, December 18",
+                                                     "48,250 Contrail Miles", "Home", "Trips", "Profile"],
+                   "hotspots": []},
+        "search()": {"key": "keys/search.png", "words": ["Where to?", "Boston (BOS)", "Chicago (ORD)", "Honolulu (HNL)",
+                                                         "Los Angeles (LAX)", "New York (JFK)", "Seattle (SEA)"],
+                     "hotspots": []},
+    }
+    assert data["moves"] == {} and dailies.read(tape)["moves"] == []
 
 
 def test_a_move_keeps_the_take_whose_frames_sit_closest_to_its_keys(first):
@@ -414,7 +456,7 @@ def test_each_filmed_take_records_its_render_time_and_a_line_in_the_projects_led
         for filmed in result.shots for take in filmed.takes)
     assert all(line["at"].endswith("+00:00") for line in lines_)
     assert ledger.of(directory, directory / TAPE).totals() == {
-        "takes": 17, "gpu_seconds": round(sum(line["seconds"] for line in lines_), 1), "pods": 0, "pod_hours": 0.0, "usd": 0.0}
+        "takes": 17, "gpu_seconds": round(sum(line["seconds"] for line in lines_), 1), "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
     assert not (directory / TAPE / "ledger.jsonl").exists()
 
 
@@ -515,9 +557,11 @@ def test_model_flag_renders_with_another_model_than_the_projects(tmp_path, cli, 
 
 
 @pytest.mark.parametrize("setting, error", [
-    ("", "error: no model to render with; pass --model, or set model in [tool.videotape]\n"),
+    ("", "error VT110 pyproject.toml: [tool.videotape] names no model, and neither does --model\nfix: set it in "
+         '[tool.videotape], as in model = "stand-in", or name one for this render, as in videotape render --story '
+         "chalk --model stand-in\n"),
     ('model = "sora"\n', 'error VT107 pyproject.toml: [tool.videotape] model is "sora", and videotape has no such '
-     "model\nfix: set model to one of stand-in, wan2.2-5b, wan3.0\n"),
+     "model\nfix: set model to one of gemini-omni-flash-1.2, minimax-h3, stand-in, wan2.2-5b, wan3.0\n"),
 ])
 def test_a_project_without_a_model_it_can_render_with_says_so(tmp_path, cli, capsys, setting, error):
     directory = copy_of("cafe", tmp_path)
@@ -526,6 +570,14 @@ def test_a_project_without_a_model_it_can_render_with_says_so(tmp_path, cli, cap
     assert cli(directory, *RENDER) == 1
     assert capsys.readouterr() == ("", error)
     assert not (directory / "tapes").exists()
+
+
+def test_a_render_with_no_model_named_is_vt110_as_explain_says(tmp_path, cli, capsys):
+    directory = copy_of("cafe", tmp_path)
+    pyproject = directory / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('model = "stand-in"\n', ""))
+    assert cli(directory, *RENDER) == 1
+    assert as_explained("VT110").fullmatch(capsys.readouterr().err.rstrip("\n"))
 
 
 class Tuned(StandIn):
@@ -762,13 +814,181 @@ def test_a_corrupt_take_from_a_model_with_nothing_to_download_again_is_vt403_and
     assert next(model.requests) == 22
 
 
-def test_every_take_corrupt_stops_the_render_with_vt403(tmp_path):
+def test_every_take_corrupt_stops_the_render_with_vt403_whose_next_step_resumes_it_with_more_takes(tmp_path, cli, capsys,
+                                                                                                    monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(Garbled({1, 2}, flaw=clean)))
+    assert cli(directory, *RENDER, "--takes", "2") == 1
+    err = capsys.readouterr().err
+    assert err.count("error VT403 key menu() take ") == 2
+    assert err.splitlines()[-3:] == [
+        "error VT403 key menu(): every take of the shot is corrupt",
+        "next: render again with more takes, which films new seeds after these, as in:",
+        "videotape render --story chalk --takes 4"]
+    assert not (directory / TAPE / "tape.json").exists()
+    # A stopped render writes no tape.json, so the next step has to work without one. Followed to the letter, it does.
+    assert cli(directory, *shlex.split(err.splitlines()[-1])[1:]) == 0
+    assert (directory / TAPE / "tape.json").is_file()
+    assert dailies.read(directory / TAPE)["corrupt"]["key menu()"] == [1, 2]
+
+
+class GarbledMoves(StandIn):
+    """Writes a file that is not a clip for every take of a move, so a render films keys and stops at a move."""
+
+    def _film(self, mode, prompt, seed, start, end, out):
+        if mode is Mode.FIRST_AND_LAST_FRAME:
+            self.calls.append(None)
+            out.write_bytes(b"not a clip")
+            return
+        super()._film(mode, prompt, seed, start, end, out)
+
+
+def test_a_stopped_renders_failures_name_the_render_again_since_a_retake_needs_the_tape_json_it_never_wrote(
+        tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    extra = lambda mode, prompt, seed: Flaw.EXTRA_BOX if '"Order"' in prompt and mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(GarbledMoves(flaw=extra)))
+    assert cli(directory, *RENDER, "--takes", "1") == 1
+    capsys.readouterr()
+    record = dailies.read(directory / TAPE)
+    assert not record["complete"] and record["failures"]
+    assert all(failure["next"]["render"] == "videotape render --story chalk --takes 3" and "retake" not in failure["next"]
+               for failure in record["failures"])
+    page = (directory / TAPE / "dailies.html").read_text()
+    assert "videotape retake" not in page and "<code>videotape render --story chalk --takes 3</code>" in page
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
+    assert cli(directory, *shlex.split(record["failures"][0]["next"]["render"])[1:]) == 0
+    assert (directory / TAPE / "tape.json").is_file()
+
+
+class Refusing(StandIn):
+    """Refuses the takes of its seeds for their content, as fal's content checker does, on every prompt or on those
+    that hold on, and fails seeds in failing with VT401."""
+
+    def __init__(self, seeds: set[int], on: str = "", failing: frozenset[int] = frozenset(), **kwargs):
+        super().__init__(**kwargs)
+        self.refused, self.on, self.failing, self.asked = seeds, on, failing, list[tuple[str, int]]()
+
+    def _film(self, mode, prompt, seed, start, end, out):
+        self.asked.append((prompt, seed))
+        if self.on in prompt and seed in self.refused:
+            raise ModelError(f"request r-{seed} was refused for its content: HTTP 422 content_policy_violation, "
+                             "model_moderated", "VT409", "nothing; a render skips the take's seed from now on")
+        if self.on in prompt and seed in self.failing:
+            raise ModelError(f"request r-{seed} failed with HTTP 500")
+        super()._film(mode, prompt, seed, start, end, out)
+
+
+class BilledRefusing(Refusing, Billed):
+    pass
+
+
+def test_a_refused_take_is_vt409_its_seed_is_skipped_from_then_on_and_the_shot_goes_on(tmp_path, cli, capsys,
+                                                                                        monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    model = Refusing({1}, flaw=clean)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(model))
+    assert cli(directory, *RENDER) == 0
+    out, err = capsys.readouterr()
+    assert err.splitlines()[:2] == [
+        "error VT409 key menu() take 1: request r-1 was refused for its content: HTTP 422 content_policy_violation, "
+        "model_moderated", "next: nothing; seed 1 is skipped from now on"]
+    assert err.count("error VT409 ") == 11 and "VT401" not in err
+    assert [seed for _, _, seed, *_ in lines(out)] == [2] * 11
+    record = dailies.read(directory / TAPE)
+    assert [shot["refused"] for shot in (*record["keys"], *record["moves"])] == [[1]] * 11 and record["corrupt"] == {}
+    assert len(list((directory / TAPE / "takes").glob("*.refused.json"))) == 11
+    assert "Refused for its content and skipped: seed 1." in (directory / TAPE / "dailies.html").read_text()
+    model.asked.clear()
+    assert cli(directory, *RENDER) == 0
+    assert model.asked == [] and "VT409" not in capsys.readouterr().err
+    assert [shot["refused"] for shot in (*record["keys"], *record["moves"])] == [
+        shot["refused"] for shot in (*dailies.read(directory / TAPE)["keys"], *dailies.read(directory / TAPE)["moves"])]
+
+
+def test_a_refusal_is_kept_when_its_shot_then_stops_on_another_error_and_is_not_asked_for_again(tmp_path):
     directory = copy_of("cafe", tmp_path)
     with pytest.raises(RenderError) as error:
-        rendered(directory, Garbled({1, 2}, flaw=clean), takes=2)
+        rendered(directory, Refusing({1}, on=THANKS_LATTE, failing=frozenset({2}), flaw=clean), takes=2)
+    assert (error.value.code, error.value.place) == ("VT401", "key thanks(Latte) take 2")
+    model = Refusing(set(), flaw=clean)
+    rendered(directory, model, takes=2)
+    assert (1, 1) not in [(THANKS_LATTE in prompt, seed) for prompt, seed in model.asked]
+    [latte] = [shot for shot in dailies.read(directory / TAPE)["keys"] if shot["title"] == "key thanks(Latte)"]
+    assert latte["refused"] == [1] and [take["seed"] for take in latte["takes"]] == [2]
+
+
+def test_a_refused_call_goes_in_the_ledger_once_at_its_listed_price_so_the_cap_counts_it(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    price = Price(0.1, 5)
+    rendered(directory, BilledRefusing({1}, on=THANKS_LATTE, flaw=clean), takes=2, price=price, cap=20)
+    book = ledger.of(directory, directory / TAPE)
+    refused = [line for line in book.lines() if line.get("refused")]
+    assert [(line["shot"], line["seed"], line["usd"]) for line in refused] == [("key thanks(Latte)", 1, 0.5)]
+    spent = book.totals()["usd"]
+    rendered(directory, BilledRefusing(set(), flaw=clean), takes=2, price=price, cap=20)
+    assert [line for line in ledger.of(directory, directory / TAPE).lines() if line.get("refused")] == refused
+    assert ledger.of(directory, directory / TAPE).totals()["usd"] == spent
+
+
+def test_explain_vt409_says_what_the_ledger_holds_for_a_refused_take(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    price = Price(0.1, 5)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(BilledRefusing({1}, on=THANKS_LATTE, flaw=clean), price=price))
+    assert cli(directory, *RENDER, "--takes", "2", "--cap-usd", "20") == 0
+    assert capsys.readouterr().err.startswith("error VT409 key thanks(Latte) take 1: ")
+    [line] = [json.loads(text) for text in (directory / "ledger.jsonl").read_text().splitlines()
+              if '"refused": true' in text]
+    assert (line["kind"], line["shot"], line["seed"], line["usd"]) == ("take", "key thanks(Latte)", 1, price.usd)
+    assert cli(directory, "explain", "VT409") == 0
+    explained = capsys.readouterr().out
+    assert '"refused": true' in explained and "at the model's listed price" in explained
+
+
+def test_every_take_of_a_shot_refused_films_the_other_shots_then_stops_with_vt409(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    with pytest.raises(RenderError) as error:
+        rendered(directory, Refusing({1, 2}, on=THANKS_LATTE, flaw=clean), takes=2)
     assert (error.value.code, error.value.place, error.value.message) == (
-        "VT403", "key menu()", "every take of the shot is corrupt")
-    assert 'videotape retake "menu()"' in error.value.next
+        "VT409", "key thanks(Latte)", "every take of the shot was refused for its content")
+    assert error.value.next.endswith("\nvideotape render --takes 4")
+    record = dailies.read(directory / TAPE)
+    assert record["unfilmed"] == {"key thanks(Latte)": [1, 2]} and record["complete"] is False
+    assert [shot["title"] for shot in record["keys"]] == [title for title in TITLES if title.startswith("key ")
+                                                          and title != "key thanks(Latte)"]
+
+
+class GarbledRefusedAgain(GarbledBilled):
+    """Garbles its first takes, and refuses each garbled one for its content when it is downloaded again."""
+
+    def download_again(self, out):
+        if out not in self.garbled:
+            return None
+        raise ModelError("request r-1 was refused for its content: HTTP 422 content_policy_violation, model_moderated",
+                         "VT409", "nothing; a render skips the take's seed from now on")
+
+
+def test_a_refusal_met_downloading_a_corrupt_take_again_is_recorded_counted_and_skipped(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    rendered(directory, GarbledRefusedAgain({1}, flaw=clean), takes=2, price=Price(0.1, 5), cap=20)
+    record = dailies.read(directory / TAPE)
+    assert [shot["refused"] for shot in (*record["keys"], *record["moves"])] == [[1]] * 11 and record["corrupt"] == {}
+    assert len([line for line in ledger.of(directory, directory / TAPE).lines() if line.get("refused")]) == 11
+    model = GarbledRefusedAgain(set(), flaw=clean)
+    rendered(directory, model, takes=2, price=Price(0.1, 5), cap=20)
+    assert model.calls == [] and len(list((directory / TAPE / "takes").glob("*.refused.json"))) == 11
+
+
+def test_a_shot_with_a_corrupt_seed_and_a_refused_one_stops_with_vt403(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / TAPE
+    rendered(directory, StandIn(flaw=clean), takes=1)
+    record = dailies.read(tape)
+    dailies.write(tape, {**record, "corrupt": {"key thanks(Latte)": [1]}}, ledger.of(directory, tape).totals())
+    with pytest.raises(RenderError) as error:
+        rendered(directory, Refusing({2}, on=THANKS_LATTE, flaw=clean), takes=2)
+    assert (error.value.code, error.value.place, error.value.message) == (
+        "VT403", "key thanks(Latte)", "every take of the shot is corrupt")
 
 
 class Failing(StandIn):
@@ -778,7 +998,7 @@ class Failing(StandIn):
 
     def _film(self, mode, prompt, seed, start, end, out):
         if self.on in prompt:
-            raise StandInError(f"the stand-in refused seed {seed}; request r-{seed}")
+            raise ModelError(f"the stand-in refused seed {seed}; request r-{seed}")
         super()._film(mode, prompt, seed, start, end, out)
 
 
@@ -833,6 +1053,16 @@ def test_an_interrupt_stops_the_render_before_the_queued_shots_start(tmp_path):
         rendered(directory, model, takes=1, limit=1, report=interrupted)
     assert 1 <= len(model.calls) <= 2
     assert len(ledger.of(directory, directory / TAPE).lines()) == len(model.calls)
+
+
+def test_a_state_with_more_lines_than_the_stand_in_has_room_for_is_vt406_and_stops_the_render(tmp_path, cli, capsys,
+                                                                                               monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
+    (directory / "data" / "drinks.json").write_text(json.dumps([{"name": f"Drink {n}", "price": n} for n in range(1, 21)]))
+    assert cli(directory, *RENDER, "--takes", "1") == 1
+    assert as_explained("VT406").search(capsys.readouterr().err)
+    assert not (directory / TAPE / "tape.json").exists() and dailies.read(directory / TAPE)["complete"] is False
 
 
 def test_a_missing_ffmpeg_is_vt404(tmp_path, cli, capsys, monkeypatch):

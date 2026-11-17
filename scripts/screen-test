@@ -1,0 +1,955 @@
+#!/usr/bin/env python3
+"""Film eight keys of an app on each model, two takes each in each story, and pick the model whose takes pass the
+checks for the most element types.
+
+    uv run scripts/screen-test examples/contrail --models wan3.0,minimax-h3,gemini-omni-flash-1.2 \\
+        --stories terminal,posters --cap-usd 60 [--estimate] [--marks marks.json]
+    open examples/contrail/tapes/screen-test/report.html
+
+The eight keys are SAMPLER's, which hold every element type Contrail shows. Before any call it prints the estimate:
+per model, a call per take at the model's price on fal, and a read of each take by each paid reader of its eye at the
+most a read of the model's picture costs, then the total. --estimate prints it and stops, and needs no API key. A
+total past --cap-usd stops it before any call. Then it builds every model and reader, so a missing API key stops it
+with VT104 before any call, and renders each model in each story into tapes/screen-test/<model>/<story>/ in the
+project: the sampled keys alone, no move, and both takes of each even when the first passes. One cap holds for the
+whole screen test, and every call and read goes into the project's ledger.jsonl, as a render's do. Run again, it
+films no take that is on disk and reads no picture whose read is cached, so the report is rebuilt for free.
+
+tapes/screen-test/report.html shows, for each element type, model and story, how many of its elements pass every
+check that judges them, and each check's count; the controls each key invents; the first-take yield; every take with
+its picture, its checks, its time and its cost, with the models side by side for each key; and the sources for the
+choice of models. CALIBRATION's takes each list their key's elements with a checkbox, drawn right or not, and the page
+downloads them as marks.json. --marks marks.json reads them back and says how often the checks' verdict on an element,
+that every check judging it passed, agrees with a person's mark. Below AGREEMENT the pick is withheld. Otherwise the
+pick is the model with the most element types at BAR in every story, then the largest share of elements that pass
+every check, then the fewest controls invented, then the lowest cost. It is printed, and pyproject.toml is left as it is.
+
+Standard library only; it imports videotape.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import shlex
+import sys
+from collections import Counter
+from collections.abc import Sequence
+from dataclasses import dataclass
+from difflib import get_close_matches
+from functools import cached_property
+from html import escape
+from pathlib import Path
+
+from videotape import dailies, errors, frames, ledger, project, story
+from videotape.atomic import write_atomically
+from videotape.errors import RenderError, ScreenplayError
+from videotape.frames import HEIGHT, WIDTH
+from videotape.made import made
+from videotape.checks import CHOICES, Reader
+from videotape.model import MODELS, Listing, Model
+from videotape.plan import Key, Plan, plan
+from videotape.render import EveryTakeRefused, Filmed, eye, render
+
+SAMPLER = ("home()", "search()", "dates(JFK)", "results(SEA, 2026-12-12)", "flight(CT 104, 2026-12-13)",
+           "booked(CT 300, 2026-12-11)", "my_trips()", "profile()")
+"""The states whose keys the screen test films. Together they show every element type Contrail has."""
+TAKES = 2
+BAR = 0.9
+"""An element type meets its bar on a model when, in each story, at least this share of its elements across the
+model's takes pass every check that judges them."""
+AGREEMENT = 0.9
+"""The least share of a person's marks the checks must agree with before the report names a pick."""
+CALIBRATION = ("wan3.0", "terminal")
+"""The model and the story whose takes a person marks, element by element."""
+CODES = {"VT501": "found", "VT502": "read exactly by every reader", "VT509": "drawn marked",
+         "VT504": "chart values in range"}
+"""The checks that judge an element, in the order the report shows them. VT503 judges a whole key."""
+FOLDER = Path("tapes") / "screen-test"
+"""Where the tapes and the report go, in the project."""
+SIZES = {
+    # tests/fixtures/wan3.0.txt: the prototype run's clips came back 1280x720. VTR-Bench lists Wan3.0 at 1280x720.
+    "wan3.0": (1280, 720),
+    # 768P at 16:9 is 1344x768, which VTR-Bench (arXiv 2610.01499, 2026-10-01) ran H3 at.
+    "minimax-h3": (1344, 768),
+    # 720p at 16:9. fal states no pixel size for it, so this is a guess.
+    "gemini-omni-flash-1.2": (1280, 720),
+}
+"""The picture size each model films, which the most a read of its picture costs depends on. A model not here is
+priced at the stand-in's size."""
+
+
+@dataclass(frozen=True)
+class Source:
+    title: str
+    url: str
+    date: str
+    said: str
+
+
+WHY = ("wan3.0 is the model Contrail renders with on fal today. MiniMax H3 is the best measured text model after Wan "
+       "3.0 in all three benchmarks of text in video. Seedance 2.5 and Gemini Omni Flash tie for the next place on "
+       "text, and Gemini takes the third place: it spells better on text-to-video, which is how a key is filmed "
+       "(VidScribe's content accuracy 86.0 against 81.5), it costs a quarter to a sixth as much, and Seedance's calls "
+       "alone would pass the $60 cap. Each of the three films a key from text and a move between two key images on "
+       "fal. Gemini takes no seed there.")
+SOURCES = (
+    Source("VTR-Bench", "https://arxiv.org/html/2610.01499", "2026-10-01",
+           "arXiv 2610.01499v1, measured. Word error rate of text-to-video, on all text and on UI text, lower is "
+           "better: Wan 3.0 0.250 and 0.215, the best; MiniMax H3 0.447 and 0.376, the second; Seedance 2.5 0.641 "
+           "and 0.664, the third."),
+    Source("VidScribe, Beyond Legibility", "https://arxiv.org/html/2609.36598v2", "2026-09-30",
+           "arXiv 2609.36598v2, measured. Overall, higher is better: MiniMax H3 79.2, the first; Wan 3.0 78.5; "
+           "Seedance 2.5 78.1; Gemini Omni Flash 1.1 77.8, and the first on text-to-video at 80.9, with content "
+           "accuracy 86.0 where Seedance 2.5 has 81.5. It measured Gemini 1.1, not 1.2."),
+    Source("TextVBench", "https://arxiv.org/abs/2610.13412", "2026-10-09",
+           "arXiv 2610.13412v1, measured. TextVScore of text-to-video: MiniMax H3 68.32, the first of 8 models, most "
+           "of them open."),
+    Source("Artificial Analysis text-to-video arena",
+           "https://artificialanalysis.ai/embed/text-to-video-leaderboard/leaderboard/text-to-video",
+           "no date, read 2026-11-15",
+           "A vote of preference, not a measure of text: Wan 3.0 1175, MiniMax H3 1161, Gemini Omni Flash 1.2 1152."),
+    Source("Segmind, Gemini Omni 1.2 Flash: Google's New Gemini Video API Tested",
+           "https://blog.segmind.com/gemini-omni-1-2-flash-review/", "2026-11-05",
+           "A reseller's test of single prompts, not a benchmark: every label of a UI explainer spelled exactly, and "
+           "a map with three labels drawn twice."),
+    Source("fal model catalog API", "https://fal.ai/api/models?categories=text-to-video", "no date, read 2026-11-15",
+           "112 text-to-video and 180 image-to-video endpoints, each with its own date: minimax/h3 2026-07-31, "
+           "google/gemini-omni-flash/v1.2 2026-11-05. Each price is its item's pricingInfoOverride."),
+    Source("fal queue OpenAPI schemas",
+           "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=minimax/h3/image-to-video",
+           "no date, read 2026-11-15",
+           "Read for every video endpoint listed: a model can film a move when its image-to-video takes an end frame "
+           "beside a text-to-video endpoint. HappyHorse and Grok Imagine take no end frame."),
+    Source("MiniMax H3 model pages", "https://fal.ai/models/minimax/h3/text-to-video/llms.txt",
+           "no date, read 2026-11-15", '"$0.06 per second at 768p", on text-to-video and image-to-video.'),
+    Source("Gemini Omni Flash 1.2 model pages",
+           "https://fal.ai/models/google/gemini-omni-flash/v1.2/text-to-video/llms.txt", "no date, read 2026-11-15",
+           '"for 720p, $0.0819 per second", and input tokens at $1.50 per million.'),
+    Source("fal API pages of the image-to-video endpoints", "https://fal.ai/models/minimax/h3/image-to-video/api",
+           "no date, read 2026-11-15",
+           '"You can pass a Base64 data URI as a file input", which is how a move sends its key images.'),
+    Source("fal's concurrency limits", "https://fal.ai/docs/documentation/model-apis/concurrency-limits",
+           "no date, read 2026-11-15", '"Every new account starts with a concurrency limit of 2 concurrent requests."'),
+    Source("fal, MiniMax H3 vs. MiniMax H3 Max: What's The Difference?",
+           "https://fal.ai/learn/devs/minimax-h3-vs-minimax-h3-max", "2026-09-01",
+           "From the vendor: H3 takes a prompt of up to 7,000 characters, and H3 Max is fal's post-training of H3."),
+)
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
+def _listed(names: Sequence[str]) -> str:
+    return " and ".join(filter(None, (", ".join(names[:-1]), names[-1])))
+
+
+def _upper_first(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
+def _cents_up(usd: float) -> float:
+    return math.ceil(round(usd * 100, 6)) / 100
+
+
+def _spent(root: Path, tape: Path) -> float:
+    """What the ledger holds for a tape, summed before any rounding: its totals() round each tape to the cent."""
+    return sum(line.get("usd") or 0.0 for line in ledger.of(root, tape).lines())
+
+
+def sampled(planned: Plan) -> Plan:
+    """The plan's keys of SAMPLER's states, in SAMPLER's order, and no move. VT212 for a state the plan lacks."""
+    keys = {key.state.name: key for key in planned.keys}
+    for name in SAMPLER:
+        if name not in keys:
+            close = get_close_matches(name, keys, n=3)
+            raise ScreenplayError("VT212", f'"{name}"', "the app has no state of this name, and the screen test films "
+                                  "its key", f"name one of the closest in SAMPLER in scripts/screen-test: "
+                                  f"{', '.join(close)}" if close else "name a state of the plan in SAMPLER in "
+                                  "scripts/screen-test, as videotape plan names it")
+    return Plan(planned.title, planned.scenes, tuple(keys[name] for name in SAMPLER), (), planned.warnings)
+
+
+def estimate(name: str, listing: Listing, takes: int) -> tuple[str, float]:
+    """One model's line of the estimate and the most it costs: a call per take at the model's price, and a read of
+    each take by each paid reader of its eye, at the most a read of the model's picture costs."""
+    usd = takes * listing.price.usd if listing.price else 0.0
+    line = f"{name}: {_count(takes, 'call')}, {listing.price.span(takes, takes) if listing.price else 'free'}"
+    paid = [reader for reader in listing.readers if reader.paid]
+    if paid:
+        width, height = SIZES.get(name, (WIDTH, HEIGHT))
+        reads = takes * sum(reader.most(width, height) for reader in paid)
+        line += (f", and {_count(takes, 'read')} by {_listed([reader.name for reader in paid])} of {width}x{height} "
+                 f"pictures, at most ${reads:.2f}")
+        usd += reads
+    return f"{line}; at most ${usd:.2f} in all", usd
+
+
+# What the report shows.
+
+@dataclass(frozen=True)
+class Tally:
+    passed: int
+    of: int
+
+    @property
+    def share(self) -> float:
+        return self.passed / self.of if self.of else 0.0
+
+    @property
+    def met(self) -> bool:
+        return self.of > 0 and self.share >= BAR
+
+    def __str__(self) -> str:
+        return f"{self.passed} of {self.of}"
+
+
+@dataclass(frozen=True)
+class Element:
+    """One element of a key on one take, and the checks that judge it."""
+
+    place: int
+    """Where it is among the key's elements, from 0."""
+    type: str
+    lines: tuple[str, ...]
+    items: tuple[dict, ...]
+
+    @property
+    def passed(self) -> bool:
+        return all(item["passed"] for item in self.items)
+
+    @property
+    def named(self) -> str:
+        return f'{self.type} "{self.lines[0]}"' if self.lines else self.type
+
+
+@dataclass(frozen=True)
+class Take:
+    """One take of a sampled key, as its tape's dailies and the project's ledger record it."""
+
+    model: str
+    story: str
+    state: str
+    seed: int
+    clip: str
+    """Where its clip is in its tape."""
+    seconds: float | None
+    usd: float
+    items: tuple[dict, ...]
+    elements: tuple[Element, ...]
+    refused: bool = False
+    """Whether the model refused the take for its content, VT409, so it has no clip, and every element of it counts
+    as not drawn right."""
+
+    @property
+    def tape(self) -> str:
+        """Its tape's folder, from the report's."""
+        return f"{self.model}/{self.story}"
+
+    @property
+    def picture(self) -> str:
+        """Its last frame, which every reader read, from its tape."""
+        return f"pictures/{Path(self.clip).stem}.png"
+
+    @property
+    def invented(self) -> int:
+        return sum(item["code"] == "VT503" for item in self.items)
+
+    @property
+    def passed(self) -> bool:
+        return all(item["passed"] for item in self.items)
+
+
+def judged(key: Key, items: Sequence[dict]) -> tuple[Element, ...]:
+    """Each element of the key with the checks that judge it. A check names the element type it judges and not
+    which element of that type, so each is placed by what it is about: VT501 by its action's label, VT502 by its
+    line's words, the second reading of words the key shows twice on the element that shows them second, VT504 by its
+    chart's title, VT509 by its chosen line or else on the first element of its type that offers a choice, and a
+    VT502 of a day with no option, which has no reading, on the first element of its type. VT503 judges the whole key,
+    and no element."""
+    shown = key.shown
+    actions = {line.action.label: place for place, element in enumerate(shown) for line in element.lines if line.action}
+    charts = {element.chart.title: place for place, element in enumerate(shown) if element.chart}
+    words: dict[str, list[int]] = {}
+    for place, element in enumerate(shown):
+        for line in element.lines:
+            words.setdefault(line.words, []).append(place)
+    choosing = [place for place, element in enumerate(shown) if any(
+        line.chosen or (line.action is not None and line.action.kind in CHOICES) for line in element.lines)]
+    read = Counter[str]()
+
+    def first(kind: str, among: Sequence[int] = range(len(shown))) -> int | None:
+        return next((place for place in among if shown[place].type == kind), None)
+
+    def place(item: dict) -> int | None:
+        code, about, kind = item["code"], item["about"], item["element"]
+        if kind is None:
+            return None
+        if code == "VT501":
+            return actions.get(about)
+        if code == "VT504":
+            return charts.get(about)
+        if code == "VT502" and item["readings"] and about in words:
+            read[about] += 1
+            return words[about][min(read[about], len(words[about])) - 1]
+        if code == "VT509":
+            return next((at for at in words.get(about, []) if at in choosing), first(kind, choosing))
+        return first(kind)
+
+    placed: dict[int, list[dict]] = {place: [] for place in range(len(shown))}
+    for item in items:
+        if (at := place(item)) is not None:
+            placed[at].append(item)
+    return tuple(Element(at, element.type, tuple(line.words for line in element.lines), tuple(placed[at]))
+                 for at, element in enumerate(shown))
+
+
+@dataclass(frozen=True)
+class Standing:
+    """How one model did: the element types at the bar in every story, its elements that pass every check in every
+    story, the controls its takes invent, as each reader saw them, and what its takes and reads cost."""
+
+    model: str
+    met: frozenset[str]
+    passing: Tally
+    invented: int
+    usd: float
+
+
+def pick(standings: Sequence[Standing]) -> Standing:
+    """The most element types at the bar, then the largest share of elements that pass every check, which decides
+    while no type meets the bar, then the fewest controls invented, then the lowest cost."""
+    return min(standings, key=lambda standing: (-len(standing.met), -standing.passing.share, standing.invented,
+                                                standing.usd))
+
+
+@dataclass(frozen=True)
+class Mark:
+    """A person's mark of one element of one take: whether it is drawn right."""
+
+    state: str
+    seed: int
+    clip: str
+    element: int
+    type: str
+    right: bool
+
+
+@dataclass(frozen=True)
+class Agreement:
+    """The checks' verdict on each element a person marked, against the mark, and the marks of takes not on disk."""
+
+    agreed: tuple[tuple[Mark, Take, Element], ...]
+    disagreed: tuple[tuple[Mark, Take, Element], ...]
+    stale: int
+
+    def tally(self, kind: str | None = None) -> Tally:
+        agreed = sum(kind in (None, element.type) for _, _, element in self.agreed)
+        return Tally(agreed, agreed + sum(kind in (None, element.type) for _, _, element in self.disagreed))
+
+    @property
+    def held(self) -> bool:
+        whole = self.tally()
+        return whole.of > 0 and whole.share >= AGREEMENT
+
+    def said(self) -> str:
+        whole = self.tally()
+        return f"the checks agree with a person's marks on {whole} elements, {whole.share:.1%}"
+
+
+def agreement(marks: Sequence[Mark], takes: Sequence[Take]) -> Agreement:
+    """Each mark against the checks' verdict on its element: every check that judges it passed. A mark is of a take
+    by its clip, since a take filmed again keeps its seed and gets new pixels."""
+    model, told = CALIBRATION
+    held = {(take.state, take.clip): take for take in takes if (take.model, take.story) == (model, told)}
+    agreed, disagreed, stale = [], [], 0
+    for mark in marks:
+        take = held.get((mark.state, mark.clip))
+        if take is None or not 0 <= mark.element < len(take.elements):
+            stale += 1
+            continue
+        element = take.elements[mark.element]
+        (agreed if element.passed == mark.right else disagreed).append((mark, take, element))
+    return Agreement(tuple(agreed), tuple(disagreed), stale)
+
+
+@dataclass(frozen=True)
+class Screen:
+    """What the report shows: the app, the models and stories filmed, the sampled keys, every take, what each
+    model's tapes cost, and a person's marks with the checks' agreement, when there are marks."""
+
+    app: str
+    models: tuple[str, ...]
+    stories: tuple[str, ...]
+    keys: tuple[Key, ...]
+    takes: tuple[Take, ...]
+    spent: dict[str, float]
+    marks: tuple[Mark, ...] = ()
+    agreement: Agreement | None = None
+
+    @cached_property
+    def kinds(self) -> tuple[str, ...]:
+        """Every element type the sampled keys show, in the order they first show them."""
+        return tuple(dict.fromkeys(element.type for key in self.keys for element in key.shown))
+
+    def of(self, model: str, told: str) -> list[Take]:
+        return [take for take in self.takes if (take.model, take.story) == (model, told)]
+
+    def tally(self, model: str, told: str, kind: str) -> Tally:
+        elements = [element for take in self.of(model, told) for element in take.elements if element.type == kind]
+        return Tally(sum(element.passed for element in elements), len(elements))
+
+    def checks(self, model: str, told: str, kind: str) -> dict[str, Tally]:
+        """Each check that judges an element of this type, and how many of its items passed."""
+        items = [item for take in self.of(model, told) for element in take.elements if element.type == kind
+                 for item in element.items]
+        return {code: Tally(sum(item["passed"] for item in items if item["code"] == code),
+                            sum(item["code"] == code for item in items)) for code in CODES}
+
+    @cached_property
+    def standings(self) -> tuple[Standing, ...]:
+        return tuple(Standing(model, frozenset(kind for kind in self.kinds if all(
+            self.tally(model, told, kind).met for told in self.stories)),
+            Tally(sum(element.passed for take in self.takes if take.model == model for element in take.elements),
+                  sum(len(take.elements) for take in self.takes if take.model == model)),
+            sum(take.invented for take in self.takes if take.model == model), self.spent[model])
+            for model in self.models)
+
+    @property
+    def pick(self) -> Standing | None:
+        """The pick, or None while the checks agree with too few of a person's marks."""
+        return None if self.agreement is not None and not self.agreement.held else pick(self.standings)
+
+    def first_takes(self, model: str, told: str) -> Tally:
+        """The keys whose first take, its lowest seed, passes every check."""
+        firsts: dict[str, Take] = {}
+        for take in self.of(model, told):
+            if take.state not in firsts or take.seed < firsts[take.state].seed:
+                firsts[take.state] = take
+        return Tally(sum(take.passed for take in firsts.values()), len(firsts))
+
+    def best(self, kind: str) -> tuple[str, str, Tally]:
+        """The model that brings an element type nearest its bar, its weaker story, and that story's tally."""
+        weakest = [(model, *min(((told, self.tally(model, told, kind)) for told in self.stories),
+                                key=lambda pair: pair[1].share)) for model in self.models]
+        return max(weakest, key=lambda found: found[2].share)
+
+
+def refusal(key: Key) -> tuple[tuple[dict, ...], tuple[Element, ...]]:
+    """A refused take's checks: one failing VT409 for the take and one for each element of its key, so a model is
+    not rewarded for the takes it refuses."""
+    def failed(about: str, element: str | None) -> dict:
+        return {"code": "VT409", "about": about, "result": "refused for its content", "passed": False, "box": None,
+                "element": element, "readings": []}
+    elements = tuple(Element(at, element.type, tuple(line.words for line in element.lines),
+                             (failed(element.type, element.type),)) for at, element in enumerate(key.shown))
+    return (failed("the take", None), *(item for element in elements for item in element.items)), elements
+
+
+def gathered(root: Path, keys: Sequence[Key], tapes: dict[tuple[str, str], Path]) -> list[Take]:
+    """Every take of the tapes, from each tape's dailies, with its cost from the project's ledger: its call and its
+    reads. Each take's last frame is written into its tape's pictures/, once for each time the take is filmed."""
+    by_state = {key.state.name: key for key in keys}
+    by_title = {key.title: key for key in keys}
+    takes = []
+    for (model, told), tape in tapes.items():
+        costs = Counter[tuple[str, int]]()
+        for line in ledger.of(root, tape).lines():
+            if "shot" in line and "seed" in line:
+                costs[line["shot"], line["seed"]] += line.get("usd") or 0.0
+        held = dailies.read(tape)
+        refused = [(by_title[title], seed) for title, seeds in held.get("unfilmed", {}).items() for seed in seeds]
+        for key in held["keys"]:
+            for filmed in key["takes"]:
+                take = Take(model, told, key["state"], filmed["seed"], filmed["clip"], filmed["seconds"],
+                            costs[key["title"], filmed["seed"]], tuple(filmed["items"]),
+                            judged(by_state[key["state"]], filmed["items"]))
+                picture, clip = tape / take.picture, tape / take.clip
+                if not picture.is_file() or picture.stat().st_mtime < clip.stat().st_mtime:
+                    picture.parent.mkdir(exist_ok=True)
+                    write_atomically(picture, lambda out: frames.write_png(frames.last_frame(clip), out))
+                takes.append(take)
+            refused += [(by_state[key["state"]], seed) for seed in key.get("refused", [])]
+        for key, seed in refused:
+            items, elements = refusal(key)
+            takes.append(Take(model, told, key.state.name, seed, "", None, costs[key.title, seed], items, elements,
+                              refused=True))
+    return takes
+
+
+# The report's page.
+
+STYLE = dailies.STYLE + """
+header, main { max-width: 1680px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+td.met { box-shadow: inset 3px 0 0 var(--pass); }
+td.missed { box-shadow: inset 3px 0 0 var(--fail); }
+td .by { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.models { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 10px; }
+.model h4 { margin: 0 0 6px; font-size: 14px; }
+.model .takes { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin-top: 0; }
+#takes > h2 { margin: 28px 0 0; }
+.marks { list-style: none; margin: 8px 0 0; padding: 0; font-size: 13px; }
+.marks li { padding: 3px 0; border-top: 1px dashed var(--line); }
+.marks label { display: flex; gap: 8px; align-items: baseline; overflow-wrap: anywhere; }
+.marks .lines { color: var(--muted); }
+button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card);
+  color: var(--text); cursor: pointer; }
+.pick { font-size: 17px; font-weight: 600; margin: 0 0 8px; }
+.withheld { color: var(--fail); }
+.sources li { margin: 6px 0; }
+"""
+
+# The marks persist in the browser while a person works through the takes, and the button saves them as marks.json.
+SCRIPT = """
+const boxes = [...document.querySelectorAll("input.mark")];
+let kept = {};
+try { kept = JSON.parse(localStorage.getItem("screen-test-marks") || "{}"); } catch {}
+for (const box of boxes) {
+  const id = `${box.dataset.clip}#${box.dataset.place}`;
+  if (id in kept) box.checked = kept[id];
+  box.addEventListener("change", () => {
+    kept[id] = box.checked;
+    try { localStorage.setItem("screen-test-marks", JSON.stringify(kept)); } catch {}
+  });
+}
+const calibration = document.getElementById("calibration");
+document.getElementById("download")?.addEventListener("click", () => {
+  const marks = boxes.map(box => ({state: box.dataset.state, seed: Number(box.dataset.seed), clip: box.dataset.clip,
+    element: Number(box.dataset.place), type: box.dataset.type, right: box.checked}));
+  const held = {model: calibration.dataset.model, story: calibration.dataset.story, marks};
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([JSON.stringify(held, null, 2) + "\\n"], {type: "application/json"}));
+  link.download = "marks.json";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+});
+"""
+
+
+def _money(usd: float) -> str:
+    return f"${usd:.2f}"
+
+
+def _bar_rule(screen: Screen) -> str:
+    return (f"An element type meets its bar on a model when, in each story, at least {BAR:.0%} of its elements across "
+            f"the model's {len(screen.keys) * TAKES} takes pass every check that judges them.")
+
+
+def _pick(screen: Screen) -> str:
+    chosen, agreed = screen.pick, screen.agreement
+    lines = []
+    if agreed is None:
+        model, told = CALIBRATION
+        lines.append(f"<p>The checks are not yet held to a person's marks: mark {model}'s {told} takes under "
+                     "Calibration, download marks.json, and run the screen test again with --marks marks.json.</p>")
+    elif not agreed.held:
+        lines.append(f'<p class="pick withheld">{escape(_upper_first(agreed.said()))}, below {AGREEMENT:.0%}: fix the '
+                     "checks before the pick. The pick is withheld.</p>")
+    if chosen is not None:
+        others = []
+        for other in screen.standings:
+            if other is chosen:
+                continue
+            said = f"{other.model} brings {len(other.met)} to the bar"
+            if len(other.met) == len(chosen.met) and other.passing.share < chosen.passing.share:
+                said += f" too, and {other.passing} of its elements pass every check, {other.passing.share:.1%}"
+            elif len(other.met) == len(chosen.met) and other.invented > chosen.invented:
+                said += (f" too, and invents {_count(other.invented, 'control')} where {chosen.model} invents "
+                         f"{chosen.invented}")
+            elif len(other.met) == len(chosen.met):
+                said += (f" too, invents as many controls, and cost {_money(other.usd)} where {chosen.model} cost "
+                         f"{_money(chosen.usd)}")
+            others.append(f"{said}.")
+        lines.append(f'<p class="pick">The pick is {escape(chosen.model)}: {len(chosen.met)} of {len(screen.kinds)} '
+                     f"element types at the bar in every story, {chosen.passing} of its elements pass every check, "
+                     f"{chosen.passing.share:.1%}, {_count(chosen.invented, 'control')} invented.</p>"
+                     f"<p>{escape(' '.join(others))}</p>")
+        lines.append(f'<p>To render with it, set model = "{escape(chosen.model)}" in [tool.videotape] in the '
+                     "project's pyproject.toml. The screen test leaves it as it is.</p>")
+    missed = [kind for kind in screen.kinds if not any(kind in standing.met for standing in screen.standings)]
+    if missed:
+        lines.append("<ul>" + "".join(
+            f"<li>{kind} misses the bar on every model; its best is {tally} on {escape(model)}, in {escape(told)}.</li>"
+            for kind in missed for model, told, tally in [screen.best(kind)]) + "</ul>")
+    lines.append(f"<p class=\"note\">{_bar_rule(screen)} The pick has the most element types at the bar, then the "
+                 "largest share of elements that pass every check, then the fewest controls invented, then the lowest "
+                 "cost.</p>")
+    attribute = f' data-pick="{escape(chosen.model)}"' if chosen else ""
+    return f'<section class="shot" id="pick"{attribute}>\n<h2>The pick</h2>\n{"".join(lines)}\n</section>'
+
+
+def _elements(screen: Screen) -> str:
+    head = "".join(f'<th colspan="{len(screen.stories)}">{escape(model)}</th>' for model in screen.models)
+    stories = "".join(f"<th>{escape(told)}</th>" for _ in screen.models for told in screen.stories)
+    rows = []
+    for kind in screen.kinds:
+        cells = []
+        for model in screen.models:
+            for told in screen.stories:
+                tally = screen.tally(model, told, kind)
+                by = "".join(f'<span class="by" data-code="{code}">{code} {count}</span>'
+                             for code, count in screen.checks(model, told, kind).items() if count.of)
+                cells.append(f'<td class="{"met" if tally.met else "missed"}" data-type="{kind}" '
+                             f'data-model="{escape(model)}" data-story="{escape(told)}" data-tally="{tally}">'
+                             f"{tally}, {tally.share:.0%}{by}</td>")
+        rows.append(f'<tr data-type="{kind}"><th>{kind}</th>{"".join(cells)}</tr>')
+    said = ", ".join(f"{code} {what}" for code, what in CODES.items())
+    return f"""<section class="shot" id="elements">
+<h2>Element types</h2>
+<p class="note">Each cell: the elements of the type, across the model's takes in the story, that pass every check that
+judges them, then how many of each check passed: {said}. {_bar_rule(screen)}</p>
+<div class="scroll"><table>
+<thead><tr><th rowspan="2">Element type</th>{head}</tr><tr>{stories}</tr></thead>
+<tbody>{"".join(rows)}</tbody>
+</table></div>
+</section>"""
+
+
+def _keys(screen: Screen) -> str:
+    head = "".join(f'<th colspan="{len(screen.stories)}">{escape(model)}</th>' for model in screen.models)
+    stories = "".join(f"<th>{escape(told)}</th>" for _ in screen.models for told in screen.stories)
+    pairs = [(model, told) for model in screen.models for told in screen.stories]
+    rows = []
+    for key in screen.keys:
+        cells = []
+        for model, told in pairs:
+            counts = ", ".join(str(take.invented) for take in screen.of(model, told) if take.state == key.state.name)
+            cells.append(f'<td data-key="{escape(key.state.name)}" data-model="{escape(model)}" '
+                         f'data-story="{escape(told)}" data-invented="{counts}">{counts}</td>')
+        rows.append(f"<tr><th>{escape(key.state.name)}</th>{''.join(cells)}</tr>")
+    yields = "".join(f'<td data-model="{escape(model)}" data-story="{escape(told)}" data-yield="{tally}">{tally}</td>'
+                     for model, told in pairs for tally in [screen.first_takes(model, told)])
+    seconds = "".join(f"<td>{sum(take.seconds or 0.0 for take in screen.of(model, told)):.1f} s</td>"
+                      for model, told in pairs)
+    usd = "".join(f"<td>{_money(sum(take.usd for take in screen.of(model, told)))}</td>" for model, told in pairs)
+    return f"""<section class="shot" id="keys">
+<h2>Controls invented and first takes</h2>
+<p class="note">For each key, the controls each take invents (VT503, a check of the whole key), as each reader saw
+them, take by take. Then the first takes that pass every check, and the time and the cost of every take.</p>
+<div class="scroll"><table>
+<thead><tr><th rowspan="2">Key</th>{head}</tr><tr>{stories}</tr></thead>
+<tbody>{"".join(rows)}
+<tr><th>First-take yield</th>{yields}</tr>
+<tr><th>Time</th>{seconds}</tr>
+<tr><th>Cost</th>{usd}</tr></tbody>
+</table></div>
+</section>"""
+
+
+def _take(take: Take) -> str:
+    if take.refused:
+        return (f'<figure class="take refused" data-model="{escape(take.model)}" data-story="{escape(take.story)}" '
+                f'data-key="{escape(take.state)}" data-seed="{take.seed}" data-usd="{take.usd:.2f}">'
+                f'<p class="note fail">The model refused this take for its content, VT409, so nothing was filmed and '
+                f'every element of it counts as not drawn right.</p><figcaption><strong>Take {take.seed}</strong>'
+                f'<span class="badge failing">refused VT409</span><span class="badge">{_money(take.usd)}</span>'
+                "</figcaption></figure>")
+    # A failing check stays in view, so the models compare at a glance, and the passing ones fold away.
+    failing = [item for item in take.items if not item["passed"]]
+    passing = [item for item in take.items if item["passed"]]
+    verdict = "fails " + " ".join(sorted({item["code"] for item in failing})) if failing else "passed"
+    seconds = f"{take.seconds:.1f} s" if take.seconds is not None else "time unknown"
+    timed = f' data-seconds="{take.seconds:.1f}"' if take.seconds is not None else ""
+    passed = (f"<details><summary>{_count(len(passing), 'check')} passed</summary><ul class=\"checks\">"
+              f"{dailies.checklist(passing)}</ul></details>" if passing else "")
+    return (f'<figure class="take" data-model="{escape(take.model)}" data-story="{escape(take.story)}" '
+            f'data-key="{escape(take.state)}" data-seed="{take.seed}" data-usd="{take.usd:.2f}"{timed}>'
+            f'<img src="{escape(take.tape)}/{escape(take.picture)}" alt="The last frame of take {take.seed} of '
+            f'{escape(take.state)} on {escape(take.model)} in {escape(take.story)}" loading="lazy">'
+            f'<figcaption><strong>Take {take.seed}</strong><span class="badge{"" if take.passed else " failing"}">'
+            f'{verdict}</span><span class="badge">{seconds}</span><span class="badge">{_money(take.usd)}</span>'
+            f'<a href="{escape(take.tape)}/{escape(take.clip)}">clip</a></figcaption>'
+            f'<ul class="checks">{dailies.checklist(failing)}</ul>{passed}</figure>')
+
+
+def _takes(screen: Screen) -> str:
+    sections = []
+    for told in screen.stories:
+        for key in screen.keys:
+            columns = "".join(
+                f'<div class="model"><h4>{escape(model)}</h4><div class="takes">'
+                + "".join(_take(take) for take in screen.of(model, told) if take.state == key.state.name)
+                + "</div></div>" for model in screen.models)
+            sections.append(f'<section class="shot sampled" data-story="{escape(told)}" data-key="{escape(key.state.name)}">'
+                            f'<h3>{escape(key.state.name)} in {escape(told)}</h3><div class="models">{columns}</div>'
+                            "</section>")
+    return f'<section id="takes"><h2>Every take</h2>\n{"".join(sections)}\n</section>'
+
+
+def _calibration(screen: Screen) -> str:
+    model, told = CALIBRATION
+    takes = [take for take in screen.of(model, told) if not take.refused]
+    if not takes:
+        return ""
+    right = {(mark.clip, mark.element): mark.right for mark in screen.marks}
+    figures = []
+    for take in takes:
+        boxes = "".join(
+            f'<li><label><input type="checkbox" class="mark" data-state="{escape(take.state)}" data-seed="{take.seed}" '
+            f'data-clip="{escape(take.clip)}" data-place="{element.place}" data-type="{element.type}"'
+            f'{" checked" if right.get((take.clip, element.place)) else ""}>'
+            f'<span><strong>{element.type}</strong> <span class="lines">'
+            f'{escape(" / ".join(element.lines[:4]) + (f" and {len(element.lines) - 4} more" if len(element.lines) > 4 else ""))}'
+            "</span></span></label></li>" for element in take.elements)
+        figures.append(f'<figure class="take" data-calibration><img src="{escape(take.tape)}/{escape(take.picture)}" '
+                       f'alt="The last frame of take {take.seed} of {escape(take.state)}" loading="lazy">'
+                       f"<figcaption><strong>{escape(take.state)}</strong> take {take.seed}</figcaption>"
+                       f'<ul class="marks">{boxes}</ul></figure>')
+    agreed = ""
+    if (agreement := screen.agreement) is not None:
+        kinds = "".join(f"<li>{kind} {tally}, {tally.share:.1%}</li>"
+                        for kind in screen.kinds if (tally := agreement.tally(kind)).of)
+        wrong = "".join(
+            f"<li>{escape(take.state)} take {take.seed}, {escape(element.named)}: marked "
+            f"{'' if mark.right else 'not '}drawn right, and "
+            + ("every check of it passes" if element.passed else
+               "it fails " + escape(", ".join(f'{i["code"]} {i["about"]}' for i in element.items if not i["passed"])))
+            + "</li>" for mark, take, element in agreement.disagreed)
+        stale = (f"<p class=\"note\">{_count(agreement.stale, 'mark')} of takes no longer on disk "
+                 f"{'is' if agreement.stale == 1 else 'are'} left out.</p>" if agreement.stale else "")
+        agreed = (f"<p>{escape(_upper_first(agreement.said()))}.</p><ul>{kinds}</ul>{stale}"
+                  + (f"<h3>Where they disagree</h3><ul>{wrong}</ul>" if wrong else ""))
+    return f"""<section class="shot" id="calibration" data-model="{escape(model)}" data-story="{escape(told)}">
+<h2>Calibration</h2>
+<p class="note">Look at each of {escape(model)}'s {len(takes)} takes in {escape(told)}, and tick each element drawn right:
+every line of it lettered as written, in its place. Then download marks.json and run the screen test again with
+--marks marks.json, which holds the checks to your marks. The page keeps your ticks in this browser.</p>
+<p><button type="button" id="download">Download marks.json</button></p>
+{agreed}
+<div class="takes">
+{"".join(figures)}
+</div>
+</section>"""
+
+
+def _sources() -> str:
+    items = "".join(f'<li><a href="{escape(source.url)}">{escape(source.title)}</a>, {escape(source.date)}. '
+                    f"{escape(source.said)}</li>" for source in SOURCES)
+    return f"""<section class="shot sources" id="sources">
+<h2>Why these models</h2>
+<p>{escape(WHY)}</p>
+<ul>{items}</ul>
+</section>"""
+
+
+def page(screen: Screen) -> str:
+    takes = len(screen.takes)
+    spent = sum(screen.spent.values())
+    summary = (f"{_count(len(screen.keys), 'key')}, {TAKES} takes each, in {escape(_listed(screen.stories))}, on "
+               f"{escape(_listed(screen.models))}: {_count(takes, 'take')}, {_money(spent)} in the ledger.")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(screen.app)} screen test</title>
+<style>{STYLE}</style>
+</head>
+<body>
+<header>
+<h1>{escape(screen.app)} screen test</h1>
+<p class="summary">{summary}</p>
+</header>
+<main>
+{_pick(screen)}
+{_elements(screen)}
+{_keys(screen)}
+{_calibration(screen)}
+{_takes(screen)}
+{_sources()}
+</main>
+<script>{SCRIPT}</script>
+</body>
+</html>
+"""
+
+
+# The command.
+
+def _models(text: str) -> list[str]:
+    names = list(dict.fromkeys(name.strip() for name in text.split(",") if name.strip()))
+    unknown = [name for name in names if name not in MODELS]
+    if unknown or not names:
+        raise argparse.ArgumentTypeError(f"{', '.join(unknown) or 'no model'} is not a model; name models from "
+                                         f"{', '.join(sorted(MODELS))}, with a comma between two")
+    return names
+
+
+def _stories(text: str) -> list[str]:
+    names = list(dict.fromkeys(name.strip() for name in text.split(",") if name.strip()))
+    if not names:
+        raise argparse.ArgumentTypeError("names no story; name the stories, with a comma between two, as in "
+                                         "terminal,posters")
+    return names
+
+
+def _marks(path: str) -> tuple[Mark, ...]:
+    """The marks of a marks.json the report downloaded. ValueError says what is wrong with the file."""
+    again = "download it again from the report's Download marks.json button"
+    try:
+        held = json.loads(Path(path).read_text())
+    except OSError as error:
+        raise ValueError(f"{path} cannot be read: {error.strerror}; {again}") from None
+    except ValueError:
+        raise ValueError(f"{path} is not JSON; {again}") from None
+    model, told = CALIBRATION
+    if not isinstance(held, dict) or not isinstance(held.get("marks"), list):
+        raise ValueError(f"{path} holds no marks; {again}")
+    if (held.get("model"), held.get("story")) != CALIBRATION:
+        raise ValueError(f"{path} holds marks of {held.get('model')}'s {held.get('story')} takes, and the report marks "
+                         f"{model}'s {told} takes; {again}")
+    shape = {"state": str, "seed": int, "clip": str, "element": int, "type": str, "right": bool}
+    for entry in held["marks"]:
+        if not isinstance(entry, dict) or set(entry) != set(shape) or not all(
+                type(entry[name]) is kind for name, kind in shape.items()):
+            raise ValueError(f"{path} holds an entry that is not a mark, {json.dumps(entry)[:120]}; {again}")
+    return tuple(Mark(**entry) for entry in held["marks"])
+
+
+def command(args: argparse.Namespace, cap: float | None) -> str:
+    """The command that runs this screen test again, with the cap last. uv runs it in the repository's environment,
+    where videotape is installed."""
+    words = ["uv", "run", errors.shown(Path(__file__)), args.project, "--models", ",".join(args.models), "--stories",
+             ",".join(args.stories)]
+    if args.marks:
+        words += ["--marks", args.marks]
+    return shlex.join([*words, *(["--cap-usd", f"{cap:.2f}"] if cap is not None else [])])
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="scripts/screen-test", description=__doc__.splitlines()[0])
+    parser.add_argument("project", help="the app's project, the folder whose pyproject.toml has [tool.videotape]")
+    parser.add_argument("--models", required=True, type=_models, help="the models to film the keys with, with a comma "
+                        "between two, as in wan3.0,minimax-h3")
+    parser.add_argument("--stories", required=True, type=_stories, help="the stories to film the keys in, with a comma "
+                        "between two, as in terminal,posters")
+    parser.add_argument("--cap-usd", type=float, help="the most the whole screen test may spend on the models' calls "
+                        "and the readers' reads")
+    parser.add_argument("--estimate", action="store_true", help="print the estimate and stop, before any call; needs no "
+                        "API key")
+    parser.add_argument("--marks", help="the marks.json the report downloads, whose marks the checks are held to")
+    args = parser.parse_args(argv)
+    marks = None
+    if args.marks is not None:
+        try:
+            marks = _marks(args.marks)
+        except ValueError as error:
+            parser.error(f"argument --marks: {error}")
+        model, told = CALIBRATION
+        if model not in args.models or told not in args.stories:
+            parser.error(f"argument --marks: {args.marks} holds marks of {model}'s {told} takes, and this screen test "
+                         f"films none; add {model} to --models and {told} to --stories")
+    try:
+        return _run(args, marks)
+    except (ScreenplayError, RenderError) as error:
+        print(error.report(), file=sys.stderr)
+        return 1
+
+
+def _run(args: argparse.Namespace, marks: tuple[Mark, ...] | None) -> int:
+    found = project.find(Path(args.project).resolve())
+    sample = sampled(plan(found.load(), found.max_states))
+    told = {name: story.named(found.root, name) for name in args.stories}
+    warnings = {warning.report("warning"): None for name in args.models for one in told.values()
+                for warning in (*sample.warnings, *story.check(one, sample, MODELS[name].prompt_limit))}
+    for warning in warnings:
+        print(warning, file=sys.stderr)
+    takes = len(SAMPLER) * TAKES * len(told)
+    print(f"screen test of {' '.join(filter(None, (found.name, found.version)))}: {_count(len(SAMPLER), 'key')}, "
+          f"{TAKES} takes each, in {_listed(list(told))}, on {_listed(args.models)}")
+    total = 0.0
+    for name in args.models:
+        line, usd = estimate(name, MODELS[name], takes)
+        print(line)
+        total += usd
+    cap = args.cap_usd
+    fits = "no cap" if cap is None else f"{'under' if total <= cap else 'past'} the cap of ${cap:.2f}"
+    print(f"the screen test: {_count(takes * len(args.models), 'take')}, at most ${total:.2f}, {fits}", flush=True)
+    if args.estimate:
+        return 0
+    billed = [*(name for name in args.models if MODELS[name].price),
+              *dict.fromkeys(reader.name for name in args.models for reader in MODELS[name].readers if reader.paid)]
+    if billed and cap is None:
+        raise RenderError("VT402", "before the first call", f"{_listed(billed)} bill{'s' if len(billed) == 1 else ''} "
+                          "per call, and no cap is set", "set the most the screen test may spend, as in:\n"
+                          f"{command(args, _cents_up(total))}")
+    if cap is not None and total > cap:
+        raise RenderError("VT402", "before the first call", f"the screen test may cost ${total:.2f}, which passes the "
+                          f"cap of ${cap:.2f}", f"run it with a cap of at least ${_cents_up(total):.2f}, as in:\n"
+                          f"{command(args, _cents_up(total))}")
+    tapes = {(name, one): found.root / FOLDER / name / one for name in args.models for one in told}
+    models = {name: MODELS[name].model() for name in args.models}
+    readers = {(name, one): [reader(tapes[name, one]) for reader in MODELS[name].readers] for name, one in tapes}
+    # The tapes render one after another, each under what the cap leaves after the others' lines in the ledger, so
+    # one cap holds for them all.
+    for (name, one), tape in tapes.items():
+        others = sum(_spent(found.root, other) for other in tapes.values() if other != tape)
+        try:
+            _film(found, sample, told[one], name, models[name], readers[name, one], tape,
+                  None if cap is None else cap - others, command(args, cap))
+        except EveryTakeRefused as error:
+            print(RenderError(error.code, error.place, error.message, f"nothing; the tape's other keys are filmed, and "
+                              f"the report counts {_count(len(error.seeds), 'refused take')} against {name}").report(),
+                  file=sys.stderr, flush=True)
+        except RenderError as error:
+            if error.code == "VT403":
+                raise RenderError(error.code, error.place, error.message, f"the screen test films only seeds 1 and "
+                                  f"{TAKES}, and neither decoded; delete each clip the lines above name, with the files "
+                                  "beside it that share its name, and run the screen test again, which films those "
+                                  f"seeds anew:\n{command(args, cap)}") from None
+            if error.code != "VT402" or cap is None:
+                raise
+            spent = sum(_spent(found.root, other) for other in tapes.values())
+            raise RenderError("VT402", error.place, f"the next call would pass the screen test's cap of ${cap:.2f}, "
+                              f"with ${spent:.2f} spent on its tapes", "run the screen test again with a higher cap, "
+                              f"which resumes, as in:\n{command(args, 2 * cap)}") from None
+    spent = {name: sum(_spent(found.root, tapes[name, one]) for one in told) for name in args.models}
+    taken = gathered(found.root, sample.keys, tapes)
+    screen = Screen(sample.title, tuple(args.models), tuple(told), sample.keys, tuple(taken), spent, marks or (),
+                    None if marks is None else agreement(marks, taken))
+    report = found.root / FOLDER / "report.html"
+    write_atomically(report, lambda out: out.write_text(page(screen)))
+    print(f"wrote {errors.shown(report)}")
+    if screen.agreement is not None:
+        print(screen.agreement.said())
+    chosen = screen.pick
+    if chosen is None:
+        print(f"no pick: below {AGREEMENT:.0%}, the checks must be fixed before the pick")
+        return 0
+    model, story_ = CALIBRATION
+    held = "" if screen.agreement is not None else (
+        f"; the checks are not yet held to a person's marks, so mark {model}'s {story_} takes in the report and run "
+        "again with --marks marks.json")
+    print(f"pick: {chosen.model}, with {len(chosen.met)} of {len(screen.kinds)} element types at the bar of {BAR:.0%} in "
+          f"every story, {chosen.passing} elements passing every check, {chosen.passing.share:.1%}, "
+          f"{_count(chosen.invented, 'control')} invented and ${chosen.usd:.2f} spent{held}")
+    print(f'to render with it, set model = "{chosen.model}" in [tool.videotape] in '
+          f"{errors.shown(found.root / 'pyproject.toml')}")
+    return 0
+
+
+def _film(found: project.Project, sample: Plan, told: story.Story, name: str, model: Model, readers: list[Reader],
+          tape: Path, cap: float | None, resume: str) -> None:
+    """Render the sampled keys of one model in one story, both takes of each, under the cap left for its tape."""
+    listing = MODELS[name]
+    print(f"{name} in {told.name}: {_count(len(sample.keys), 'key')}, {TAKES} takes each, read by {eye(readers)} -> "
+          f"{errors.shown(tape)}", flush=True)
+
+    def report(filmed: Filmed) -> None:
+        for error in filmed.reported:
+            print(error.report(), file=sys.stderr, flush=True)
+        verdict = "passed" if filmed.passed else f"fails {' '.join(sorted({f.code for f in filmed.failures}))}"
+        filmed_takes = f"{_count(filmed.rendered, 'take')} filmed" if filmed.rendered else "cached"
+        print(f"{sample.keys.index(filmed.shot) + 1}. {filmed.shot.title}  kept take {filmed.kept.seed}, {verdict}, "
+              f"{filmed_takes}, ${filmed.usd:.2f}, {filmed.seconds:.1f} s", flush=True)
+
+    render(sample, told, model, readers, tape, ledger.of(found.root, tape), made(found, told, model), takes=TAKES,
+           limit=listing.limit, price=listing.price, cap=cap, resume=resume, report=report, every=True)
+
+if __name__ == "__main__":
+    sys.exit(main())

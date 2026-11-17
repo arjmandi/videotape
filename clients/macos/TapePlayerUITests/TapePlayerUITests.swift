@@ -170,7 +170,7 @@ final class TapePlayerUITests: XCTestCase {
         let exists = FileManager.default.fileExists(atPath: Self.tape.appending(path: "tape.json").path(percentEncoded: false))
         let tape = try XCTUnwrap(
             exists ? Self.tape : nil,
-            "No tape.json in \(Self.tape.path(percentEncoded: false)). In examples/contrail, run: uv run videotape render --story terminal"
+            "No tape.json in \(Self.tape.path(percentEncoded: false)). In examples/contrail, run: uv run videotape render --story terminal --model stand-in"
         )
         let app = XCUIApplication()
         app.launchArguments = [tape.path(percentEncoded: false)]

@@ -54,7 +54,7 @@ class Metered(StandIn):
 
 def metered(monkeypatch, **flaw) -> Metered:
     model = Metered(**flaw)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, lambda tape: StandInEye(), price=PRICE, limit=2, kind=model))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, (StandInEye,), price=PRICE, limit=2, kind=model))
     return model
 
 

@@ -8,8 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES, copy_of, planned, told, words
+from conftest import FIXTURES, as_explained, copy_of, planned, told, words
 from videotape import wan
+from videotape.errors import CODES
 from videotape.model import MODELS
 from videotape.plan import Mode
 
@@ -70,8 +71,7 @@ def test_wan_without_its_extra_says_what_to_install_and_renders_nothing(tmp_path
     monkeypatch.setitem(sys.modules, "diffusers", None)
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "render", "--story", "chalk", "--model", "wan2.2-5b") == 1
-    assert capsys.readouterr().err == ("error: wan2.2-5b needs videotape's wan extra, which is not installed here; "
-                                       "install videotape[wan]\n")
+    assert as_explained("VT111").fullmatch(capsys.readouterr().err.rstrip("\n"))
     assert not (directory / "tapes").exists()
 
 
@@ -84,8 +84,8 @@ def test_wan_on_a_machine_without_cuda_says_so_before_rendering(tmp_path, cli, c
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "render", "--story", "chalk", "--model", "wan2.2-5b") == 1
     err = capsys.readouterr().err
-    assert err.startswith("error: wan2.2-5b needs a CUDA GPU with about 80 GB, and this machine has ")
-    assert err.endswith(" only; rent one with scripts/runpod-render\n")
+    assert err.startswith("error VT111 wan2.2-5b: needs a CUDA GPU with about 80 GB, and this machine has ")
+    assert err.endswith(f" only\nfix: {CODES['VT111'].fix.removeprefix('fix: ')}\n")
     assert not (directory / "tapes").exists()
 
 

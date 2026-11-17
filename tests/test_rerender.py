@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CONTRAIL, planned, told, words
+from conftest import contrail_copy, planned, told, words
 from videotape import ledger, project
 from videotape.made import made
 from videotape.plan import Mode, Plan
@@ -70,7 +70,7 @@ def film(directory: Path) -> tuple[set[str], int]:
     """Render the project's terminal tape with one take per shot. Returns the shots that were filmed, and the model's
     calls."""
     found, model, tape = read(directory), StandIn(flaw=clean), directory / "tapes" / STORY
-    result = render(found.plan, found.story, model, StandInEye(), tape, ledger.of(directory, tape),
+    result = render(found.plan, found.story, model, [StandInEye()], tape, ledger.of(directory, tape),
                     made(project.find(directory), found.story, model), takes=1, limit=8)
     return {filmed.shot.id for filmed in result.shots if filmed.rendered}, len(model.calls)
 
@@ -78,8 +78,7 @@ def film(directory: Path) -> tuple[set[str], int]:
 @pytest.fixture(scope="module")
 def changes(tmp_path_factory) -> dict[str, Change]:
     root = tmp_path_factory.mktemp("rerender")
-    first = read(Path(shutil.copytree(CONTRAIL, root / "first", ignore=shutil.ignore_patterns(
-        ".venv", "tape*", "ledger.jsonl", "__pycache__"))))
+    first = read(contrail_copy(root / "first"))
     before = first.prompts
     assert film(first.directory) == (set(before), 160)
     after = dict[str, Planned]()

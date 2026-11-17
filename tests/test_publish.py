@@ -19,13 +19,14 @@ from pathlib import Path
 import pytest
 
 from conftest import as_explained, forget, told
-from videotape import frames, made, new, player, project, publish
+from videotape import doctor, frames, made, new, player, project, publish
 from videotape.cli import main
+from videotape.errors import CODES
 from videotape.model import MODELS, Listing
-from videotape.checks import Spot
+from videotape.checks import Free, Read
 from videotape.standin import Flaw, StandIn, StandInEye
 from videotape.plan import Mode
-from videotape.wan3 import Wan3
+from videotape.hosted import WAN3
 
 LABEL = "contrail 0.1.0 + starter 1.0.0"
 
@@ -136,6 +137,33 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
     assert signed(app)
 
 
+
+class Wider(StandIn):
+    """Pads every key take to 1344x768 in the stand-in's background, the size minimax-h3 draws at, so the moves the
+    stand-in fades between two keys are 1344x768 too."""
+
+    def text_to_video(self, prompt, seed, out):
+        drawn = out.with_name(f"drawn-{out.name}")
+        super().text_to_video(prompt, seed, drawn)
+        subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(drawn), "-vf", "pad=1344:768:32:32:color=0x2f6f7e",
+                        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "24", "-f", "mp4", "-y", str(out)], check=True)
+        drawn.unlink()
+
+
+def test_a_1344x768_tape_is_published_at_its_own_size(contrail, cli, capsys, monkeypatch):
+    monkeypatch.setitem(MODELS, "stand-in", dataclasses.replace(
+        MODELS["stand-in"], model=lambda: Wider(flaw=lambda mode, prompt, seed: Flaw.NONE)))
+    shutil.rmtree(contrail / "tapes" / "starter")
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    assert manifest(contrail)["size"] == {"width": 1344, "height": 768}
+    capsys.readouterr()
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    assert capsys.readouterr().out.splitlines()[2].startswith("encoded 3 clips as HEVC; on each one's last frame")
+    inside = contrail / "dist" / "Contrail-starter.app" / "Contents" / "Resources" / "tape"
+    clips = [manifest(contrail)["opening"]["clip"], *(move["clip"] for move in manifest(contrail)["moves"].values())]
+    assert {(probe(inside / clip)[0], frames.shape(inside / clip)) for clip in clips} == {("hevc", frames.Shape(1344, 768, 24))}
+    assert json.loads((inside / "tape.json").read_text())["size"] == {"width": 1344, "height": 768}
+
 def shipped(folder: Path) -> tuple[list[str], str | None, str | None, str | None]:
     """What a publish leaves: the names in dist/, the made id of the tape in the app and in the zip, and the lock."""
     dist, lock = folder / "dist", folder / "videotape.lock"
@@ -191,7 +219,7 @@ def test_a_publish_stopped_or_failing_at_any_step_leaves_the_old_app_zip_and_loc
                         run("ditto", "-c", "-k", str(tmp_path / "nothing"), str(tmp_path / "nothing.zip")))
     capsys.readouterr()
     assert cli(folder, "publish", "--story", "starter") == 1
-    assert capsys.readouterr().err.startswith("error: ditto exited with 1: ")
+    assert capsys.readouterr().err.startswith("error VT606 ditto: exited with 1: ")
     assert shipped(folder) == old
 
 
@@ -250,6 +278,22 @@ def test_a_lock_left_aside_by_a_stopped_publish_keeps_its_labels_when_the_next_p
         "contrail 0.1.0 + starter 1.0.0", "contrail 0.1.1 + starter 1.0.0"]
 
 
+def test_a_file_left_aside_whose_place_holds_another_is_vt607_and_publish_deletes_neither(contrail, cli, capsys):
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    capsys.readouterr()
+    aside = contrail / "dist" / "Contrail-starter.partial" / "aside"
+    aside.mkdir(parents=True)
+    (aside / "Contrail-starter.zip").write_bytes(b"an earlier zip")
+    before = (contrail / "dist" / "Contrail-starter.zip").read_bytes()
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    err = capsys.readouterr().err
+    assert as_explained("VT607").fullmatch(err.rstrip("\n"))
+    assert err.startswith("error VT607 dist/Contrail-starter.partial/aside: holds Contrail-starter.zip, which an earlier "
+                          "publish moved aside")
+    assert (aside / "Contrail-starter.zip").read_bytes() == b"an earlier zip"
+    assert (contrail / "dist" / "Contrail-starter.zip").read_bytes() == before
+
+
 def test_a_tape_made_before_its_made_id_named_the_screenplay_is_vt601(contrail, cli, capsys):
     tape = contrail / "tapes" / "starter" / "tape.json"
     written = json.loads(tape.read_text())
@@ -267,8 +311,51 @@ def test_publish_needs_a_rendered_tape(tmp_path, cli, capsys):
     cli(tmp_path, "new", "shop")
     capsys.readouterr()
     assert cli(tmp_path / "shop", "publish", "--story", "starter") == 1
-    assert capsys.readouterr() == ("", "error: no tape.json in tapes/starter; render the story first\n")
+    out, err = capsys.readouterr()
+    assert out == "" and as_explained("VT405").fullmatch(err.rstrip("\n"))
     assert not (tmp_path / "shop" / "dist").exists()
+
+
+def test_a_codesign_that_fails_is_vt606_and_ships_nothing(contrail, cli, capsys, monkeypatch, tmp_path):
+    run = publish._run
+    monkeypatch.setattr(publish, "_run", lambda *command: run(*command) if command[0] != "codesign" else
+                        run("codesign", "--force", "--deep", "--sign", "-", str(tmp_path / "nothing")))
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert as_explained("VT606").fullmatch(refused(contrail, capsys).rstrip("\n"))
+
+
+def test_a_lock_that_is_not_toml_is_vt605_and_ships_nothing(contrail, cli, capsys):
+    (contrail / "videotape.lock").write_text(publish.HEADER + '\n["shop 0.1.0 + starter 1.0.0"]\n<<<<<<< HEAD\n')
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    out, err = capsys.readouterr()
+    assert as_explained("VT605").fullmatch(err.rstrip("\n"))
+    assert not (contrail / "dist").exists()
+
+
+def test_a_key_picture_of_another_size_than_its_clips_is_vt407(contrail, cli, capsys):
+    frames.write_png(frames.Frame(640, 352, bytes(640 * 352 * 3)), contrail / "tapes" / "starter" / "keys" / "todo.png")
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert as_explained("VT407").fullmatch(refused(contrail, capsys).rstrip("\n"))
+
+
+def test_publish_without_ffmpeg_is_doctors_vt102_in_doctors_words(contrail, cli, capsys, monkeypatch, tmp_path):
+    tools = tmp_path / "bin"
+    tools.mkdir()
+    (tools / "ffprobe").symlink_to(shutil.which("ffprobe"))
+    monkeypatch.setenv("PATH", str(tools))
+    check = doctor.ffmpeg()
+    assert (check.ok, check.fix) == (False, CODES["VT102"].fix)
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert refused(contrail, capsys) == f"error VT102 PATH: {check.what}\nfix: {check.fix}\n"
+
+
+def test_a_clip_ffmpeg_cannot_encode_is_vt404_naming_the_command(contrail, cli, capsys):
+    (contrail / "tapes" / "starter" / "moves" / "opening.mp4").write_bytes(b"not a clip")
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    err = refused(contrail, capsys).splitlines()
+    assert err[0].startswith("error VT404 ffmpeg: ffmpeg -hide_banner -loglevel error -i ")
+    assert err[-1] == ("next: run videotape doctor, which checks ffmpeg and ffprobe, then run the command again; when "
+                       "ffmpeg names a file of the tape, render the story again first")
 
 
 def refused(contrail: Path, capsys) -> str:
@@ -311,13 +398,13 @@ def as_wan3(folder: Path) -> dict:
     """Rewrite the tape's made block as a wan3.0 render of the same sources would write it."""
     file = folder / "tapes" / "starter" / "tape.json"
     written = json.loads(file.read_text())
-    written["made"] = made.made(project.find(folder), told(folder, "starter"), Wan3)
+    written["made"] = made.made(project.find(folder), told(folder, "starter"), WAN3)
     file.write_text(json.dumps(written, indent=2) + "\n")
     return written["made"]
 
 
 def test_a_wan3_tape_is_checked_against_its_sources_without_fal_key(contrail, cli, capsys, monkeypatch):
-    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], eye=lambda tape: StandInEye()))
+    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], readers=(StandInEye,)))
     made_by = as_wan3(contrail)
     assert cli(contrail, "publish", "--story", "starter") == 0
     assert capsys.readouterr().out.splitlines()[-3:-1] == [f"label {LABEL}", f"id {made_by['id']}"]
@@ -335,7 +422,7 @@ def extra_box_on_todo(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 
 def test_a_failing_check_nobody_accepted_is_vt602_until_it_is_accepted(contrail, cli, capsys, monkeypatch):
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=extra_box_on_todo), lambda tape: StandInEye(),
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=extra_box_on_todo), (StandInEye,),
                                                     limit=8, kind=StandIn))
     shutil.rmtree(contrail / "tapes")
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
@@ -375,17 +462,16 @@ def test_a_label_the_lock_holds_with_another_id_is_vt305_until_a_version_is_bump
 TWICE = "in the data folder"
 
 
-@dataclasses.dataclass(frozen=True)
-class Smudging:
+def smudging(clear: int) -> type[StandInEye]:
     """The stand-in's eye, which reads every time TWICE shows on a frame after the first clear times as smudged."""
-
-    clear: int
-    name = "stand-in"
-
-    def see(self, frame: frames.Frame) -> tuple[Spot, ...]:
-        shown = itertools.count(1)
-        return tuple(dataclasses.replace(spot, text="in the dark folder")
-                     if spot.text == TWICE and next(shown) > self.clear else spot for spot in StandInEye().see(frame))
+    class Smudging(StandInEye):
+        def see(self, frame: frames.Frame, purse=Free()) -> Read:
+            shown = itertools.count(1)
+            seen = super().see(frame)
+            return dataclasses.replace(seen, spots=tuple(
+                dataclasses.replace(spot, text="in the dark folder") if spot.text == TWICE and next(shown) > clear
+                else spot for spot in seen.spots))
+    return Smudging
 
 
 def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_after_encoding_is_vt604(
@@ -393,7 +479,7 @@ def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_a
     steps = contrail / "data" / "steps.json"
     steps.write_text(steps.read_text().replace("in the stories folder", TWICE))
     eye = lambda clear: Listing(lambda: StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE),
-                                lambda tape: Smudging(clear), limit=8, kind=StandIn)
+                                (smudging(clear),), limit=8, kind=StandIn)
     monkeypatch.setitem(MODELS, "stand-in", eye(1))
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
     assert [(failure["shot"], failure["code"], failure["about"]) for failure in

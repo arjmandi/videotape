@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import as_explained
 from videotape import dailies, new
 
 ROOT = Path(__file__).parent.parent
@@ -48,26 +49,25 @@ def test_new_writes_into_an_empty_folder_and_refuses_one_that_is_not(tmp_path, c
     capsys.readouterr()
     before = sorted(path for path in (tmp_path / "shop").rglob("*"))
     assert cli(tmp_path, "new", "shop") == 1
-    assert capsys.readouterr() == ("", "error: shop is not an empty folder; new writes a project only into a new or "
-                                       "empty one\n")
+    out, err = capsys.readouterr()
+    assert out == "" and as_explained("VT109").fullmatch(err.rstrip("\n"))
     assert sorted(path for path in (tmp_path / "shop").rglob("*")) == before
 
 
-NAMES = ("cannot name a project: it names the project in pyproject.toml and its Python package, so it starts with a "
-         "letter, ends with a letter or digit, holds only ASCII letters, digits and _, and is not a Python keyword, as "
-         "in my_app")
-
-
-@pytest.mark.parametrize("name, error", [
-    *((name, f'"{name}" {NAMES}') for name in ("my-app", "2shop", "class", "_shop", "shop_", "café")),
-    ("json", '"json" cannot name a project: its package would hide the module json that videotape needs; pick '
-             "another name"),
-    ("videotape", '"videotape" cannot name a project: its package would hide the module videotape that videotape '
-                  "needs; pick another name"),
-])
-def test_new_refuses_a_name_that_cannot_name_a_python_package(tmp_path, cli, capsys, name, error):
+@pytest.mark.parametrize("name", ["my-app", "2shop", "class", "_shop", "shop_", "café"])
+def test_new_refuses_a_name_that_cannot_name_a_project(tmp_path, cli, capsys, name):
     assert cli(tmp_path, "new", name) == 1
-    assert capsys.readouterr() == ("", f"error: {error}\n")
+    out, err = capsys.readouterr()
+    assert out == "" and err.startswith(f"error VT108 {name}: ")
+    assert as_explained("VT108").fullmatch(err.rstrip("\n"))
+
+
+@pytest.mark.parametrize("name", ["json", "videotape"])
+def test_new_refuses_a_name_whose_package_would_hide_a_module_videotape_needs(tmp_path, cli, capsys, name):
+    assert cli(tmp_path, "new", name) == 1
+    assert capsys.readouterr() == ("", f"error VT108 {name}: would name a package that hides the module {name}, which "
+                                       f"videotape needs\nfix: name the project another way, as in videotape new "
+                                       f"{name}_app\n")
     assert list(tmp_path.iterdir()) == []
 
 
@@ -79,7 +79,7 @@ def test_the_starter_plans_without_a_warning_and_renders_clean_with_the_stand_in
     assert capsys.readouterr().out.splitlines()[0] == "Shop 0.1.0: 2 scenes, 2 states, 2 keys, 2 moves, 4 shots"
     assert cli(project, "plan", "--story", "starter") == 0
     assert capsys.readouterr().out.splitlines()[-2:] == ["0 errors, 0 warnings",
-                                                         "wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s"]
+                                                         "wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.35 to $1.38"]
     assert cli(project, "render", "--story", "starter", "--model", "stand-in") == 0
     out, err = capsys.readouterr()
     assert err == "" and out.splitlines()[-1].startswith("4 shots, ")

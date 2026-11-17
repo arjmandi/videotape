@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs TapeKit's unit tests, then TapePlayer's UI tests. The UI tests take over the mouse and screen while they run, and
 # play examples/contrail/tapes/terminal, so render it first: in examples/contrail, run
-# uv run videotape render --story terminal
+# uv run videotape render --story terminal --model stand-in
 # With --published <app>, an app videotape publish made, one more test walks a copy of that app. The copy and the clearing
 # of the player's caches happen here, because the UI test runner is sandboxed: it can write only in its own container,
 # and an app copied there does not launch.

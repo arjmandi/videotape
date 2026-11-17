@@ -17,10 +17,6 @@ TAKES = 4
 """How many takes a shot gets at most, unless [tool.videotape] sets takes. A shot stops at the first take that passes."""
 
 
-class ProjectError(RuntimeError):
-    pass
-
-
 @dataclass(frozen=True)
 class Project:
     root: Path
@@ -74,7 +70,7 @@ def find(start: Path) -> Project:
     table = settings.get("tool", {}).get("videotape")
     if not isinstance(table, dict):
         raise ScreenplayError("VT106", file, "has no [tool.videotape] section", "add one that names the screenplay, "
-                              'its module and the name of its vt.Screenplay: [tool.videotape] screenplay = "shop:app"')
+                              'its module and the name of its vt.Screenplay: [tool.videotape] screenplay = "shop.screenplay:app"')
     screenplay, model = table.get("screenplay"), table.get("model")
     max_states, takes, cap = table.get("max_states", MAX_STATES), table.get("takes", TAKES), table.get("cap_usd")
     models = ", ".join(sorted(MODELS))

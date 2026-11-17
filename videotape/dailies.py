@@ -34,10 +34,12 @@ class Carried:
     accepted: list[dict] = field(default_factory=list)
 
 
-def carried(tape: Path) -> Carried:
+def carried(tape: Path, render: str) -> Carried:
+    """What the tape's record carries on, or nothing when no render wrote one. render is the command that renders the
+    tape."""
     if not (tape / "dailies.json").is_file():
         return Carried()
-    held = read(tape)
+    held = _held(tape, render)
     return Carried(dict(held.get("retakes", {})), dict(held.get("corrupt", {})), list(held.get("accepted", [])))
 
 
@@ -75,7 +77,7 @@ summary { cursor: pointer; }
 .takes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-top: 14px; }
 .take { margin: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
 .take.kept { border: 2px solid var(--kept); padding: 9px; }
-video, img { display: block; width: 100%; height: auto; aspect-ratio: auto 1280 / 704; border-radius: 6px; background: #000; }
+video, img { display: block; width: 100%; height: auto; border-radius: 6px; background: #000; }
 figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0 4px; }
 .checks { list-style: none; margin: 0; padding: 0; font-size: 13px; }
 .checks li { display: grid; grid-template-columns: 1.2em 1fr; column-gap: 4px; padding: 2px 0;
@@ -98,6 +100,8 @@ figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; marg
 .failure img { aspect-ratio: auto; border: 1px solid var(--line); }
 .failure .about { margin: 0 0 4px; }
 .failure .evidence { color: var(--fail); font-size: 13px; margin: 0 0 8px; overflow-wrap: anywhere; }
+.failure .readings { margin: 0 0 8px; padding-left: 20px; font-size: 13px; }
+.failure .readings li { overflow-wrap: anywhere; }
 .failure .reason { color: var(--pass); font-size: 13px; margin: 0 0 8px; }
 .failure .again { color: var(--kept); font-size: 13px; margin: 0 0 8px; }
 .next { margin: 0; padding-left: 20px; font-size: 13px; }
@@ -120,11 +124,13 @@ document.querySelectorAll("video").forEach(video => near.observe(video));
 
 
 def record(title: str, checks: str, render: Render, story: Story, tape_name: str, carry: Carried, takes: int,
-           complete: bool = True) -> dict:
+           complete: bool = True, unfilmed: dict[str, list[int]] | None = None, again: str | None = None) -> dict:
     """What a render knows about its keys and moves, with every failure of a kept take and its next steps, and what
     carries on to the next render: the accepts, the retake seeds, the corrupt seeds, and the limit on takes. complete
-    is false for a render that stopped short of its last shot. The ledger totals and the tape's size are read at
-    write time."""
+    is false for a render that stopped short of its last shot, and unfilmed names each shot whose every take the
+    model refused for its content, with those seeds. again is the command a stopped render's failures name in place
+    of a retake, which needs the tape.json only a finished render writes. The ledger totals and the tape's size are
+    read at write time."""
     out = None if tape_name == f"tapes/{story.name}" else tape_name
     shots = render.shots
     return {
@@ -138,12 +144,13 @@ def record(title: str, checks: str, render: Render, story: Story, tape_name: str
                   "items": _items(filmed.kept.checks)} for filmed in render.keys],
         "moves": [{**_shot_record(filmed, render.tape), "move": filmed.shot.clip, "start": filmed.shot.start.name,
                    "land": filmed.shot.land.name, "label": filmed.shot.label} for filmed in render.moves],
-        "failures": [_failure(failure, filmed, story, out, carry, render.tape)
+        "failures": [_failure(failure, filmed, story, out, carry, render.tape, again)
                      for filmed in shots for failure in filmed.failures],
         "yield": {"first_take": sum(filmed.takes[0].checks.passed for filmed in shots), "shots": len(shots)},
         "retakes": carry.retakes,
         "corrupt": carry.corrupt,
         "accepted": carry.accepted,
+        "unfilmed": unfilmed or {},
     }
 
 
@@ -151,18 +158,41 @@ def read(tape: Path) -> dict:
     return json.loads((tape / "dailies.json").read_text())
 
 
+def recorded(tape: Path, render: str) -> dict:
+    """The tape's record: VT405 when nothing rendered into the tape. render is the command that renders it."""
+    if not (tape / "dailies.json").is_file():
+        raise errors.ScreenplayError("VT405", errors.shown(tape), "has no dailies.json, which every render writes",
+                                     f"render the story first, as in:\n{render}")
+    return _held(tape, render)
+
+
+def _held(tape: Path, render: str) -> dict:
+    """The record as a command finds it: VT410 when the file is not JSON."""
+    try:
+        return read(tape)
+    except json.JSONDecodeError as error:
+        raise errors.ScreenplayError("VT410", errors.shown(tape / "dailies.json"), f"is not JSON: {error}",
+                                     "mend it, or move it aside and run the render again, which writes it afresh from "
+                                     "the takes on disk, without the accepts and the retake seeds it held, as in:\n"
+                                     f"{render}") from None
+
+
 def write(tape: Path, record: dict, totals: dict) -> None:
     """Write the record and its page into the tape, with the ledger's totals for this tape, the size of what plays,
-    and a crop for each failure. The crops of failures the record no longer holds are deleted."""
+    the size of its frames, and a crop for each failure. The crops of failures the record no longer holds are
+    deleted."""
     played = ["tape.json", "moves/opening.mp4", *(key["key"] for key in record["keys"]),
               *(move["move"] for move in record["moves"])]
     size = sum((tape / path).stat().st_size for path in played if (tape / path).is_file())
+    pictures = [tape / key["key"] for key in record["keys"] if (tape / key["key"]).is_file()]
+    shape = frames.shape(pictures[0]) if pictures else None
     failures = [{**failure, "crop": _crop(tape, number, failure)} for number, failure in enumerate(record["failures"], 1)]
     crops = {failure["crop"] for failure in failures}
     for png in (tape / "dailies").glob("*.png"):
         if png.relative_to(tape).as_posix() not in crops:
             png.unlink()
-    record = {**record, "failures": failures, "ledger": totals, "tape": {"bytes": size}}
+    record = {**record, "failures": failures, "ledger": totals, "tape": {"bytes": size},
+              "frame": {"width": shape.width, "height": shape.height} if shape else None}
     write_atomically(tape / "dailies.json", lambda partial: partial.write_text(json.dumps(record, indent=2) + "\n"))
     write_atomically(tape / "dailies.html", lambda partial: partial.write_text(page(record)))
 
@@ -192,6 +222,7 @@ def _shot_record(filmed: Filmed, tape: Path) -> dict:
                    **({"start": take.checks.start, "end": take.checks.end} if isinstance(shot, Move) else {}),
                    "items": _items(take.checks)} for take in filmed.takes],
         "corrupt": list(filmed.corrupt),
+        "refused": list(filmed.refused),
     }
 
 
@@ -199,9 +230,10 @@ def _items(checks: Checks) -> list[dict]:
     return [asdict(item) for item in checks.items()]
 
 
-def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, carry: Carried, tape: Path) -> dict:
-    """One failure of a kept take: its evidence, where to crop, and its next steps in order: retake, change the story
-    line that drew it, change the screenplay, accept it."""
+def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, carry: Carried, tape: Path,
+             again: str | None) -> dict:
+    """One failure of a kept take: its evidence, where to crop, and its next steps in order: retake, or render again
+    when the render stopped, change the story line that drew it, change the screenplay, accept it."""
     shot, kept = filmed.shot, filmed.kept
     name, where = named(shot), f" --out {out}" if out else ""
     box = failure.box or _found_elsewhere(failure, filmed)
@@ -213,7 +245,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
         "frame": frame,
         "crop_box": asdict(box) if box else None,
         "next": {
-            "retake": f'videotape retake "{name}" --story {story.name}{where}',
+            **({"retake": f'videotape retake "{name}" --story {story.name}{where}'} if again is None else {"render": again}),
             "story": _story_line(failure, filmed, story),
             "screenplay": _screenplay_line(shot),
             "accept": f'videotape accept "{name}" {failure.code} --story {story.name}{where} --reason "..."',
@@ -231,23 +263,11 @@ def _found_elsewhere(failure: Failure, filmed: Filmed) -> Box | None:
     return None
 
 
-def _element_type(failure: Failure, shot: Shot) -> str | None:
-    """The type of the element the failure is about: the one holding the action, the line, or the move."""
-    if isinstance(shot, Move):
-        return shot.element
-    for element in shot.shown:
-        for line in element.lines:
-            if failure.code == "VT501" and line.action and line.action.label == failure.about:
-                return element.type
-            if failure.code == "VT502" and line.words == failure.about:
-                return element.type
-    return None
-
-
 def _story_line(failure: Failure, filmed: Filmed, story: Story) -> str:
-    """The story line that drew what failed, named from the prompt's clause sources: the element type's appearance
-    or move, else the scene's direction, else the look."""
-    shot, kind = filmed.shot, _element_type(failure, filmed.shot)
+    """The story line that drew what failed, named from the prompt's clause sources: the appearance or the move of
+    the element type the check judges, else the scene's direction, else the look."""
+    shot = filmed.shot
+    kind = shot.element if isinstance(shot, Move) else failure.element
     sources = [clause.source.part for clause in filmed.prompt if isinstance(clause.source, FromStory)]
     wanted = [f"moves.{kind}", "moves.default"] if isinstance(shot, Move) else \
         [f"elements.{kind}", f"scenes.{shot.state.scene.name}", "look"]
@@ -282,6 +302,11 @@ def _cut(frame: Frame, box: Box) -> Frame:
     return Frame(x1 - x0, y1 - y0, b"".join(rows))
 
 
+def _frame(frame: dict | None) -> str:
+    """Room for each picture and clip at the tape's own shape before it loads, which then keeps its own."""
+    return f"video, img {{ aspect-ratio: auto {frame['width']} / {frame['height']}; }}\n" if frame else ""
+
+
 def page(record: dict) -> str:
     shots = [*record["keys"], *record["moves"]]
     rendered = sum(any(not take["cached"] for take in shot["takes"]) for shot in shots)
@@ -302,7 +327,7 @@ def page(record: dict) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title} dailies</title>
-<style>{STYLE}</style>
+<style>{STYLE}{_frame(record["frame"])}</style>
 </head>
 <body>
 <header>
@@ -370,15 +395,25 @@ def _failure_card(failure: dict) -> str:
 <div>
 <p class="about"><strong>{escape(failure["shot"])}</strong> take {failure["take"]}: {escape(failure["about"])}{badge}</p>
 <p class="evidence">{escape(failure["evidence"])}</p>
-{reason}
+{_disagreement(failure.get("readings", []))}{reason}
 <ol class="next">
-<li>Retake it: <code>{escape(steps["retake"])}</code></li>
+<li>{f'Retake it: <code>{escape(steps["retake"])}</code>' if "retake" in steps else
+      f'Render again, which films the takes this stopped render did not: <code>{escape(steps["render"])}</code>'}</li>
 <li>Change the story line that drew it: {escape(steps["story"])}</li>
 <li>Change the screenplay: {escape(steps["screenplay"])}</li>
 <li>Accept it with a reason: <code>{escape(steps["accept"])}</code></li>
 </ol>
 </div>
 </div>"""
+
+
+def _disagreement(readings: list[dict]) -> str:
+    """Each reader's reading, one to a line, when the readers of a line disagree."""
+    if len({reading["text"] for reading in readings}) < 2:
+        return ""
+    return '<ul class="readings">' + "".join(
+        f'<li>{escape(reading["reader"])} read {f"&quot;{escape(reading["text"])}&quot;" if reading["text"] else "nothing"}</li>'
+        for reading in readings) + "</ul>\n"
 
 
 def _keys(record: dict) -> str:
@@ -429,6 +464,9 @@ def _shot(number: int, shot: dict) -> str:
     if shot.get("corrupt"):
         notes.append(f'<p class="note fail">Corrupt and skipped: seed{"s" if len(shot["corrupt"]) > 1 else ""} '
                      f'{", ".join(map(str, shot["corrupt"]))}.</p>')
+    if shot.get("refused"):
+        notes.append(f'<p class="note fail">Refused for its content and skipped: seed{"s" if len(shot["refused"]) > 1 else ""} '
+                     f'{", ".join(map(str, shot["refused"]))}.</p>')
     notes.append(f'<p class="note">The kept take {_time(shot)}.</p>')
     if "key" in shot:
         notes.append(f'<div class="key"><img src="{escape(shot["key"])}" alt="Key for {escape(shot["state"])}" loading="lazy">'

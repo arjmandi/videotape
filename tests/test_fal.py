@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from videotape.fal import Fal, FalError
+from videotape.errors import ModelError
+from videotape.fal import Fal
 
 FIXTURES = Path(__file__).parent / "fixtures"
 KEY = "fal-test-key-0123456789abcdef"
@@ -82,7 +83,7 @@ def test_the_key_rides_only_in_the_authorization_header_and_never_follows_a_redi
                                      IncompleteRead(b"{", 20)])
 def test_a_failed_submit_is_never_sent_again(failure):
     _, queue = exchange(submit=[failure])
-    with pytest.raises(FalError, match="submit to alibaba/wan-3.0/image-to-video failed"):
+    with pytest.raises(ModelError, match="submit to alibaba/wan-3.0/image-to-video failed"):
         Fal(KEY, send=queue, sleep=lambda _: None).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert [method for method, _, _ in queue.sent()] == ["POST"]
 
@@ -100,7 +101,7 @@ def test_a_failed_poll_or_download_is_tried_again(tmp_path):
 
 def test_the_key_never_appears_in_an_error():
     _, queue = exchange(submit=[http(401, f'{{"detail": "Invalid key {KEY}"}}')])
-    with pytest.raises(FalError) as error:
+    with pytest.raises(ModelError) as error:
         Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert KEY not in str(error.value)
     assert "HTTP 401" in str(error.value) and "<FAL_KEY>" in str(error.value)
@@ -113,7 +114,7 @@ def test_the_key_never_appears_in_an_error():
 def test_the_key_is_scrubbed_before_a_long_error_is_cut(answer, said):
     """The key sits where the message is cut, so a cut before the scrub would leave its first characters."""
     _, queue = exchange(submit=[answer])
-    with pytest.raises(FalError) as error:
+    with pytest.raises(ModelError) as error:
         Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert said in str(error.value)
     assert "<FAL_KEY>" in str(error.value) and KEY[:8] not in str(error.value)
@@ -123,6 +124,52 @@ def test_the_key_is_sent_only_to_the_queue():
     response, queue = exchange()
     elsewhere = {**response["submitted"], "status_url": "https://example.com/steal/status"}
     queue.answers[("POST", "https://queue.fal.run/alibaba/wan-3.0/image-to-video")] = [elsewhere]
-    with pytest.raises(FalError, match="https://example.com/steal/status, which is not on https://queue.fal.run"):
+    with pytest.raises(ModelError, match="https://example.com/steal/status, which is not on https://queue.fal.run"):
         Fal(KEY, send=queue).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
     assert [url for _, url, _ in queue.sent()] == ["https://queue.fal.run/alibaba/wan-3.0/image-to-video"]
+
+
+REFUSED = ('{"detail":[{"loc":["body"],"msg":"The content could not be processed because it contained material flagged by '
+           'a content checker.","type":"content_policy_violation","url":"https://docs.fal.ai/errors#content_policy_violation",'
+           '"input":"","categories":["model_moderated"]}]}')
+"""fal's answer to the result of request 01a1e4a2-f25e-7972-979d-3aebd879c48c on the paid screen test of 2026-11-16."""
+
+
+def test_a_result_refused_for_its_content_is_vt409_and_is_not_asked_for_again():
+    response, queue = exchange()
+    result = response["submitted"]["response_url"]
+    queue.answers[("GET", result)] = [http(422, REFUSED)]
+    with pytest.raises(ModelError) as error:
+        Fal(KEY, send=queue, sleep=lambda _: None).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
+    assert error.value.code == "VT409"
+    assert error.value.message == (f"result of alibaba/wan-3.0/image-to-video request {response['submitted']['request_id']} "
+                                   "was refused for its content: HTTP 422 content_policy_violation, model_moderated")
+    assert [url for _, url, _ in queue.sent()].count(result) == 1
+
+
+def test_a_submit_refused_for_its_content_is_vt409_too():
+    _, queue = exchange(submit=[http(422, REFUSED)])
+    with pytest.raises(ModelError) as error:
+        Fal(KEY, send=queue, sleep=lambda _: None).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
+    assert (error.value.code, error.value.message) == (
+        "VT409", "submit to alibaba/wan-3.0/image-to-video was refused for its content: HTTP 422 "
+                 "content_policy_violation, model_moderated")
+    assert [method for method, _, _ in queue.sent()] == ["POST"]
+
+
+@pytest.mark.parametrize("answer, tries", [
+    (http(422, '{"detail":[{"loc":["body","prompt"],"msg":"field required","type":"value_error.missing"}]}'), 1),
+    (http(422, '{"detail": "content policy"}'), 1),
+    (http(422, "not json"), 1),
+    (http(500, "runner crashed"), 5),
+])
+def test_a_422_that_is_no_content_refusal_and_a_500_keep_vt401(answer, tries):
+    response, queue = exchange()
+    result = response["submitted"]["response_url"]
+    queue.answers[("GET", result)] = [answer] * tries
+    with pytest.raises(ModelError) as error:
+        Fal(KEY, send=queue, sleep=lambda _: None).run("alibaba/wan-3.0/image-to-video", {"prompt": "p"})
+    assert error.value.code == "VT401"
+    assert error.value.message.startswith(f"result of alibaba/wan-3.0/image-to-video request "
+                                          f"{response['submitted']['request_id']} failed with HTTP {answer.code}: ")
+    assert [url for _, url, _ in queue.sent()].count(result) == tries

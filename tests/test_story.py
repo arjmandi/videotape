@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 import videotape as vt
-from conftest import CONTRAIL, FIXTURES, a_story, planned, told, videotape, words
+from conftest import CONTRAIL, FIXTURES, a_story, as_explained, planned, told, videotape, words
 from videotape import story
 from videotape.plan import Key, plan
 
@@ -217,17 +217,20 @@ def test_shots_without_a_state_prints_every_shot_of_the_plan():
 
 @pytest.mark.parametrize("arguments, code, error", [
     (("shots", "--story", "posters", "--state", "results(SEA, 2026-12-21)"), 1,
-     'error: the app has no state "results(SEA, 2026-12-21)"; the closest are results(SEA, 2026-12-11), '
-     "results(SEA, 2026-12-12), results(SEA, 2026-12-13)\n"),
+     'error VT212 "results(SEA, 2026-12-21)": the app has no state of this name\nfix: name one of the closest: '
+     "results(SEA, 2026-12-11), results(SEA, 2026-12-12), results(SEA, 2026-12-13)\n"),
     (("shots", "--story", "poster"), 1, NO_POSTER),
     (("render", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--story", "poster"), 1, NO_POSTER),
     (("plan", "--model", "wan3.0"), 1,
-     "error: --model sets the prompt limit for a story's prompts, so pass --story with it\n"),
+     "error VT310 --model: names the model whose prompt limit a story's prompts must fit, and no --story names one\n"
+     "fix: name the story too, as in videotape plan --story starter --model wan3.0\n"),
 ])
 def test_a_story_or_a_state_the_project_does_not_have_is_named_with_the_ones_it_has(arguments, code, error):
     result = videotape(CONTRAIL, *arguments)
     assert (result.stdout, result.stderr, result.returncode) == ("", error, code)
+    if " VT310 " in error:
+        assert as_explained("VT310").fullmatch(error.rstrip("\n"))
     assert not (CONTRAIL / "tapes" / "poster").exists()
 
 
@@ -249,7 +252,9 @@ def test_plan_checks_a_contrail_story_and_names_it_after_the_apps_version(name):
     result = videotape(CONTRAIL, "plan", "--story", name)
     assert (result.stderr, result.returncode) == ("", 0)
     assert result.stdout.splitlines()[0] == f"Contrail 0.1.0 + {name} 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots"
-    assert result.stdout.splitlines()[-2:] == ["0 errors, 0 warnings", "stand-in: 160 shots, 160 to 640 calls, free"]
+    assert result.stdout.splitlines()[-2:] == ["0 errors, 0 warnings", (
+        "gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the "
+        "prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04")]
     assert result.stdout.splitlines()[1:] == videotape(CONTRAIL, "plan").stdout.splitlines()[1:]
 
 

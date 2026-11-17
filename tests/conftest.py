@@ -3,6 +3,8 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
+import urllib.request
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,8 @@ from videotape.plan import Plan, Shot, plan
 from videotape.story import Story
 
 FIXTURES = Path(__file__).parent / "fixtures"
+RECORDED = FIXTURES / "recorded"
+"""What the paid screen test wrote, copied unchanged: recorded/recorded.txt."""
 CONTRAIL = Path(__file__).parent.parent / "examples" / "contrail"
 VIDEOTAPE = Path(sys.executable).with_name("videotape")
 
@@ -56,17 +60,25 @@ def words(shot: Shot, told: Story) -> str:
     return story.text(story.prompt(shot, told))
 
 
+LEFT_BEHIND = shutil.ignore_patterns(".venv", "tape*", "ledger.jsonl", "uv.lock", "__pycache__", ".env")
+"""What a copy of a project leaves behind: what a render, uv or Python wrote in it, and the .env that holds a
+developer's API keys."""
+
+
 def copy_of(fixture: str, to: Path) -> Path:
-    """A fresh copy of a fixture project, without anything a render left in it."""
-    return Path(shutil.copytree(FIXTURES / fixture, to / fixture,
-                                ignore=shutil.ignore_patterns("tape*", "ledger.jsonl", "__pycache__")))
+    return Path(shutil.copytree(FIXTURES / fixture, to / fixture, ignore=LEFT_BEHIND))
+
+
+def contrail_copy(folder: Path) -> Path:
+    return Path(shutil.copytree(CONTRAIL, folder, dirs_exist_ok=True, ignore=LEFT_BEHIND))
 
 
 def videotape(directory: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
-    """Run the installed videotape command in a project, the way a developer does."""
+    """Run the installed videotape command in a project, the way a developer does. Its requests go to a proxy that
+    answers none, so a command run in examples/contrail pays nothing with the API keys a developer keeps in its .env."""
     return subprocess.run([str(VIDEOTAPE), *arguments], cwd=directory, capture_output=True, text=True,
                           env={"PATH": "/usr/bin:/bin:/opt/homebrew/bin:/usr/local/bin", "PYTHONDONTWRITEBYTECODE": "1",
-                               "BROWSER": "true"})
+                               "BROWSER": "true", "https_proxy": "http://127.0.0.1:9"})
 
 
 VARIES = re.compile(r"(?P<shot>(?<=^error VT\d{3} ).+?(?= take \d|: ))|(?P<ffmpeg>(?<=decode to one frame: ).+$)"
@@ -87,6 +99,22 @@ def as_explained(code: str) -> re.Pattern[str]:
         pattern += re.escape(example[at:part.start()]) + WILDCARDS[part.lastgroup or ""]
         at = part.end()
     return re.compile(f"^{pattern}{re.escape(example[at:])}$", re.MULTILINE)
+
+
+@pytest.fixture(autouse=True, scope="session")
+def refuse_urlopen():
+    """No test opens a URL beyond this machine's files in this process, so none pays fal or Claude with an API key the
+    environment or a .env holds."""
+    opened = urllib.request.urlopen
+
+    def refuse(request, *args, **kwargs):
+        url = getattr(request, "full_url", request)
+        if urllib.parse.urlsplit(url).scheme == "file":
+            return opened(request, *args, **kwargs)
+        raise AssertionError(f"a test reached for the network: {url}")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(urllib.request, "urlopen", refuse)
+        yield
 
 
 @pytest.fixture(autouse=True)

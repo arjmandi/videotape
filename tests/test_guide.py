@@ -2,27 +2,28 @@
 its commands run in order, each printing what the guide shows of it.
 
 The commands start in the project videotape new writes. From the guide's first whole file on, they run in that project
-with examples/contrail copied over it, since the guide has the reader write Contrail's files there. The stand-in is
-made to fail the key of the state the guide retakes and of the state it accepts, so that both commands act on a real
-failure. torch cannot be imported, as in a project new wrote, which leaves out videotape's qwen extra."""
+with examples/contrail copied over it, since the guide has the reader write Contrail's files there, and with the
+stand-in as its model, as part 2 sets it. The stand-in is made to fail the key of the state the guide retakes and
+of the state it accepts, so that both commands act on a real failure. torch is not installed, as in a project new
+wrote, which leaves out videotape's qwen extra."""
 
 import dataclasses
 import hashlib
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from conftest import CONTRAIL, planned, told
-from videotape import dailies, player, project, standin, story
+from conftest import CONTRAIL, contrail_copy, planned, told
+from videotape import dailies, player, project, qwen, standin, story
 from videotape.cli import main
 from videotape.plan import Shot
 from videotape.standin import Flaw
@@ -36,6 +37,7 @@ FLAWS = {"VT502": Flaw.MISSPELL, "VT503": Flaw.EXTRA_BOX}
 VARIES = re.compile(r"(?P<hash>\b[0-9a-f]{64}\b)|(?P<path>\S*/\S*)|(?P<number>(?<![\w.])\d+(?:\.\d+)*)")
 WILDCARDS = {"hash": r"[0-9a-f]{64}", "path": r"\S+", "number": r"\d+(?:\.\d+)*"}
 BUNDLE = "dev.videotape.TapePlayer"
+CONTRAIL_MODEL = tomllib.loads((CONTRAIL / "pyproject.toml").read_text())["tool"]["videotape"]["model"]
 
 
 @dataclass(frozen=True)
@@ -195,10 +197,10 @@ def quit_player() -> bool:
 
 def contrail_over(folder: Path) -> None:
     """Write examples/contrail over the reader's project, with videotape from this checkout by its absolute path."""
-    shutil.copytree(CONTRAIL, folder, dirs_exist_ok=True, ignore=shutil.ignore_patterns(
-        ".venv", "tapes", "ledger.jsonl", "uv.lock", "__pycache__"))
+    contrail_copy(folder)
     pyproject = folder / "pyproject.toml"
-    pyproject.write_text(pyproject.read_text().replace('path = "../.."', f'path = "{ROOT}"'))
+    pyproject.write_text(pyproject.read_text().replace('path = "../.."', f'path = "{ROOT}"')
+                         .replace(f'model = "{CONTRAIL_MODEL}"', 'model = "stand-in"'))
 
 
 def test_every_file_the_guide_shows_whole_is_contrails_byte_for_byte():
@@ -209,6 +211,10 @@ def test_every_file_the_guide_shows_whole_is_contrails_byte_for_byte():
     written = {path.relative_to(CONTRAIL).as_posix() for pattern in ("contrail/*.py", "stories/*.toml")
                for path in CONTRAIL.glob(pattern) if path.read_text()}
     assert written == {block.file for block in shown}
+
+
+def test_the_guide_ends_by_setting_the_model_contrail_renders_with():
+    assert f'set `model = "{CONTRAIL_MODEL}"` in `pyproject.toml`' in GUIDE.read_text()
 
 
 def test_the_guide_runs_from_new_and_leaves_publish_for_last():
@@ -223,6 +229,14 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
     guide = steps()
     monkeypatch.setattr(standin, "_default_flaw", flawed(guide))
     monkeypatch.delenv("FAL_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    real = qwen.distribution
+
+    def without_torch(name: str):
+        if name == "torch":
+            raise qwen.PackageNotFoundError(name)
+        return real(name)
+    monkeypatch.setattr(qwen, "distribution", without_torch)
     monkeypatch.setitem(sys.modules, "torch", None)
     opened = list[list[str]]()
     if not real_player:

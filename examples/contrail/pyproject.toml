@@ -13,7 +13,7 @@ videotape = { path = "../..", editable = true }
 
 [tool.videotape]
 screenplay = "contrail.screenplay:app"
-model = "stand-in"
+model = "gemini-omni-flash-1.2"
 takes = 4
 cap_usd = 200
 

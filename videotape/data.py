@@ -101,8 +101,9 @@ def _record[R: Record](record: type[R], raw: object) -> R:
     for name in have:
         kind = KINDS.get(hints[name])
         if kind is None:
-            raise TypeError(f"{record.__name__}.{name} is {hints[name]!r}, and a record's field is a str, an int, "
-                            "a date or a time")
+            raise ScreenplayError("VT213", errors.here(), f"{record.__name__}.{name} is {hints[name]!r}, and a "
+                                  "record's field is a str, an int, a date or a time",
+                                  f"make {name} one of those, as in {name}: int")
         if name not in raw:
             raise _Mismatch(f'has no field "{name}"', f'add "{name}", {kind.says}')
         try:

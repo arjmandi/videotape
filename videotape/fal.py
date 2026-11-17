@@ -15,6 +15,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from videotape.errors import ModelError
+
 QUEUE = "https://queue.fal.run"
 POLL_SECONDS = 5
 WAIT_SECONDS = 1800
@@ -22,10 +24,6 @@ WAIT_SECONDS = 1800
 TRIES = 5
 
 Send = Callable[[urllib.request.Request], bytes]
-
-
-class FalError(RuntimeError):
-    pass
 
 
 @dataclass(frozen=True)
@@ -40,20 +38,29 @@ class Receipt:
 
 @dataclass(frozen=True)
 class Price:
-    """What a model that bills by the second of video charges, and how many seconds one call makes."""
+    """What a model that bills by the second of video charges, how many seconds one call makes, and what a call costs
+    beyond its seconds."""
 
     usd_per_second: float
     seconds: int
+    usd_per_call: float = 0.0
+    """For a model that also bills the tokens of its prompt, the most they can cost, which no answer of fal's counts."""
 
     @property
     def usd(self) -> float:
         """What one call costs."""
-        return self.seconds * self.usd_per_second
+        return self.billed(self.seconds)
+
+    def billed(self, seconds: float) -> float:
+        """What a call that filmed this many seconds costs."""
+        return round(seconds * self.usd_per_second + self.usd_per_call, 4)
 
     def span(self, least: int, most: int) -> str:
         """What this many calls cost, as a range when they differ."""
         prices = f"${least * self.usd:.2f} to ${most * self.usd:.2f}" if most > least else f"${least * self.usd:.2f}"
-        return f"{prices} at ${self.usd_per_second:.2f}/s"
+        rate = self.usd_per_second
+        prompt = f" plus ${self.usd_per_call:.2f} a call for the prompt" if self.usd_per_call else ""
+        return f"{prices} at ${rate:.2f}/s{prompt}" if round(rate, 2) == rate else f"{prices} at ${rate:g}/s{prompt}"
 
 
 def _urlopen(request: urllib.request.Request) -> bytes:
@@ -80,7 +87,7 @@ class Fal:
         try:
             submitted["request_id"], submitted["status_url"], submitted["response_url"]
         except (KeyError, TypeError):
-            raise FalError(self._scrub(f"submit to {endpoint} answered without a request: {submitted}")) from None
+            raise ModelError(self._scrub(f"submit to {endpoint} answered without a request: {submitted}")) from None
         return submitted
 
     def wait(self, endpoint: str, submitted: dict) -> dict:
@@ -92,7 +99,7 @@ class Fal:
                 break
             self._sleep(POLL_SECONDS)
         else:
-            raise FalError(f"{endpoint} request {request_id} is not done after {WAIT_SECONDS} s; "
+            raise ModelError(f"{endpoint} request {request_id} is not done after {WAIT_SECONDS} s; "
                            f"its result will be at {response_url}")
         result = self._json(self._queue(response_url), TRIES, f"result of {endpoint} request {request_id}")
         return {"submitted": submitted, "status": status, "result": result}
@@ -103,7 +110,7 @@ class Fal:
     def _queue(self, url: str, body: dict | None = None) -> urllib.request.Request:
         # The status and result urls come from fal's answer, so check where they point before the key goes there.
         if urllib.parse.urlsplit(url).netloc != urllib.parse.urlsplit(QUEUE).netloc:
-            raise FalError(f"fal answered with {url}, which is not on {QUEUE}; the API key is only sent there")
+            raise ModelError(f"fal answered with {url}, which is not on {QUEUE}; the API key is only sent there")
         if body is None:
             request = urllib.request.Request(url, headers={"Accept": "application/json"})
         else:
@@ -121,7 +128,7 @@ class Fal:
             answer = None
         if not isinstance(answer, dict):
             shown = self._scrub(body.decode(errors="replace"))[:300]
-            raise FalError(f"{what} answered with something other than a JSON object: {shown!r}")
+            raise ModelError(f"{what} answered with something other than a JSON object: {shown!r}")
         return answer
 
     def _call(self, request: urllib.request.Request, tries: int, what: str) -> bytes:
@@ -129,14 +136,33 @@ class Fal:
             try:
                 return self._send(request)
             except urllib.error.HTTPError as error:
+                said = self._scrub(error.read().decode(errors="replace"))
+                if (flagged := refusal(error.code, said)) is not None:
+                    raise ModelError(f"{what} was refused for its content: HTTP 422 content_policy_violation, {flagged}",
+                                     "VT409", "nothing; a render skips the take's seed from now on")
                 retry = error.code == 429 or error.code >= 500
-                said = self._scrub(error.read().decode(errors="replace"))[:500]
-                failure = f"{what} failed with HTTP {error.code}: {said}"
+                failure = f"{what} failed with HTTP {error.code}: {said[:500]}"
             except (OSError, http.client.HTTPException) as error:
                 retry, failure = True, f"{what} failed: {error}"
             if not retry or attempt == tries:
-                raise FalError(self._scrub(failure))
+                raise ModelError(self._scrub(failure))
             self._sleep(2 ** attempt)
 
     def _scrub(self, message: str) -> str:
         return message.replace(self._key, "<FAL_KEY>") if self._key else message
+
+
+def refusal(status: int, body: str) -> str | None:
+    """The categories fal's content checker flagged, when an answer refuses a request for its content, else None.
+    fal.ai/docs/errors, read 2026-11-16: content_policy_violation is HTTP 422, not retryable, with the detail's type
+    naming it, and a model's own moderation appends model_moderated to its categories."""
+    if status != 422:
+        return None
+    try:
+        detail = json.loads(body).get("detail")
+    except (ValueError, AttributeError):
+        return None
+    for item in detail if isinstance(detail, list) else []:
+        if isinstance(item, dict) and item.get("type") == "content_policy_violation":
+            return ", ".join(map(str, item.get("categories") or [])) or "no category"
+    return None
