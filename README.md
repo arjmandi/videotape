@@ -84,7 +84,7 @@ fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env
   fix: copy .env.example to .env and set FAL_KEY there, or export it
 fail VT104 wan3.0's reader claude-opus-5-5 needs ANTHROPIC_API_KEY, and it is not in the environment or .env
   fix: copy .env.example to .env and set ANTHROPIC_API_KEY there, or export it
-fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here
+fail VT105 wan3.0's eye runs Qwen3-VL-8B through videotape's qwen extra, which is not installed here
   fix: in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync
 ```
 

@@ -66,7 +66,7 @@ CODES: dict[str, Code] = {
         "before a render with any other model. On a machine with neither Apple silicon nor a CUDA GPU, doctor says so "
         "instead: render on one that has either, or with the stand-in, as in videotape render --story starter "
         "--model stand-in.",
-        "fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here",
+        "fail VT105 wan3.0's eye runs Qwen3-VL-8B through videotape's qwen extra, which is not installed here",
         'in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
         'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync',
     ),
@@ -535,7 +535,7 @@ CODES: dict[str, Code] = {
         "on. Publish opens the tape's dailies.json, and while a failing check there is not accepted, it leaves dist/ "
         "and the lock as they were.",
         "error VT602 tapes/starter: 1 check fails that nobody accepted: key todo() VT503",
-        "fix: review it with videotape dailies --story starter, then retake the shot or accept the failure with a "
+        "fix: review it with videotape dailies --story starter, then retake the shot or accept the failing check with a "
         "reason; for the first:\nvideotape retake \"todo()\" --story starter\n"
         "videotape accept \"todo()\" VT503 --story starter --reason \"...\"",
     ),

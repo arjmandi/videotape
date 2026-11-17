@@ -56,7 +56,7 @@ Preconditions:
 
   ```
   error VT602 tapes/starter: 3 checks fail that nobody accepted: key todo() VT502, home() -> todo() "See the steps" VT508, todo() -> home() "Back" VT508
-  fix: review them with videotape dailies --story starter, then retake the shot or accept the failure with a reason; for the first:
+  fix: review them with videotape dailies --story starter, then retake the shot or accept the failing check with a reason; for the first:
   videotape retake "todo()" --story starter
   videotape accept "todo()" VT502 --story starter --reason "..."
   ```

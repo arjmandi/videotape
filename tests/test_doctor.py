@@ -19,7 +19,7 @@ FINE = [f"ok   VT101 {PYTHON}", "ok   VT102 ffmpeg and ffprobe are on PATH",
 KEYS = ["ok   VT104 FAL_KEY is set, for wan3.0", "ok   VT104 ANTHROPIC_API_KEY is set, for wan3.0's reader claude-opus-5-5"]
 NO_READER_KEY = ["fail VT104 wan3.0's reader claude-opus-5-5 needs ANTHROPIC_API_KEY, and it is not in the environment or "
                  ".env", "  fix: copy .env.example to .env and set ANTHROPIC_API_KEY there, or export it"]
-EXTRA = "ok   VT105 Apple silicon and videotape's qwen extra, for wan3.0's checks"
+EXTRA = "ok   VT105 Apple silicon and videotape's qwen extra, for wan3.0's eye"
 INSTALLED = qwen.installed
 
 
@@ -72,7 +72,7 @@ def test_the_stand_in_needs_no_key_and_no_gpu(tmp_path, cli, capsys, machine, mo
     monkeypatch.setattr(platform, "machine", lambda: "x86_64")
     assert cli(copy_of("cafe", tmp_path), "doctor") == 0
     assert capsys.readouterr().out.splitlines()[3:] == ["ok   VT104 stand-in needs no API key",
-                                                        "ok   VT105 stand-in's checks need no GPU"]
+                                                        "ok   VT105 stand-in's eye needs no GPU"]
 
 
 def test_an_older_python_fails_vt101(tmp_path, cli, capsys, machine, monkeypatch):
@@ -157,13 +157,13 @@ def test_a_wan_model_without_apple_silicon_or_cuda_fails_vt105_and_with_cuda_pas
     directory = on_wan3(tmp_path)
     assert cli(directory, "doctor") == 1
     assert capsys.readouterr().out.splitlines()[5:] == [
-        "fail VT105 wan3.0's checks need Apple silicon or a CUDA GPU, and this machine is Linux on x86_64 without "
+        "fail VT105 wan3.0's eye needs Apple silicon or a CUDA GPU, and this machine is Linux on x86_64 without "
         "nvidia-smi",
         "  fix: render on a Mac with Apple silicon or a machine with a CUDA GPU, or with the stand-in, as in "
         "videotape render --story starter --model stand-in"]
     tool(machine, "nvidia-smi")
     assert cli(directory, "doctor") == 0
-    assert capsys.readouterr().out.splitlines()[5] == "ok   VT105 a CUDA GPU and videotape's qwen extra, for wan3.0's checks"
+    assert capsys.readouterr().out.splitlines()[5] == "ok   VT105 a CUDA GPU and videotape's qwen extra, for wan3.0's eye"
 
 
 def without(monkeypatch, missing: str) -> None:

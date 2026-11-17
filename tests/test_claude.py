@@ -370,7 +370,7 @@ def test_doctor_checks_every_api_key_the_model_and_its_readers_need(tmp_path, cl
     lines = capsys.readouterr().out.splitlines()
     assert lines[3:6] == ["fail VT104 stand-in's reader claude-opus-5-5 needs ANTHROPIC_API_KEY, and it is not in the "
                           "environment or .env", "  fix: copy .env.example to .env and set ANTHROPIC_API_KEY there, or "
-                          "export it", "ok   VT105 stand-in's checks need no GPU"]
+                          "export it", "ok   VT105 stand-in's eye needs no GPU"]
     (directory / ".env").write_text(f"ANTHROPIC_API_KEY={KEY}\n")
     cli(directory, "doctor")
     assert capsys.readouterr().out.splitlines()[3] == "ok   VT104 ANTHROPIC_API_KEY is set, for stand-in's reader claude-opus-5-5"

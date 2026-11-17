@@ -189,7 +189,7 @@ def _accepted(tape: Path, record: dict) -> None:
         "VT602", shown(tape), f"{len(failing)} check{'' if one else 's'} fail{'s' if one else ''} that nobody "
         f"accepted: {', '.join(f'{failure["shot"]} {failure["code"]}' for failure in failing)}",
         f"review {'it' if one else 'them'} with videotape dailies --story {record['story']}{_out(record)}, then "
-        f"retake the shot or accept the failure with a reason; for the first:\n{first['retake']}\n{first['accept']}")
+        f"retake the shot or accept the failing check with a reason; for the first:\n{first['retake']}\n{first['accept']}")
 
 
 def _unlocked(root: Path, lock: dict[str, dict[str, str]], block: dict, story_file: Path) -> None:
