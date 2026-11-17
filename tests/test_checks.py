@@ -11,7 +11,7 @@ from datetime import date
 import pytest
 
 import videotape as vt
-from conftest import CONTRAIL, a_story, copy_of, planned, words
+from conftest import CONTRAIL, FIXTURES, a_story, copy_of, planned, words
 from videotape import dailies, standin
 from videotape.checks import Chart, Free, Read, Spot, readings, score
 from videotape.frames import Box
@@ -565,3 +565,16 @@ def test_a_weekday_and_day_tile_off_the_strips_line_is_an_invented_control():
                                                                           Spot(fare, Box(x, 126, 70, 20), True))),
                             Spot("Mon 14", Box(700, 250, 70, 20), True)))
     assert failed(score(key, [seen])) == [("VT503", "Mon 14")]
+
+
+def test_a_strip_whose_weekdays_the_readers_read_apart_from_their_days_reads_whole():
+    """Both readers of gemini-omni-flash-1.2's take 2 of results(SEA, 2026-12-12) in the paid run read each tile as
+    "Fri", "11" and "$99": Qwen one under another, Claude all in the tile's box, with Saturday's marked."""
+    recorded = json.loads((FIXTURES / "recorded" / "reads" / "gemini-posters-results-take-2.json").read_text())
+    reads = [Read(one["reader"], tuple(Spot(spot["text"], Box(**spot["box"]), spot["control"]) for spot in one["spots"]),
+                  None if one["marked"] is None else tuple(Box(**box) for box in one["marked"]),
+                  None if one["charts"] is None else ()) for one in recorded]
+    key = next(key for key in planned(CONTRAIL).keys if key.state.name == "results(SEA, 2026-12-12)")
+    checks = score(key, reads)
+    assert [(item.code, item.about) for item in checks.items() if item.element == "DateStrip" and not item.passed] == []
+    assert checks.invented == ()

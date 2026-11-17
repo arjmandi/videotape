@@ -5,4 +5,5 @@ source: uv run scripts/screen-test examples/contrail --models wan3.0,minimax-h3,
 wan3.0/<hash>.refused.json: what videotape wrote beside the take whose result fal refused for its content, HTTP 422 content_policy_violation: posters, key search(), take 2
 claude/<hash>.json: 16 reads by claude-opus-5-5 from the run's looks/, each the reply's text, its tokens and their price. The read cache keeps no API envelope, so tests wrap the text in one written by hand
 qwen/profile-take-2.json: Qwen3-VL-8B's reply about wan3.0's take 2 of profile() in the terminal story, read again 2026-11-17 under the prompt it names, with the frame's size; the reply is copied unchanged from the tape's looks/
+reads/gemini-posters-results-take-2.json: Qwen's and Claude's reads of gemini-omni-flash-1.2's take 2 of results(SEA, 2026-12-12) in the posters story, from the tape's looks/, where both read each strip tile's weekday apart from its day
 not recorded: the screen test films keys alone, so no image-to-video answer is here; tests/fixtures/fal-models.txt and wan3.0.txt say where those come from

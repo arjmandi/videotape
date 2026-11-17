@@ -1,0 +1,463 @@
+[
+ {
+  "model": "gemini-omni-flash-1.2",
+  "story": "posters",
+  "state": "results(SEA, 2026-12-12)",
+  "seed": 2,
+  "reader": "qwen3-vl-8b",
+  "spots": [
+   {
+    "text": "San Francisco",
+    "box": {
+     "x": 410,
+     "y": 32,
+     "w": 448,
+     "h": 63
+    },
+    "control": false
+   },
+   {
+    "text": "to Seattle",
+    "box": {
+     "x": 410,
+     "y": 95,
+     "w": 307,
+     "h": 60
+    },
+    "control": false
+   },
+   {
+    "text": "Fri",
+    "box": {
+     "x": 508,
+     "y": 361,
+     "w": 36,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "11",
+    "box": {
+     "x": 508,
+     "y": 383,
+     "w": 36,
+     "h": 40
+    },
+    "control": false
+   },
+   {
+    "text": "$99",
+    "box": {
+     "x": 508,
+     "y": 423,
+     "w": 36,
+     "h": 32
+    },
+    "control": false
+   },
+   {
+    "text": "Sat",
+    "box": {
+     "x": 617,
+     "y": 361,
+     "w": 36,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "12",
+    "box": {
+     "x": 617,
+     "y": 383,
+     "w": 36,
+     "h": 40
+    },
+    "control": false
+   },
+   {
+    "text": "$89",
+    "box": {
+     "x": 617,
+     "y": 423,
+     "w": 36,
+     "h": 32
+    },
+    "control": false
+   },
+   {
+    "text": "Sun",
+    "box": {
+     "x": 726,
+     "y": 361,
+     "w": 36,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "13",
+    "box": {
+     "x": 726,
+     "y": 383,
+     "w": 36,
+     "h": 40
+    },
+    "control": false
+   },
+   {
+    "text": "$109",
+    "box": {
+     "x": 726,
+     "y": 423,
+     "w": 36,
+     "h": 32
+    },
+    "control": false
+   },
+   {
+    "text": "8:15 AM to 10:25 AM",
+    "box": {
+     "x": 417,
+     "y": 502,
+     "w": 175,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "2h 10m, Nonstop",
+    "box": {
+     "x": 623,
+     "y": 502,
+     "w": 147,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "$89",
+    "box": {
+     "x": 806,
+     "y": 502,
+     "w": 49,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "5:40 PM to 7:50 PM",
+    "box": {
+     "x": 417,
+     "y": 570,
+     "w": 175,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "2h 10m, Nonstop",
+    "box": {
+     "x": 623,
+     "y": 570,
+     "w": 147,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "$119",
+    "box": {
+     "x": 806,
+     "y": 570,
+     "w": 49,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "TRAV",
+    "box": {
+     "x": 1158,
+     "y": 1,
+     "w": 122,
+     "h": 65
+    },
+    "control": false
+   },
+   {
+    "text": "TRAV",
+    "box": {
+     "x": 1152,
+     "y": 592,
+     "w": 127,
+     "h": 54
+    },
+    "control": false
+   },
+   {
+    "text": "AVEL",
+    "box": {
+     "x": 0,
+     "y": 592,
+     "w": 115,
+     "h": 54
+    },
+    "control": false
+   },
+   {
+    "text": "AXES",
+    "box": {
+     "x": 0,
+     "y": 0,
+     "w": 115,
+     "h": 66
+    },
+    "control": false
+   }
+  ],
+  "marked": null,
+  "charts": null
+ },
+ {
+  "model": "gemini-omni-flash-1.2",
+  "story": "posters",
+  "state": "results(SEA, 2026-12-12)",
+  "seed": 2,
+  "reader": "claude-opus-5-5",
+  "spots": [
+   {
+    "text": "AXES",
+    "box": {
+     "x": 0,
+     "y": 10,
+     "w": 120,
+     "h": 56
+    },
+    "control": false
+   },
+   {
+    "text": "TRAV",
+    "box": {
+     "x": 1170,
+     "y": 8,
+     "w": 110,
+     "h": 56
+    },
+    "control": false
+   },
+   {
+    "text": "San Francisco",
+    "box": {
+     "x": 415,
+     "y": 34,
+     "w": 446,
+     "h": 62
+    },
+    "control": false
+   },
+   {
+    "text": "to Seattle",
+    "box": {
+     "x": 415,
+     "y": 100,
+     "w": 306,
+     "h": 60
+    },
+    "control": false
+   },
+   {
+    "text": "Fri",
+    "box": {
+     "x": 479,
+     "y": 356,
+     "w": 101,
+     "h": 113
+    },
+    "control": true
+   },
+   {
+    "text": "11",
+    "box": {
+     "x": 479,
+     "y": 356,
+     "w": 101,
+     "h": 113
+    },
+    "control": true
+   },
+   {
+    "text": "$99",
+    "box": {
+     "x": 479,
+     "y": 356,
+     "w": 101,
+     "h": 113
+    },
+    "control": true
+   },
+   {
+    "text": "Sat",
+    "box": {
+     "x": 588,
+     "y": 350,
+     "w": 109,
+     "h": 122
+    },
+    "control": true
+   },
+   {
+    "text": "12",
+    "box": {
+     "x": 588,
+     "y": 350,
+     "w": 109,
+     "h": 122
+    },
+    "control": true
+   },
+   {
+    "text": "$89",
+    "box": {
+     "x": 588,
+     "y": 350,
+     "w": 109,
+     "h": 122
+    },
+    "control": true
+   },
+   {
+    "text": "Sun",
+    "box": {
+     "x": 705,
+     "y": 356,
+     "w": 100,
+     "h": 113
+    },
+    "control": true
+   },
+   {
+    "text": "13",
+    "box": {
+     "x": 705,
+     "y": 356,
+     "w": 100,
+     "h": 113
+    },
+    "control": true
+   },
+   {
+    "text": "$109",
+    "box": {
+     "x": 705,
+     "y": 356,
+     "w": 100,
+     "h": 113
+    },
+    "control": true
+   },
+   {
+    "text": "8:15 AM to 10:25 AM",
+    "box": {
+     "x": 420,
+     "y": 504,
+     "w": 182,
+     "h": 24
+    },
+    "control": false
+   },
+   {
+    "text": "2h 10m, Nonstop",
+    "box": {
+     "x": 633,
+     "y": 505,
+     "w": 142,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "$89",
+    "box": {
+     "x": 812,
+     "y": 500,
+     "w": 50,
+     "h": 30
+    },
+    "control": false
+   },
+   {
+    "text": "5:40 PM to 7:50 PM",
+    "box": {
+     "x": 420,
+     "y": 574,
+     "w": 180,
+     "h": 24
+    },
+    "control": false
+   },
+   {
+    "text": "2h 10m, Nonstop",
+    "box": {
+     "x": 636,
+     "y": 575,
+     "w": 140,
+     "h": 22
+    },
+    "control": false
+   },
+   {
+    "text": "$119",
+    "box": {
+     "x": 802,
+     "y": 570,
+     "w": 60,
+     "h": 30
+    },
+    "control": false
+   },
+   {
+    "text": "AVEL",
+    "box": {
+     "x": 0,
+     "y": 590,
+     "w": 112,
+     "h": 52
+    },
+    "control": false
+   },
+   {
+    "text": "TRAV",
+    "box": {
+     "x": 1158,
+     "y": 592,
+     "w": 122,
+     "h": 54
+    },
+    "control": false
+   }
+  ],
+  "marked": [
+   {
+    "x": 588,
+    "y": 350,
+    "w": 109,
+    "h": 122
+   },
+   {
+    "x": 588,
+    "y": 350,
+    "w": 109,
+    "h": 122
+   },
+   {
+    "x": 588,
+    "y": 350,
+    "w": 109,
+    "h": 122
+   }
+  ],
+  "charts": []
+ }
+]

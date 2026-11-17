@@ -415,6 +415,8 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
     kind = next((at.element.type for index, at in enumerate(placed) if index in options), "DatePicker")
     days = DAYS[kind]
     reads = [_apart(one, labels, days) for one in reads]
+    if kind == "DateStrip":
+        reads = [_weekdays(one) for one in reads]
     seen: dict[str, dict[int, Seen]] = {}
     sources: dict[str, dict[int, tuple[Spot, ...]]] = {}
     calendars: dict[str, Calendar] = {}
@@ -593,6 +595,30 @@ def _apart(one: Read, labels: set[str], days: str) -> Read:
         spots += parts
         if spot.box in marked:
             marked += [part.box for part in parts if part.box not in marked]
+    return replace(one, spots=tuple(spots), marked=None if one.marked is None else tuple(marked))
+
+
+def _weekdays(one: Read) -> Read:
+    """The read with each weekday a reader read apart from its day, beside it or under it as a strip's tile draws
+    them, read as one spot, "Fri 11", in both their boxes and marked when either is."""
+    weekdays = [spot for spot in one.spots if re.fullmatch(r"[A-Z][a-z]{2}", spot.text)]
+    numbers = [spot for spot in one.spots if re.fullmatch(DAYS["DatePicker"], spot.text)]
+    marked = list(one.marked or ())
+    joined: dict[Spot, Spot] = {}
+    for weekday in weekdays:
+        close = [number for number in numbers if number not in joined.values() and number.control == weekday.control
+                 and (number.box == weekday.box or (weekday, number) in _joins([weekday, number]))]
+        if close:
+            joined[weekday] = min(close, key=lambda number: _distance(number.box, weekday.box))
+    spots = []
+    for spot in one.spots:
+        if spot in joined:
+            whole = _joined((spot, joined[spot]))
+            spots.append(whole)
+            if spot.box in marked or joined[spot].box in marked:
+                marked.append(whole.box)
+        elif spot not in joined.values():
+            spots.append(spot)
     return replace(one, spots=tuple(spots), marked=None if one.marked is None else tuple(marked))
 
 
