@@ -583,8 +583,9 @@ CODES: dict[str, Code] = {
         "an earlier publish left files aside",
         "Publish moves the app, the zip and videotape.lock it replaces aside into dist/<app>.partial/aside, and moves "
         "them back when it fails or is stopped. A publish stopped while it moved them back leaves some there, and the "
-        "next publish moves each back to its place. A place that already holds another file keeps it, so the file "
-        "aside stays, and publish stops before it builds anything, so that neither file is deleted.",
+        "next publish, of that story or any other, moves each back to its place. A place that already holds another "
+        "file keeps it, so the file aside stays, and publish stops before it builds anything, so that neither file is "
+        "deleted.",
         "error VT607 dist/Contrail-starter.partial/aside: holds Contrail-starter.zip, which an earlier publish moved "
         "aside and was stopped before it put back",
         "fix: move back the ones to keep, delete the folder, and publish again",
