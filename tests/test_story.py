@@ -252,7 +252,9 @@ def test_plan_checks_a_contrail_story_and_names_it_after_the_apps_version(name):
     result = videotape(CONTRAIL, "plan", "--story", name)
     assert (result.stderr, result.returncode) == ("", 0)
     assert result.stdout.splitlines()[0] == f"Contrail 0.1.0 + {name} 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots"
-    assert result.stdout.splitlines()[-2:] == ["0 errors, 0 warnings", "stand-in: 160 shots, 160 to 640 calls, free"]
+    assert result.stdout.splitlines()[-2:] == ["0 errors, 0 warnings", (
+        "gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the "
+        "prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04")]
     assert result.stdout.splitlines()[1:] == videotape(CONTRAIL, "plan").stdout.splitlines()[1:]
 
 

@@ -792,23 +792,23 @@ Search for Seattle, pick a day and a flight, and book it.
 
 ### Render with a real model
 
-wan3.0 runs Wan 3.0 on fal, which bills for each call. Its eye is two readers: Qwen3-VL-8B, which runs here and needs Apple silicon or a CUDA GPU, and Claude, which runs as a service, needs `ANTHROPIC_API_KEY`, and bills for each take of a key it reads, under the same cap. Read the estimate before you render:
+Contrail renders with gemini-omni-flash-1.2, which runs Gemini Omni Flash 1.2 on fal at 720p and bills for each call. `scripts/screen-test` filmed eight of Contrail's keys on each model on fal, two takes each in both stories, and picked it: 96 of the 120 elements on its takes passed every check, 80.0%, against 56.7% for wan3.0 and 55.8% for minimax-h3, and none of its keys showed a control the state lacks. Its eye is two readers: Qwen3-VL-8B, which runs here and needs Apple silicon or a CUDA GPU, and Claude, which runs as a service, needs `ANTHROPIC_API_KEY`, and bills for each take of a key it reads, under the same cap. Read the estimate before you render:
 
 ```sh
-uv run videotape plan --story terminal --model wan3.0
+uv run videotape plan --story terminal --model gemini-omni-flash-1.2
 ```
 
 ```text
 Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
 ...
-wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04
+gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04
 ```
 
-A read's estimate charges every output token the reply may take, so a read costs less than its share here, and a reply is cached in the tape, so a render run again pays for no read twice.
+fal bills $0.0819 for each second of a clip, and bills the prompt by the token. No answer says what the prompt cost, so the estimate and the cap count the most a prompt can cost, $0.03 a call. A read's estimate charges every output token the reply may take, so a read costs less than its share here, and a reply is cached in the tape, so a render run again pays for no read twice.
 
-To render with it, first add videotape's `qwen` extra, which runs Qwen3-VL-8B, the reader of the eye that runs here. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` and `ANTHROPIC_API_KEY` there, and set `model = "wan3.0"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for both `VT104` lines and for `VT105`. A render without either API key stops before its first call with doctor's `VT104` and doctor's fix. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`.
+To render with it, first add videotape's `qwen` extra, which runs Qwen3-VL-8B, the reader of the eye that runs here. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` and `ANTHROPIC_API_KEY` there, and set `model = "gemini-omni-flash-1.2"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for both `VT104` lines and for `VT105`. A render without either API key stops before its first call with doctor's `VT104` and doctor's fix. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`. fal takes no seed for gemini-omni-flash-1.2, so the seed only names a take, and a render run again reuses the take of each seed as it does for any model.
 
-Two more models run on fal, with the same `FAL_KEY`, the same eye and a cap. Name one with `--model`, or set it as `model` in `pyproject.toml`. minimax-h3 runs MiniMax H3 at 1344x768, for $0.06 a second, so $0.30 a call, and allows prompts of up to 7,000 characters. gemini-omni-flash-1.2 runs Gemini Omni Flash 1.2 at 720p, for $0.0819 a second. fal also bills its prompt, by the token, and no answer says for how much, so the estimate and the cap count the most a prompt can cost, $0.03 a call. fal takes no seed for gemini-omni-flash-1.2, so there the seed only names a take, and a render run again reuses the take of each seed as it does for any model. A tape takes the size of its model's clips, and TapePlayer's window takes the tape's shape.
+Two more models run on fal, with the same `FAL_KEY`, the same eye and a cap. Name one with `--model`, or set it as `model` in `pyproject.toml`. wan3.0 runs Wan 3.0 at 720p, for $0.10 a second, so $0.50 a call. minimax-h3 runs MiniMax H3 at 1344x768, for $0.06 a second, so $0.30 a call, and allows prompts of up to 7,000 characters. A tape takes the size of its model's clips, and TapePlayer's window takes the tape's shape.
 
 ### Publish
 

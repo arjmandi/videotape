@@ -25,7 +25,8 @@ trip              2           0
 profile           1           2
 
 0 errors, 0 warnings
-stand-in: 160 shots, 160 to 640 calls, free
+gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the \
+prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04
 """
 TODAY = "2026-12-01"
 HOME = "SFO"
