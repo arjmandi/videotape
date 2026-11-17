@@ -37,6 +37,11 @@ class Model(Kind, Protocol):
 
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> Receipt | None: ...
 
+    def first_frame(self, prompt: str, start: Path, seed: int, out: Path) -> Receipt | None:
+        """Image to video from the start picture alone, so the take's last frame is a key drawn in that picture's
+        layout. A model without the mode raises a ModelError that names one with it."""
+        ...
+
     def download_again(self, out: Path) -> Receipt | None:
         """Write the take at out again from the request the model recorded beside it, which submits nothing and
         costs nothing, and return its receipt. None when no request is recorded there."""

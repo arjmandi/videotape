@@ -31,7 +31,8 @@ def test_a_tapes_made_block_names_the_app_the_story_the_model_and_the_engine_and
         {"name": "contrail", "version": "0.1.0", "screenplay": "contrail.screenplay:app"}
     assert found["story"] == {"name": "terminal", "version": "1.0.0", "hash": hashlib.sha256(
         (CONTRAIL / "stories" / "terminal.toml").read_bytes()).hexdigest()}
-    assert found["model"] == {"name": "stand-in", "settings": {"text-to-video": {}, "first-and-last-frame": {}}}
+    assert found["model"] == {"name": "stand-in",
+                              "settings": {"text-to-video": {}, "first-and-last-frame": {}, "first-frame": {}}}
     assert all(HASH.fullmatch(value) for value in (found["id"], found["app"]["code"], found["app"]["data"], found["engine"]))
     assert block(CONTRAIL, "posters")["label"] == "contrail 0.1.0 + posters 1.0.0"
 
@@ -137,7 +138,7 @@ def test_the_cli_writes_the_made_block_of_the_model_it_rendered_with(cafe, tmp_p
     assert cli(directory, "render", "--story", "chalk", "--takes", "1", "--out", "tape-tuned") == 0
     written = json.loads((directory / "tape-tuned" / "tape.json").read_text())["made"]
     assert written == block(directory, "chalk", tuned)
-    assert written["model"]["settings"] == {"text-to-video": {"steps": 50}, "first-and-last-frame": {}}
+    assert written["model"]["settings"] == {"text-to-video": {"steps": 50}, "first-and-last-frame": {}, "first-frame": {}}
     assert written["id"] != json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())["made"]["id"]
 
 

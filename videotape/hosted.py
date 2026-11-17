@@ -1,6 +1,7 @@
 """Video models fal hosts, which draw every pixel: text-to-video draws each state's key, and image-to-video draws each
-move from the kept key it starts on to the kept key it lands on. One adapter films them all, and a FalModel holds what
-differs between them. Their takes are only compared with the 5B's, never trained on."""
+move from the kept key it starts on to the kept key it lands on, or a key from another key's picture alone. One
+adapter films them all, and a FalModel holds what differs between them. Their takes are only compared with the 5B's,
+never trained on."""
 
 import base64
 import json
@@ -23,7 +24,7 @@ class FalRequest:
 @dataclass(frozen=True)
 class FalModel:
     """A model fal hosts: the endpoint of each mode, what a request of each mode sends beyond its prompt, seed, images
-    and duration, the field that takes a move's first frame, whether fal takes a seed, the longest prompt it takes in
+    and duration, the field that takes a first frame, whether fal takes a seed, the longest prompt it takes in
     characters, and its price, whose seconds are the duration every request asks for. A move's last frame goes in
     end_image_url on every model here."""
 
@@ -41,9 +42,13 @@ class FalModel:
 
     def request(self, mode: Mode, prompt: str, seed: int, start: Path | None = None,
                 end: Path | None = None) -> FalRequest:
-        """A key is text-to-video from its prompt. A move is image-to-video pinned to the two key images it joins."""
-        images = {self.start_image: _data_uri(start), "end_image_url": _data_uri(end)} \
-            if mode is Mode.FIRST_AND_LAST_FRAME else {}
+        """A key is text-to-video from its prompt. A move is image-to-video pinned to the two key images it joins, and
+        a key drawn from another key's picture is image-to-video from that picture alone."""
+        images = {}
+        if mode in FROM_IMAGE:
+            images[self.start_image] = _data_uri(start)
+        if mode is Mode.FIRST_AND_LAST_FRAME:
+            images["end_image_url"] = _data_uri(end)
         settings = self.settings(mode)
         endpoint = settings.pop("endpoint")
         return FalRequest(endpoint, {"prompt": prompt, **settings, **({"seed": seed} if self.seeded else {}), **images})
@@ -60,6 +65,9 @@ class FalModel:
         return url, Receipt(submitted["request_id"], duration, self.price.billed(duration), response)
 
 
+FROM_IMAGE = (Mode.FIRST_AND_LAST_FRAME, Mode.FIRST_FRAME)
+"""The modes an image-to-video endpoint films: a move pinned to two keys, and a key drawn from one picture."""
+
 # Five seconds without sound, like the 5B's clips. fal's defaults are 1080p, an adaptive aspect ratio, audio on and
 # prompt expansion on, which rewrites the prompt, so each is set to give both models the same words at one size.
 WAN3_FIELDS = {"resolution": "720p", "aspect_ratio": "16:9", "audio": False, "enable_prompt_expansion": False}
@@ -68,8 +76,8 @@ WAN3 = FalModel(
     # fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-10: Wan30TextToVideoInput and
     # Wan30ImageToVideoInput, whose start_image_url is the "First frame of the generated video" and end_image_url the
     # "Last frame of the generated video".
-    {Mode.TEXT_TO_VIDEO: "alibaba/wan-3.0/text-to-video", Mode.FIRST_AND_LAST_FRAME: "alibaba/wan-3.0/image-to-video"},
-    {Mode.TEXT_TO_VIDEO: WAN3_FIELDS, Mode.FIRST_AND_LAST_FRAME: WAN3_FIELDS},
+    {Mode.TEXT_TO_VIDEO: "alibaba/wan-3.0/text-to-video", **dict.fromkeys(FROM_IMAGE, "alibaba/wan-3.0/image-to-video")},
+    {Mode.TEXT_TO_VIDEO: WAN3_FIELDS, **dict.fromkeys(FROM_IMAGE, WAN3_FIELDS)},
     "start_image_url",
     seeded=True,
     # The same two schemas, read 2026-11-14: each gives its prompt a maxLength of 20000 characters.
@@ -84,9 +92,9 @@ WAN3 = FalModel(
 # prompt expansion, on by default, rewrites the prompt. Its answer carries no duration.
 MINIMAX_H3 = FalModel(
     "minimax-h3",
-    {Mode.TEXT_TO_VIDEO: "minimax/h3/text-to-video", Mode.FIRST_AND_LAST_FRAME: "minimax/h3/image-to-video"},
+    {Mode.TEXT_TO_VIDEO: "minimax/h3/text-to-video", **dict.fromkeys(FROM_IMAGE, "minimax/h3/image-to-video")},
     {Mode.TEXT_TO_VIDEO: {"resolution": "768P", "aspect_ratio": "16:9", "prompt_expansion_mode": "disabled"},
-     Mode.FIRST_AND_LAST_FRAME: {"resolution": "768P", "prompt_expansion_mode": "disabled"}},
+     **dict.fromkeys(FROM_IMAGE, {"resolution": "768P", "prompt_expansion_mode": "disabled"})},
     "image_url",
     seeded=True,
     # The schemas allow 50,000 characters, and fal's "MiniMax H3 vs. MiniMax H3 Max" (2026-09-01) says H3 takes "full
@@ -97,15 +105,16 @@ MINIMAX_H3 = FalModel(
 )
 
 # fal.ai/api/openapi/queue/openapi.json?endpoint_id=<endpoint>, read 2026-11-15: GeminiOmniFlashV12TextToVideoInput
-# and GeminiOmniFlashV12ImageToVideoInput. Its image-to-video takes the first frame in image_url, and with an end image
-# films at most 10 s. Its default is 8 s. Neither has a field for audio, which is always on, or for prompt expansion.
-# Its answer carries no duration.
+# and GeminiOmniFlashV12ImageToVideoInput. Its image-to-video takes the first frame in image_url, the last in
+# end_image_url, which is optional (its API page, read 2026-11-17), and with an end image films at most 10 s. Its
+# default is 8 s. Neither has a field for audio, which is always on, or for prompt expansion. Its answer carries no
+# duration.
 GEMINI_OMNI_FLASH = FalModel(
     "gemini-omni-flash-1.2",
     {Mode.TEXT_TO_VIDEO: "google/gemini-omni-flash/v1.2/text-to-video",
-     Mode.FIRST_AND_LAST_FRAME: "google/gemini-omni-flash/v1.2/image-to-video"},
+     **dict.fromkeys(FROM_IMAGE, "google/gemini-omni-flash/v1.2/image-to-video")},
     {Mode.TEXT_TO_VIDEO: {"resolution": "720p", "aspect_ratio": "16:9"},
-     Mode.FIRST_AND_LAST_FRAME: {"resolution": "720p", "aspect_ratio": "16:9"}},
+     **dict.fromkeys(FROM_IMAGE, {"resolution": "720p", "aspect_ratio": "16:9"})},
     "image_url",
     # Neither schema has a seed, so the same request films different pixels each time. A take is still named by its
     # seed, and a render run again reuses the take on disk by that name, so it films a seed again only when both the
@@ -154,6 +163,9 @@ class OnFal:
 
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> Receipt:
         return self._film(self.model.request(Mode.FIRST_AND_LAST_FRAME, prompt, seed, start, end), out)
+
+    def first_frame(self, prompt: str, start: Path, seed: int, out: Path) -> Receipt:
+        return self._film(self.model.request(Mode.FIRST_FRAME, prompt, seed, start), out)
 
     def download_again(self, out: Path) -> Receipt | None:
         record = request_record(out)
