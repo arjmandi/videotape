@@ -20,7 +20,7 @@ from videotape import dailies, frames, player, story
 from videotape.checks import MAX_DIFFERENCE, Item, Reader, score
 from videotape.errors import ScreenplayError, shown
 from videotape.frames import Frame
-from videotape.made import made, manifest
+from videotape.made import made, manifest, model_named
 from videotape.model import MODELS
 from videotape.plan import Plan, plan
 from videotape.project import Project
@@ -54,7 +54,7 @@ def publish(found: Project, tape: Path, render: str) -> Published:
     manifest, record = _read(tape, render)
     block = manifest["made"]
     told = story.named(found.root, block["story"]["name"])
-    listing = MODELS[block["model"]["name"]]
+    listing = MODELS[model_named(manifest, tape, render)]
     planned = plan(found.load(), found.max_states)
     app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
     zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")

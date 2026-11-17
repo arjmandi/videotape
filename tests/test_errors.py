@@ -2,12 +2,13 @@ import ast
 import builtins
 import importlib
 import re
+import shutil
 from pathlib import Path
 
 import pytest
 
-from conftest import FIXTURES, videotape
-from videotape.errors import CODES, PACKAGE, RenderError, ScreenplayError
+from conftest import FIXTURES, copy_of, videotape
+from videotape.errors import CODES, PACKAGE, RenderError, ScreenplayError, step
 
 PLAIN = "plain ASCII letters, digits, spaces, and . , ' ? ! $ % ( ) : -"
 
@@ -251,3 +252,64 @@ def test_every_error_videotape_makes_carries_a_code_a_place_and_a_fix():
                     or (path.stem, made.__name__) in UNCODED):
                 uncoded.append(f"{path.name}:{node.lineno} makes a {made.__name__}")
     assert uncoded == []
+
+
+RENDER, RETAKE = ("render", "--story", "chalk"), ("retake", "menu()", "--story", "chalk")
+ACCEPT = ("accept", "menu()", "VT503", "--story", "chalk", "--reason", "a printed logo")
+DAILIES, PUBLISH = ("dailies", "--story", "chalk"), ("publish", "--story", "chalk")
+DIFF = ("diff", "tapes/chalk", "tapes/chalk")
+RENDERS = {DIFF: "videotape render --story <story>"}
+"""The render command a next step names, for a command that does not name the story: the rest name the story's own."""
+
+
+def not_json(text: str) -> str:
+    return "{"
+
+
+def a_line_that_is_not_json(text: str) -> str:
+    return '{"kind": "take"\n' + text
+
+
+def a_model_videotape_lacks(text: str) -> str:
+    assert text.count('"name": "stand-in"') == 1
+    return text.replace('"name": "stand-in"', '"name": "wan9"')
+
+
+CORRUPT = [
+    ("tapes/chalk/tape.json", not_json, (RETAKE, PUBLISH, DIFF), "VT410", "tapes/chalk/tape.json",
+     "run the render again, which writes it afresh from the takes on disk, as in:\n{render}"),
+    ("tapes/chalk/tape.json", a_model_videotape_lacks, (RETAKE, PUBLISH), "VT601", "tapes/chalk",
+     f"render the story again with a model it has, one of {MODELS}, as in:\n{{render}} --model stand-in"),
+    ("tapes/chalk/dailies.json", not_json, (RENDER, RETAKE, ACCEPT, DAILIES, PUBLISH), "VT410",
+     "tapes/chalk/dailies.json", "mend it, or move it aside and run the render again, which writes it afresh from the "
+     "takes on disk, without the accepts and the retake seeds it held, as in:\n{render}"),
+    ("ledger.jsonl", a_line_that_is_not_json, (RENDER, RETAKE, DAILIES), "VT410", "ledger.jsonl:1",
+     "delete the line, or mend it; the lines are appended and never rewritten, so the rest stand, and what the line's "
+     "call billed no longer counts toward the tape's cap"),
+]
+"""Each file a command reads from a tape or its project, a way it can be wrong, the commands that read it, and the code,
+the place and the next step each of them prints for it. A file videotape reads is one row here."""
+
+
+@pytest.fixture(scope="module")
+def rendered(tmp_path_factory):
+    """The cafe, rendered with the stand-in by the installed command, as a developer renders it."""
+    directory = copy_of("cafe", tmp_path_factory.mktemp("rendered"))
+    result = videotape(directory, *RENDER)
+    assert (result.returncode, result.stderr) == (0, ""), result.stderr
+    return directory
+
+
+@pytest.mark.parametrize("file, corrupt, command, code, place, next", [
+    pytest.param(file, corrupt, command, code, place, next, id=f"{Path(file).name} {corrupt.__name__} {command[0]}")
+    for file, corrupt, commands, code, place, next in CORRUPT for command in commands])
+def test_a_corrupt_file_videotape_reads_stops_the_command_with_a_code_a_place_and_a_next_step(
+        rendered, tmp_path, file, corrupt, command, code, place, next):
+    directory = Path(shutil.copytree(rendered, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
+    (directory / file).write_text(corrupt((directory / file).read_text()))
+    result = videotape(directory, *command)
+    assert (result.stdout, result.returncode) == ("", 1)
+    assert "Traceback" not in result.stderr
+    assert result.stderr.startswith(f"error {code} {place}: ")
+    render = RENDERS.get(command, "videotape render --story chalk")
+    assert result.stderr.endswith(f"\n{step(code)}: {next.format(render=render)}\n")

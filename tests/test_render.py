@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import threading
@@ -815,13 +816,22 @@ def test_a_corrupt_take_from_a_model_with_nothing_to_download_again_is_vt403_and
     assert next(model.requests) == 22
 
 
-def test_every_take_corrupt_stops_the_render_with_vt403(tmp_path):
+def test_every_take_corrupt_stops_the_render_with_vt403_whose_next_step_resumes_it_with_more_takes(tmp_path, cli, capsys,
+                                                                                                    monkeypatch):
     directory = copy_of("cafe", tmp_path)
-    with pytest.raises(RenderError) as error:
-        rendered(directory, Garbled({1, 2}, flaw=clean), takes=2)
-    assert (error.value.code, error.value.place, error.value.message) == (
-        "VT403", "key menu()", "every take of the shot is corrupt")
-    assert error.value.next.endswith('videotape retake "menu()" --story chalk')
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(Garbled({1, 2}, flaw=clean)))
+    assert cli(directory, *RENDER, "--takes", "2") == 1
+    err = capsys.readouterr().err
+    assert err.count("error VT403 key menu() take ") == 2
+    assert err.splitlines()[-3:] == [
+        "error VT403 key menu(): every take of the shot is corrupt",
+        "next: render again with more takes, which films new seeds after these, as in:",
+        "videotape render --story chalk --takes 4"]
+    assert not (directory / TAPE / "tape.json").exists()
+    # A stopped render writes no tape.json, so the next step has to work without one. Followed to the letter, it does.
+    assert cli(directory, *shlex.split(err.splitlines()[-1])[1:]) == 0
+    assert (directory / TAPE / "tape.json").is_file()
+    assert dailies.read(directory / TAPE)["corrupt"]["key menu()"] == [1, 2]
 
 
 class Refusing(StandIn):
@@ -892,6 +902,20 @@ def test_a_refused_call_goes_in_the_ledger_once_at_its_listed_price_so_the_cap_c
     rendered(directory, BilledRefusing(set(), flaw=clean), takes=2, price=price, cap=20)
     assert [line for line in ledger.of(directory, directory / TAPE).lines() if line.get("refused")] == refused
     assert ledger.of(directory, directory / TAPE).totals()["usd"] == spent
+
+
+def test_explain_vt409_says_what_the_ledger_holds_for_a_refused_take(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    price = Price(0.1, 5)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(BilledRefusing({1}, on=THANKS_LATTE, flaw=clean), price=price))
+    assert cli(directory, *RENDER, "--takes", "2", "--cap-usd", "20") == 0
+    assert capsys.readouterr().err.startswith("error VT409 key thanks(Latte) take 1: ")
+    [line] = [json.loads(text) for text in (directory / "ledger.jsonl").read_text().splitlines()
+              if '"refused": true' in text]
+    assert (line["kind"], line["shot"], line["seed"], line["usd"]) == ("take", "key thanks(Latte)", 1, price.usd)
+    assert cli(directory, "explain", "VT409") == 0
+    explained = capsys.readouterr().out
+    assert '"refused": true' in explained and "at the model's listed price" in explained
 
 
 def test_every_take_of_a_shot_refused_films_the_other_shots_then_stops_with_vt409(tmp_path):

@@ -362,7 +362,9 @@ CODES: dict[str, Code] = {
         "A take came back as a file that does not decode into a frame. A model that bills per call keeps its request "
         "beside the take, so the take is downloaded again first. When it is still corrupt, or when the model has "
         "nothing to download again, the seed is marked corrupt in the tape's dailies.json, reported, skipped, "
-        "and never filmed again. The shot goes on with its next seed.",
+        "and never filmed again. The shot goes on with its next seed. A shot whose every seed is corrupt stops the "
+        "render, which has written no tape.json for a retake to read, so its next step is the render again with "
+        "more takes, which films new seeds after them.",
         "error VT403 key home() take 1: tapes/terminal/takes/3f9a....mp4 did not decode to one frame: Error opening "
         "input files: Invalid data found when processing input",
         "next: nothing; seed 1 is skipped from now on",
@@ -423,13 +425,28 @@ CODES: dict[str, Code] = {
         "seed films the same take, so the seed is marked refused in the tape's dailies.json, reported, skipped, and "
         "never polled or submitted again, as a corrupt seed is. The shot goes on with its next seed and keeps the "
         "best of its other takes, and a retake films it with new seeds. fal's page does not say whether a refused "
-        "request is billed. fal returned no receipt for it, so the ledger has no line for it, and the render keeps "
-        "the call's reservation under the cap until it ends, in case fal billed it. A shot whose every seed is "
-        "refused stops the render with this code, and one whose seeds are refused and corrupt with VT403.",
+        "request is billed, and fal sends no receipt for one, so the render counts it as billed: the ledger gets one "
+        "take line for the request, marked \"refused\": true, at the model's listed price, $0.50 for wan3.0, and the "
+        "cap counts it with the rest. A shot whose every seed is refused stops the render with this code, and one "
+        "whose seeds are refused and corrupt with VT403.",
         "error VT409 key search() take 2: result of alibaba/wan-3.0/text-to-video request "
         "01a1e4a2-f25e-7972-979d-3aebd879c48c was refused for its content: HTTP 422 content_policy_violation, "
         "model_moderated",
         "next: nothing; seed 2 is skipped from now on",
+    ),
+    "VT410": Code(
+        "a file videotape writes is not JSON",
+        "A render writes a tape's tape.json and dailies.json whole and then moves each into place, and appends one "
+        "line to the project's ledger.jsonl for each take it films and each read it pays for, all of it JSON. retake, "
+        "publish and diff read tape.json. retake, accept, dailies and publish read dailies.json, and so does a render, "
+        "for the accepts, the retake seeds and the corrupt seeds it carries on. A render, a retake, an accept and "
+        "dailies read the ledger for what the tape has spent. This file, or this line of the ledger, is not JSON: an "
+        "edit or a merge broke it, or the render that appended the line was killed as it wrote. The command stops "
+        "before it changes anything, and the error names the file, the ledger's line, and what the JSON reader said.",
+        "error VT410 tapes/chalk/dailies.json: is not JSON: Expecting property name enclosed in double quotes: line 2 "
+        "column 1 (char 2)",
+        "next: mend it, or move it aside and run the render again, which writes it afresh from the takes on disk, "
+        "without the accepts and the retake seeds it held, as in:\nvideotape render --story chalk",
     ),
     "VT501": Code(
         "an action was not found on its key",
@@ -502,7 +519,9 @@ CODES: dict[str, Code] = {
         "settings and videotape itself, and the made id that hashes them all. Publish works these out again from the "
         "project as it is now, for the tape's story and model, and compares the two made ids. They differ, so the "
         "app would play a tape filmed from what the project no longer holds. The error says what changed. A render "
-        "that stopped before its last shot also leaves its tape out of date. Publish leaves dist/ and the lock as they "
+        "that stopped before its last shot also leaves its tape out of date, and so does a model videotape no longer "
+        "has: a retake films with the model the made block names, and publish works the made id out for it, so "
+        "neither can run, and the fix names the models videotape has. Publish leaves dist/ and the lock as they "
         "were.",
         "error VT601 tapes/starter: the app's code changed since the tape was rendered",
         "fix: render the tape again with the model that made it, then publish it:\n"

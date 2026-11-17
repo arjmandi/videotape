@@ -9,7 +9,7 @@ from pathlib import Path
 
 from videotape import dailies, doctor, errors, ledger, new, player, project, publish, story
 from videotape.errors import CODES, RenderError, ScreenplayError
-from videotape.made import finished, made, manifest
+from videotape.made import finished, made, manifest, model_named
 from videotape.model import MODELS, Listing, estimate
 from videotape.plan import Key, Plan, Shot, plan
 from videotape.project import Project
@@ -220,7 +220,7 @@ def retake(args) -> int:
     shot = _shot_named(planned, args.shot)
     tape, rendering = _tape(found, args.story, args.out), _rendering(args.story, args.out)
     record = dailies.recorded(tape, rendering)
-    args.model = manifest(tape, rendering)["made"]["model"]["name"]
+    args.model = model_named(manifest(tape, rendering), tape, rendering)
     tried = [take["seed"] for filmed in (*record["keys"], *record["moves"]) if filmed["title"] == shot.title
              for take in filmed["takes"]]
     retakes = record.get("retakes", {})
