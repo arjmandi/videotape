@@ -606,8 +606,9 @@ class Calendar:
     within the grid on no day. A month's grid is its lattice: the steps from a day to the next on its right and to
     the one below it, as most of its days are read, the largest group of days a step apart, and every day number on a
     point of that lattice, in its seven fullest columns and a row either side of its rows, whatever number a garbled
-    cell shows. A strip's grid is its days read one after another to the right. So a number drawn between rows, past
-    the seventh column or away from the month, or a weekday and day elsewhere on the screen, is other text. A label is drawn on a day when read with it as one
+    cell shows. A strip's grid is its days read one after another, each its usual step from the last. So a number
+    drawn between rows, past the seventh column or away from the month, or a weekday and day off the strip's line, is
+    other text. A label is drawn on a day when read with it as one
     spot, just right of it, or under it within its cell, a row's step deep. No other line is read from the grid's
     days and the labels on them."""
 
@@ -620,7 +621,7 @@ class Calendar:
         found = [spot for spot in spots if re.fullmatch(days, spot.text)]
         row = None if strip else _step(found, lambda dx, dy: dy > 0 and abs(dx) < dy)
         if strip:
-            grid = max(_clusters(found, lambda a, b: _strip_next(a, b) or _strip_next(b, a)), key=len, default=[])
+            grid = _strip(found)
         else:
             grid = _month(found, row)
         numbers = tuple(spot for spot in found if spot in grid or len(grid) <= 1)
@@ -656,12 +657,20 @@ class Calendar:
         return [label for label in (*(label for _, label in self.drawn), *self.loose) if label not in used]
 
 
-def _strip_next(a: Spot, b: Spot) -> bool:
-    """Whether b is the strip's next day after a: to its right, within four of the wider's widths, further across than
-    down, and drawn about as tall, as a strip's cells are alike."""
-    across, down = _cx(b.box) - _cx(a.box), _cy(b.box) - _cy(a.box)
-    return (0 < across <= 4 * max(a.box.w, b.box.w) and abs(down) < across
-            and max(a.box.h, b.box.h) <= 2 * min(a.box.h, b.box.h))
+def _strip(found: Sequence[Spot]) -> list[Spot]:
+    """A strip's days: the largest group read one after another, each a step from the last as most of them are, the
+    step from a day to its nearest day to the right, and drawn about as tall, as a strip's cells are alike. Every day
+    when no step can be read."""
+    step = _step(found, lambda dx, dy: dx > 0 and abs(dy) < dx)
+    if step is None:
+        return list(found)
+
+    def next_to(a: Spot, b: Spot) -> bool:
+        offset = (_cx(b.box) - _cx(a.box), _cy(b.box) - _cy(a.box))
+        return (min(math.dist(offset, step), math.dist(offset, (-step[0], -step[1]))) <= math.hypot(*step) / 3
+                and max(a.box.h, b.box.h) <= 2 * min(a.box.h, b.box.h))
+
+    return max(_clusters(found, next_to), key=len)
 
 
 def _step(found: Sequence[Spot], toward: Callable[[float, float], bool]) -> tuple[float, float] | None:
@@ -679,8 +688,9 @@ def _step(found: Sequence[Spot], toward: Callable[[float, float], bool]) -> tupl
 
 def _month(found: Sequence[Spot], row: tuple[float, float] | None) -> list[Spot]:
     """A month's days: the largest group a column's or a row's step apart, then every day on a point of their
-    lattice, in its seven fullest columns and a row either side of its rows. Of the row steps a diagonal apart, the
-    one most days a week apart are read across is the row. Every day when no step can be read."""
+    lattice, in its seven fullest columns and a row either side of its rows. A sheared month leaves the nearest day
+    below on either diagonal, so of the row steps a diagonal apart, the one whose lattice holds the most days is the
+    row, and of those, the one most days a week apart are read across. Every day when no step can be read."""
     column = _step(found, lambda dx, dy: dx > 0 and abs(dy) < dx)
     if column is None:
         return list(found)
@@ -694,11 +704,18 @@ def _month(found: Sequence[Spot], row: tuple[float, float] | None) -> list[Spot]
     linked = max(_clusters(found, apart), key=len)
     if row is None:
         return linked
-    row = max((row, (row[0] + column[0], row[1] + column[1]), (row[0] - column[0], row[1] - column[1])),
-              key=lambda step: _weeks(linked, step))
+    rows = (row, (row[0] + column[0], row[1] + column[1]), (row[0] - column[0], row[1] - column[1]))
+    held = [(_lattice(linked, found, column, step), step) for step in rows]
+    return max(held, key=lambda pair: (len(pair[0]), _weeks(linked, pair[1])))[0]
+
+
+def _lattice(linked: Sequence[Spot], found: Sequence[Spot], column: tuple[float, float],
+             row: tuple[float, float]) -> list[Spot]:
+    """Every day on a point of the lattice the linked days lie on, in its seven fullest columns and a row either side
+    of its rows, within a third of a step of a whole place."""
     determinant = column[0] * row[1] - column[1] * row[0]
     if abs(determinant) < 1e-6:
-        return linked
+        return list(linked)
     origin = (_cx(linked[0].box), _cy(linked[0].box))
 
     def place(spot: Spot) -> tuple[float, float]:

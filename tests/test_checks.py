@@ -530,3 +530,38 @@ def test_a_day_without_an_option_drawn_marked_fails_vt509():
     [mark] = [item for item in score(jfk(), [Read("made-up", drawn_month, marked=(fourteen,))]).items()
               if item.code == "VT509"]
     assert (mark.passed, mark.result) == (False, 'marked "14"; no day is chosen')
+
+
+def test_a_sparse_month_with_a_misread_grey_day_keeps_its_option_days():
+    kept = {2, 4, 7, 11, 12, 13, 21, 25, 27}
+    seen = Read("made-up", tuple(replace(spot, text="14") if spot.text == "2" else spot for spot in month(DRAWN)
+                                 if not spot.text.isdigit() or int(spot.text) in kept))
+    assert failed(score(jfk(), [seen])) == []
+
+
+def test_a_month_whose_rows_are_far_apart_and_sheared_reads_every_day():
+    stretched = tuple(replace(spot, box=Box(50 * ((day + 1) % 7) + 25 * ((day + 1) // 7) + (spot.box.x % 60),
+                                            40 + 150 * ((day + 1) // 7) + (spot.box.y - 40) % 60, spot.box.w, spot.box.h))
+                      if (day := _day_of(spot)) else spot for spot in month(DRAWN))
+    checks = score(jfk(), [Read("made-up", stretched)])
+    assert checks.passed, failed(checks)
+
+
+def _day_of(spot: Spot) -> int | None:
+    """The day of month() a spot is, its number or the label under it, from where month() put it."""
+    if spot.text == "December 2026":
+        return None
+    column, row = spot.box.x // 60, (spot.box.y - 40) // 60
+    return row * 7 + column - 1
+
+
+def test_a_weekday_and_day_tile_off_the_strips_line_is_an_invented_control():
+    picked = key_of(vt.Text("Picked"))
+    key = key_of(vt.DateStrip({date(2026, 12, 11): vt.Option("$99", to=picked.state),
+                               date(2026, 12, 12): vt.Option("$89", to=picked.state),
+                               date(2026, 12, 13): vt.Option("$109", to=picked.state)}))
+    days = [("Fri 11", "$99", 100), ("Sat 12", "$89", 300), ("Sun 13", "$109", 500)]
+    seen = Read("made-up", (*(spot for day, fare, x in days for spot in (Spot(day, Box(x, 100, 70, 20), True),
+                                                                          Spot(fare, Box(x, 126, 70, 20), True))),
+                            Spot("Mon 14", Box(700, 250, 70, 20), True)))
+    assert failed(score(key, [seen])) == [("VT503", "Mon 14")]
