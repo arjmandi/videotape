@@ -7,7 +7,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from videotape.errors import PACKAGE, ScreenplayError, shown
-from videotape.model import Kind
+from videotape.model import MODELS, Kind
 from videotape.plan import Mode
 from videotape.project import Project
 from videotape.story import Story
@@ -45,13 +45,29 @@ def finished(tape: Path, render: str) -> Path:
 
 def manifest(tape: Path, render: str) -> dict:
     """A tape's tape.json, whose made block says what made it: VT405 when no render finished the tape, or when a
-    videotape older than the made block wrote it. render is the command that renders the tape."""
+    videotape older than the made block wrote it, and VT410 when it is not JSON. render is the command that renders
+    the tape."""
     file = finished(tape, render)
-    held = json.loads(file.read_text())
+    try:
+        held = json.loads(file.read_text())
+    except json.JSONDecodeError as error:
+        raise ScreenplayError("VT410", shown(file), f"is not JSON: {error}", "run the render again, which writes it "
+                              f"afresh from the takes on disk, as in:\n{render}") from None
     if "made" not in held:
         raise ScreenplayError("VT405", shown(file), "does not say what made the tape", f"render the story again, as in:"
                               f"\n{render}")
     return held
+
+
+def model_named(manifest: dict, tape: Path, render: str) -> str:
+    """The name of the model that made the tape, which a retake films with and publish works the made id out for:
+    VT601 when videotape has no model of that name, since neither can run without it."""
+    name = manifest["made"]["model"]["name"]
+    if name not in MODELS:
+        raise ScreenplayError("VT601", shown(tape), f"was made by {name}, a model this videotape does not have",
+                              f"render the story again with a model it has, one of {', '.join(sorted(MODELS))}, as "
+                              f"in:\n{render} --model stand-in")
+    return name
 
 
 def digest(root: Path, files: Iterable[Path]) -> str:

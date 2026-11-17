@@ -236,7 +236,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
                           "[tool.videotape]:\ncap_usd = 20")
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
-    carried = dailies.carried(tape)
+    carried = dailies.carried(tape, resume)
     shared = _Set(model, tuple(readers), tape, {key.state: tape / key.image for key in plan.keys},
                   Budget(ledger, price, cap), resume, threading.Event(), {}, threading.Lock())
     seeds = {shot.title: _seeds(shot, takes, carried, every) for shot in plan.shots}

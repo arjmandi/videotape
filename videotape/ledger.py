@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from videotape.errors import ScreenplayError, shown
+
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -24,9 +26,20 @@ class Ledger:
             file.write(json.dumps({**line, "tape": self.tape}, sort_keys=True) + "\n")
 
     def lines(self) -> list[dict]:
+        """The tape's lines, in order: VT410 at a line of the ledger that is not JSON."""
         if not self.path.exists():
             return []
-        lines = [json.loads(line) for line in self.path.read_text().splitlines() if line]
+        lines = []
+        for number, text in enumerate(self.path.read_text().splitlines(), 1):
+            if not text:
+                continue
+            try:
+                lines.append(json.loads(text))
+            except json.JSONDecodeError as error:
+                raise ScreenplayError("VT410", f"{shown(self.path)}:{number}", f"is not JSON: {error}",
+                                      "delete the line, or mend it; the lines are appended and never rewritten, so the "
+                                      "rest stand, and what the line's call billed no longer counts toward the tape's "
+                                      "cap") from None
         return [line for line in lines if line["tape"] == self.tape]
 
     def totals(self) -> dict:

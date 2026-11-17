@@ -34,10 +34,12 @@ class Carried:
     accepted: list[dict] = field(default_factory=list)
 
 
-def carried(tape: Path) -> Carried:
+def carried(tape: Path, render: str) -> Carried:
+    """What the tape's record carries on, or nothing when no render wrote one. render is the command that renders the
+    tape."""
     if not (tape / "dailies.json").is_file():
         return Carried()
-    held = read(tape)
+    held = _held(tape, render)
     return Carried(dict(held.get("retakes", {})), dict(held.get("corrupt", {})), list(held.get("accepted", [])))
 
 
@@ -160,7 +162,18 @@ def recorded(tape: Path, render: str) -> dict:
     if not (tape / "dailies.json").is_file():
         raise errors.ScreenplayError("VT405", errors.shown(tape), "has no dailies.json, which every render writes",
                                      f"render the story first, as in:\n{render}")
-    return read(tape)
+    return _held(tape, render)
+
+
+def _held(tape: Path, render: str) -> dict:
+    """The record as a command finds it: VT410 when the file is not JSON."""
+    try:
+        return read(tape)
+    except json.JSONDecodeError as error:
+        raise errors.ScreenplayError("VT410", errors.shown(tape / "dailies.json"), f"is not JSON: {error}",
+                                     "mend it, or move it aside and run the render again, which writes it afresh from "
+                                     "the takes on disk, without the accepts and the retake seeds it held, as in:\n"
+                                     f"{render}") from None
 
 
 def write(tape: Path, record: dict, totals: dict) -> None:
