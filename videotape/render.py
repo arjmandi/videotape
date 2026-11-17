@@ -158,8 +158,6 @@ class _Set:
     budget: Budget
     resume: str
     """The command that runs this render again."""
-    retake: str
-    """What a retake of one of this render's shots names after the shot: the story, and the tape when not its own."""
     stop: threading.Event
     """Set when the render stops on an error: a take in flight finishes and is recorded, and no new one starts."""
     locks: dict[Path, threading.Lock]
@@ -239,10 +237,8 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     carried = dailies.carried(tape)
-    words = shlex.split(resume)
-    retake = f" --story {story.name}" + (f" --out {words[words.index('--out') + 1]}" if "--out" in words else "")
     shared = _Set(model, tuple(readers), tape, {key.state: tape / key.image for key in plan.keys},
-                  Budget(ledger, price, cap), resume, retake, threading.Event(), {}, threading.Lock())
+                  Budget(ledger, price, cap), resume, threading.Event(), {}, threading.Lock())
     seeds = {shot.title: _seeds(shot, takes, carried, every) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
     stopped: RenderError | None = None
@@ -308,14 +304,14 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     return result
 
 
-def _seeds(shot: Shot, takes: int, carried: Carried, every: bool) -> tuple[list[int], list[int], int]:
-    """The seeds a shot tries until one passes, 1 up to the limit, and the seeds it films whatever passed, the ones a
-    retake added, each without the seeds its record marks corrupt. With every, each seed is filmed whatever passed."""
+def _seeds(shot: Shot, takes: int, carried: Carried, every: bool) -> tuple[list[int], list[int], list[int]]:
+    """The seeds a shot tries until one passes, 1 up to the limit, the seeds it films whatever passed, the ones a
+    retake added, and the seeds its record marks corrupt, which are left out of both. With every, each seed is filmed
+    whatever passed."""
     corrupt, retakes = carried.corrupt.get(shot.title, []), carried.retakes.get(shot.title, [])
     first = [seed for seed in range(1, takes + 1) if seed not in corrupt]
     again = [seed for seed in retakes if seed not in corrupt]
-    skipped = len(corrupt)
-    return ([], [*first, *again], skipped) if every else (first, again, skipped)
+    return ([], [*first, *again], corrupt) if every else (first, again, corrupt)
 
 
 def _corrupt(carried: Carried, result: Render) -> Carried:
@@ -328,7 +324,8 @@ def _corrupt(carried: Carried, result: Render) -> Carried:
     return Carried(carried.retakes, corrupt, carried.accepted)
 
 
-def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: int) -> Filmed:
+def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int],
+              skipped: list[int]) -> Filmed:
     words = text(clauses)
     filmed = _film_shot(shared, key, clauses, seeds, retakes, skipped, lambda seed, out: shared.model.text_to_video(words, seed, out),
                         (), lambda path, purse: _read(shared, key, path, purse))
@@ -350,7 +347,8 @@ def _read(shared: _Set, key: Key, path: Path, purse: _Purse) -> KeyChecks:
     return score(key, reads)
 
 
-def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: int) -> Filmed:
+def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], retakes: list[int],
+               skipped: list[int]) -> Filmed:
     words = text(clauses)
     start, end = shared.images[move.start], shared.images[move.land]
     pinned = frames.read_png(start), frames.read_png(end)
@@ -361,13 +359,13 @@ def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], reta
     return filmed
 
 
-def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: int,
+def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: list[int],
                film: Callable[[int, Path], Receipt | None], images: tuple[Path, ...],
                check: Callable[[Path, _Purse], Checks]) -> Filmed:
     """Film the shot's takes seed by seed. Each take comes from the cache or the model, then its checks. The seeds up
     to the limit are filmed until one passes, and a take on disk is always read. The retake seeds are filmed whatever
     passed before, and with them the shot keeps the best of all its takes. A take the model refused for its content,
-    VT409, is reported the first time and skipped, as a corrupt one is. skipped counts the seeds its record already
+    VT409, is reported the first time and skipped, as a corrupt one is. skipped holds the seeds its record already
     marks corrupt, which it does not try."""
     words = text(clauses)
     takes, reported, corrupt, refused = list[Take](), list[RenderError](), list[int](), list[int]()
@@ -400,16 +398,16 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
     except FfmpegError as error:
         raise RenderError("VT404", f"{shot.title}", error.message,
                           "install ffmpeg, as in brew install ffmpeg, and run the render again") from None
-    if not takes and refused and not corrupt and not skipped:
+    if not takes:
         for error in reported:
             print(error.report(), file=sys.stderr, flush=True)
-        raise EveryTakeRefused(shot.title, tuple(refused), "render again with more takes, which films new seeds after "
-                               f"these, or change the story's words for the shot, as in:\n"
-                               f"{_with_takes(shared.resume, max(refused) + 2)}")
-    if not takes:
+        # A stopped render writes no tape.json, which a retake needs, so the next step is the render with more takes.
+        more = _with_takes(shared.resume, max([*seeds, *retakes, *skipped]) + 2)
+        if refused and not corrupt and not skipped:
+            raise EveryTakeRefused(shot.title, tuple(refused), "render again with more takes, which films new seeds "
+                                   f"after these, or change the story's words for the shot, as in:\n{more}")
         raise RenderError("VT403", shot.title, "every take of the shot is corrupt",
-                          f"raise takes in [tool.videotape] or pass --takes, or retake the shot: "
-                          f'videotape retake "{dailies.named(shot)}"{shared.retake}')
+                          f"render again with more takes, which films new seeds after these, as in:\n{more}")
     return Filmed(shot, clauses, tuple(takes), min(takes, key=lambda take: take.checks.rank(take.seed)),
                   tuple(reported), tuple(corrupt), tuple(refused))
 

@@ -362,7 +362,9 @@ CODES: dict[str, Code] = {
         "A take came back as a file that does not decode into a frame. A model that bills per call keeps its request "
         "beside the take, so the take is downloaded again first. When it is still corrupt, or when the model has "
         "nothing to download again, the seed is marked corrupt in the tape's dailies.json, reported, skipped, "
-        "and never filmed again. The shot goes on with its next seed.",
+        "and never filmed again. The shot goes on with its next seed. A shot whose every seed is corrupt stops the "
+        "render, which has written no tape.json for a retake to read, so its next step is the render again with "
+        "more takes, which films new seeds after them.",
         "error VT403 key home() take 1: tapes/terminal/takes/3f9a....mp4 did not decode to one frame: Error opening "
         "input files: Invalid data found when processing input",
         "next: nothing; seed 1 is skipped from now on",

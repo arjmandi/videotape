@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import threading
@@ -815,13 +816,22 @@ def test_a_corrupt_take_from_a_model_with_nothing_to_download_again_is_vt403_and
     assert next(model.requests) == 22
 
 
-def test_every_take_corrupt_stops_the_render_with_vt403(tmp_path):
+def test_every_take_corrupt_stops_the_render_with_vt403_whose_next_step_resumes_it_with_more_takes(tmp_path, cli, capsys,
+                                                                                                    monkeypatch):
     directory = copy_of("cafe", tmp_path)
-    with pytest.raises(RenderError) as error:
-        rendered(directory, Garbled({1, 2}, flaw=clean), takes=2)
-    assert (error.value.code, error.value.place, error.value.message) == (
-        "VT403", "key menu()", "every take of the shot is corrupt")
-    assert error.value.next.endswith('videotape retake "menu()" --story chalk')
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(Garbled({1, 2}, flaw=clean)))
+    assert cli(directory, *RENDER, "--takes", "2") == 1
+    err = capsys.readouterr().err
+    assert err.count("error VT403 key menu() take ") == 2
+    assert err.splitlines()[-3:] == [
+        "error VT403 key menu(): every take of the shot is corrupt",
+        "next: render again with more takes, which films new seeds after these, as in:",
+        "videotape render --story chalk --takes 4"]
+    assert not (directory / TAPE / "tape.json").exists()
+    # A stopped render writes no tape.json, so the next step has to work without one. Followed to the letter, it does.
+    assert cli(directory, *shlex.split(err.splitlines()[-1])[1:]) == 0
+    assert (directory / TAPE / "tape.json").is_file()
+    assert dailies.read(directory / TAPE)["corrupt"]["key menu()"] == [1, 2]
 
 
 class Refusing(StandIn):
