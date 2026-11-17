@@ -904,6 +904,20 @@ def test_a_refused_call_goes_in_the_ledger_once_at_its_listed_price_so_the_cap_c
     assert ledger.of(directory, directory / TAPE).totals()["usd"] == spent
 
 
+def test_explain_vt409_says_what_the_ledger_holds_for_a_refused_take(tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    price = Price(0.1, 5)
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(BilledRefusing({1}, on=THANKS_LATTE, flaw=clean), price=price))
+    assert cli(directory, *RENDER, "--takes", "2", "--cap-usd", "20") == 0
+    assert capsys.readouterr().err.startswith("error VT409 key thanks(Latte) take 1: ")
+    [line] = [json.loads(text) for text in (directory / "ledger.jsonl").read_text().splitlines()
+              if '"refused": true' in text]
+    assert (line["kind"], line["shot"], line["seed"], line["usd"]) == ("take", "key thanks(Latte)", 1, price.usd)
+    assert cli(directory, "explain", "VT409") == 0
+    explained = capsys.readouterr().out
+    assert '"refused": true' in explained and "at the model's listed price" in explained
+
+
 def test_every_take_of_a_shot_refused_films_the_other_shots_then_stops_with_vt409(tmp_path):
     directory = copy_of("cafe", tmp_path)
     with pytest.raises(RenderError) as error:

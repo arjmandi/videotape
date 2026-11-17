@@ -425,9 +425,10 @@ CODES: dict[str, Code] = {
         "seed films the same take, so the seed is marked refused in the tape's dailies.json, reported, skipped, and "
         "never polled or submitted again, as a corrupt seed is. The shot goes on with its next seed and keeps the "
         "best of its other takes, and a retake films it with new seeds. fal's page does not say whether a refused "
-        "request is billed. fal returned no receipt for it, so the ledger has no line for it, and the render keeps "
-        "the call's reservation under the cap until it ends, in case fal billed it. A shot whose every seed is "
-        "refused stops the render with this code, and one whose seeds are refused and corrupt with VT403.",
+        "request is billed, and fal sends no receipt for one, so the render counts it as billed: the ledger gets one "
+        "take line for the request, marked \"refused\": true, at the model's listed price, $0.50 for wan3.0, and the "
+        "cap counts it with the rest. A shot whose every seed is refused stops the render with this code, and one "
+        "whose seeds are refused and corrupt with VT403.",
         "error VT409 key search() take 2: result of alibaba/wan-3.0/text-to-video request "
         "01a1e4a2-f25e-7972-979d-3aebd879c48c was refused for its content: HTTP 422 content_policy_violation, "
         "model_moderated",
