@@ -322,7 +322,7 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     planning = commands.add_parser("plan", help="walk every state the app can reach, with the keys and moves a render "
                                    "films")
-    planning.add_argument("--story", help="also read this story, which is stories/<story>.toml in the project")
+    planning.add_argument("--story", help="also load this story, which is stories/<story>.toml in the project")
     planning.add_argument("--model", choices=sorted(MODELS), help="the model whose prompt limit the story's prompts "
                           "must fit (default: model in [tool.videotape])")
     planning.set_defaults(run=plan_app)
