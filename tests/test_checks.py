@@ -413,7 +413,7 @@ DRAWN = {11: "$199", 12: "$179", 13: "$229"}
 
 @pytest.mark.parametrize("element, spot", [
     (vt.Heading("2"), Spot("2", Box(60, 10, 40, 20), False)),
-    (vt.Text("$89"), Spot("$89", Box(120, 326, 40, 20), False)),
+    (vt.Text("$89"), Spot("$89", Box(120, 380, 40, 20), False)),
 ], ids=["a number above it", "a fare below it"])
 def test_text_near_a_calendar_is_read_as_its_own_line(element, spot):
     checks = score(jfk_beside(element), [Read("made-up", (*month(DRAWN), spot))])
@@ -441,3 +441,65 @@ def test_lines_of_the_same_words_read_in_two_spots_each_are_paired_quickly_howev
     paired = readings("made-up", ["2h 10m, Nonstop"] * 10, [spot for row in rows for spot in row] + others)
     assert time.perf_counter() - started < 1
     assert sum(seen.cer == 0 for seen, _ in paired) == 9
+
+
+def test_a_label_within_a_days_cell_reads_as_its_label_however_far_down_the_cell_draws_it():
+    """A fare-shaped text in a day's cell is that day's fare, as a person reads it: the fare of a day with no option
+    strays. Its cell is a row's step deep, measured from the read."""
+    lower = tuple(replace(spot, box=replace(spot.box, y=spot.box.y + 19)) if spot.text.startswith("$") else spot
+                  for spot in month(DRAWN))
+    assert score(jfk(), [Read("made-up", lower)]).passed
+    in_a_cell = Read("made-up", (*month(DRAWN), Spot("$89", Box(120, 326, 40, 20), False)))
+    assert failed(score(jfk_beside(vt.Text("$89")), [in_a_cell])) == [("VT502", "$89"), ("VT502", "$89")]
+
+
+def jan_31() -> Key:
+    picked = key_of(vt.Text("Picked"))
+    return key_of(vt.DatePicker({date(2027, 1, 31): vt.Option("$99", to=picked.state)}))
+
+
+def test_a_month_whose_last_row_holds_one_day_reads_that_day():
+    january = [Spot(str(day), Box(60 * ((day + 4) % 7), 40 + 60 * ((day + 4) // 7), 40, 20), True) for day in range(1, 32)]
+    thirty_first = january[-1].box
+    seen = Read("made-up", (Spot("January 2027", Box(60, 0, 240, 30), False), *january,
+                            Spot("$99", Box(thirty_first.x, thirty_first.y + 26, 40, 20), True)))
+    checks = score(jan_31(), [seen])
+    assert checks.passed, failed(checks)
+
+
+def test_a_month_seen_at_an_angle_reads_whole():
+    sheared = tuple(replace(spot, box=replace(spot.box, x=spot.box.x + 24 * ((spot.box.y - 40) // 60)))
+                    for spot in month(DRAWN))
+    checks = score(jfk(), [Read("made-up", sheared)])
+    assert checks.passed, failed(checks)
+    assert checks.invented == ()
+
+
+def test_the_stand_ins_date_picker_of_one_day_reads_it():
+    picked = key_of(vt.Text("Picked"))
+    key = key_of(vt.DatePicker({date(2026, 12, 11): vt.Option("$199", to=picked.state)}))
+    frame, seen = drawn(key)
+    assert score(key, [seen]).passed, failed(score(key, [seen]))
+
+
+@pytest.mark.parametrize("words, control, expected", [
+    ("Sat 12", False, []), ("Mon 14", True, [("VT503", "Mon 14")])], ids=["its own line", "an invented control"])
+def test_a_weekday_and_day_away_from_a_strip_is_not_the_strips(words, control, expected):
+    picked = key_of(vt.Text("Picked"))
+    strip = vt.DateStrip({date(2026, 12, 11): vt.Option("$99", to=picked.state),
+                          date(2026, 12, 12): vt.Option("$89", to=picked.state)})
+    key = key_of(strip, vt.Text("Sat 12")) if not control else key_of(strip)
+    seen = Read("made-up", (Spot("Fri 11\n$99", Box(200, 250, 180, 140), True),
+                            Spot("Sat 12\n$89", Box(390, 250, 180, 140), True), Spot(words, Box(0, 400, 100, 20), control)))
+    assert failed(score(key, [seen])) == expected
+
+
+def test_a_search_for_joins_reads_every_line_it_can_when_lines_share_spots():
+    spots = [Spot("Flight", Box(0, 40, 80, 30), False), Spot("details", Box(90, 40, 80, 30), False),
+             Spot("time", Box(0, 80, 80, 30), False), Spot("Trip", Box(90, 0, 80, 30), False),
+             *(Spot("Flight", Box(0, 200 + 20 * row, 80, 30), False) for row in range(1, 12)),
+             *(Spot("details", Box(90, 200 + 20 * row, 80, 30), False) for row in range(1, 11))]
+    lines = ["Flight details"] * 12 + ["Flight time", "Trip details"]
+    paired = readings("made-up", lines, spots)
+    assert [seen.cer == 0 for seen, _ in paired][-2:] == [True, True]
+    assert sum(seen.cer == 0 for seen, _ in paired) == 12

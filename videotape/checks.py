@@ -32,7 +32,9 @@ lettering, so for it they stay in VT502."""
 
 from __future__ import annotations
 
+import math
 import re
+import statistics
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -516,11 +518,12 @@ def _joins(spots: Sequence[Spot]) -> list[tuple[Spot, Spot]]:
 def _most(choices: dict[int, list[tuple[Spot, Spot]]], lines: Sequence[str]) -> dict[int, tuple[Spot, Spot]]:
     """For each line, one of the joins that read it, so that the most lines are read and no spot is read twice. Lines
     of the same words are interchangeable, so they take their joins in one order and the first ones read, which keeps
-    the search to the choices that differ; past SEARCH steps it keeps the best found."""
+    the search to the choices that differ. The words with the fewest joins choose first, so the first path the search
+    takes is already a good one; past SEARCH steps it keeps the best found."""
     groups: dict[str, list[int]] = {}
     for index in sorted(choices):
         groups.setdefault(lines[index], []).append(index)
-    order = [(indexes, choices[indexes[0]]) for indexes in groups.values()]
+    order = sorted(((indexes, choices[indexes[0]]) for indexes in groups.values()), key=lambda group: len(group[1]))
     best: list[tuple[int, int]] = []
     steps = 0
 
@@ -599,10 +602,13 @@ DAYS = {"DatePicker": r"(?:[1-9]|[12]\d|3[01])", "DateStrip": r"[A-Z][a-z]{2} (?
 @dataclass(frozen=True)
 class Calendar:
     """A DatePicker or a DateStrip as one reader saw it: the days of its grid, the label drawn on each, and the labels
-    within the grid on no day. A month's day is of the grid when it shares a row and a column with other days, or its
-    row alone when the grid is one row, so a number drawn beside the grid, above it or below it is other text. A
-    strip's days, a weekday and a day, are its grid wherever they are read, as a strip seen at an angle steps down. A label is drawn on a day of the grid when it is read with it as one spot,
-    just right of it, or close under it. No other line is read from the grid's days and the labels on them."""
+    within the grid on no day. A month's grid is its lattice: the steps from a day to the next on its right and to
+    the one below it, as most of its days are read, the largest group of days a step apart, and every day number on a
+    point of that lattice, in its seven fullest columns and a row either side of its rows, whatever number a garbled
+    cell shows. A strip's grid is its days read one after another to the right. So a number drawn between rows, past
+    the seventh column or away from the month, or a weekday and day elsewhere on the screen, is other text. A label is drawn on a day when read with it as one
+    spot, just right of it, or under it within its cell, a row's step deep. No other line is read from the grid's
+    days and the labels on them."""
 
     numbers: tuple[Spot, ...]
     drawn: tuple[tuple[Spot, Spot], ...]
@@ -611,20 +617,17 @@ class Calendar:
     @classmethod
     def of(cls, spots: Sequence[Spot], labels: set[str], days: str, strip: bool) -> Calendar:
         found = [spot for spot in spots if re.fullmatch(days, spot.text)]
-        rows = [row for row in _clusters(found, lambda a, b: abs(_cy(a) - _cy(b)) <= max(a.h, b.h) / 2) if len(row) > 1]
+        row = None if strip else _step(found, lambda dx, dy: dy > 0 and abs(dx) < dy)
         if strip:
-            grid = found
-        elif len(rows) == 1:
-            grid = rows[0]
+            grid = max(_clusters(found, lambda a, b: _strip_next(a, b) or _strip_next(b, a)), key=len, default=[])
         else:
-            gridded = [spot for row in rows for spot in row]
-            columns = _clusters(gridded, lambda a, b: abs(_cx(a) - _cx(b)) <= max(a.w, b.w) / 2)
-            grid = [spot for column in columns if len(column) > 1 for spot in column]
-        numbers = tuple(spot for spot in found if spot in grid)
+            grid = _month(found, row)
+        numbers = tuple(spot for spot in found if spot in grid or len(grid) <= 1)
+        deep = max(abs(row[1]), 2 * max((spot.box.h for spot in numbers), default=0)) if row else None
         drawn: dict[Spot, Spot] = {}
         named = [spot for spot in spots if _shape(spot.text) in labels]
         for label in named:
-            under = [day for day in numbers if day not in drawn and _on(label.box, day.box)]
+            under = [day for day in numbers if day not in drawn and _on(label.box, day.box, deep)]
             if under:
                 drawn[min(under, key=lambda day: _distance(label.box, day.box))] = label
         inside = _bounds([*(day.box for day in numbers), *(label.box for label in drawn.values())])
@@ -652,11 +655,65 @@ class Calendar:
         return [label for label in (*(label for _, label in self.drawn), *self.loose) if label not in used]
 
 
-def _clusters(spots: Sequence[Spot], linked: Callable[[Box, Box], bool]) -> list[list[Spot]]:
+def _strip_next(a: Spot, b: Spot) -> bool:
+    """Whether b is the strip's next day after a: to its right, within four of the wider's widths, about level, and
+    drawn about as tall, as a strip's cells are alike."""
+    return (0 < _cx(b.box) - _cx(a.box) <= 4 * max(a.box.w, b.box.w)
+            and abs(_cy(b.box) - _cy(a.box)) <= 2 * max(a.box.h, b.box.h)
+            and max(a.box.h, b.box.h) <= 2 * min(a.box.h, b.box.h))
+
+
+def _step(found: Sequence[Spot], toward: Callable[[float, float], bool]) -> tuple[float, float] | None:
+    """The step from a day to its nearest day in one direction, as most days are read: the median of each day's."""
+    steps = []
+    for spot in found:
+        ahead = [(_cx(other.box) - _cx(spot.box), _cy(other.box) - _cy(spot.box)) for other in found if other is not spot]
+        ahead = [step for step in ahead if toward(*step)]
+        if ahead:
+            steps.append(min(ahead, key=lambda step: math.hypot(*step)))
+    if not steps:
+        return None
+    return statistics.median(step[0] for step in steps), statistics.median(step[1] for step in steps)
+
+
+def _month(found: Sequence[Spot], row: tuple[float, float] | None) -> list[Spot]:
+    """A month's days: the largest group a column's or a row's step apart, then every day on a point of their
+    lattice, in its seven fullest columns and a row either side of its rows. Every day when no step can be read."""
+    column = _step(found, lambda dx, dy: dx > 0 and abs(dy) < dx)
+    if column is None:
+        return list(found)
+    steps = [step for step in (column, row) if step]
+
+    def apart(a: Spot, b: Spot) -> bool:
+        offset = (_cx(b.box) - _cx(a.box), _cy(b.box) - _cy(a.box))
+        return any(math.dist(offset, step) <= math.hypot(*step) / 3 or math.dist(offset, (-step[0], -step[1]))
+                   <= math.hypot(*step) / 3 for step in steps)
+
+    linked = max(_clusters(found, apart), key=len)
+    if row is None:
+        return linked
+    determinant = column[0] * row[1] - column[1] * row[0]
+    if abs(determinant) < 1e-6:
+        return linked
+    origin = (_cx(linked[0].box), _cy(linked[0].box))
+
+    def place(spot: Spot) -> tuple[float, float]:
+        dx, dy = _cx(spot.box) - origin[0], _cy(spot.box) - origin[1]
+        return (dx * row[1] - dy * row[0]) / determinant, (column[0] * dy - column[1] * dx) / determinant
+
+    whole = [(round(u), round(v)) for u, v in map(place, linked)]
+    counts = {u: sum(at == u for at, _ in whole) for u, _ in whole}
+    first = max(range(min(counts), max(counts) + 1), key=lambda u: sum(counts.get(u + k, 0) for k in range(7)))
+    rows = range(min(v for _, v in whole) - 1, max(v for _, v in whole) + 2)
+    return [spot for spot in found if (at := place(spot)) and first <= round(at[0]) < first + 7
+            and round(at[1]) in rows and abs(at[0] - round(at[0])) <= 1 / 3 and abs(at[1] - round(at[1])) <= 1 / 3]
+
+
+def _clusters(spots: Sequence[Spot], linked: Callable[[Spot, Spot], bool]) -> list[list[Spot]]:
     """The spots in groups, each spot with every spot it is linked to, and so on through them."""
     groups: list[list[Spot]] = []
     for spot in spots:
-        near = [group for group in groups if any(linked(spot.box, other.box) for other in group)]
+        near = [group for group in groups if any(linked(spot, other) for other in group)]
         groups = [group for group in groups if group not in near] + [[*(one for group in near for one in group), spot]]
     return groups
 
@@ -676,15 +733,16 @@ def _bounds(boxes: Sequence[Box]) -> Box | None:
     return Box(x, y, max(box.x + box.w for box in boxes) - x, max(box.y + box.h for box in boxes) - y)
 
 
-def _on(label: Box, day: Box) -> bool:
+def _on(label: Box, day: Box, deep: float | None) -> bool:
     """Whether a label sits in the day's cell: read with the day as one spot, just right of it, or under it, the
-    narrower of the two centred across within the wider and its middle no lower than two of the taller's heights."""
+    narrower of the two centred across within the wider and its middle within the cell's depth below the day's, a
+    row's step in a month or three of the taller's heights."""
     if label == day or _beside(day, label):
         return True
     narrow, wide = sorted((label, day), key=lambda box: box.w)
     across = wide.x <= narrow.x + narrow.w / 2 <= wide.x + wide.w
-    down = (label.y + label.h / 2) - (day.y + day.h / 2)
-    return across and 0 < down <= 2 * max(label.h, day.h)
+    down = _cy(label) - _cy(day)
+    return across and 0 < down < (deep if deep is not None else 3 * max(label.h, day.h))
 
 
 def _distance(label: Box, day: Box) -> float:
