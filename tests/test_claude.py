@@ -237,6 +237,12 @@ def test_the_most_a_read_costs_is_the_pictures_tokens_and_the_prompts_at_the_inp
     assert 0.15 < claude.estimate(1280, 704) < 0.19
 
 
+def test_the_most_a_read_costs_covers_the_input_the_paid_run_was_billed_with_every_output_token_a_read_may_take():
+    """The paid screen test's reads are of 1280x720 pictures: their boxes reach x 1280 and y 720, and none passes."""
+    billed = {json.loads(path.read_text())["tokens"]["input_tokens"] for path in READS}
+    assert billed == {2191}
+    assert claude.price({"input_tokens": 2191, "output_tokens": claude.MAX_TOKENS}) <= claude.estimate(1280, 720)
+
 
 def test_every_model_but_the_stand_in_reads_with_qwen_and_claude_and_the_stand_in_with_its_own_reader():
     assert {name: listing.readers for name, listing in MODELS.items()} == {

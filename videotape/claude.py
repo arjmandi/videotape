@@ -149,13 +149,17 @@ PATCH = 28
 """platform.claude.com/docs/en/build-with-claude/vision, read 2026-11-15: an image costs ceil(width / 28) times
 ceil(height / 28) tokens, and claude-opus-5-5 downscales nothing under 2,576 pixels on the long edge, which a key's
 picture is well under."""
+UNCOUNTED = 195
+"""Input tokens a read bills beyond its picture's and those tokens() counts in its prompt and schema. Every read of a
+1280x720 picture in the paid screen test of 2026-11-16 billed 2,191 input tokens, where the picture is 1,196 and
+tokens() counts 800."""
 
 
 def estimate(width: int, height: int) -> float:
-    """The most one read of a picture this size costs: its image tokens, the prompt's and the schema's at the input
-    price, and every output token the read may take at the output price."""
+    """The most one read of a picture this size costs: its image tokens, the prompt's, the schema's and the uncounted
+    at the input price, and every output token the read may take at the output price."""
     image = -(-width // PATCH) * -(-height // PATCH)
-    words = tokens(PROMPT.format(width=width, height=height)) + tokens(json.dumps(SCHEMA))
+    words = tokens(PROMPT.format(width=width, height=height)) + tokens(json.dumps(SCHEMA)) + UNCOUNTED
     return price({"input_tokens": image + words, "output_tokens": MAX_TOKENS})
 
 
