@@ -240,11 +240,12 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     of states outside the plan that a FromKey of the plan starts from; a FromKey whose base is in the plan starts
     from the key the render draws for it."""
     started = time.perf_counter()
-    variants = sum(key.mode is Mode.FIRST_FRAME for key in plan.keys)
+    variants = [key for key in plan.keys if isinstance(key, FromKey)]
     if variants and Mode.FIRST_FRAME not in model.modes:
-        raise ScreenplayError("VT111", model.name, f"films no key from another key's picture, and {variants} key"
-                              f"{'' if variants == 1 else 's'} of the plan {'is' if variants == 1 else 'are'} drawn "
-                              "from the base's picture", "render with a model on fal, whose image-to-video takes one "
+        count = len(variants)
+        raise ScreenplayError("VT111", model.name, f"films no key from another key's picture, and {count} key"
+                              f"{'' if count == 1 else 's'} of the plan {'is' if count == 1 else 'are'} drawn from "
+                              "the base's picture", "render with a model on fal, whose image-to-video takes one "
                               "picture, as in --model gemini-omni-flash-1.2, or with the stand-in")
     billed = [*([model.name] if price else []), *(reader.name for reader in readers if reader.paid)]
     if billed and cap is None:
@@ -262,18 +263,19 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     stopped: RenderError | None = None
     unfilmed: dict[Shot, EveryTakeRefused] = {}
     states = {key.state for key in plan.keys}
-    variants: dict[State, list[FromKey]] = {}
-    for key in plan.keys:
-        if isinstance(key, FromKey) and key.start in states:
-            variants.setdefault(key.start, []).append(key)
+    by_base: dict[State, list[FromKey]] = {}
+    for key in variants:
+        if key.start in states:
+            by_base.setdefault(key.start, []).append(key)
     # Every base key is submitted first, and a key drawn from a base's picture when that base is done. A move is
     # submitted when both of its keys are done, since it is pinned to their images. With one worker and no key drawn
     # from another, as Wan 2.2 films, the keys all run before any move, so it swaps its checkpoint once.
     with ThreadPoolExecutor(max_workers=limit) as pool:
+        pending: dict[Future[Filmed], Shot] = {}
+
         def film_key(key: Key, base: Base | None) -> None:
             pending[pool.submit(_film_key, shared, key, prompt(key, story), *seeds[key.title], base)] = key
 
-        pending: dict[Future[Filmed], Shot] = {}
         for key in plan.keys:
             if not isinstance(key, FromKey):
                 film_key(key, None)
@@ -307,7 +309,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
                     report(filmed)
                     if stopped is not None or not isinstance(shot, Key):
                         continue
-                    for variant in variants.get(shot.state, []):
+                    for variant in by_base.get(shot.state, []):
                         film_key(variant, Base(shared.images[shot.state], filmed.kept.checks.boxes))
                     ready = {key.state for key in plan.keys if key in finished}
                     for move in [move for move in waiting if {move.start, move.land} <= ready]:
