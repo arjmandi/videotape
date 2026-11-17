@@ -153,7 +153,6 @@ def test_the_sampler_holds_every_element_type_of_contrail_and_a_state_the_plan_l
     forget(found)
     sample = script.sampled(planned)
     assert [key.state.name for key in sample.keys] == list(script.SAMPLER) and sample.moves == ()
-    # A sampled key is drawn from its own prompt, as the paid run drew it, whatever the plan draws its state from.
     assert all(type(key) is Key and key.mode is Mode.TEXT_TO_VIDEO for key in sample.keys)
     assert sum(isinstance(key, FromKey) for key in planned.keys if key.state.name in script.SAMPLER) == 4
     assert {element.type for key in sample.keys for element in key.shown} == {

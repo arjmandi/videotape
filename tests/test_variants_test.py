@@ -121,7 +121,6 @@ def test_each_scenes_base_is_its_first_state_in_walk_order_and_its_variants_are_
     assert [key.state.name for key in scenes[0].variants] == list(RESULTS)
     assert [key.state.name for key in scenes[1].variants] == [f"flight({flight})" for flight in FLIGHTS]
     assert [key.state.name for key in scenes[2].variants] == [f"booked({flight})" for flight in FLIGHTS]
-    # The seed method draws each variant from its own prompt, whatever the plan draws it from.
     assert all(type(key) is Key and key.mode is Mode.TEXT_TO_VIDEO for scene in scenes for key in scene.keys)
 
 
@@ -266,16 +265,12 @@ def test_it_draws_each_scene_at_one_seed_the_whole_scene_again_when_a_state_fail
                           f"{directory}/tapes/variants-test/seed/results")
     assert ("seed, results: results(JFK, 2026-12-12) failed at seed 1, so the whole scene is drawn again at seed 2"
             in printed)
-    assert (f"from-key, results: 8 variants from results(HNL, 2026-12-11)'s key at seed 1, read by stand-in and "
-            f"claude-opus-5-5 -> {directory}/tapes/variants-test/from-key/results") in printed
+    assert (f"from-key, results: 8 variants from results(HNL, 2026-12-11)'s key at seed 1, up to 2 takes each, read by "
+            f"stand-in and claude-opus-5-5 -> {directory}/tapes/variants-test/from-key/results") in printed
     assert sum(line.startswith("seed, ") and "drawn again at seed 2" in line for line in printed) == 1
-    assert [line for line in printed if line.startswith("from-key, ") and "drawn again" in line] == [
-        "from-key, flight: flight(CT 104, 2026-12-12) failed a text check at seed 1, or had the take refused, so drawn "
-        "again at seed 2"]
     for scene in BASES:
         record = json.loads((directory / "tapes" / "variants-test" / "from-key" / scene / "dailies.json").read_text())
-        assert all(take["items"][-1]["code"] == "VT505" and take["items"][-1]["passed"] for key in record["keys"]
-                   for take in key["takes"])
+        assert "VT505" not in {item["code"] for key in record["keys"] for take in key["takes"] for item in take["items"]}
     assert printed[-3:] == [
         f"wrote {directory}/tapes/variants-test/report.html",
         "the layout check: no threshold yet; mark pairs in the report and run again with --marks marks.json",
@@ -295,7 +290,6 @@ def test_run_again_it_films_nothing_reads_nothing_and_writes_the_same_report(tes
     assert (directory / "ledger.jsonl").read_text() == ledger_before
     assert (directory / "tapes" / "variants-test" / "report.html").read_text() == report_before
     assert sum(", cached, $0.00, 0.0 s" in line for line in out.splitlines()) == 23 + 9 + 20
-    assert "drawn again" not in "\n".join(line for line in out.splitlines() if line.startswith("from-key, "))
 
 
 def test_one_cap_holds_for_the_whole_variants_test_and_counts_what_its_other_tapes_spent(script, prompts, tmp_path,

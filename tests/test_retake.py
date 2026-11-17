@@ -15,7 +15,6 @@ from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 RENDER = ("render", "--story", "chalk")
 ORDER_LATTE = 'reading "Latte"'
 ORDER_LATTE_KEY, THANKS_LATTE_KEY = "key order(Latte) from order(Espresso)", "key thanks(Latte) from thanks(Espresso)"
-"""The variants of the cafe: the second state of each scene, drawn from the first one's picture."""
 THANKS_ESPRESSO = '"One Espresso coming up."'
 THANKS_LATTE = '"One Latte coming up."'
 

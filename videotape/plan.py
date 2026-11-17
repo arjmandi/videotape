@@ -54,6 +54,10 @@ class Key:
         """Where its key image is in a tape."""
         return f"keys/{self.id}.png"
 
+    def from_prompt(self) -> "Key":
+        """The state's key drawn from its own prompt, whatever the plan draws it from."""
+        return Key(self.id, self.state, self.shown)
+
 
 @dataclass(frozen=True)
 class FromKey(Key):
@@ -61,7 +65,7 @@ class FromKey(Key):
     own prompt, so the picture's layout carries over. Its kept take's last frame is its key image, as a Key's is."""
 
     start: State
-    """The base, which is the first state of the variant's scene in walk order."""
+    """The base: the first state of the variant's scene in the walk."""
     mode: ClassVar[Mode] = Mode.FIRST_FRAME
 
     @property

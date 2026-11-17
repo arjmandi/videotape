@@ -143,9 +143,9 @@ def _cents_up(usd: float) -> float:
 
 
 def sampled(planned: Plan) -> Plan:
-    """SAMPLER's states as keys, in SAMPLER's order, each drawn from its own prompt as the paid run drew it, whatever
-    the plan draws it from, and no move. VT212 for a state the plan lacks."""
-    keys = {key.state.name: Key(key.id, key.state, key.shown) for key in planned.keys}
+    """SAMPLER's states as keys, in SAMPLER's order, each drawn from its own prompt whatever the plan draws it from,
+    and no move. VT212 for a state the plan lacks."""
+    keys = {key.state.name: key.from_prompt() for key in planned.keys}
     for name in SAMPLER:
         if name not in keys:
             close = get_close_matches(name, keys, n=3)

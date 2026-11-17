@@ -28,9 +28,6 @@ CHANGES = {
     "fare": ("data/flights.json", '"fare": 89,', '"fare": 91,'),
     "base": ("data/flights.json", '"fare": 279,', '"fare": 281,'),
 }
-"""Each change by name: the file, the line it changes, and the line it changes it to. The fare is CT 300's on
-2026-12-12, which no scene's base shows. The base's fare is CT 500's on 2026-12-11, the flight scene's base, which the
-results and dates scenes' bases show too."""
 
 
 @dataclass(frozen=True)
@@ -50,9 +47,9 @@ class Change:
     plan: Plan
     changed: set[str]
     """The keys whose prompts the change changed."""
-    keys: set[str]
-    """The keys that should film again: the changed ones, and every variant whose base changed."""
-    moves: set[str]
+    expected_keys: set[str]
+    """The changed keys, and every variant whose base changed."""
+    expected_moves: set[str]
     """The moves whose prompts it changed, and the moves that start or land on one of those keys."""
     again: set[str]
     """The shots the render filmed again."""
@@ -97,7 +94,7 @@ def changes(tmp_path_factory) -> dict[str, Change]:
         assert source.count(old) == 1
         (directory / file).write_text(source.replace(old, new))
         after[name] = read(directory)
-    # Five renders in a row take five minutes, so each runs in a process of its own.
+    # The renders take a minute each, so they run in processes of their own, at once.
     with ProcessPoolExecutor(len(after)) as pool:
         filmed = dict(zip(after, pool.map(film, (changed.directory for changed in after.values()))))
     found = dict[str, Change]()
@@ -117,28 +114,28 @@ def changes(tmp_path_factory) -> dict[str, Change]:
 def test_a_change_films_again_the_keys_whose_prompts_it_changed_the_variants_of_a_changed_base_and_the_moves_that_touch_them(
         changes, name):
     change = changes[name]
-    assert change.again == change.keys | change.moves
-    assert change.calls == len(change.keys) + len(change.moves)
+    assert change.again == change.expected_keys | change.expected_moves
+    assert change.calls == len(change.expected_keys) + len(change.expected_moves)
 
 
 def test_one_scenes_direction_rerenders_the_whole_scene_and_the_moves_that_touch_it(changes):
     change = changes["direction"]
-    assert change.changed == change.keys == change.of_scenes("results")
-    assert change.moves == change.touching(change.keys)
-    assert (len(change.keys), len(change.moves)) == (9, 45)
+    assert change.changed == change.expected_keys == change.of_scenes("results")
+    assert change.expected_moves == change.touching(change.expected_keys)
+    assert (len(change.expected_keys), len(change.expected_moves)) == (9, 45)
 
 
 def test_one_element_types_appearance_rerenders_the_keys_that_show_it_and_the_moves_that_touch_them(changes):
     change = changes["appearance"]
-    assert change.changed == change.keys == {key.id for key in change.plan.keys
+    assert change.changed == change.expected_keys == {key.id for key in change.plan.keys
                                              if any(element.type == "DatePicker" for element in key.shown)}
-    assert change.moves == change.touching(change.keys)
-    assert (len(change.keys), len(change.moves)) == (3, 12)
+    assert change.expected_moves == change.touching(change.expected_keys)
+    assert (len(change.expected_keys), len(change.expected_moves)) == (3, 12)
 
 
 def test_the_look_rerenders_everything(changes):
     change = changes["look"]
-    assert (len(change.keys), len(change.moves)) == (58, 102)
+    assert (len(change.expected_keys), len(change.expected_moves)) == (58, 102)
     assert change.again == {shot.id for shot in change.plan.shots}
 
 
@@ -147,10 +144,10 @@ def test_one_fare_that_no_base_shows_rerenders_only_the_keys_that_show_it_and_th
     shows = {key.state.name: key.id for key in change.plan.keys if any("$91" in line for line in key.lines)}
     assert sorted(shows) == ["dates(SEA)", "flight(CT 300, 2026-12-12)", "results(SEA, 2026-12-11)",
                              "results(SEA, 2026-12-12)", "results(SEA, 2026-12-13)"]
-    assert change.changed == change.keys == set(shows.values())
-    assert change.moves == change.touching(change.keys)
-    assert "flight-ct-300-2026-12-12--book-for-91" in change.moves and "booked-ct-300-2026-12-12" not in change.keys
-    assert (len(change.keys), len(change.moves)) == (5, 17)
+    assert change.changed == change.expected_keys == set(shows.values())
+    assert change.expected_moves == change.touching(change.expected_keys)
+    assert "flight-ct-300-2026-12-12--book-for-91" in change.expected_moves and "booked-ct-300-2026-12-12" not in change.expected_keys
+    assert (len(change.expected_keys), len(change.expected_moves)) == (5, 17)
 
 
 def test_one_fare_that_three_bases_show_rerenders_those_bases_every_variant_of_their_scenes_and_the_moves_that_touch_them(
@@ -160,6 +157,6 @@ def test_one_fare_that_three_bases_show_rerenders_those_bases_every_variant_of_t
     assert sorted(shows) == ["dates(HNL)", "flight(CT 500, 2026-12-11)", "results(HNL, 2026-12-11)",
                              "results(HNL, 2026-12-12)", "results(HNL, 2026-12-13)"]
     assert change.changed == set(shows.values())
-    assert change.keys == change.of_scenes("flight", "results", "dates") > change.changed
-    assert change.moves == change.touching(change.keys)
-    assert (len(change.changed), len(change.keys), len(change.moves)) == (5, 30, 66)
+    assert change.expected_keys == change.of_scenes("flight", "results", "dates") > change.changed
+    assert change.expected_moves == change.touching(change.expected_keys)
+    assert (len(change.changed), len(change.expected_keys), len(change.expected_moves)) == (5, 30, 66)

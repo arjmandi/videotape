@@ -16,7 +16,7 @@ from conftest import CONTRAIL, FIXTURES, a_story, copy_of, planned, words
 from videotape import dailies, standin
 from videotape.checks import Chart, Free, Read, Spot, readings, score
 from videotape.frames import Box
-from videotape.layout import Layout
+from videotape.layout import BAR, Compared, Layout
 from videotape.model import MODELS, Listing
 from videotape.plan import Key, plan
 from videotape.standin import StandIn, StandInEye
@@ -96,11 +96,11 @@ def test_vt505_judges_a_variants_layout_distances_by_the_bar_the_marks_set():
     assert checks.layout is None and "VT505" not in {item.code for item in checks.items()}
     thanks, done = (spot.box for spot in seen.spots)
     assert Counter(checks.boxes) == {done: 4, thanks: 2}
-    close = replace(checks, layout=Layout(0.1525, 0.9, 0.86))
+    close = replace(checks, layout=Compared(Layout(0.1525, 0.9, 0.86), BAR))
     assert [(item.code, item.about, item.passed, item.result, item.box) for item in close.items()][-1] == (
         "VT505", "layout against the base", True,
         "shading 0.1525, edges 0.9000, 86% of the picture compared; shading under the threshold of 0.1525", None)
-    far = replace(checks, layout=Layout(0.207, 0.812, 0.86))
+    far = replace(checks, layout=Compared(Layout(0.207, 0.812, 0.86), BAR))
     assert far.failures[-1].result == ("shading 0.2070, edges 0.8120, 86% of the picture compared; shading over the "
                                        "threshold of 0.1525")
     assert far.rank(2) == checks.rank(2) and not far.passed

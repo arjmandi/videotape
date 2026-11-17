@@ -14,7 +14,7 @@ import pytest
 
 import videotape as vt
 from conftest import as_explained, contrail_copy, copy_of, planned, told, words
-from videotape import dailies, frames, ledger, project
+from videotape import dailies, frames, ledger, project, wan
 from videotape.checks import MAX_DIFFERENCE
 from videotape.errors import ModelError, RenderError, ScreenplayError
 from videotape.fal import Price, Receipt
@@ -24,16 +24,15 @@ from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import FromKey, Key, Mode, Plan, plan
 from videotape.render import Base, render
-from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
+from videotape.standin import BACKGROUND, EXTRA, Flaw, StandIn, StandInEye
 
 STATES = ("menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)")
 KEYS = {"menu()": "menu", "order(Espresso)": "order-espresso", "order(Latte)": "order-latte",
         "thanks(Espresso)": "thanks-espresso", "thanks(Latte)": "thanks-latte"}
 MOVES = {"menu--espresso": "order(Espresso)", "menu--latte": "order(Latte)", "order-espresso--order": "thanks(Espresso)",
          "order-latte--order": "thanks(Latte)", "thanks-espresso--done": "menu()", "thanks-latte--done": "menu()"}
-ORDER_LATTE, THANKS_LATTE_KEY = "key order(Latte) from order(Espresso)", "key thanks(Latte) from thanks(Espresso)"
-"""The variants: the second state of each scene, drawn from the first one's picture."""
-TITLES = ["key menu()", "key order(Espresso)", ORDER_LATTE, "key thanks(Espresso)", THANKS_LATTE_KEY,
+ORDER_LATTE_KEY, THANKS_LATTE_KEY = "key order(Latte) from order(Espresso)", "key thanks(Latte) from thanks(Espresso)"
+TITLES = ["key menu()", "key order(Espresso)", ORDER_LATTE_KEY, "key thanks(Espresso)", THANKS_LATTE_KEY,
           'menu() -> order(Espresso) "Espresso, $3"', 'menu() -> order(Latte) "Latte, $5"',
           'order(Espresso) -> thanks(Espresso) "Order"', 'order(Latte) -> thanks(Latte) "Order"',
           'thanks(Espresso) -> menu() "Done"', 'thanks(Latte) -> menu() "Done"']
@@ -65,7 +64,6 @@ def clean(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 
 def a_key(mode: Mode) -> bool:
-    """Whether a take is a key's, drawn from its prompt or from its base's picture, and not a move's."""
     return mode is not Mode.FIRST_AND_LAST_FRAME
 
 
@@ -74,8 +72,6 @@ def stand_in(model: StandIn, **listing) -> Listing:
 
 
 class Witness(StandIn):
-    """Notes whether each picture a take starts or ends on was there when the take was asked for."""
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.existed: list[bool] = []
@@ -136,7 +132,6 @@ def test_every_base_is_filmed_first_then_each_variant_from_its_base_and_each_mov
                 for seed in (range(1, 4) if THANKS_LATTE in words(shot, chalk) or DONE in words(shot, chalk) else [1])]
     assert sorted((call.mode.value, call.prompt, call.seed) for call in model.calls) == sorted(
         (shot.mode.value, words(shot, chalk), seed) for shot, seed in expected)
-    # With one worker the three bases film first, in walk order, and then each variant and move as it becomes ready.
     bases = [shot for shot in plan.keys if not isinstance(shot, FromKey)]
     assert [(call.prompt, call.seed) for call in model.calls[:3]] == [(words(shot, chalk), 1) for shot in bases]
     assert [filmed.rendered for filmed in result.shots] == [1, 1, 1, 1, 3, 1, 1, 1, 1, 3, 3]
@@ -247,7 +242,7 @@ def test_tape_files_are_keys_and_browser_playable_clips(first):
 
 class Taller(StandIn):
     """Pads every key take to 1280x720 in the stand-in's background, eight pixels above and below, as a model with another
-    frame size would. A key drawn from a base's picture gets that picture cropped back to the stand-in's size first."""
+    frame size would."""
 
     def _film(self, mode, prompt, seed, start, end, out):
         if mode is Mode.FIRST_AND_LAST_FRAME:
@@ -398,20 +393,18 @@ def test_a_key_drawn_from_another_keys_picture_films_from_that_picture_and_names
     assert [item["code"] for item in record["keys"][0]["items"]][-1] == "VT505"
     [line] = ledger.of(directory, tape).lines()
     assert (line["shot"], line["mode"], line["seed"]) == (filmed.shot.title, "first-frame", 1)
+    [unjudged] = rendered((variant,), tape, bases={base.state: start}, bar=None).keys
+    assert unjudged.kept.path == filmed.kept.path and unjudged.kept.checks.layout is None
+    assert "VT505" not in {item.code for item in unjudged.kept.checks.items()}
     frames.write_png(frames.first_frame(filmed.kept.path), bases / "other.png")
     [again] = rendered((variant,), tape, bases={base.state: Base(bases / "other.png", start.boxes)}).keys
     assert len(model.calls) == 3 and again.kept.path != filmed.kept.path
 
 
-WASHED, PALE = Box(0, 200, 1280, 504), bytes((255, 111, 255))
-"""The part of a key under the stand-in's boxes, and a colour whose green is the background's, so the stand-in's eye
-does not read it as a box."""
+WASHED, PALE = Box(0, 200, 1280, 504), bytes((255, BACKGROUND[1], 255))
 
 
 class Relaid(Witness):
-    """Draws its first-frame takes at seed 1 in another layout: everything under the boxes is washed pale, which
-    every text check passes and only the layout check fails."""
-
     def _film(self, mode, prompt, seed, start, end, out):
         super()._film(mode, prompt, seed, start, end, out)
         if mode is not Mode.FIRST_FRAME or seed != 1:
@@ -444,7 +437,7 @@ def test_a_key_drawn_from_its_base_in_the_plan_waits_for_the_base_and_fails_vt50
     assert (failure.code, failure.about) == ("VT505", "layout against the base")
     assert re.fullmatch(r"shading 0\.[2-4]\d{3}, edges \d\.\d{4}, 9\d% of the picture compared; shading over the "
                         r"threshold of 0\.1525", failure.result)
-    assert filmed.kept is clean_take and clean_take.checks.passed and clean_take.checks.layout.shading < 0.01
+    assert filmed.kept is clean_take and clean_take.checks.passed and clean_take.checks.layout.layout.shading < 0.01
     record = dailies.read(tape)
     assert record["failures"] == [] and record["yield"] == {"first_take": 1, "shots": 2}
     [first, second] = record["keys"][1]["takes"]
@@ -466,9 +459,7 @@ def test_a_key_drawn_from_its_base_in_the_plan_waits_for_the_base_and_fails_vt50
 
 
 class Textual(StandIn):
-    """A model without the first-frame mode, as wan2.2-5b is."""
-
-    modes = frozenset({Mode.TEXT_TO_VIDEO, Mode.FIRST_AND_LAST_FRAME})
+    modes = wan.Wan.modes
 
 
 def test_a_plan_with_a_key_drawn_from_a_picture_refuses_a_model_without_the_mode_before_its_first_call(tmp_path):
@@ -763,7 +754,7 @@ def test_editing_one_line_rerenders_its_key_and_only_the_moves_that_touch_it(fir
     assert sorted(lines(capsys.readouterr().out)) == [
         (1, "key menu()", 1, "passed", "1 take filmed", "0.00"),
         (2, "key order(Espresso)", 1, "passed", "cached", "0.00"),
-        (3, ORDER_LATTE, 1, "passed", "cached", "0.00"),
+        (3, ORDER_LATTE_KEY, 1, "passed", "cached", "0.00"),
         (4, "key thanks(Espresso)", 1, "passed", "cached", "0.00"),
         (5, THANKS_LATTE_KEY, 3, "passed", "cached", "0.00"),
         (6, 'menu() -> order(Espresso) "Espresso, $3"', 1, "passed", "1 take filmed", "0.00"),
@@ -850,8 +841,6 @@ def test_cli_render_rejects_a_model_that_does_not_exist(tmp_path, cli, capsys):
 
 
 class Counting(StandIn):
-    """Counts how many calls run at once."""
-
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.lock = threading.Lock()
@@ -1244,7 +1233,7 @@ def test_the_stand_ins_extra_box_fails_vt503_on_the_kept_take_when_it_is_the_onl
     assert err[1] == '  next: videotape retake "order(Espresso)" --story chalk'
     record = dailies.read(directory / TAPE)
     assert [(f["shot"], f["code"]) for f in record["failures"]] == [("key order(Espresso)", "VT503"),
-                                                                     (ORDER_LATTE, "VT503")]
+                                                                     (ORDER_LATTE_KEY, "VT503")]
     [first_failure, _] = record["failures"]
     assert first_failure["next"] == {
         "retake": 'videotape retake "order(Espresso)" --story chalk',

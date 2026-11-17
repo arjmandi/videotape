@@ -196,8 +196,6 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     assert "fail: 1. key menu()  VT501 Espresso, $3: not found" in stderr.splitlines()
     assert '  next: videotape retake "menu()" --story chalk --out tape-wan3' in stderr.splitlines()
     assert stdout.splitlines()[-1].startswith("11 shots, 11 takes filmed, $5.50, ") and stdout.endswith(" MB -> tape-wan3\n")
-    # Three keys are text-to-video, the bases, and eight image-to-video: the two variants from their base's picture
-    # alone, and the six moves between two pictures.
     assert sorted(mode for mode, _ in fal.posts) == ["image-to-video"] * 8 + ["text-to-video"] * 3
     plan = planned(directory)
     assert sorted(arguments["prompt"] for _, arguments in fal.posts) == sorted(words(shot, told(directory)) for shot in plan.shots)
@@ -443,10 +441,9 @@ class Meeting(Hosted):
 
 def test_two_shots_that_share_a_take_name_film_it_once(tmp_path, monkeypatch, cli, capsys):
     directory, fal = hosted_by(Meeting, tmp_path, monkeypatch)
-    # With a third drink, and every thanks state showing the same words, the two thanks variants share a prompt and
-    # the base's picture they start from, so a take name and a key image, and so do the two Done moves that leave them.
     screenplay = directory / "cafe.py"
     screenplay.write_text(screenplay.read_text().replace('vt.Text(f"One {drink.name} coming up.")', 'vt.Text("Coming up.")'))
+    # A third drink gives the thanks scene two variants, which share a prompt and the base's picture they start from.
     drinks = directory / "data" / "drinks.json"
     drinks.write_text(drinks.read_text().replace('"price": 3}', '"price": 3},\n  {"name": "Mocha", "price": 4}'))
     assert cli(directory, *RENDER) == 1

@@ -65,9 +65,21 @@ class Bar:
 
 
 BAR = Bar("shading", 0.1525, 72, 75)
-"""The threshold a render judges VT505 by. It comes from a person's marks in scripts/variants-test on 2026-11-17, on
-gemini-omni-flash-1.2's takes of Contrail's terminal story: of the 75 pairs marked, shading at 0.1525 agrees with
-the marks on 72."""
+"""The bar a render judges every variant's take by. It comes from a person's marks in scripts/variants-test on
+2026-11-17, on gemini-omni-flash-1.2's takes of Contrail's terminal story: of the 75 pairs marked, shading at 0.1525
+agrees with the marks on 72."""
+
+
+@dataclass(frozen=True)
+class Compared:
+    """A variant's take against its base's picture: how far its layout sits, and the bar that judges it."""
+
+    layout: Layout
+    bar: Bar
+
+    @property
+    def same(self) -> bool:
+        return self.bar.same(self.layout)
 
 
 def distances(a: Frame, a_text: Sequence[Box], b: Frame, b_text: Sequence[Box]) -> Layout:
