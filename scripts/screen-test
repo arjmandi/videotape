@@ -898,10 +898,10 @@ def _run(args: argparse.Namespace, marks: tuple[Mark, ...] | None) -> int:
                   file=sys.stderr, flush=True)
         except RenderError as error:
             if error.code == "VT403":
-                raise RenderError(error.code, error.place, error.message, "the screen test films only seeds 1 and "
-                                  f"{TAKES}, and these did not decode; delete \"{error.place}\" from \"corrupt\" in "
-                                  f"{errors.shown(tape / 'dailies.json')}, which films them again, and run the screen "
-                                  f"test again:\n{command(args, cap)}") from None
+                raise RenderError(error.code, error.place, error.message, f"the screen test films only seeds 1 and "
+                                  f"{TAKES}, and neither decoded; delete each clip the lines above name, with the files "
+                                  "beside it that share its name, and run the screen test again, which films those "
+                                  f"seeds anew:\n{command(args, cap)}") from None
             if error.code != "VT402" or cap is None:
                 raise
             spent = sum(_spent(found.root, other) for other in tapes.values())

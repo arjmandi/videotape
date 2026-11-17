@@ -10,6 +10,7 @@ import importlib.util
 import io
 import json
 import math
+import re
 import shutil
 import sys
 import urllib.request
@@ -597,8 +598,8 @@ class GarblingOnFal(RefusingOnFal):
         return super().text_to_video(prompt, seed, out)
 
 
-def test_a_key_whose_both_takes_are_corrupt_names_a_next_step_the_screen_test_has_not_a_takes_flag_it_lacks(
-        script, tmp_path, monkeypatch):
+def test_a_key_whose_both_takes_are_corrupt_names_a_next_step_that_films_it_anew_when_followed(script, tmp_path,
+                                                                                               monkeypatch):
     directory = contrail(tmp_path)
     found = project.find(directory)
     sample = script.sampled(script.plan(found.load(), found.max_states))
@@ -608,13 +609,19 @@ def test_a_key_whose_both_takes_are_corrupt_names_a_next_step_the_screen_test_ha
     forget(found)
     refusing(monkeypatch, GarblingOnFal(set(), first))
     code, out, err = screen(script, directory, *WAN3_TERMINAL)
-    tape = directory / "tapes/screen-test/wan3.0/terminal"
     assert code == 1 and err.endswith(
         f"error VT403 {sample.keys[0].title}: every take of the shot is corrupt\n"
-        f'next: the screen test films only seeds 1 and 2, and these did not decode; delete "{sample.keys[0].title}" '
-        f'from "corrupt" in {tape}/dailies.json, which films them again, and run the screen test again:\n'
+        "next: the screen test films only seeds 1 and 2, and neither decoded; delete each clip the lines above name, "
+        "with the files beside it that share its name, and run the screen test again, which films those seeds anew:\n"
         f"uv run scripts/screen-test {directory} --models wan3.0 --stories terminal --cap-usd 60.00\n"), err
-    assert "--takes" not in err
+    clips = re.findall(r" take \d: (\S+\.mp4) did not decode", err)
+    assert len(clips) == 2
+    for clip in clips:
+        for beside in Path(clip).parent.glob(f"{Path(clip).stem}.*"):
+            beside.unlink()
+    refusing(monkeypatch, RefusingOnFal(set()))
+    code, out, err = screen(script, directory, *WAN3_TERMINAL)
+    assert code == 0 and "VT403" not in err, err
 
 
 def test_the_pick_has_the_most_types_at_the_bar_then_the_most_elements_passing_then_the_fewest_invented_controls_then_the_lowest_cost(script):

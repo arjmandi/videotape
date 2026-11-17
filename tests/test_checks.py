@@ -333,3 +333,73 @@ def test_the_dailies_keep_each_readers_reading_and_show_both_when_the_readers_di
             "</ul>") in page
     assert page.count('<ul class="readings">') == 2
     assert "2 keys checked by stand-in and disagreeing" not in page and "5 keys checked by stand-in and disagreeing" in page
+
+
+def jfk_beside(*elements) -> Key:
+    picked = key_of(vt.Text("Picked"))
+    return key_of(*elements, vt.DatePicker({day: vt.Option(fare, to=picked.state) for day, fare in JFK.items()}))
+
+
+def test_a_line_is_not_read_whole_from_a_plain_spot_and_a_control():
+    seen = Read("made-up", (Spot("Delete", Box(20, 20, 100, 30), False), Spot("account", Box(20, 60, 100, 30), True)))
+    assert failed(score(key_of(vt.Text("Delete account")), [seen])) == [("VT502", "Delete account")]
+
+
+def test_two_lines_each_read_in_two_spots_are_both_read_whatever_order_the_reader_gave_the_spots():
+    key = key_of(vt.Heading("Welcome back"), vt.Text("back soon"))
+    seen = Read("made-up", (Spot("Welcome", Box(0, 0, 100, 30), False), Spot("back", Box(0, 40, 50, 25), False),
+                            Spot("back", Box(110, 0, 40, 30), False), Spot("soon", Box(60, 40, 40, 25), False)))
+    checks = score(key, [seen])
+    assert checks.passed, failed(checks)
+
+
+def test_a_calendars_label_is_not_read_again_for_another_line():
+    seen = Read("made-up", month({11: "$199", 12: "$179", 13: "$229"}))
+    assert failed(score(jfk_beside(vt.Text("$199")), [seen])) == [("VT502", "$199")]
+
+
+def test_a_day_number_away_from_the_calendar_is_an_invented_control():
+    seen = Read("made-up", (*month({11: "$199", 12: "$179", 13: "$229"}), Spot("7", Box(700, 600, 40, 30), True)))
+    assert failed(score(jfk(), [seen])) == [("VT503", "7")]
+
+
+def test_a_day_drawn_again_away_from_the_calendar_does_not_lend_its_fare_to_the_calendars_day():
+    seen = Read("made-up", (*month({12: "$179", 13: "$229"}), Spot("11", Box(700, 600, 40, 20), True),
+                            Spot("$199", Box(700, 626, 40, 20), True)))
+    assert ("VT502", "$199") in failed(score(jfk(), [seen]))
+
+
+def test_a_day_read_with_its_fare_across_a_line_break_keeps_its_mark():
+    eleven = Box(300, 100, 40, 48)
+    spots = tuple(Spot("11\n$199", eleven, True) if spot.text == "11" else spot
+                  for spot in month({12: "$179", 13: "$229"}))
+    [mark] = [item for item in score(jfk(), [Read("made-up", spots, marked=(eleven,))]).items() if item.code == "VT509"]
+    assert (mark.passed, mark.result) == (False, 'marked "11"; no day is chosen')
+
+
+def test_a_date_strips_fare_is_read_from_the_day_it_sits_on():
+    picked = key_of(vt.Text("Picked"))
+    key = key_of(vt.DateStrip({date(2026, 12, 11): vt.Option("$99", to=picked.state),
+                               date(2026, 12, 12): vt.Option("$89", to=picked.state),
+                               date(2026, 12, 13): vt.Option("$109", to=picked.state)}))
+    # Claude's read of wan3.0's take 1 of results(SEA, 2026-12-12): $99 is drawn under 5:40 AM, and 11 under Fri 11.
+    seen = Read("claude-opus-5-5", (Spot("5:40 AM\n$99", Box(196, 362, 96, 148), True),
+                                     Spot("Fri 11\n11", Box(292, 346, 110, 154), True),
+                                     Spot("Sat 12\n$89", Box(523, 296, 143, 185), True),
+                                     Spot("Sun 13\n$109", Box(825, 246, 178, 200), True)))
+    assert ("VT502", "$99") in failed(score(key, [seen]))
+    right = Read("claude-opus-5-5", (Spot("Fri 11\n$99", Box(292, 346, 110, 154), True),
+                                      Spot("Sat 12\n$89", Box(523, 296, 143, 185), True),
+                                      Spot("Sun 13\n$109", Box(825, 246, 178, 200), True)))
+    assert score(key, [right]).passed, failed(score(key, [right]))
+
+
+def test_a_day_drawn_twice_is_misread_as_both_of_its_readings():
+    picked = key_of(vt.Text("Picked"))
+    key = key_of(vt.DateStrip({date(2026, 12, 11): vt.Option("$99", to=picked.state),
+                               date(2026, 12, 12): vt.Option("$89", to=picked.state)}))
+    seen = Read("made-up", (Spot("Fri 11\n$99", Box(200, 250, 180, 140), True),
+                            Spot("Fri 11\n$99", Box(390, 250, 180, 140), True),
+                            Spot("Sat 12\n$89", Box(580, 250, 180, 140), True)))
+    assert [(item.code, item.about, item.result) for item in score(key, [seen]).failures] == [
+        ("VT502", "Fri 11", 'read "Fri 11 / Fri 11", CER 1.500'), ("VT502", "$99", 'read "$99 / $99", CER 2.000')]
