@@ -123,16 +123,19 @@ def test_only_seeds_one_and_two_ever_carry_a_flaw_and_some_do(tmp_path):
 
 
 def test_each_line_is_read_from_a_different_spot_the_reader_saw_and_knows_where():
+    def read(lines, spots):
+        return tuple(seen for seen, _ in readings("stand-in", lines, spots))
+
     spots = seen("$89", "Sat 12", "x89")
-    assert readings("stand-in", ("$89", "Sat 12", "$89"), spots) == (
+    assert read(("$89", "Sat 12", "$89"), spots) == (
         by_stand_in("$89", 0.0, spots[0].box), by_stand_in("Sat 12", 0.0, spots[1].box),
         by_stand_in("x89", 1 / 3, spots[2].box))
     spots = seen("Sat 12", "$89")
-    assert readings("stand-in", ("$89", "Sat 12", "$89"), spots) == (
+    assert read(("$89", "Sat 12", "$89"), spots) == (
         by_stand_in("$89", 0.0, spots[1].box), by_stand_in("Sat 12", 0.0, spots[0].box), by_stand_in("", 1.0, None))
     spots = seen("Trips", "Bonk", "Book now")
-    assert readings("stand-in", ("Book",), spots) == (by_stand_in("Bonk", 0.25, spots[1].box),)
-    assert readings("stand-in", (), seen("Trips")) == ()
+    assert read(("Book",), spots) == (by_stand_in("Bonk", 0.25, spots[1].box),)
+    assert read((), seen("Trips")) == ()
 
 
 def test_find_takes_the_closest_spot_within_the_limit_and_a_control_before_a_plain_one():
