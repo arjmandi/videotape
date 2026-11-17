@@ -191,11 +191,97 @@ def test_an_options_label_on_a_day_with_no_option_fails_vt502_as_the_date_picker
     seen = Read("stand-in", spots("December 2026", "5", "$219", "12", "$1,019", "$240", "19", "Book",
                                   controls=("5", "12", "$240", "19", "Book")))
     checks = score(key, [seen])
-    assert failed(checks) == [("VT502", "$240"), ("VT503", "19"), ("VT503", "Book")]
+    assert failed(checks) == [("VT502", "$240"), ("VT503", "Book")]
     [stray, *_] = checks.failures
     assert (stray.result, stray.element, stray.box) == ('a day with no option shows "$240" at 0,200 100x33', "DatePicker",
                                                         seen.spots[5].box)
-    assert checks.rank(1)[1] == 2
+    assert checks.rank(1)[1] == 1
+
+
+JFK = {date(2026, 12, 11): "$199", date(2026, 12, 12): "$179", date(2026, 12, 13): "$229"}
+
+
+def month(fares: dict[int, str], joined: bool = False) -> tuple[Spot, ...]:
+    """A December 2026 calendar as a reader reports it: every day a control in a grid of 7 a row, Sunday first, and
+    each label under its day, or read with it as one spot, "14 $199"."""
+    drawn = [Spot("December 2026", Box(60, 0, 240, 30), False)]
+    for day in range(1, 32):
+        at = Box(60 * ((day + 1) % 7), 40 + 60 * ((day + 1) // 7), 40, 20)
+        label = fares.get(day)
+        if label and joined:
+            drawn.append(Spot(f"{day} {label}", Box(at.x, at.y, at.w, 48), True))
+        else:
+            drawn.append(Spot(str(day), at, True))
+            if label:
+                drawn.append(Spot(label, Box(at.x, at.y + 26, at.w, 20), True))
+    return tuple(drawn)
+
+
+def jfk() -> Key:
+    picked = key_of(vt.Text("Picked"))
+    return key_of(vt.DatePicker({day: vt.Option(fare, to=picked.state) for day, fare in JFK.items()}))
+
+
+@pytest.mark.parametrize("joined", [False, True], ids=["under", "joined"])
+def test_a_month_drawn_right_passes_and_its_days_without_flights_are_not_invented_controls(joined):
+    checks = score(jfk(), [Read("made-up", month({11: "$199", 12: "$179", 13: "$229"}, joined))])
+    assert checks.passed, failed(checks)
+    assert checks.invented == ()
+
+
+@pytest.mark.parametrize("joined", [False, True], ids=["under", "joined"])
+def test_a_fare_on_a_day_without_flights_fails_vt502_read_under_the_day_or_with_it(joined):
+    seen = Read("made-up", month({11: "$199", 12: "$179", 13: "$229", 14: "$199"}, joined))
+    assert failed(score(jfk(), [seen])) == [("VT502", "$199")]
+    [stray] = score(jfk(), [seen]).failures
+    assert stray.result.startswith('a day with no option shows "$199"') and stray.element == "DatePicker"
+
+
+def test_a_fare_is_judged_on_the_day_it_sits_on_so_fares_drawn_on_each_others_days_fail():
+    seen = Read("made-up", month({11: "$179", 12: "$199", 13: "$229"}))
+    assert failed(score(jfk(), [seen])) == [("VT502", "$199"), ("VT502", "$179")]
+    [eleven, _] = score(jfk(), [seen]).failures
+    assert eleven.result == 'read "$179", CER 0.250'
+
+
+def test_a_line_read_in_two_spots_that_follow_each_other_is_read_whole():
+    key = key_of(vt.Text("Pick a day. Each shows the lowest one-way fare."),
+                 vt.Text("8:15 AM to 10:25 AM"), vt.Text("Departs 8:15 AM. Confirmation B5C25E."))
+    seen = Read("made-up", (
+        Spot("Pick a day. Each shows the", Box(498, 130, 280, 34), False),
+        Spot("lowest one-way fare.", Box(528, 166, 212, 34), False),
+        Spot("8:15 AM", Box(291, 273, 100, 30), False),
+        Spot("to 10:25 AM", Box(405, 283, 122, 28), False),
+        Spot("Confirmation B5C25E.", Box(522, 180, 268, 92), False),
+        Spot("Departs 8:15 AM.", Box(364, 250, 156, 68), False)))
+    checks = score(key, [seen])
+    assert checks.passed, failed(checks)
+    assert checks.text[0].box == Box(498, 130, 280, 70)
+
+
+def test_two_spots_that_do_not_follow_each_other_are_not_read_as_one_line():
+    key = key_of(vt.Text("8:15 AM to 10:25 AM"))
+    apart = Read("made-up", (Spot("8:15 AM", Box(0, 0, 100, 30), False), Spot("to 10:25 AM", Box(600, 300, 122, 28), False)))
+    assert failed(score(key, [apart])) == [("VT502", "8:15 AM to 10:25 AM")]
+
+
+def test_a_spot_read_across_a_line_break_is_a_line_each():
+    key = key_of(vt.Text("Sat 12"), vt.Text("$89"))
+    seen = Read("made-up", (Spot("Sat 12\n$89", Box(523, 296, 143, 185), True),))
+    checks = score(key, [seen])
+    assert checks.passed, failed(checks)
+    assert [reading.box for reading in checks.text] == [Box(523, 296, 143, 92), Box(523, 388, 143, 92)]
+
+
+def test_an_action_split_across_a_list_rows_columns_is_found():
+    there = key_of(vt.Text("There"))
+    key = key_of(vt.List([vt.Row("8:15 AM to 10:25 AM", "2h 10m, Nonstop", "$89", to=there.state)], "Flights"))
+    seen = Read("made-up", (Spot("Flights", Box(291, 230, 100, 30), False), Spot("8:15 AM", Box(291, 273, 100, 30), True),
+                            Spot("to 10:25 AM", Box(405, 283, 122, 28), True),
+                            Spot("2h 10m, Nonstop", Box(580, 290, 134, 24), False), Spot("$89", Box(768, 301, 26, 20), False)))
+    checks = score(key, [seen])
+    assert checks.passed, failed(checks)
+    assert checks.hotspots == {"8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89": Box(291, 273, 236, 38)}
 
 
 def test_an_invented_control_names_its_reader_when_there_are_several():

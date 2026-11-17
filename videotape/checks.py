@@ -11,12 +11,17 @@ The data shape, from what a reader sees to what the dailies record:
     KeyChecks what every reader found on a key, judged against the key:
       actions   a Hotspot per action, found by its words by every reader, with the first reader's box        VT501
       text      a Reading per line, with a Seen per reader that read it as words                             VT502
-      stray     a Sighting per reader of an option's label where a DatePicker shows a day with no option     VT502
-      invented  a Sighting per reader of a control reading none of the key's lines                           VT503
+      stray     a Sighting per reader of an option's label on a DatePicker's day with no option, or no day   VT502
+      invented  a Sighting per reader of a control reading none of the key's lines, not a calendar's day     VT503
       charts    a Plotted per chart, per reader that reports charts                                          VT504
       marks     a Marked per element that offers a choice, per reader that reports marks                     VT509
     Item      one check: its code, what it is about, its evidence, whether it passed, its box, the element type it
               judges, or None for a whole-key check, and each reader's reading behind a VT501 or VT502.
+
+A reader's spot is not always one line. A spot read across a line break is a line each, and two spots that follow
+each other, side by side on a row or one under the other where a line wraps, read a line together. A DatePicker's
+option label is read from the day it is drawn on, the Calendar of that reader's spots, so a label on the wrong day
+is misread and one on a day with no option strays.
 
 A reader that reports charts judges a chart whole, by VT504: its title, its labels in order, how many bars or points,
 and each value within a tenth of the data. Those are facts of a chart that reading its letters cannot judge, the order
@@ -28,7 +33,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, Protocol
 
@@ -396,10 +401,27 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
     charts judges each chart whole and leaves its lines out of its readings, and one that reports marks says which of
     an element's choices are drawn marked."""
     placed = [_Placed(line, element) for element in key.shown for line in element.lines]
+    # Each option's label of a DatePicker, by its place among the key's lines, and the day it is drawn on.
+    days = {index: cell[0].words for index, at in enumerate(placed) if at.element.type == "DatePicker"
+            for row in at.element.rows for cell in row if len(cell) == 2 and cell[1] is at.line}
+    labels = {_shape(placed[index].line.words) for index in days}
+    reads = [replace(one, spots=_apart(one.spots, labels)) for one in reads]
     seen: dict[str, dict[int, Seen]] = {}
+    used: dict[str, set[Spot]] = {}
+    calendars: dict[str, Calendar] = {}
     for one in reads:
-        judged = [index for index, at in enumerate(placed) if not (one.charts is not None and at.element.chart)]
-        seen[one.reader] = dict(zip(judged, readings(one.reader, [placed[i].line.words for i in judged], one.spots)))
+        judged = [index for index, at in enumerate(placed)
+                  if not (one.charts is not None and at.element.chart) and index not in days]
+        paired = readings(one.reader, [placed[i].line.words for i in judged], one.spots)
+        seen[one.reader] = {index: found for index, (found, _) in zip(judged, paired)}
+        used[one.reader] = {spot for _, spots in paired for spot in spots}
+        if days:
+            calendar = calendars[one.reader] = Calendar.of(one.spots, labels)
+            for index, day in days.items():
+                label = calendar.label(day)
+                seen[one.reader][index] = (Seen(one.reader, label.text, cer(placed[index].line.words, label.text),
+                                                label.box) if label else Seen(one.reader, "", 1.0, None))
+                used[one.reader] |= {label} if label else set()
     text = tuple(Reading(at.line.words, at.element.type, tuple(seen[one.reader][index] for one in reads
                                                                  if index in seen[one.reader]))
                  for index, at in enumerate(placed))
@@ -407,14 +429,14 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
                             tuple(_found(one.reader, one.spots, at.line.action.words) for one in reads))
                     for at in placed if at.line.action)
     stray, invented = [], []
-    labels = {_shape(line.words) for element in key.shown if element.type == "DatePicker"
-              for row in element.rows for cell in row if len(cell) == 2 for line in cell[1:]}
+    offered = set(days.values())
     for one in reads:
-        paired = {found.box for found in seen[one.reader].values() if found.box}
-        left = [spot for spot in one.spots if spot.box not in paired]
-        strayed = [spot for spot in left if _shape(spot.text) in labels]
+        calendar = calendars.get(one.reader)
+        strayed = calendar.strays(offered) if calendar else []
         stray += [Sighting(one.reader, spot) for spot in strayed]
-        invented += [Sighting(one.reader, spot) for spot in left if spot.control and spot not in strayed
+        left = [spot for spot in one.spots if spot not in used[one.reader] and spot not in strayed]
+        invented += [Sighting(one.reader, spot) for spot in left if spot.control
+                     and not (calendar and spot in calendar.numbers)
                      and all(cer(line, spot.text) > FIND_MAX_CER for line in key.lines)]
     charts = [Plotted(one.reader, element.type, chart, found) for one in reads if one.charts is not None
               for element, chart, found in _plotted(key.shown, one.charts)]
@@ -429,33 +451,131 @@ def seams(first: Frame, last: Frame, start_key: Frame, end_key: Frame) -> MoveCh
     return MoveChecks(start=frames.difference(first, start_key), end=frames.difference(last, end_key))
 
 
-def readings(reader: str, lines: Sequence[str], spots: Sequence[Spot]) -> tuple[Seen, ...]:
-    """One reader's reading of each line, each from a different spot it saw, so a line the key shows twice is read
-    twice. Lines seen exactly are paired first, and each line left takes the closest spot still unpaired."""
+def readings(reader: str, lines: Sequence[str], spots: Sequence[Spot]) -> tuple[tuple[Seen, tuple[Spot, ...]], ...]:
+    """One reader's reading of each line, with the spots it was read from, each from spots no other line took, so a
+    line the key shows twice is read twice. Lines read exactly by one spot are paired first, then lines read exactly
+    by two spots that follow each other, the second beside the first on its row or under it where the line wraps,
+    and each line left takes the closest spot still unpaired."""
     left = list(spots)
-    paired: dict[int, Seen] = {}
+    paired: dict[int, tuple[Seen, tuple[Spot, ...]]] = {}
     for index, line in enumerate(lines):
         exact = next((spot for spot in left if spot.text == line), None)
         if exact:
             left.remove(exact)
-            paired[index] = Seen(reader, line, 0.0, exact.box)
+            paired[index] = Seen(reader, line, 0.0, exact.box), (exact,)
+    for index, line in enumerate(lines):
+        if index not in paired:
+            joined = next((pair for pair in _joins(left) if _joined(pair).text == line), None)
+            if joined:
+                left.remove(joined[0]), left.remove(joined[1])
+                paired[index] = Seen(reader, line, 0.0, _joined(joined).box), joined
     for index, line in enumerate(lines):
         if index not in paired:
             closest = min(left, key=lambda spot: cer(line, spot.text), default=None)
             if closest is None:
-                paired[index] = Seen(reader, "", 1.0, None)
+                paired[index] = Seen(reader, "", 1.0, None), ()
             else:
                 left.remove(closest)
-                paired[index] = Seen(reader, closest.text, cer(line, closest.text), closest.box)
+                paired[index] = Seen(reader, closest.text, cer(line, closest.text), closest.box), (closest,)
     return tuple(paired[index] for index in range(len(lines)))
 
 
 def _found(reader: str, spots: Sequence[Spot], words: str) -> Seen:
-    """The spot that reads closest to the words, a control before anything else, within FIND_MAX_CER."""
-    best = min(spots, key=lambda spot: (cer(words, spot.text), not spot.control), default=None)
+    """The spot that reads closest to the words, a control before anything else, within FIND_MAX_CER, or two spots
+    that follow each other and read them together."""
+    candidates = [*spots, *map(_joined, _joins(spots))]
+    best = min(candidates, key=lambda spot: (cer(words, spot.text), not spot.control), default=None)
     if best is None or cer(words, best.text) > FIND_MAX_CER:
         return Seen(reader, "", 1.0, None)
     return Seen(reader, best.text, cer(words, best.text), best.box)
+
+
+def _joins(spots: Sequence[Spot]) -> list[tuple[Spot, Spot]]:
+    """Each two spots that may be one line a reader saw in two: the second just right of the first on the same row, as
+    a list row's columns, or just under it and overlapping it across, as a line that wraps."""
+    def under(a: Box, b: Box) -> bool:
+        return a.x < b.x + b.w and b.x < a.x + a.w and 0 <= b.y - (a.y + a.h / 2) <= 1.5 * max(a.h, b.h)
+
+    return [(a, b) for a in spots for b in spots if a is not b and (_beside(a.box, b.box) or under(a.box, b.box))]
+
+
+def _beside(a: Box, b: Box) -> bool:
+    """Whether b is just right of a on the same row."""
+    return a.y < b.y + b.h and b.y < a.y + a.h and 0 <= b.x - (a.x + a.w) <= 1.5 * max(a.h, b.h)
+
+
+def _joined(pair: tuple[Spot, Spot]) -> Spot:
+    a, b = pair
+    x, y = min(a.box.x, b.box.x), min(a.box.y, b.box.y)
+    box = Box(x, y, max(a.box.x + a.box.w, b.box.x + b.box.w) - x, max(a.box.y + a.box.h, b.box.y + b.box.h) - y)
+    return Spot(f"{a.text} {b.text}", box, a.control or b.control)
+
+
+def _apart(spots: Sequence[Spot], labels: set[str]) -> tuple[Spot, ...]:
+    """The spots as lines: a spot a reader read across a line break is a spot per line, each in its share of the box
+    from the top, and on a calendar a day read with the label under it, as "14 $199", is the day and the label, both
+    in the spot's box."""
+    apart = []
+    for spot in spots:
+        rows = [row.strip() for row in spot.text.splitlines() if row.strip()]
+        for at, row in enumerate(rows):
+            box = Box(spot.box.x, spot.box.y + at * spot.box.h // len(rows), spot.box.w, spot.box.h // len(rows))
+            day = re.fullmatch(r"(\d{1,2})\s+(\S.*)", row)
+            if day and _day(day[1]) and _shape(day[2]) in labels:
+                apart += [Spot(day[1], box, spot.control), Spot(day[2], box, spot.control)]
+            else:
+                apart.append(Spot(row, box, spot.control))
+    return tuple(apart)
+
+
+def _day(text: str) -> bool:
+    return bool(re.fullmatch(r"\d{1,2}", text)) and 1 <= int(text) <= 31
+
+
+@dataclass(frozen=True)
+class Calendar:
+    """A DatePicker as one reader saw it: each day number it read, and the label drawn on each, which is the closest
+    label read under the day, within its cell, or read with it as one spot. A label on no day is left over."""
+
+    numbers: tuple[Spot, ...]
+    drawn: tuple[tuple[Spot, Spot], ...]
+    """Each day with the label drawn on it, in the order the reader read the days."""
+    loose: tuple[Spot, ...]
+
+    @classmethod
+    def of(cls, spots: Sequence[Spot], labels: set[str]) -> Calendar:
+        numbers = tuple(spot for spot in spots if _day(spot.text))
+        drawn: dict[Spot, Spot] = {}
+        loose = []
+        for label in (spot for spot in spots if _shape(spot.text) in labels):
+            under = [day for day in numbers if day not in drawn and _on(label.box, day.box)]
+            if under:
+                drawn[min(under, key=lambda day: _distance(label.box, day.box))] = label
+            else:
+                loose.append(label)
+        return cls(numbers, tuple((day, drawn[day]) for day in numbers if day in drawn), tuple(loose))
+
+    def label(self, day: str) -> Spot | None:
+        """The label drawn on the day, read first where the reader read the day more than once."""
+        return next((label for number, label in self.drawn if number.text == day), None)
+
+    def strays(self, offered: set[str]) -> list[Spot]:
+        """The labels on days with no option, and those on no day at all."""
+        return [label for number, label in self.drawn if number.text not in offered] + list(self.loose)
+
+
+def _on(label: Box, day: Box) -> bool:
+    """Whether a label sits in the day's cell: read with the day as one spot, just right of it, or under it, about
+    level with it across."""
+    if label == day or _beside(day, label):
+        return True
+    across = abs((label.x + label.w / 2) - (day.x + day.w / 2)) <= max(label.w, day.w)
+    down = (label.y + label.h / 2) - (day.y + day.h / 2)
+    return across and 0 < down <= 3 * max(label.h, day.h)
+
+
+def _distance(label: Box, day: Box) -> float:
+    return abs((label.x + label.w / 2) - (day.x + day.w / 2)) + abs((label.y + label.h / 2) - (day.y + day.h / 2))
 
 
 def _shape(text: str) -> str:
