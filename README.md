@@ -705,14 +705,14 @@ uv run videotape render --story terminal
 1. key home()  kept take 1, passed, 1 take filmed, $0.00, 1.5 s
 2. key search()  kept take 1, passed, 1 take filmed, $0.00, 1.8 s
 ...
-34. key flight(CT 104, 2026-12-13)  kept take 1, fails VT502, 4 takes filmed, $0.00, 6.1 s
+34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 1, fails VT502, 4 takes filmed, $0.00, 6.1 s
 ...
-53. key booked(CT 300, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 6.3 s
+53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 6.3 s
 ...
 160 shots, 166 takes filmed, $0.00, 51.7 s, tape 9.8 MB -> tapes/terminal
-fail: 34. key flight(CT 104, 2026-12-13)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Exrns 2,586 miles.", CER 0.029
+fail: 34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Exrns 2,586 miles.", CER 0.029
   next: videotape retake "flight(CT 104, 2026-12-13)" --story terminal
-fail: 53. key booked(CT 300, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
+fail: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
   next: videotape retake "booked(CT 300, 2026-12-11)" --story terminal
 ```
 
@@ -757,7 +757,7 @@ uv run videotape accept "booked(CT 300, 2026-12-11)" VT503 --story terminal --re
 ```
 
 ```text
-accepted VT503 on key booked(CT 300, 2026-12-11): a printed logo, not a control
+accepted VT503 on key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11): a printed logo, not a control
 ```
 
 An accept holds for the take you reviewed, which is the shot's kept take. When a later render keeps another take of that shot, the failure counts again, and the dailies show your reason beside it.
@@ -769,14 +769,14 @@ uv run videotape retake "flight(CT 104, 2026-12-13)" --story terminal
 ```
 
 ```text
-retaking key flight(CT 104, 2026-12-13) with seed 5
+retaking key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11) with seed 5
 ...
-34. key flight(CT 104, 2026-12-13)  kept take 5, passed, 1 take filmed, $0.00, 1.1 s
+34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 5, passed, 1 take filmed, $0.00, 1.1 s
 ...
-53. key booked(CT 300, 2026-12-11)  kept take 1, fails VT503, cached, $0.00, 0.0 s
+53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, cached, $0.00, 0.0 s
 ...
 160 shots, 3 takes filmed, $0.00, 36.2 s, tape 9.8 MB -> tapes/terminal
-accepted: 53. key booked(CT 300, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
+accepted: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
   reason: a printed logo, not a control
 ```
 

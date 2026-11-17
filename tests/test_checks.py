@@ -350,7 +350,8 @@ def test_the_dailies_keep_each_readers_reading_and_show_both_when_the_readers_di
     record = dailies.read(directory / "tapes" / "chalk")
     assert record["checks"] == "stand-in and disagreeing"
     assert [(failure["shot"], failure["code"], failure["about"], failure["element"]) for failure in record["failures"]] == [
-        ("key thanks(Espresso)", "VT502", "Thanks", "Heading"), ("key thanks(Latte)", "VT502", "Thanks", "Heading")]
+        ("key thanks(Espresso)", "VT502", "Thanks", "Heading"),
+        ("key thanks(Latte) from thanks(Espresso)", "VT502", "Thanks", "Heading")]
     first = record["failures"][0]
     assert [(reading["reader"], reading["text"], reading["cer"]) for reading in first["readings"]] == [
         ("stand-in", "Thanks", 0.0), ("disagreeing", "Thank", 1 / 6)]

@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -21,7 +22,7 @@ from videotape.frames import Box, Frame
 from videotape.ledger import Ledger
 from videotape.made import made
 from videotape.model import MODELS, Listing
-from videotape.plan import FromKey, Mode, Plan, plan
+from videotape.plan import FromKey, Key, Mode, Plan, plan
 from videotape.render import Base, render
 from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 
@@ -30,7 +31,9 @@ KEYS = {"menu()": "menu", "order(Espresso)": "order-espresso", "order(Latte)": "
         "thanks(Espresso)": "thanks-espresso", "thanks(Latte)": "thanks-latte"}
 MOVES = {"menu--espresso": "order(Espresso)", "menu--latte": "order(Latte)", "order-espresso--order": "thanks(Espresso)",
          "order-latte--order": "thanks(Latte)", "thanks-espresso--done": "menu()", "thanks-latte--done": "menu()"}
-TITLES = ["key menu()", "key order(Espresso)", "key order(Latte)", "key thanks(Espresso)", "key thanks(Latte)",
+ORDER_LATTE, THANKS_LATTE_KEY = "key order(Latte) from order(Espresso)", "key thanks(Latte) from thanks(Espresso)"
+"""The variants: the second state of each scene, drawn from the first one's picture."""
+TITLES = ["key menu()", "key order(Espresso)", ORDER_LATTE, "key thanks(Espresso)", THANKS_LATTE_KEY,
           'menu() -> order(Espresso) "Espresso, $3"', 'menu() -> order(Latte) "Latte, $5"',
           'order(Espresso) -> thanks(Espresso) "Order"', 'order(Latte) -> thanks(Latte) "Order"',
           'thanks(Espresso) -> menu() "Done"', 'thanks(Latte) -> menu() "Done"']
@@ -59,6 +62,11 @@ def flaws(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 def clean(mode: Mode, prompt: str, seed: int) -> Flaw:
     return Flaw.NONE
+
+
+def a_key(mode: Mode) -> bool:
+    """Whether a take is a key's, drawn from its prompt or from its base's picture, and not a move's."""
+    return mode is not Mode.FIRST_AND_LAST_FRAME
 
 
 def stand_in(model: StandIn, **listing) -> Listing:
@@ -120,17 +128,17 @@ def tape_files(directory: Path) -> dict[str, bytes]:
     return {path.name: path.read_bytes() for path in [tape / "tape.json", *sorted((tape / "keys").iterdir())]}
 
 
-def test_every_key_is_filmed_before_any_move_and_a_shot_stops_at_the_first_take_that_passes(first):
+def test_every_base_is_filmed_first_then_each_variant_from_its_base_and_each_move_after_both_its_keys(first):
     directory, model, result = first
     plan, chalk = planned(directory), told(directory)
     assert [shot.title for shot in plan.shots] == TITLES
     expected = [(shot, seed) for shot in plan.shots
                 for seed in (range(1, 4) if THANKS_LATTE in words(shot, chalk) or DONE in words(shot, chalk) else [1])]
-    # A move is filmed once both of its keys are, so with one worker the moves come in the order they became ready.
     assert sorted((call.mode.value, call.prompt, call.seed) for call in model.calls) == sorted(
         (shot.mode.value, words(shot, chalk), seed) for shot, seed in expected)
-    assert [(call.prompt, call.seed) for call in model.calls[:7]] == [
-        (words(shot, chalk), seed) for shot, seed in expected[:7]]
+    # With one worker the three bases film first, in walk order, and then each variant and move as it becomes ready.
+    bases = [shot for shot in plan.keys if not isinstance(shot, FromKey)]
+    assert [(call.prompt, call.seed) for call in model.calls[:3]] == [(words(shot, chalk), 1) for shot in bases]
     assert [filmed.rendered for filmed in result.shots] == [1, 1, 1, 1, 3, 1, 1, 1, 1, 3, 3]
     assert model.calls[0].prompt == (
         "Static shot. A chalkboard behind the counter of a small corner cafe, lettered by hand in white chalk. Warm "
@@ -140,16 +148,20 @@ def test_every_key_is_filmed_before_any_move_and_a_shot_stops_at_the_first_take_
         "Sharp, legible lettering.")
     assert model.calls[-1].prompt == ('The button "Done" is pressed. The chalk box is rubbed out. The camera pulls '
                                       "back from the board.")
-    assert [call.mode for call in model.calls] == [Mode.TEXT_TO_VIDEO] * 7 + [Mode.FIRST_AND_LAST_FRAME] * 10
+    assert Counter(call.mode for call in model.calls) == {Mode.TEXT_TO_VIDEO: 3, Mode.FIRST_FRAME: 4,
+                                                          Mode.FIRST_AND_LAST_FRAME: 10}
     keys = directory / TAPE / "keys"
     pinned = {(words(move, chalk), keys / f"{KEYS[move.start.name]}.png", keys / f"{KEYS[move.land.name]}.png")
               for move in plan.moves}
+    started = {(words(key, chalk), keys / f"{KEYS[key.start.name]}.png") for key in plan.keys if isinstance(key, FromKey)}
     for call in model.calls:
         if call.mode is Mode.FIRST_AND_LAST_FRAME:
             assert (call.prompt, call.start, call.end) in pinned
+        elif call.mode is Mode.FIRST_FRAME:
+            assert (call.prompt, call.start) in started and call.end is None
         else:
             assert (call.start, call.end) == (None, None)
-    assert model.existed == [True] * 20
+    assert model.existed == [True] * 24
 
 
 def test_the_tape_has_one_scene_for_each_state_with_its_words_its_hotspots_and_its_moves(first):
@@ -235,14 +247,22 @@ def test_tape_files_are_keys_and_browser_playable_clips(first):
 
 class Taller(StandIn):
     """Pads every key take to 1280x720 in the stand-in's background, eight pixels above and below, as a model with another
-    frame size would."""
+    frame size would. A key drawn from a base's picture gets that picture cropped back to the stand-in's size first."""
 
-    def text_to_video(self, prompt, seed, out):
-        drawn = out.with_name(f"drawn-{out.name}")
-        super().text_to_video(prompt, seed, drawn)
+    def _film(self, mode, prompt, seed, start, end, out):
+        if mode is Mode.FIRST_AND_LAST_FRAME:
+            super()._film(mode, prompt, seed, start, end, out)
+            return
+        drawn, cropped = out.with_name(f"drawn-{out.name}"), out.with_name(f"cropped-{out.stem}.png")
+        if start is not None:
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(start), "-vf", "crop=1280:704:0:8", "-y", str(cropped)],
+                           check=True)
+            start = cropped
+        super()._film(mode, prompt, seed, start, end, drawn)
         subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(drawn), "-vf", "pad=1280:720:0:8:color=0x2f6f7e", "-c:v", "libx264",
                         "-pix_fmt", "yuv420p", "-r", "24", "-f", "mp4", "-y", str(out)], check=True)
         drawn.unlink()
+        cropped.unlink(missing_ok=True)
 
 
 def test_a_tape_takes_its_size_from_its_clips(first, tmp_path):
@@ -315,7 +335,7 @@ def test_every_films_each_seed_up_to_the_limit_whatever_passed_before_and_keeps_
     assert sorted((call.prompt, call.seed) for call in model.calls) == sorted(
         (words(filmed.shot, told(directory)), seed) for filmed in result.shots for seed in (1, 2))
     assert {filmed.shot.title: filmed.kept.seed for filmed in result.shots} == {
-        title: 2 if title == "key thanks(Latte)" else 1 for title in TITLES}
+        title: 2 if title == THANKS_LATTE_KEY else 1 for title in TITLES}
     record = dailies.read(directory / TAPE)
     assert record["yield"] == {"first_take": 10, "shots": 11} and record["failures"] == []
 
@@ -349,8 +369,9 @@ def test_a_key_drawn_from_another_keys_picture_films_from_that_picture_and_names
     """A variants test draws the other states of a scene from its first state's key, so that its layout carries over."""
     directory = contrail_copy(tmp_path / "contrail")
     full, terminal, model = planned(directory), told(directory, "terminal"), StandIn(flaw=clean)
-    base, other = (next(key for key in full.keys if key.state.name == name)
-                   for name in ("flight(CT 500, 2026-12-11)", "flight(CT 104, 2026-12-12)"))
+    base, variant = (next(key for key in full.keys if key.state.name == name)
+                     for name in ("flight(CT 500, 2026-12-11)", "flight(CT 104, 2026-12-12)"))
+    assert type(base) is Key and isinstance(variant, FromKey) and variant.start is base.state
     block = made(project.find(directory), terminal, model)
 
     def rendered(keys: tuple, tape: Path, **more):
@@ -360,7 +381,6 @@ def test_a_key_drawn_from_another_keys_picture_films_from_that_picture_and_names
     bases = directory / "tapes" / "bases"
     [drawn] = rendered((base,), bases).keys
     picture, tape = bases / base.image, directory / "tapes" / "from-key"
-    variant = FromKey(other.id, other.state, other.shown, base.state)
     start = Base(picture, drawn.kept.checks.boxes)
     [filmed] = rendered((variant,), tape, bases={base.state: start}).keys
     assert filmed.shot.title == "key flight(CT 104, 2026-12-12) from flight(CT 500, 2026-12-11)"
@@ -374,7 +394,7 @@ def test_a_key_drawn_from_another_keys_picture_films_from_that_picture_and_names
     assert layout.about == "layout against the base" and layout.passed and layout.result.startswith("shading 0.00")
     assert layout.result.endswith("of the picture compared; shading under the threshold of 0.1525")
     record = dailies.read(tape)
-    assert (record["keys"][0]["state"], record["keys"][0]["mode"]) == (other.state.name, "first-frame")
+    assert (record["keys"][0]["state"], record["keys"][0]["mode"]) == (variant.state.name, "first-frame")
     assert [item["code"] for item in record["keys"][0]["items"]][-1] == "VT505"
     [line] = ledger.of(directory, tape).lines()
     assert (line["shot"], line["mode"], line["seed"]) == (filmed.shot.title, "first-frame", 1)
@@ -410,8 +430,7 @@ class Relaid(Witness):
 def test_a_key_drawn_from_its_base_in_the_plan_waits_for_the_base_and_fails_vt505_when_it_leaves_its_layout(tmp_path):
     directory = copy_of("cafe", tmp_path)
     full, chalk = planned(directory), told(directory)
-    espresso, latte = full.keys[1], full.keys[2]
-    variant = FromKey(latte.id, latte.state, latte.shown, espresso.state)
+    espresso, variant = full.keys[1], full.keys[2]
     model = Relaid(flaw=clean)
     tape = directory / TAPE
     result = render(Plan(full.title, full.scenes, (espresso, variant), (), ()), chalk, model, [StandInEye()], tape,
@@ -454,15 +473,11 @@ class Textual(StandIn):
 
 def test_a_plan_with_a_key_drawn_from_a_picture_refuses_a_model_without_the_mode_before_its_first_call(tmp_path):
     directory = copy_of("cafe", tmp_path)
-    full, chalk = planned(directory), told(directory)
-    espresso, latte = full.keys[1], full.keys[2]
-    keys = (espresso, FromKey(latte.id, latte.state, latte.shown, espresso.state))
     model = Textual(flaw=clean)
     with pytest.raises(ScreenplayError) as refused:
-        render(Plan(full.title, full.scenes, keys, (), ()), chalk, model, [StandInEye()], directory / TAPE,
-               ledger.of(directory, directory / TAPE), made(project.find(directory), chalk, model), takes=1)
+        rendered(directory, model, takes=1)
     assert (refused.value.code, refused.value.place) == ("VT111", "stand-in")
-    assert refused.value.message == ("films no key from another key's picture, and 1 key of the plan is drawn from "
+    assert refused.value.message == ("films no key from another key's picture, and 2 keys of the plan are drawn from "
                                      "the base's picture")
     assert "--model gemini-omni-flash-1.2" in refused.value.fix
     assert model.calls == [] and not (directory / TAPE).exists() and not (directory / "ledger.jsonl").exists()
@@ -491,7 +506,7 @@ def test_dailies_page_is_a_view_of_its_record(first):
     assert (record["takes"], record["complete"], record["yield"]) == (4, True, {"first_take": 8, "shots": 11})
     assert (record["retakes"], record["corrupt"], record["accepted"], record["failures"]) == ({}, {}, [], [])
     assert [(key["state"], key["key"], key["title"]) for key in record["keys"]] == [
-        (state, f"keys/{name}.png", f"key {state}") for state, name in KEYS.items()]
+        (state, f"keys/{name}.png", title) for (state, name), title in zip(KEYS.items(), TITLES)]
     assert [(item["code"], item["about"], item["passed"]) for item in record["keys"][0]["items"]] == [
         ("VT501", "Espresso, $3", True), ("VT501", "Latte, $5", True), ("VT502", "Corner Cafe", True),
         ("VT502", "Drinks", True), ("VT502", "Espresso", True), ("VT502", "$3", True), ("VT502", "Latte", True),
@@ -615,6 +630,10 @@ class Billed(StandIn):
         super().first_last_frame(prompt, start, end, seed, out)
         return self._receipt()
 
+    def first_frame(self, prompt, start, seed, out):
+        super().first_frame(prompt, start, seed, out)
+        return self._receipt()
+
     def _receipt(self):
         number = next(self.requests)
         return Receipt(f"request-{number}", 5.04, 0.504, {"result": {"request": number}})
@@ -665,16 +684,16 @@ def test_takes_flag_sets_the_most_takes_a_shot_gets_and_the_projects_model_rende
 
 def test_takes_in_the_project_is_the_limit_and_four_is_the_default(tmp_path, cli, monkeypatch):
     directory = copy_of("cafe", tmp_path)
-    always_flawed = lambda mode, prompt, seed: Flaw.MISSPELL if mode is Mode.TEXT_TO_VIDEO else Flaw.WRONG_END
+    always_flawed = lambda mode, prompt, seed: Flaw.MISSPELL if a_key(mode) else Flaw.WRONG_END
     model = StandIn(flaw=always_flawed)
     monkeypatch.setitem(MODELS, "stand-in", stand_in(model))
     assert cli(directory, *RENDER, "--out", "tape-four") == 1
-    assert [call.seed for call in model.calls if call.mode is Mode.TEXT_TO_VIDEO] == [1, 2, 3, 4] * 5
+    assert [call.seed for call in model.calls if a_key(call.mode)] == [1, 2, 3, 4] * 5
     pyproject = directory / "pyproject.toml"
     pyproject.write_text(pyproject.read_text() + "takes = 2\n")
     model.calls.clear()
     assert cli(directory, *RENDER, "--out", "tape-two") == 1
-    assert [call.seed for call in model.calls if call.mode is Mode.TEXT_TO_VIDEO] == [1, 2] * 5
+    assert [call.seed for call in model.calls if a_key(call.mode)] == [1, 2] * 5
     assert dailies.read(directory / "tape-two")["takes"] == 2
 
 
@@ -744,9 +763,9 @@ def test_editing_one_line_rerenders_its_key_and_only_the_moves_that_touch_it(fir
     assert sorted(lines(capsys.readouterr().out)) == [
         (1, "key menu()", 1, "passed", "1 take filmed", "0.00"),
         (2, "key order(Espresso)", 1, "passed", "cached", "0.00"),
-        (3, "key order(Latte)", 1, "passed", "cached", "0.00"),
+        (3, ORDER_LATTE, 1, "passed", "cached", "0.00"),
         (4, "key thanks(Espresso)", 1, "passed", "cached", "0.00"),
-        (5, "key thanks(Latte)", 3, "passed", "cached", "0.00"),
+        (5, THANKS_LATTE_KEY, 3, "passed", "cached", "0.00"),
         (6, 'menu() -> order(Espresso) "Espresso, $3"', 1, "passed", "1 take filmed", "0.00"),
         (7, 'menu() -> order(Latte) "Latte, $5"', 1, "passed", "1 take filmed", "0.00"),
         (8, 'order(Espresso) -> thanks(Espresso) "Order"', 1, "passed", "cached", "0.00"),
@@ -759,7 +778,7 @@ def test_editing_one_line_rerenders_its_key_and_only_the_moves_that_touch_it(fir
 def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take_and_names_the_retake(tmp_path, cli, capsys,
                                                                                           monkeypatch):
     directory = copy_of("cafe", tmp_path)
-    misspelt_keys = lambda mode, prompt, seed: Flaw.MISSPELL if mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
+    misspelt_keys = lambda mode, prompt, seed: Flaw.MISSPELL if a_key(mode) else Flaw.NONE
     monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=misspelt_keys)))
     assert cli(directory, *RENDER, "--takes", "1") == 1
     out, err = capsys.readouterr()
@@ -768,7 +787,7 @@ def test_cli_render_writes_everything_then_fails_on_a_failing_kept_take_and_name
     assert verdicts[5:] == ["passed"] * 6
     failed = [line for line in err.splitlines() if line.startswith("fail: ")]
     assert sorted({line.split("  ")[0] for line in failed}) == sorted(
-        f"fail: {number}. key {state}" for number, state in enumerate(STATES, 1))
+        f"fail: {number}. {title}" for number, title in enumerate(TITLES[:5], 1))
     assert all(" VT502 " in line or " VT501 " in line for line in failed)
     assert len([line for line in err.splitlines() if line.startswith("  next: videotape retake ")]) == len(failed)
     record = dailies.read(directory / TAPE)
@@ -831,30 +850,24 @@ def test_cli_render_rejects_a_model_that_does_not_exist(tmp_path, cli, capsys):
 
 
 class Counting(StandIn):
-    """Counts how many calls run at once, and which shots were filmed while the keys were still being filmed."""
+    """Counts how many calls run at once."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.lock = threading.Lock()
         self.running = 0
         self.most = 0
-        self.keys_done = 0
-        self.moves_before_every_key: list[str] = []
 
     def _film(self, mode, prompt, seed, start, end, out):
         with self.lock:
             self.running += 1
             self.most = max(self.most, self.running)
-            if mode is Mode.FIRST_AND_LAST_FRAME and self.keys_done < 5:
-                self.moves_before_every_key.append(prompt)
         try:
             time.sleep(0.05)
             super()._film(mode, prompt, seed, start, end, out)
         finally:
             with self.lock:
                 self.running -= 1
-                if mode is Mode.TEXT_TO_VIDEO:
-                    self.keys_done += 1
 
 
 @pytest.mark.parametrize("limit, at_once", [(1, 1), (4, 4)])
@@ -864,16 +877,28 @@ def test_shots_that_do_not_depend_on_each_other_film_at_once_up_to_the_models_li
     result = rendered(directory, model, takes=1, limit=limit)
     assert model.most == at_once
     assert len(model.calls) == 11 and [filmed.shot.title for filmed in result.shots] == TITLES
-    if limit == 1:
-        assert model.moves_before_every_key == []
+
+
+def test_with_one_worker_and_no_variant_every_key_films_before_any_move_so_wan_swaps_its_checkpoint_once(tmp_path):
+    (tmp_path / "pyproject.toml").write_text('[tool.videotape]\nscreenplay = "doors:app"\nmodel = "stand-in"\n')
+    (tmp_path / "doors.py").write_text(
+        'import videotape as vt\n\napp = vt.Screenplay("Doors")\n\n\n@app.scene\ndef hall():\n'
+        '    return [vt.Button("Go in", to=room())]\n\n\n@app.scene\ndef room():\n'
+        '    return [vt.Button("Go out", to=hall())]\n')
+    (tmp_path / "stories").mkdir()
+    (tmp_path / "stories" / "bare.toml").write_text('version = "1.0.0"\nlook = "A bare hallway."\n')
+    bare, model = told(tmp_path, "bare"), StandIn(flaw=clean)
+    render(planned(tmp_path), bare, model, [StandInEye()], tmp_path / "tapes" / "bare",
+           ledger.of(tmp_path, tmp_path / "tapes" / "bare"), made(project.find(tmp_path), bare, model), takes=1, limit=1)
+    assert [call.mode for call in model.calls] == [Mode.TEXT_TO_VIDEO] * 2 + [Mode.FIRST_AND_LAST_FRAME] * 2
 
 
 def test_a_move_waits_for_both_of_its_keys_while_the_rest_film_at_once(tmp_path):
     directory = copy_of("cafe", tmp_path)
     model = Witness(flaw=clean)
     rendered(directory, model, takes=1, limit=8)
-    assert model.existed == [True] * 12
-    keys = {call.prompt for call in model.calls if call.mode is Mode.TEXT_TO_VIDEO}
+    assert model.existed == [True] * 14
+    keys = {call.prompt for call in model.calls if a_key(call.mode)}
     assert len(keys) == 5
 
 
@@ -977,7 +1002,7 @@ class GarbledMoves(StandIn):
 def test_a_stopped_renders_failures_name_the_render_again_since_a_retake_needs_the_tape_json_it_never_wrote(
         tmp_path, cli, capsys, monkeypatch):
     directory = copy_of("cafe", tmp_path)
-    extra = lambda mode, prompt, seed: Flaw.EXTRA_BOX if '"Order"' in prompt and mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
+    extra = lambda mode, prompt, seed: Flaw.EXTRA_BOX if '"Order"' in prompt and a_key(mode) else Flaw.NONE
     monkeypatch.setitem(MODELS, "stand-in", stand_in(GarbledMoves(flaw=extra)))
     assert cli(directory, *RENDER, "--takes", "1") == 1
     capsys.readouterr()
@@ -1041,11 +1066,11 @@ def test_a_refusal_is_kept_when_its_shot_then_stops_on_another_error_and_is_not_
     directory = copy_of("cafe", tmp_path)
     with pytest.raises(RenderError) as error:
         rendered(directory, Refusing({1}, on=THANKS_LATTE, failing=frozenset({2}), flaw=clean), takes=2)
-    assert (error.value.code, error.value.place) == ("VT401", "key thanks(Latte) take 2")
+    assert (error.value.code, error.value.place) == ("VT401", f"{THANKS_LATTE_KEY} take 2")
     model = Refusing(set(), flaw=clean)
     rendered(directory, model, takes=2)
     assert (1, 1) not in [(THANKS_LATTE in prompt, seed) for prompt, seed in model.asked]
-    [latte] = [shot for shot in dailies.read(directory / TAPE)["keys"] if shot["title"] == "key thanks(Latte)"]
+    [latte] = [shot for shot in dailies.read(directory / TAPE)["keys"] if shot["title"] == THANKS_LATTE_KEY]
     assert latte["refused"] == [1] and [take["seed"] for take in latte["takes"]] == [2]
 
 
@@ -1055,7 +1080,7 @@ def test_a_refused_call_goes_in_the_ledger_once_at_its_listed_price_so_the_cap_c
     rendered(directory, BilledRefusing({1}, on=THANKS_LATTE, flaw=clean), takes=2, price=price, cap=20)
     book = ledger.of(directory, directory / TAPE)
     refused = [line for line in book.lines() if line.get("refused")]
-    assert [(line["shot"], line["seed"], line["usd"]) for line in refused] == [("key thanks(Latte)", 1, 0.5)]
+    assert [(line["shot"], line["seed"], line["usd"]) for line in refused] == [(THANKS_LATTE_KEY, 1, 0.5)]
     spent = book.totals()["usd"]
     rendered(directory, BilledRefusing(set(), flaw=clean), takes=2, price=price, cap=20)
     assert [line for line in ledger.of(directory, directory / TAPE).lines() if line.get("refused")] == refused
@@ -1067,10 +1092,10 @@ def test_explain_vt409_says_what_the_ledger_holds_for_a_refused_take(tmp_path, c
     price = Price(0.1, 5)
     monkeypatch.setitem(MODELS, "stand-in", stand_in(BilledRefusing({1}, on=THANKS_LATTE, flaw=clean), price=price))
     assert cli(directory, *RENDER, "--takes", "2", "--cap-usd", "20") == 0
-    assert capsys.readouterr().err.startswith("error VT409 key thanks(Latte) take 1: ")
+    assert capsys.readouterr().err.startswith(f"error VT409 {THANKS_LATTE_KEY} take 1: ")
     [line] = [json.loads(text) for text in (directory / "ledger.jsonl").read_text().splitlines()
               if '"refused": true' in text]
-    assert (line["kind"], line["shot"], line["seed"], line["usd"]) == ("take", "key thanks(Latte)", 1, price.usd)
+    assert (line["kind"], line["shot"], line["seed"], line["usd"]) == ("take", THANKS_LATTE_KEY, 1, price.usd)
     assert cli(directory, "explain", "VT409") == 0
     explained = capsys.readouterr().out
     assert '"refused": true' in explained and "at the model's listed price" in explained
@@ -1081,12 +1106,12 @@ def test_every_take_of_a_shot_refused_films_the_other_shots_then_stops_with_vt40
     with pytest.raises(RenderError) as error:
         rendered(directory, Refusing({1, 2}, on=THANKS_LATTE, flaw=clean), takes=2)
     assert (error.value.code, error.value.place, error.value.message) == (
-        "VT409", "key thanks(Latte)", "every take of the shot was refused for its content")
+        "VT409", THANKS_LATTE_KEY, "every take of the shot was refused for its content")
     assert error.value.next.endswith("\nvideotape render --takes 4")
     record = dailies.read(directory / TAPE)
-    assert record["unfilmed"] == {"key thanks(Latte)": [1, 2]} and record["complete"] is False
+    assert record["unfilmed"] == {THANKS_LATTE_KEY: [1, 2]} and record["complete"] is False
     assert [shot["title"] for shot in record["keys"]] == [title for title in TITLES if title.startswith("key ")
-                                                          and title != "key thanks(Latte)"]
+                                                          and title != THANKS_LATTE_KEY]
 
 
 class GarbledRefusedAgain(GarbledBilled):
@@ -1115,11 +1140,11 @@ def test_a_shot_with_a_corrupt_seed_and_a_refused_one_stops_with_vt403(tmp_path)
     tape = directory / TAPE
     rendered(directory, StandIn(flaw=clean), takes=1)
     record = dailies.read(tape)
-    dailies.write(tape, {**record, "corrupt": {"key thanks(Latte)": [1]}}, ledger.of(directory, tape).totals())
+    dailies.write(tape, {**record, "corrupt": {THANKS_LATTE_KEY: [1]}}, ledger.of(directory, tape).totals())
     with pytest.raises(RenderError) as error:
         rendered(directory, Refusing({2}, on=THANKS_LATTE, flaw=clean), takes=2)
     assert (error.value.code, error.value.place, error.value.message) == (
-        "VT403", "key thanks(Latte)", "every take of the shot is corrupt")
+        "VT403", THANKS_LATTE_KEY, "every take of the shot is corrupt")
 
 
 class Failing(StandIn):
@@ -1138,14 +1163,15 @@ def test_a_failed_model_call_is_vt401_with_the_providers_message_and_nothing_is_
     monkeypatch.setitem(MODELS, "stand-in", stand_in(Failing(THANKS_LATTE, flaw=clean)))
     assert cli(directory, *RENDER, "--takes", "1") == 1
     out, err = capsys.readouterr()
-    assert err.splitlines()[0] == "error VT401 key thanks(Latte) take 1: the stand-in refused seed 1; request r-1"
+    assert err.splitlines()[0] == f"error VT401 {THANKS_LATTE_KEY} take 1: the stand-in refused seed 1; request r-1"
     assert err.splitlines()[1] == "next: run the render again, which resumes; a request that was submitted is polled, not submitted again:"
     assert err.splitlines()[2] == "videotape render --story chalk --takes 1"
     assert not (directory / TAPE / "tape.json").exists()
     assert dailies.read(directory / TAPE)["complete"] is False
     monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
     assert cli(directory, *RENDER, "--takes", "1") == 0
-    assert [status for *_, status, _ in lines(capsys.readouterr().out)].count("cached") == 4
+    # With one worker, the three bases, the other variant and the first move film before thanks(Latte) stops the render.
+    assert [status for *_, status, _ in lines(capsys.readouterr().out)].count("cached") == 5
     assert (directory / TAPE / "tape.json").exists() and dailies.read(directory / TAPE)["complete"] is True
 
 
@@ -1209,7 +1235,7 @@ def test_a_missing_ffmpeg_is_vt404(tmp_path, cli, capsys, monkeypatch):
 
 def test_the_stand_ins_extra_box_fails_vt503_on_the_kept_take_when_it_is_the_only_take(tmp_path, cli, capsys, monkeypatch):
     directory = copy_of("cafe", tmp_path)
-    extra = lambda mode, prompt, seed: Flaw.EXTRA_BOX if '"Order"' in prompt and mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
+    extra = lambda mode, prompt, seed: Flaw.EXTRA_BOX if '"Order"' in prompt and a_key(mode) else Flaw.NONE
     monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=extra)))
     assert cli(directory, *RENDER, "--takes", "1") == 1
     err = capsys.readouterr().err.splitlines()
@@ -1218,7 +1244,7 @@ def test_the_stand_ins_extra_box_fails_vt503_on_the_kept_take_when_it_is_the_onl
     assert err[1] == '  next: videotape retake "order(Espresso)" --story chalk'
     record = dailies.read(directory / TAPE)
     assert [(f["shot"], f["code"]) for f in record["failures"]] == [("key order(Espresso)", "VT503"),
-                                                                     ("key order(Latte)", "VT503")]
+                                                                     (ORDER_LATTE, "VT503")]
     [first_failure, _] = record["failures"]
     assert first_failure["next"] == {
         "retake": 'videotape retake "order(Espresso)" --story chalk',

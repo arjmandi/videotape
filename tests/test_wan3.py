@@ -18,7 +18,7 @@ from videotape.fal import Fal, Receipt
 from videotape.hosted import WAN3, WAN3_FIELDS, FalRequest, OnFal, RecordedFailure, from_environment, request_record
 from videotape.made import made
 from videotape.model import MODELS, Listing
-from videotape.plan import Mode
+from videotape.plan import FromKey, Mode
 from videotape.render import render
 from videotape.standin import StandInEye
 
@@ -50,7 +50,7 @@ def unpacked(uri: str) -> bytes:
 
 
 def test_a_key_is_text_to_video_from_its_own_prompt_at_720p_without_sound_or_prompt_expansion():
-    order = SHOTS["key order(Latte)"]
+    order = SHOTS["key order(Espresso)"]
     built = WAN3.request(Mode.TEXT_TO_VIDEO, order, 1)
     assert built == FalRequest("alibaba/wan-3.0/text-to-video", {"prompt": order, **SETTINGS, "seed": 1})
 
@@ -196,15 +196,20 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     assert "fail: 1. key menu()  VT501 Espresso, $3: not found" in stderr.splitlines()
     assert '  next: videotape retake "menu()" --story chalk --out tape-wan3' in stderr.splitlines()
     assert stdout.splitlines()[-1].startswith("11 shots, 11 takes filmed, $5.50, ") and stdout.endswith(" MB -> tape-wan3\n")
-    assert sorted(mode for mode, _ in fal.posts) == ["image-to-video"] * 6 + ["text-to-video"] * 5
+    # Three keys are text-to-video, the bases, and eight image-to-video: the two variants from their base's picture
+    # alone, and the six moves between two pictures.
+    assert sorted(mode for mode, _ in fal.posts) == ["image-to-video"] * 8 + ["text-to-video"] * 3
     plan = planned(directory)
     assert sorted(arguments["prompt"] for _, arguments in fal.posts) == sorted(words(shot, told(directory)) for shot in plan.shots)
     images = {key.state: out / key.image for key in plan.keys}
     pinned = {(words(move, told(directory)), images[move.start].read_bytes(), images[move.land].read_bytes())
               for move in plan.moves}
+    started = {(words(key, told(directory)), images[key.start].read_bytes(), None)
+               for key in plan.keys if isinstance(key, FromKey)}
     for mode, arguments in fal.posts:
         if mode == "image-to-video":
-            assert (arguments["prompt"], unpacked(arguments["start_image_url"]), unpacked(arguments["end_image_url"])) in pinned
+            end = arguments.get("end_image_url")
+            assert (arguments["prompt"], unpacked(arguments["start_image_url"]), unpacked(end) if end else None) in pinned | started
     assert len({image.read_bytes() for image in images.values()}) == 5
     assert {take.read_bytes() for take in (out / "takes").glob("*.mp4")} <= fal.served
     data = json.loads((out / "tape.json").read_text())
@@ -438,19 +443,23 @@ class Meeting(Hosted):
 
 def test_two_shots_that_share_a_take_name_film_it_once(tmp_path, monkeypatch, cli, capsys):
     directory, fal = hosted_by(Meeting, tmp_path, monkeypatch)
-    # Both thanks states now show the same words, so their keys share a prompt, a take name, and a key image, and
-    # so do the two Done moves that leave them.
+    # With a third drink, and every thanks state showing the same words, the two thanks variants share a prompt and
+    # the base's picture they start from, so a take name and a key image, and so do the two Done moves that leave them.
     screenplay = directory / "cafe.py"
     screenplay.write_text(screenplay.read_text().replace('vt.Text(f"One {drink.name} coming up.")', 'vt.Text("Coming up.")'))
+    drinks = directory / "data" / "drinks.json"
+    drinks.write_text(drinks.read_text().replace('"price": 3}', '"price": 3},\n  {"name": "Mocha", "price": 4}'))
     assert cli(directory, *RENDER) == 1
     posts = [(mode, arguments["prompt"], arguments["seed"], arguments.get("start_image_url"), arguments.get("end_image_url"))
              for mode, arguments in fal.posts]
-    assert len(set(posts)) == len(posts) == 9
-    assert len(ledger.of(directory, directory / "tape-wan3").lines()) == 9
+    assert len(set(posts)) == len(posts) == 14
+    assert len(ledger.of(directory, directory / "tape-wan3").lines()) == 14
     record = dailies.read(directory / "tape-wan3")
-    thanks = [shot for shot in record["keys"] if shot["title"].startswith("key thanks(")]
-    assert len(thanks) == 2 and len({shot["takes"][0]["clip"] for shot in thanks}) == 1
-    assert [shot["takes"][0]["cached"] for shot in thanks].count(True) == 1
+    variants = [shot for shot in record["keys"] if shot["title"].startswith("key thanks(") and " from " in shot["title"]]
+    assert len(variants) == 2 and len({shot["takes"][0]["clip"] for shot in variants}) == 1
+    assert [shot["takes"][0]["cached"] for shot in variants].count(True) == 1
+    done = [shot for shot in record["moves"] if shot["start"] in ("thanks(Latte)", "thanks(Mocha)")]
+    assert len(done) == 2 and len({shot["takes"][0]["clip"] for shot in done}) == 1
 
 
 @pytest.mark.parametrize("old, new, calls", [

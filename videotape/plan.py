@@ -1,5 +1,7 @@
 """The plan: every state an app can reach, walked breadth first from its entry before anything renders. It holds the
-screenplay's words and nothing of how they look, which a story adds when it gives each shot its prompt."""
+screenplay's words and nothing of how they look, which a story adds when it gives each shot its prompt. A scene's
+first state in the walk is its base, drawn from its own prompt, and each later state of the scene is a variant, drawn
+from the base's picture so that the scene keeps one layout whatever its data."""
 
 import inspect
 import re
@@ -10,7 +12,7 @@ from typing import ClassVar
 
 from videotape import errors
 from videotape.errors import ScreenplayError
-from videotape.screenplay import Action, Element, Screenplay, Shown, State
+from videotape.screenplay import Action, Element, Scene, Screenplay, Shown, State
 
 MAX_STATES = 500
 MAX_WORDS = 12
@@ -55,10 +57,11 @@ class Key:
 
 @dataclass(frozen=True)
 class FromKey(Key):
-    """A state drawn from another state's key picture: image to video from that picture alone, with the state's own
-    prompt, so the picture's layout carries over. Its kept take's last frame is its key image, as a Key's is."""
+    """A variant: a state drawn from its base's key picture, image to video from that picture alone, with the state's
+    own prompt, so the picture's layout carries over. Its kept take's last frame is its key image, as a Key's is."""
 
     start: State
+    """The base, which is the first state of the variant's scene in walk order."""
     mode: ClassVar[Mode] = Mode.FIRST_FRAME
 
     @property
@@ -100,7 +103,8 @@ Shot = Key | Move
 
 @dataclass(frozen=True)
 class Plan:
-    """Every state's key in walk order, then every action's move in walk order. The first key is the entry's."""
+    """Every state's key in walk order, then every action's move in walk order. The first key is the entry's, and
+    the first key of each scene is a Key, the scene's base, which the scene's later keys are FromKeys of."""
 
     title: str
     scenes: tuple[str, ...]
@@ -116,10 +120,12 @@ class Plan:
 def plan(screenplay: Screenplay, max_states: int = MAX_STATES) -> Plan:
     entry = _entry(screenplay)
     keys, ids, warned = list[Key](), set[str](), dict[str, ScreenplayError]()
+    bases = dict[Scene, State]()
     reached, queue = {entry}, deque([entry])
     while queue:
         state = queue.popleft()
-        key = Key(_unique(_slug(state.name), ids), state, _show(state))
+        name, shown, base = _unique(_slug(state.name), ids), _show(state), bases.setdefault(state.scene, state)
+        key = Key(name, state, shown) if base is state else FromKey(name, state, shown, base)
         _told_apart(state, key.actions)
         for words in key.lines:
             for warning in _hard_to_letter(state, words):

@@ -26,7 +26,7 @@ from videotape.claude import ClaudeReader
 from videotape.fal import Receipt
 from videotape.frames import Box, Frame
 from videotape.model import MODELS
-from videotape.plan import Mode
+from videotape.plan import Key, Mode
 from videotape.standin import Flaw, StandIn, StandInEye, draw
 
 ROOT = CONTRAIL.parent.parent
@@ -121,6 +121,8 @@ def test_each_scenes_base_is_its_first_state_in_walk_order_and_its_variants_are_
     assert [key.state.name for key in scenes[0].variants] == list(RESULTS)
     assert [key.state.name for key in scenes[1].variants] == [f"flight({flight})" for flight in FLIGHTS]
     assert [key.state.name for key in scenes[2].variants] == [f"booked({flight})" for flight in FLIGHTS]
+    # The seed method draws each variant from its own prompt, whatever the plan draws it from.
+    assert all(type(key) is Key and key.mode is Mode.TEXT_TO_VIDEO for scene in scenes for key in scene.keys)
 
 
 def test_a_least_past_the_cap_or_no_cap_stops_before_any_call_and_names_the_cap_the_test_needs(script, tmp_path,

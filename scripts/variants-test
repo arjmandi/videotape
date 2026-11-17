@@ -167,10 +167,11 @@ class Scene:
 
 def selected(planned: Plan) -> tuple[Scene, ...]:
     """Each of SCENES as a Scene: its first state in walk order is the base, and VARIANTS says which of its other
-    states are the variants. VT212 for a scene the plan lacks."""
+    states are the variants, each as a key drawn from its own prompt, which the seed method draws and the from-key
+    method starts from. VT212 for a scene the plan lacks."""
     scenes = []
     for name in SCENES:
-        keys = [key for key in planned.keys if key.state.scene.name == name]
+        keys = [Key(key.id, key.state, key.shown) for key in planned.keys if key.state.scene.name == name]
         if not keys:
             raise ScreenplayError("VT212", f'"{name}"', "the app has no scene of this name, and the variants test draws "
                                   "its states", "name one of the plan's scenes in SCENES in scripts/variants-test: "
