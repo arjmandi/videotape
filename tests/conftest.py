@@ -61,16 +61,14 @@ def words(shot: Shot, told: Story) -> str:
 
 LEFT_BEHIND = shutil.ignore_patterns(".venv", "tape*", "ledger.jsonl", "uv.lock", "__pycache__", ".env")
 """What a copy of a project leaves behind: what a render, uv or Python wrote in it, and the .env that holds a
-developer's API keys, so that no test reads them."""
+developer's API keys."""
 
 
 def copy_of(fixture: str, to: Path) -> Path:
-    """A fresh copy of a fixture project, without anything a render left in it."""
     return Path(shutil.copytree(FIXTURES / fixture, to / fixture, ignore=LEFT_BEHIND))
 
 
 def contrail_copy(folder: Path) -> Path:
-    """A copy of examples/contrail in folder, without what a copy leaves behind."""
     return Path(shutil.copytree(CONTRAIL, folder, dirs_exist_ok=True, ignore=LEFT_BEHIND))
 
 
@@ -103,9 +101,9 @@ def as_explained(code: str) -> re.Pattern[str]:
 
 
 @pytest.fixture(autouse=True, scope="session")
-def offline():
-    """No test reaches the network, so none pays fal or Claude with an API key the environment or a .env holds. fal's
-    queue and Claude's reads both go out through urlopen, and a test that needs their answers stands in for them."""
+def refuse_urlopen():
+    """No test opens a URL in this process, so none pays fal or Claude with an API key the environment or a .env
+    holds."""
     def refuse(request, *args, **kwargs):
         raise AssertionError(f"a test reached for the network: {getattr(request, 'full_url', request)}")
     with pytest.MonkeyPatch.context() as patch:

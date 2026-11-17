@@ -49,7 +49,6 @@ def script():
 
 @pytest.fixture(autouse=True)
 def keyless(monkeypatch):
-    """No API key comes from the machine running the tests."""
     for key in ("FAL_KEY", "ANTHROPIC_API_KEY", "RUNPOD_API_KEY"):
         monkeypatch.delenv(key, raising=False)
 

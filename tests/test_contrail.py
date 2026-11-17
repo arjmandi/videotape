@@ -99,7 +99,6 @@ def test_contrails_screenplay_stays_under_200_lines():
 
 
 def test_a_copy_of_contrail_leaves_the_api_keys_in_its_env_behind(tmp_path, monkeypatch):
-    """A developer keeps examples/contrail's API keys in its .env, and a test's copy of it must not bill with them."""
     source = tmp_path / "source"
     source.mkdir()
     (source / "pyproject.toml").write_text((CONTRAIL / "pyproject.toml").read_text())
