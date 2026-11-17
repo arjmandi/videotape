@@ -15,7 +15,9 @@ MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct"
 PROMPT = ('Find every piece of text in this image. Answer with a JSON array and nothing else. '
           'Each element is {"text": "...", "bbox_2d": [x1, y1, x2, y2], "button": true or false}. '
           'Copy each text exactly, keeping its case and punctuation. Give each separate line or label its own element. '
-          'For a button, bbox_2d covers the whole button, not only its text.')
+          'For a button, bbox_2d covers the whole button, not only its text.'
+          ' Read text on signs seen at an angle too. Never add a character that is not drawn, such as a period at the '
+          'end of a line.')
 MAX_NEW_TOKENS = 1024
 ADD_EXTRA = ('in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
              'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync')

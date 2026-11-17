@@ -1,3 +1,4 @@
+import json
 import sys
 import time
 import urllib.request
@@ -154,3 +155,12 @@ def test_qwen_reads_and_finds_a_hand_painted_shop_sign(eye, capsys):
         print(f"\n  read {read(seen)}\n  sign CER {reading[0]:.3f} ({reading[1]!r}), box {box}, IoU {overlap:.3f}")
     assert reading[0] <= MAX_SIGN_CER
     assert overlap >= MIN_SIGN_IOU
+
+
+def test_qwen_reads_the_slanted_signs_of_a_paid_take_under_its_prompt():
+    """Under the prompt before this one, Qwen read neither the slanted member line nor the hanging tabs of this take,
+    which Claude and a person read. A prompt change has to read this take again and record what it reads."""
+    recorded = json.loads((FIXTURES / "recorded" / "qwen" / "profile-take-2.json").read_text())
+    assert recorded["prompt"] == qwen.PROMPT
+    read = [spot.text for spot in spots(recorded["reply"], recorded["width"], recorded["height"])]
+    assert {"Silver member, 48,250 miles", "Home", "Trips", "Profile"} <= set(read)
