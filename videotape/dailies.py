@@ -124,12 +124,13 @@ document.querySelectorAll("video").forEach(video => near.observe(video));
 
 
 def record(title: str, checks: str, render: Render, story: Story, tape_name: str, carry: Carried, takes: int,
-           complete: bool = True, unfilmed: dict[str, list[int]] | None = None) -> dict:
+           complete: bool = True, unfilmed: dict[str, list[int]] | None = None, again: str | None = None) -> dict:
     """What a render knows about its keys and moves, with every failure of a kept take and its next steps, and what
     carries on to the next render: the accepts, the retake seeds, the corrupt seeds, and the limit on takes. complete
     is false for a render that stopped short of its last shot, and unfilmed names each shot whose every take the
-    model refused for its content, with those seeds. The ledger totals and the tape's size are read at
-    write time."""
+    model refused for its content, with those seeds. again is the command a stopped render's failures name in place
+    of a retake, which needs the tape.json only a finished render writes. The ledger totals and the tape's size are
+    read at write time."""
     out = None if tape_name == f"tapes/{story.name}" else tape_name
     shots = render.shots
     return {
@@ -143,7 +144,7 @@ def record(title: str, checks: str, render: Render, story: Story, tape_name: str
                   "items": _items(filmed.kept.checks)} for filmed in render.keys],
         "moves": [{**_shot_record(filmed, render.tape), "move": filmed.shot.clip, "start": filmed.shot.start.name,
                    "land": filmed.shot.land.name, "label": filmed.shot.label} for filmed in render.moves],
-        "failures": [_failure(failure, filmed, story, out, carry, render.tape)
+        "failures": [_failure(failure, filmed, story, out, carry, render.tape, again)
                      for filmed in shots for failure in filmed.failures],
         "yield": {"first_take": sum(filmed.takes[0].checks.passed for filmed in shots), "shots": len(shots)},
         "retakes": carry.retakes,
@@ -229,9 +230,10 @@ def _items(checks: Checks) -> list[dict]:
     return [asdict(item) for item in checks.items()]
 
 
-def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, carry: Carried, tape: Path) -> dict:
-    """One failure of a kept take: its evidence, where to crop, and its next steps in order: retake, change the story
-    line that drew it, change the screenplay, accept it."""
+def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, carry: Carried, tape: Path,
+             again: str | None) -> dict:
+    """One failure of a kept take: its evidence, where to crop, and its next steps in order: retake, or render again
+    when the render stopped, change the story line that drew it, change the screenplay, accept it."""
     shot, kept = filmed.shot, filmed.kept
     name, where = named(shot), f" --out {out}" if out else ""
     box = failure.box or _found_elsewhere(failure, filmed)
@@ -243,7 +245,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
         "frame": frame,
         "crop_box": asdict(box) if box else None,
         "next": {
-            "retake": f'videotape retake "{name}" --story {story.name}{where}',
+            **({"retake": f'videotape retake "{name}" --story {story.name}{where}'} if again is None else {"render": again}),
             "story": _story_line(failure, filmed, story),
             "screenplay": _screenplay_line(shot),
             "accept": f'videotape accept "{name}" {failure.code} --story {story.name}{where} --reason "..."',
@@ -395,7 +397,8 @@ def _failure_card(failure: dict) -> str:
 <p class="evidence">{escape(failure["evidence"])}</p>
 {_disagreement(failure.get("readings", []))}{reason}
 <ol class="next">
-<li>Retake it: <code>{escape(steps["retake"])}</code></li>
+<li>{f'Retake it: <code>{escape(steps["retake"])}</code>' if "retake" in steps else
+      f'Render again, which films the takes this stopped render did not: <code>{escape(steps["render"])}</code>'}</li>
 <li>Change the story line that drew it: {escape(steps["story"])}</li>
 <li>Change the screenplay: {escape(steps["screenplay"])}</li>
 <li>Accept it with a reason: <code>{escape(steps["accept"])}</code></li>

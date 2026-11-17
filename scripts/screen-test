@@ -892,6 +892,11 @@ def _run(args: argparse.Namespace, marks: tuple[Mark, ...] | None) -> int:
                               f"the report counts {_count(len(error.seeds), 'refused take')} against {name}").report(),
                   file=sys.stderr, flush=True)
         except RenderError as error:
+            if error.code == "VT403":
+                raise RenderError(error.code, error.place, error.message, "the screen test films only seeds 1 and "
+                                  f"{TAKES}, and these did not decode; delete \"{error.place}\" from \"corrupt\" in "
+                                  f"{errors.shown(tape / 'dailies.json')}, which films them again, and run the screen "
+                                  f"test again:\n{command(args, cap)}") from None
             if error.code != "VT402" or cap is None:
                 raise
             spent = sum(ledger.of(found.root, other).totals()["usd"] for other in tapes.values())

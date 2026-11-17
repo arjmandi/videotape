@@ -292,8 +292,10 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     corrupt = _corrupt(carried, result)
     stopped = stopped or next(iter(unfilmed.values()), None)
     if stopped is not None:
+        # A stopped render writes no tape.json, which a retake needs, so a failure's next step is the render again.
+        again = resume if every else _with_takes(resume, takes + 2)
         dailies.write(tape, dailies.record(plan.title, eye(readers), result, story, ledger.tape, corrupt, takes, False,
-                                           {shot.title: list(error.seeds) for shot, error in unfilmed.items()}),
+                                           {shot.title: list(error.seeds) for shot, error in unfilmed.items()}, again),
                       ledger.totals())
         raise stopped
     opening = result.keys[0].kept

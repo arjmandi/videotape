@@ -834,6 +834,35 @@ def test_every_take_corrupt_stops_the_render_with_vt403_whose_next_step_resumes_
     assert dailies.read(directory / TAPE)["corrupt"]["key menu()"] == [1, 2]
 
 
+class GarbledMoves(StandIn):
+    """Writes a file that is not a clip for every take of a move, so a render films keys and stops at a move."""
+
+    def _film(self, mode, prompt, seed, start, end, out):
+        if mode is Mode.FIRST_AND_LAST_FRAME:
+            self.calls.append(None)
+            out.write_bytes(b"not a clip")
+            return
+        super()._film(mode, prompt, seed, start, end, out)
+
+
+def test_a_stopped_renders_failures_name_the_render_again_since_a_retake_needs_the_tape_json_it_never_wrote(
+        tmp_path, cli, capsys, monkeypatch):
+    directory = copy_of("cafe", tmp_path)
+    extra = lambda mode, prompt, seed: Flaw.EXTRA_BOX if '"Order"' in prompt and mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(GarbledMoves(flaw=extra)))
+    assert cli(directory, *RENDER, "--takes", "1") == 1
+    capsys.readouterr()
+    record = dailies.read(directory / TAPE)
+    assert not record["complete"] and record["failures"]
+    assert all(failure["next"]["render"] == "videotape render --story chalk --takes 3" and "retake" not in failure["next"]
+               for failure in record["failures"])
+    page = (directory / TAPE / "dailies.html").read_text()
+    assert "videotape retake" not in page and "<code>videotape render --story chalk --takes 3</code>" in page
+    monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
+    assert cli(directory, *shlex.split(record["failures"][0]["next"]["render"])[1:]) == 0
+    assert (directory / TAPE / "tape.json").is_file()
+
+
 class Refusing(StandIn):
     """Refuses the takes of its seeds for their content, as fal's content checker does, on every prompt or on those
     that hold on, and fails seeds in failing with VT401."""

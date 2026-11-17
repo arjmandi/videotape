@@ -587,6 +587,36 @@ def test_a_key_whose_both_takes_are_refused_still_has_its_report_with_both_count
     assert (directory / "tapes" / "screen-test" / "report.html").is_file()
 
 
+class GarblingOnFal(RefusingOnFal):
+    """wan3.0 writing a file that is not a clip for every take of one prompt, with nothing to download again."""
+
+    def text_to_video(self, prompt: str, seed: int, out: Path) -> Receipt:
+        if prompt == self.prompt:
+            out.write_bytes(b"not a clip")
+            return Receipt(f"wan3.0-{seed}", self.price.seconds, self.price.usd, {})
+        return super().text_to_video(prompt, seed, out)
+
+
+def test_a_key_whose_both_takes_are_corrupt_names_a_next_step_the_screen_test_has_not_a_takes_flag_it_lacks(
+        script, tmp_path, monkeypatch):
+    directory = contrail(tmp_path)
+    found = project.find(directory)
+    sample = script.sampled(script.plan(found.load(), found.max_states))
+    from videotape import story
+    from videotape.story import prompt, text
+    first = text(prompt(sample.keys[0], story.named(directory, "terminal")))
+    forget(found)
+    refusing(monkeypatch, GarblingOnFal(set(), first))
+    code, out, err = screen(script, directory, *WAN3_TERMINAL)
+    tape = directory / "tapes/screen-test/wan3.0/terminal"
+    assert code == 1 and err.endswith(
+        f"error VT403 {sample.keys[0].title}: every take of the shot is corrupt\n"
+        f'next: the screen test films only seeds 1 and 2, and these did not decode; delete "{sample.keys[0].title}" '
+        f'from "corrupt" in {tape}/dailies.json, which films them again, and run the screen test again:\n'
+        f"uv run scripts/screen-test {directory} --models wan3.0 --stories terminal --cap-usd 60.00\n"), err
+    assert "--takes" not in err
+
+
 def test_the_pick_has_the_most_types_at_the_bar_then_the_most_elements_passing_then_the_fewest_invented_controls_then_the_lowest_cost(script):
     standing, tally = script.Standing, script.Tally
     most = standing("most", frozenset({"Heading", "Text", "List"}), tally(60, 120), invented=9, usd=30.0)
