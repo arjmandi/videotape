@@ -30,7 +30,7 @@ CODES: dict[str, Code] = {
     ),
     "VT102": Code(
         "ffmpeg or ffprobe is not on PATH",
-        "A render decodes takes and writes each key's picture with ffmpeg, and reads each kept take's size with "
+        "A render decodes takes and writes each key's picture with ffmpeg, and gets each kept take's size with "
         "ffprobe. doctor searches PATH for both. A render without them stops at its first take with VT404.",
         "fail VT102 ffprobe is not on PATH",
         "install ffmpeg, which brings ffprobe, as in brew install ffmpeg",
@@ -50,7 +50,7 @@ CODES: dict[str, Code] = {
         "A model that runs as a service needs its API key: wan3.0, minimax-h3 and gemini-omni-flash-1.2 run on fal "
         "and need FAL_KEY. So does a reader that runs as a service: Claude, a reader of the eye of every model but the "
         "stand-in, needs ANTHROPIC_API_KEY. A project command "
-        "reads API keys from the environment and from the project's .env, one KEY=VALUE line each, and an API key "
+        "gets API keys from the environment and from the project's .env, one KEY=VALUE line each, and an API key "
         "already in the environment wins. No command prints an API key's value. The stand-in and its reader run here "
         "and need none, and so does Qwen3-VL-8B. A render with a reader whose API key is not set stops before any "
         "paid call.",
@@ -221,15 +221,15 @@ CODES: dict[str, Code] = {
         'and a move by its two states, as in "home() -> search()", or by its full title when two moves join the same '
         'states, as in \'hall() -> room() "Side door"\'. No state or move of the plan has this name, or two moves '
         "share it. The fix names the closest, or the full titles. scripts/screen-test films the keys of the states its "
-        "SAMPLER names, and stops with this code before anything else when the plan lacks one.",
+        "SAMPLER names, and stops with this error code before anything else when the plan lacks one.",
         'error VT212 "thanks(Late)": the app has no state or move of this name',
         "fix: name one of the closest: thanks(Latte), thanks(Latte) -> menu(), thanks(Espresso)",
     ),
     "VT213": Code(
         "a record class has a field of another type",
-        "A record class's fields are each a str, an int, a date or a time, which is what vt.table and vt.one read a "
-        "data file's values as. This class has a field of another type, so its file cannot be read into records. The "
-        "error names the class, the field and the line that loads the file.",
+        "A record class's fields are each a str, an int, a date or a time, which is what vt.table and vt.one load a "
+        "data file's values as. This class has a field of another type, so its file cannot be loaded into records. "
+        "The error names the class, the field and the line that loads the file.",
         "error VT213 app.py:9: Drink.price is <class 'float'>, and a record's field is a str, an int, a date or a time",
         "fix: make price one of those, as in price: int",
     ),
@@ -292,7 +292,7 @@ CODES: dict[str, Code] = {
     ),
     "VT307": Code(
         "a prompt is longer than the model allows",
-        "A warning. A model reads a prompt only up to a limit. Wan 2.2 reads 512 tokens and drops the rest without "
+        "A warning. A model uses a prompt only up to a limit. Wan 2.2 uses 512 tokens and drops the rest without "
         "saying so, and a key's prompt ends with the elements at the bottom of its state, so those are the ones it "
         "would leave out. The plan has no tokenizer, so it counts high: one token for every four letters of a word, "
         "one for every other character that is not a space, and one for the end. On fal, wan3.0 and "
@@ -303,7 +303,7 @@ CODES: dict[str, Code] = {
     ),
     "VT308": Code(
         "a story quotes words",
-        "The screenplay owns every word on screen, and a story says only how they look. A video model letters "
+        "The screenplay owns every word on screen, and a story says only how they are drawn. A video model letters "
         "whatever a prompt quotes, so a story that quotes words puts them on every key it reaches, beside the "
         "screenplay's own. A straight double quote or a curly one anywhere in a story's words is this error, which "
         "names the line.",
@@ -320,9 +320,9 @@ CODES: dict[str, Code] = {
     ),
     "VT310": Code(
         "plan's --model needs a story",
-        "videotape plan --model checks a story's prompts against the prompt limit of the model it names, and ends with "
-        "that model's estimate. Without --story there are no prompts to check. A plan without --model ends with the "
-        "estimate for the model in [tool.videotape].",
+        "videotape plan --model measures a story's prompts against the prompt limit of the model it names, and ends "
+        "with that model's estimate. Without --story there are no prompts to measure. A plan without --model ends "
+        "with the estimate for the model in [tool.videotape].",
         "error VT310 --model: names the model whose prompt limit a story's prompts must fit, and no --story names one",
         "fix: name the story too, as in videotape plan --story starter --model wan3.0",
     ),
@@ -363,7 +363,7 @@ CODES: dict[str, Code] = {
         "beside the take, so the take is downloaded again first. When it is still corrupt, or when the model has "
         "nothing to download again, the seed is marked corrupt in the tape's dailies.json, reported, skipped, "
         "and never filmed again. The shot goes on with its next seed. A shot whose every seed is corrupt stops the "
-        "render, which has written no tape.json for a retake to read, so its next step is the render again with "
+        "render, which has written no tape.json for a retake to load, so its next step is the render again with "
         "more takes, which films new seeds after them.",
         "error VT403 key home() take 1: tapes/terminal/takes/3f9a....mp4 did not decode to one frame: Error opening "
         "input files: Invalid data found when processing input",
@@ -371,7 +371,7 @@ CODES: dict[str, Code] = {
     ),
     "VT404": Code(
         "ffmpeg failed",
-        "A render decodes takes and writes each key's picture with ffmpeg, reads each kept take's size with ffprobe, "
+        "A render decodes takes and writes each key's picture with ffmpeg, gets each kept take's size with ffprobe, "
         "and one of them failed or is not on PATH. The error prints the command and what ffmpeg said. This is about "
         "the machine, not the model or the screenplay.",
         "error VT404 key home(): ffmpeg is not on PATH",
@@ -379,9 +379,9 @@ CODES: dict[str, Code] = {
     ),
     "VT405": Code(
         "the tape has no finished render",
-        "retake, accept, dailies, play, publish and diff read a tape's folder. Every render writes dailies.json there, "
+        "retake, accept, dailies, play, publish and diff open a tape's folder. Every render writes dailies.json there, "
         "and a render that finishes writes tape.json, whose made block says what made the tape, the model included. "
-        "This folder lacks the file the command reads: nothing rendered into it, its render stopped before its last "
+        "This folder lacks the file the command opens: nothing rendered into it, its render stopped before its last "
         "shot, or a videotape older than the made block wrote it. A retake films with the model that the made block "
         "names, so it never guesses a model, which could bill per call.",
         "error VT405 tapes/chalk: has no tape.json, which a render writes when it finishes",
@@ -427,8 +427,8 @@ CODES: dict[str, Code] = {
         "best of its other takes, and a retake films it with new seeds. fal's page does not say whether a refused "
         "request is billed, and fal sends no receipt for one, so the render counts it as billed: the ledger gets one "
         "take line for the request, marked \"refused\": true, at the model's listed price, $0.50 for wan3.0, and the "
-        "cap counts it with the rest. A shot whose every seed is refused stops the render with this code, and one "
-        "whose seeds are refused and corrupt with VT403.",
+        "cap counts it with the rest. A shot whose every seed is refused stops the render with this error code, and "
+        "one whose seeds are refused and corrupt with VT403.",
         "error VT409 key search() take 2: result of alibaba/wan-3.0/text-to-video request "
         "01a1e4a2-f25e-7972-979d-3aebd879c48c was refused for its content: HTTP 422 content_policy_violation, "
         "model_moderated",
@@ -451,10 +451,10 @@ CODES: dict[str, Code] = {
     "VT501": Code(
         "an action was not found on its key",
         "Every action of a state is found on the state's key by its words, and its box becomes the hotspot a "
-        "person presses. The eye found no box reading these words, within the character error the find allows, "
+        "person presses. The eye found no box that says these words, within the character error the find allows, "
         "on the kept take, so the action has no hotspot in the tape and cannot be pressed. The dailies show where "
         "the box should be, from another take that found it when there is one.",
-        'vt.Button("Book for $89", to=booked(f)), with no box reading "Book for $89" on the key',
+        'vt.Button("Book for $89", to=booked(f)), with no box that says "Book for $89" on the key',
         "retake the shot, change the story's appearance for the element's type, change the screenplay, or accept it "
         "with a reason",
     ),
@@ -463,9 +463,9 @@ CODES: dict[str, Code] = {
         "Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly "
         "from every reader or the check fails. A period one reader adds to the end of a line that has none does not "
         "fail it while another reader reads the line exactly, since a key that draws the period is read with it by "
-        "every reader. The character error rate says how far off each reading was, and the dailies show each "
-        "reader's reading and the line's box when a reader saw one. A DatePicker shows a month, and a day without an "
-        "option shows no label, so an option's label read where the key has no such line fails this check too.",
+        "every reader. The character error rate says how far off each reader was, and the dailies show what each "
+        "reader read and the line's box when a reader saw one. A DatePicker shows a month, and a day without an "
+        "option shows no words, so an option's words read where the key has no such line fail this check too.",
         'vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"',
         "retake the shot, shorten or simplify the line in the screenplay, or accept it with a reason",
     ),
@@ -475,22 +475,22 @@ CODES: dict[str, Code] = {
         "to press something the app does not have. Each reader reads the whole key and lists every control-like box "
         "with its words, and one is invented when its words match no line within the character error the find "
         "allows.",
-        'a lit panel reading "Cancel" on a key whose state has no such line',
+        'a lit panel that says "Cancel" on a key whose state has no such line',
         "retake the shot, change the story's appearance for the element type it came from, or accept it with a "
         "reason, as in --reason \"a printed logo, not a control\"",
     ),
     "VT504": Code(
         "a chart is off its data",
-        "A BarChart or a LineChart plots the screenplay's data: a title, labels in order, and a value at each. A "
-        "reader that reports charts, Claude, judges each chart whole: its title and its labels read back exactly and "
-        "in order, the key shows as many bars or points as the data has, and each value it reads sits within a tenth "
-        "of the data's. Those are facts that reading the chart's letters cannot judge, so that reader's VT502 leaves "
-        "the chart's lines out, and a reader that reports no charts reads them as lettering. The dailies name what "
-        "is off.",
+        "A BarChart or a LineChart plots the screenplay's data: a title, category names in order, and a value at "
+        "each. A reader that reports charts, Claude, judges each chart whole: its title and its category names read "
+        "back exactly and in order, the key shows as many bars or points as the data has, and each value it reads "
+        "sits within a tenth of the data's. Those are facts that reading the chart's letters cannot judge, so that "
+        "reader's VT502 leaves the chart's lines out, and a reader that reports no charts reads them as lettering. The "
+        "dailies name what is off.",
         'vt.BarChart("Flights per month in 2026", {"Jan": 0, "Feb": 1, "Mar": 2}), read with 2 bars where the data '
         "has 3, and Mar read 5 where the data has 2",
-        "retake the shot, change the story's appearance for the chart's type, plot fewer labels in the screenplay, or "
-        "accept it with a reason",
+        "retake the shot, change the story's appearance for the chart's type, plot fewer categories in the "
+        "screenplay, or accept it with a reason",
     ),
     "VT508": Code(
         "a seam between a move and its key is too wide",
@@ -532,7 +532,7 @@ CODES: dict[str, Code] = {
         "the tape has failing checks nobody accepted",
         "A render checks the takes of every key and move of a tape. A check its kept take fails stays failing until a "
         "retake passes it or a person accepts it with a reason, and an accept holds only for the take it was given "
-        "on. Publish reads the tape's dailies.json, and while a failing check there is not accepted, it leaves dist/ "
+        "on. Publish opens the tape's dailies.json, and while a failing check there is not accepted, it leaves dist/ "
         "and the lock as they were.",
         "error VT602 tapes/starter: 1 check fails that nobody accepted: key todo() VT503",
         "fix: review it with videotape dailies --story starter, then retake the shot or accept the failure with a "
@@ -553,7 +553,7 @@ CODES: dict[str, Code] = {
     "VT604": Code(
         "a check fails on the HEVC frame TapePlayer rests on",
         "Publish encodes each clip of the tape as HEVC, which makes a Wan tape's app smaller than the clips a render keeps."
-        " A clip's last frame is where TapePlayer rests until the next press, so publish reads each encoded "
+        " A clip's last frame is where TapePlayer rests until the next press, so publish decodes each encoded "
         "clip's last frame, runs the tape's eye on it against the state the clip lands on, and compares it with that "
         "state's picture. A check that passed on the key and fails on this frame means the encoding lost what the "
         "check needs. Publish leaves dist/ and the lock as they were.",
@@ -564,10 +564,10 @@ CODES: dict[str, Code] = {
     ),
     "VT605": Code(
         "videotape.lock is not TOML",
-        "videotape.lock, at the project's root, records each label that publish shipped, with its made id and the "
-        "hashes the made id is made of. Publish writes it as TOML and reads it before anything else. This file breaks "
-        "TOML's rules, most often when a merge left its conflict markers in it. Publish leaves dist/ and the lock as "
-        "they were.",
+        "videotape.lock, at the project's root, holds each label that publish has published, with its made id and "
+        "the hashes the made id is made of. Publish writes it as TOML and opens it before anything else. This file "
+        "breaks TOML's rules, most often when a merge left its conflict markers in it. Publish leaves dist/ and the "
+        "lock as they were.",
         "error VT605 videotape.lock: is not TOML: Invalid statement (at line 3, column 1)",
         "fix: mend it, keeping one section for each label, or restore it from git, as in git checkout videotape.lock",
     ),

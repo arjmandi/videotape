@@ -737,7 +737,7 @@ uv run videotape explain VT502
 ```text
 VT502: a line was misread
 
-Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly from every reader or the check fails. A period one reader adds to the end of a line that has none does not fail it while another reader reads the line exactly, since a key that draws the period is read with it by every reader. The character error rate says how far off each reading was, and the dailies show each reader's reading and the line's box when a reader saw one. A DatePicker shows a month, and a day without an option shows no label, so an option's label read where the key has no such line fails this check too.
+Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly from every reader or the check fails. A period one reader adds to the end of a line that has none does not fail it while another reader reads the line exactly, since a key that draws the period is read with it by every reader. The character error rate says how far off each reader was, and the dailies show what each reader read and the line's box when a reader saw one. A DatePicker shows a month, and a day without an option shows no words, so an option's words read where the key has no such line fail this check too.
 
 Example:
     vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"
