@@ -56,7 +56,7 @@ Pick a run directory once per verification session and reuse it for every drive:
 RUN=.verify/runs/$(date -u +%Y%m%dT%H%M%SZ)
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- plan --story <story>
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- shots --story <story>
-.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- render --story <story>
+.claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- render --story <story> --model stand-in
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- retake "<state>" --story <story>
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- accept "<state>" VT503 --story <story> --reason "<why>"
 .claude/skills/verify/scripts/vt-verify run "$RUN" <name> <project-dir> -- dailies --story <story>
@@ -123,7 +123,7 @@ Proof lives in `$RUN` (`.verify/runs/<timestamp>/`, gitignored) and survives cle
 find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'videotape-verify-*' -exec rm -rf {} +
 ```
 
-This removes only scratch projects, so name yours `"${TMPDIR:-/tmp}"/videotape-verify-<something>`. Use `find`, not a bare glob, because zsh errors on a glob with no match. Never delete `.verify/runs/`, fixtures, or `examples/`. The one exception is a stand-in tape: `examples/contrail/tapes/` and the project's `ledger.jsonl` are generated and gitignored, and the first-render journey removes both on purpose when the ledger names no Wan take. A tape whose ledger lines name a Wan model cost money. Never delete it, its lines in `ledger.jsonl`, or its `takes/`, and never render it again. There are no processes to stop.
+This removes only scratch projects, so name yours `"${TMPDIR:-/tmp}"/videotape-verify-<something>`. Use `find`, not a bare glob, because zsh errors on a glob with no match. Never delete `.verify/runs/`, fixtures, or `examples/`. The one exception is a stand-in tape: `examples/contrail/tapes/` and the project's `ledger.jsonl` are generated and gitignored, and the first-render journey removes both on purpose when every line of the ledger is a stand-in take. A tape whose ledger lines name another model, or a read, cost money. Never delete it, its lines in `ledger.jsonl`, or its `takes/`, and never render it again. There are no processes to stop.
 
 ## Helpers
 
