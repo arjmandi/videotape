@@ -503,3 +503,30 @@ def test_a_search_for_joins_reads_every_line_it_can_when_lines_share_spots():
     paired = readings("made-up", lines, spots)
     assert [seen.cer == 0 for seen, _ in paired][-2:] == [True, True]
     assert sum(seen.cer == 0 for seen, _ in paired) == 12
+
+
+def test_a_month_sheared_by_half_a_column_reads_every_day_of_its_grid():
+    sheared = tuple(replace(spot, box=replace(spot.box, x=spot.box.x + round((spot.box.y - 40) / 2)))
+                    for spot in month(DRAWN))
+    checks = score(jfk(), [Read("made-up", sheared)])
+    assert checks.passed, failed(checks)
+
+
+def test_a_strip_that_slopes_more_than_its_lettering_is_tall_reads_every_day():
+    picked = key_of(vt.Text("Picked"))
+    key = key_of(vt.DateStrip({date(2026, 12, 11): vt.Option("$99", to=picked.state),
+                               date(2026, 12, 12): vt.Option("$89", to=picked.state),
+                               date(2026, 12, 13): vt.Option("$109", to=picked.state)}))
+    days = [("Fri 11", "$99", 100, 100), ("Sat 12", "$89", 300, 135), ("Sun 13", "$109", 500, 180)]
+    seen = Read("made-up", tuple(spot for day, fare, x, y in days for spot in (
+        Spot(day, Box(x, y, 70, 20), True), Spot(fare, Box(x, y + 26, 70, 20), True))))
+    checks = score(key, [seen])
+    assert checks.passed, failed(checks)
+
+
+def test_a_day_without_an_option_drawn_marked_fails_vt509():
+    drawn_month = month(DRAWN)
+    fourteen = next(spot.box for spot in drawn_month if spot.text == "14")
+    [mark] = [item for item in score(jfk(), [Read("made-up", drawn_month, marked=(fourteen,))]).items()
+              if item.code == "VT509"]
+    assert (mark.passed, mark.result) == (False, 'marked "14"; no day is chosen')

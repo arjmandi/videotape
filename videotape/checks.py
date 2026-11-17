@@ -454,7 +454,8 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
     charts = [Plotted(one.reader, element.type, chart, found) for one in reads if one.charts is not None
               for element, chart, found in _plotted(key.shown, one.charts)]
     marks = [_marked(one, element, [index for index, at in enumerate(placed) if at.element is element and _choice(at.line)],
-                     placed, seen[one.reader], sources[one.reader])
+                     placed, seen[one.reader], sources[one.reader],
+                     calendars.get(one.reader) if element.type in DAYS else None)
              for one in reads if one.marked is not None for element in key.shown
              if any(_choice(line) for line in element.lines)]
     return KeyChecks(actions, text, tuple(invented), tuple(stray), tuple(charts), tuple(marks))
@@ -656,10 +657,10 @@ class Calendar:
 
 
 def _strip_next(a: Spot, b: Spot) -> bool:
-    """Whether b is the strip's next day after a: to its right, within four of the wider's widths, about level, and
-    drawn about as tall, as a strip's cells are alike."""
-    return (0 < _cx(b.box) - _cx(a.box) <= 4 * max(a.box.w, b.box.w)
-            and abs(_cy(b.box) - _cy(a.box)) <= 2 * max(a.box.h, b.box.h)
+    """Whether b is the strip's next day after a: to its right, within four of the wider's widths, further across than
+    down, and drawn about as tall, as a strip's cells are alike."""
+    across, down = _cx(b.box) - _cx(a.box), _cy(b.box) - _cy(a.box)
+    return (0 < across <= 4 * max(a.box.w, b.box.w) and abs(down) < across
             and max(a.box.h, b.box.h) <= 2 * min(a.box.h, b.box.h))
 
 
@@ -678,7 +679,8 @@ def _step(found: Sequence[Spot], toward: Callable[[float, float], bool]) -> tupl
 
 def _month(found: Sequence[Spot], row: tuple[float, float] | None) -> list[Spot]:
     """A month's days: the largest group a column's or a row's step apart, then every day on a point of their
-    lattice, in its seven fullest columns and a row either side of its rows. Every day when no step can be read."""
+    lattice, in its seven fullest columns and a row either side of its rows. Of the row steps a diagonal apart, the
+    one most days a week apart are read across is the row. Every day when no step can be read."""
     column = _step(found, lambda dx, dy: dx > 0 and abs(dy) < dx)
     if column is None:
         return list(found)
@@ -692,6 +694,8 @@ def _month(found: Sequence[Spot], row: tuple[float, float] | None) -> list[Spot]
     linked = max(_clusters(found, apart), key=len)
     if row is None:
         return linked
+    row = max((row, (row[0] + column[0], row[1] + column[1]), (row[0] - column[0], row[1] - column[1])),
+              key=lambda step: _weeks(linked, step))
     determinant = column[0] * row[1] - column[1] * row[0]
     if abs(determinant) < 1e-6:
         return linked
@@ -707,6 +711,16 @@ def _month(found: Sequence[Spot], row: tuple[float, float] | None) -> list[Spot]
     rows = range(min(v for _, v in whole) - 1, max(v for _, v in whole) + 2)
     return [spot for spot in found if (at := place(spot)) and first <= round(at[0]) < first + 7
             and round(at[1]) in rows and abs(at[0] - round(at[0])) <= 1 / 3 and abs(at[1] - round(at[1])) <= 1 / 3]
+
+
+def _weeks(days: Sequence[Spot], step: tuple[float, float]) -> int:
+    """How many of the days a step apart are a week apart, across the end of a month too: the row step a calendar is
+    drawn with, where a sheared month leaves the nearest day below on either diagonal."""
+    def later(a: Spot, b: Spot) -> bool:
+        return int(b.text) - int(a.text) in (7, -21, -22, -23, -24)
+
+    return sum(later(a, b) for a in days for b in days
+               if math.dist((_cx(b.box) - _cx(a.box), _cy(b.box) - _cy(a.box)), step) <= math.hypot(*step) / 3)
 
 
 def _clusters(spots: Sequence[Spot], linked: Callable[[Spot, Spot], bool]) -> list[list[Spot]]:
@@ -772,13 +786,15 @@ def _choice(line: Line) -> bool:
 
 
 def _marked(one: Read, element: Shown, choices: Sequence[int], placed: Sequence[_Placed], seen: dict[int, Seen],
-            sources: dict[int, tuple[Spot, ...]]) -> Marked:
+            sources: dict[int, tuple[Spot, ...]], calendar: Calendar | None) -> Marked:
     """Which of an element's choices, by their places among the key's lines, this reader saw drawn marked: those read
-    from a spot drawn marked."""
+    from a spot drawn marked, and on a calendar any other day of its grid drawn marked too."""
     marked = set(one.marked or ())
     chosen = next((index for index in choices if placed[index].line.chosen), None)
     noun = next((action.kind for index in choices if (action := placed[index].line.action)), "line")
     lit = tuple(placed[index].line.words for index in choices
                 if any(spot.box in marked for spot in sources.get(index, ())))
+    read = {spot for index in choices for spot in sources.get(index, ())}
+    lit += tuple(day.text for day in (calendar.numbers if calendar else ()) if day not in read and day.box in marked)
     box = seen[chosen].box if chosen is not None and chosen in seen else None
     return Marked(one.reader, element.type, noun, placed[chosen].line.words if chosen is not None else None, lit, box)
