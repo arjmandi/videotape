@@ -11,7 +11,7 @@ import shutil
 import sys
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, CancelledError, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +25,7 @@ from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.hosted import RecordedFailure, request_record
 from videotape.ledger import Ledger, now
 from videotape.model import Model
-from videotape.plan import Key, Move, Plan, Shot
+from videotape.plan import FromKey, Key, Move, Plan, Shot
 from videotape.atomic import partial, write_atomically
 from videotape.screenplay import State
 from videotape.story import Prompt, Story, prompt, text
@@ -154,7 +154,8 @@ class _Set:
     readers: tuple[Reader, ...]
     tape: Path
     images: dict[State, Path]
-    """Each state's key image, which the moves that leave or land on it are pinned to."""
+    """Each state's key image, which the moves that leave or land on it are pinned to, and which a key drawn from
+    it starts on."""
     budget: Budget
     resume: str
     """The command that runs this render again."""
@@ -221,12 +222,13 @@ def eye(readers: Sequence[Reader]) -> str:
 def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], tape: Path, ledger: Ledger, made: dict,
            takes: int = 4, limit: int = 1, price: Price | None = None, cap: float | None = None,
            resume: str = "videotape render", report: Callable[[Filmed], None] = lambda filmed: None,
-           every: bool = False) -> Render:
+           every: bool = False, images: Mapping[State, Path] | None = None) -> Render:
     """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
     and write them into the tape. The readers are the model's eye, which reads each take of a key. made is the block
     that says what made the tape, which tape.json carries. report is told each shot as it finishes. every films each
     seed up to takes whatever passed before, as a retake's seeds are, so a screen test sees every take; a plan of
-    some keys alone, as a screen test films, gives a tape whose scenes have no hotspots."""
+    some keys alone, as a screen test films, gives a tape whose scenes have no hotspots. images holds the key
+    pictures of states outside the plan that a FromKey of the plan starts from."""
     started = time.perf_counter()
     billed = [*([model.name] if price else []), *(reader.name for reader in readers if reader.paid)]
     if billed and cap is None:
@@ -237,7 +239,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     carried = dailies.carried(tape, resume)
-    shared = _Set(model, tuple(readers), tape, {key.state: tape / key.image for key in plan.keys},
+    shared = _Set(model, tuple(readers), tape, {**(images or {}), **{key.state: tape / key.image for key in plan.keys}},
                   Budget(ledger, price, cap), resume, threading.Event(), {}, threading.Lock())
     seeds = {shot.title: _seeds(shot, takes, carried, every) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
@@ -329,8 +331,13 @@ def _corrupt(carried: Carried, result: Render) -> Carried:
 def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int],
               skipped: list[int]) -> Filmed:
     words = text(clauses)
-    filmed = _film_shot(shared, key, clauses, seeds, retakes, skipped, lambda seed, out: shared.model.text_to_video(words, seed, out),
-                        (), lambda path, purse: _read(shared, key, path, purse))
+    if isinstance(key, FromKey):
+        start = shared.images[key.start]
+        film, images = (lambda seed, out: shared.model.first_frame(words, start, seed, out)), (start,)
+    else:
+        film, images = (lambda seed, out: shared.model.text_to_video(words, seed, out)), ()
+    filmed = _film_shot(shared, key, clauses, seeds, retakes, skipped, film, images,
+                        lambda path, purse: _read(shared, key, path, purse))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
     write_atomically(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
     return filmed

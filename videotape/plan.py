@@ -21,6 +21,8 @@ NOT_PLAIN = re.compile(r"[^A-Za-z0-9 .,'?!$%():-]")
 class Mode(Enum):
     TEXT_TO_VIDEO = "text-to-video"
     FIRST_AND_LAST_FRAME = "first-and-last-frame"
+    FIRST_FRAME = "first-frame"
+    """Image to video from a start picture alone: the take opens on it and the prompt draws the rest."""
 
 
 @dataclass(frozen=True)
@@ -49,6 +51,19 @@ class Key:
     def image(self) -> str:
         """Where its key image is in a tape."""
         return f"keys/{self.id}.png"
+
+
+@dataclass(frozen=True)
+class FromKey(Key):
+    """A state drawn from another state's key picture: image to video from that picture alone, with the state's own
+    prompt, so the picture's layout carries over. Its kept take's last frame is its key image, as a Key's is."""
+
+    start: State
+    mode: ClassVar[Mode] = Mode.FIRST_FRAME
+
+    @property
+    def title(self) -> str:
+        return f"key {self.state.name} from {self.start.name}"
 
 
 @dataclass(frozen=True)

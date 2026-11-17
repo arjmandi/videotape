@@ -37,6 +37,11 @@ class Model(Kind, Protocol):
 
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> Receipt | None: ...
 
+    def first_frame(self, prompt: str, start: Path, seed: int, out: Path) -> Receipt | None:
+        """Image to video from the start picture alone, so the take's last frame is a key drawn in that picture's
+        layout. A model without the mode raises a ModelError that names one with it."""
+        ...
+
     def download_again(self, out: Path) -> Receipt | None:
         """Write the take at out again from the request the model recorded beside it, which submits nothing and
         costs nothing, and return its receipt. None when no request is recorded there."""
@@ -78,6 +83,17 @@ class Listing:
         return tuple((what, key) for what, key in ((name, self.key), *((f"{name}'s reader {reader.name}", reader.key)
                                                                       for reader in self.readers)) if key)
 
+
+SIZES = {
+    # tests/fixtures/wan3.0.txt: the prototype run's clips came back 1280x720. VTR-Bench lists Wan3.0 at 1280x720.
+    "wan3.0": (1280, 720),
+    # 768P at 16:9 is 1344x768, which VTR-Bench (arXiv 2610.01499, 2026-10-01) ran H3 at.
+    "minimax-h3": (1344, 768),
+    # 720p at 16:9. fal states no pixel size for it, so this is a guess.
+    "gemini-omni-flash-1.2": (1280, 720),
+}
+"""The picture size each model films, which the most a read of its picture costs depends on. A model not here is
+priced at the stand-in's size."""
 
 MODELS: dict[str, Listing] = {
     "stand-in": Listing(StandIn, (StandInEye,), limit=8, kind=StandIn),

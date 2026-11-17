@@ -19,7 +19,7 @@ from videotape.fal import Price, Receipt
 from videotape.ledger import Ledger
 from videotape.made import made
 from videotape.model import MODELS, Listing
-from videotape.plan import Mode, Plan, plan
+from videotape.plan import FromKey, Mode, Plan, plan
 from videotape.render import render
 from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 
@@ -335,6 +335,39 @@ def test_a_plan_of_keys_alone_films_only_them_and_its_tape_has_their_words_witho
                      "hotspots": []},
     }
     assert data["moves"] == {} and dailies.read(tape)["moves"] == []
+
+
+def test_a_key_drawn_from_another_keys_picture_films_from_that_picture_and_names_its_take_by_it(tmp_path):
+    """A variants test draws the other states of a scene from its first state's key, so that its layout carries over."""
+    directory = contrail_copy(tmp_path / "contrail")
+    full, terminal, model = planned(directory), told(directory, "terminal"), StandIn(flaw=clean)
+    base, other = (next(key for key in full.keys if key.state.name == name)
+                   for name in ("flight(CT 500, 2026-12-11)", "flight(CT 104, 2026-12-12)"))
+    block = made(project.find(directory), terminal, model)
+
+    def rendered(keys: tuple, tape: Path, **more):
+        return render(Plan(full.title, full.scenes, keys, (), ()), terminal, model, [StandInEye()], tape,
+                      ledger.of(directory, tape), block, takes=1, **more)
+
+    bases = directory / "tapes" / "bases"
+    rendered((base,), bases)
+    picture, tape = bases / base.image, directory / "tapes" / "from-key"
+    variant = FromKey(other.id, other.state, other.shown, base.state)
+    [filmed] = rendered((variant,), tape, images={base.state: picture}).keys
+    assert filmed.shot.title == "key flight(CT 104, 2026-12-12) from flight(CT 500, 2026-12-11)"
+    assert (model.calls[-1].mode, model.calls[-1].prompt, model.calls[-1].seed, model.calls[-1].start) == (
+        Mode.FIRST_FRAME, words(variant, terminal), 1, picture)
+    recipe = ["first-frame", words(variant, terminal), hashlib.sha256(picture.read_bytes()).hexdigest(), "stand-in", 1]
+    assert filmed.kept.path.name == f"{hashlib.sha256(json.dumps(recipe).encode()).hexdigest()}.mp4"
+    assert filmed.passed and frames.read_png(tape / variant.image) == frames.last_frame(filmed.kept.path)
+    assert frames.difference(frames.first_frame(filmed.kept.path), frames.read_png(picture)) < 0.01
+    record = dailies.read(tape)
+    assert (record["keys"][0]["state"], record["keys"][0]["mode"]) == (other.state.name, "first-frame")
+    [line] = ledger.of(directory, tape).lines()
+    assert (line["shot"], line["mode"], line["seed"]) == (filmed.shot.title, "first-frame", 1)
+    frames.write_png(frames.first_frame(filmed.kept.path), bases / "other.png")
+    [again] = rendered((variant,), tape, images={base.state: bases / "other.png"}).keys
+    assert len(model.calls) == 3 and again.kept.path != filmed.kept.path
 
 
 def test_a_move_keeps_the_take_whose_frames_sit_closest_to_its_keys(first):

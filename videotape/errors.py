@@ -492,6 +492,22 @@ CODES: dict[str, Code] = {
         "retake the shot, change the story's appearance for the chart's type, plot fewer categories in the "
         "screenplay, or accept it with a reason",
     ),
+    "VT505": Code(
+        "a variant's layout differs from its scene's base",
+        "Two states of one scene differ only in their data, so they should share a layout: the same signs in the same "
+        "places, with other words on them. The layout check compares a variant's key with its scene's base outside "
+        "the text the readers found: both keys are scaled to a small grey picture, the box of every line and control "
+        "a reader read is left out of both, padded a little, and what remains is measured by shading, the mean "
+        "absolute difference, and by edges, one minus the correlation of where the edges lie. No number says what a "
+        "person calls the same layout, so the threshold comes from a person's marks: scripts/variants-test's report "
+        "shows each pair, the person marks it the same layout or different, and --marks picks the metric and the "
+        "threshold that agree with the most marks. Until there are marks the check reports its distances and no "
+        "verdict, and the recommendation waits.",
+        "fail VT505 flight(CT 104, 2026-12-12) against flight(CT 500, 2026-12-11): shading 0.207, edges 0.812; shading "
+        "over the threshold of 0.080",
+        "draw the variant from its base's key, as the from-key method does, or mark more pairs so that the threshold "
+        "is held to more of them",
+    ),
     "VT508": Code(
         "a seam between a move and its key is too wide",
         "A move is filmed from the key it leaves to the key it lands on, and its first and last frames are compared "

@@ -13,6 +13,7 @@ from videotape import project, story
 from videotape.cli import main
 from videotape.errors import CODES, ScreenplayError
 from videotape.plan import Plan, Shot, plan
+from videotape.project import forget
 from videotape.story import Story
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -25,17 +26,6 @@ VIDEOTAPE = Path(sys.executable).with_name("videotape")
 sys.dont_write_bytecode = True
 # videotape dailies opens the page with webbrowser, and true opens nothing.
 os.environ["BROWSER"] = "true"
-
-
-def forget(found: project.Project) -> None:
-    """Drop a project's modules, and its folder from the import path, so a copy or an edit of the project is imported
-    afresh. A regular package anywhere on the path wins over a namespace package before it, so a starter's contrail
-    package, left on the path, would stand in for examples/contrail's, which has no __init__.py."""
-    top = found.screenplay.partition(":")[0].partition(".")[0]
-    for name in [name for name in sys.modules if name == top or name.startswith(f"{top}.")]:
-        del sys.modules[name]
-    while str(found.root) in sys.path:
-        sys.path.remove(str(found.root))
 
 
 def planned(directory: Path) -> Plan:
