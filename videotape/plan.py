@@ -54,6 +54,19 @@ class Key:
 
 
 @dataclass(frozen=True)
+class FromKey(Key):
+    """A state drawn from another state's key picture: image to video from that picture alone, with the state's own
+    prompt, so the picture's layout carries over. Its kept take's last frame is its key image, as a Key's is."""
+
+    start: State
+    mode: ClassVar[Mode] = Mode.FIRST_FRAME
+
+    @property
+    def title(self) -> str:
+        return f"key {self.state.name} from {self.start.name}"
+
+
+@dataclass(frozen=True)
 class Move:
     """A press on one action of a state, drawn between that state's key and the key of the state it leads to."""
 
