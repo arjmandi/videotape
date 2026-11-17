@@ -14,6 +14,8 @@ from videotape.plan import Plan, Shot, plan
 from videotape.story import Story
 
 FIXTURES = Path(__file__).parent / "fixtures"
+RECORDED = FIXTURES / "recorded"
+"""What the paid screen test wrote, copied unchanged: recorded/recorded.txt."""
 CONTRAIL = Path(__file__).parent.parent / "examples" / "contrail"
 VIDEOTAPE = Path(sys.executable).with_name("videotape")
 

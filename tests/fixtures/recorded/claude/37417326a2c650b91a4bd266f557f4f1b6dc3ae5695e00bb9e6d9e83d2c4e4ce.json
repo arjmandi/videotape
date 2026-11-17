@@ -1,0 +1,9 @@
+{
+  "model": "claude-opus-5-5",
+  "reply": "{\"lines\":[{\"text\":\"to New York\",\"box\":{\"x\":352,\"y\":0,\"w\":150,\"h\":50},\"control\":false,\"marked\":false},{\"text\":\"Sunday, December 13\",\"box\":{\"x\":233,\"y\":0,\"w\":183,\"h\":46},\"control\":false,\"marked\":false},{\"text\":\"1:30 PM to 11:40 PM, 7h 10m, 1 stop\",\"box\":{\"x\":231,\"y\":22,\"w\":276,\"h\":56},\"control\":false,\"marked\":false},{\"text\":\"Airbus A321 neo. Earns 2,586 miles.\",\"box\":{\"x\":229,\"y\":52,\"w\":273,\"h\":74},\"control\":false,\"marked\":false},{\"text\":\"Book for $229\",\"box\":{\"x\":595,\"y\":86,\"w\":178,\"h\":86},\"control\":true,\"marked\":false},{\"text\":\"$204 Brown $223\",\"box\":{\"x\":645,\"y\":152,\"w\":90,\"h\":28},\"control\":false,\"marked\":false},{\"text\":\"CT 104 to Nevnber 13\",\"box\":{\"x\":0,\"y\":242,\"w\":122,\"h\":20},\"control\":false,\"marked\":false},{\"text\":\"1\",\"box\":{\"x\":210,\"y\":271,\"w\":16,\"h\":20},\"control\":false,\"marked\":false},{\"text\":\":30 PM to 11:40 PM\",\"box\":{\"x\":0,\"y\":258,\"w\":110,\"h\":16},\"control\":false,\"marked\":false},{\"text\":\"Airbus A321 neo. 7h 10m, 1 stop.\",\"box\":{\"x\":0,\"y\":270,\"w\":160,\"h\":16},\"control\":false,\"marked\":false},{\"text\":\"o December 5\",\"box\":{\"x\":0,\"y\":288,\"w\":55,\"h\":12},\"control\":false,\"marked\":false},{\"text\":\"Book for $229\",\"box\":{\"x\":78,\"y\":295,\"w\":64,\"h\":16},\"control\":true,\"marked\":false}],\"charts\":[]}",
+  "tokens": {
+    "input_tokens": 2191,
+    "output_tokens": 626
+  },
+  "usd": 0.021284
+}
