@@ -248,8 +248,8 @@ def accept(args) -> int:
         where = f" --out {args.out}" if args.out else ""
         raise ScreenplayError(
             "VT408", shot.title, f"does not fail {args.code}; " + (f"it fails {', '.join(codes)}" if codes else "it passes")
-            + ", so nothing is recorded",
-            f'accept the code it fails: videotape accept "{dailies.named(shot)}" {codes[0]} --story {record["story"]}'
+            + ", so nothing is written down",
+            f'accept the check it fails: videotape accept "{dailies.named(shot)}" {codes[0]} --story {record["story"]}'
             f'{where} --reason "..."' if codes else "nothing; its kept take passes every check")
     accepted = {"shot": shot.title, "code": args.code, "reason": args.reason, "at": ledger.now(),
                 "seed": failing[0]["take"], "clip": failing[0]["clip"]}

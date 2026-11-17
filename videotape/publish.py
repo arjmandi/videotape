@@ -125,8 +125,8 @@ def _put_back(staging: Path, places: list[Path]) -> None:
         if (aside / place.name).exists() and not place.exists():
             (aside / place.name).rename(place)
     if left := sorted(path.name for path in aside.iterdir()):
-        raise ScreenplayError("VT607", shown(aside), f"holds {', '.join(left)}, which an earlier publish moved aside and "
-                              "was stopped before it put back", "move back the ones to keep, delete the folder, and "
+        raise ScreenplayError("VT607", shown(aside), f"holds {', '.join(left)}, which an earlier publish put aside and "
+                              "was stopped before it put back", "put back the ones to keep, delete the folder, and "
                               "publish again")
 
 

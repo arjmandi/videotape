@@ -313,7 +313,7 @@ def test_a_file_left_aside_whose_place_holds_another_is_vt607_and_publish_delete
     err = capsys.readouterr().err
     assert as_explained("VT607").fullmatch(err.rstrip("\n"))
     assert err.startswith("error VT607 dist/Contrail-starter.partial/aside: holds Contrail-starter.zip, which an earlier "
-                          "publish moved aside")
+                          "publish put aside")
     assert (aside / "Contrail-starter.zip").read_bytes() == b"an earlier zip"
     assert (contrail / "dist" / "Contrail-starter.zip").read_bytes() == before
 
@@ -328,7 +328,7 @@ def test_a_lock_left_aside_by_another_storys_publish_while_the_project_holds_one
     before = (contrail / "videotape.lock").read_text()
     assert cli(contrail, "publish", "--story", "starter") == 1
     assert capsys.readouterr().err.startswith("error VT607 dist/Contrail-second.partial/aside: holds videotape.lock, "
-                                              "which an earlier publish moved aside")
+                                              "which an earlier publish put aside")
     assert (aside / "videotape.lock").read_text() == "an earlier lock"
     assert (contrail / "videotape.lock").read_text() == before
 

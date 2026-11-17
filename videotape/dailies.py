@@ -172,7 +172,7 @@ def _held(tape: Path, render: str) -> dict:
         return read(tape)
     except json.JSONDecodeError as error:
         raise errors.ScreenplayError("VT410", errors.shown(tape / "dailies.json"), f"is not JSON: {error}",
-                                     "mend it, or move it aside and run the render again, which writes it afresh from "
+                                     "mend it, or put it aside and run the render again, which writes it afresh from "
                                      "the takes on disk, without the accepts and the retake seeds it held, as in:\n"
                                      f"{render}") from None
 

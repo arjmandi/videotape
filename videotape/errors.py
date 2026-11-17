@@ -410,11 +410,11 @@ CODES: dict[str, Code] = {
     ),
     "VT408": Code(
         "accept names a check the shot does not fail",
-        "accept records a person's reason for one check that a shot's kept take fails, named by the shot and the "
-        "check's code. The kept take of the shot it names does not fail that code, so there is nothing to accept, and "
-        "the tape's dailies.json is left as it was. The error says which codes the kept take fails, if any, and the "
-        "next step accepts the first of them.",
-        "error VT408 key order(Latte): does not fail VT503; it passes, so nothing is recorded",
+        "accept writes down a person's reason for one check that a shot's kept take fails, named by the shot and the "
+        "check's error code. The kept take of the shot it names does not fail that check, so there is nothing to "
+        "accept, and the tape's dailies.json is left as it was. The error says which checks the kept take fails, if "
+        "any, and the next step accepts the first of them.",
+        "error VT408 key order(Latte): does not fail VT503; it passes, so nothing is written down",
         "next: nothing; its kept take passes every check",
     ),
     "VT409": Code(
@@ -436,16 +436,16 @@ CODES: dict[str, Code] = {
     ),
     "VT410": Code(
         "a file videotape writes is not JSON",
-        "A render writes a tape's tape.json and dailies.json whole and then moves each into place, and appends one "
+        "A render writes a tape's tape.json and dailies.json whole and then puts each into place, and appends one "
         "line to the project's ledger.jsonl for each take it films and each read it pays for, all of it JSON. retake, "
-        "publish and diff read tape.json. retake, accept, dailies and publish read dailies.json, and so does a render, "
+        "publish and diff open tape.json. retake, accept, dailies and publish open dailies.json, and so does a render, "
         "for the accepts, the retake seeds and the corrupt seeds it carries on. A render, a retake, an accept and "
-        "dailies read the ledger for what the tape has spent. This file, or this line of the ledger, is not JSON: an "
+        "dailies open the ledger for what the tape has spent. This file, or this line of the ledger, is not JSON: an "
         "edit or a merge broke it, or the render that appended the line was killed as it wrote. The command stops "
-        "before it changes anything, and the error names the file, the ledger's line, and what the JSON reader said.",
+        "before it changes anything, and the error names the file, the ledger's line, and what the JSON parser said.",
         "error VT410 tapes/chalk/dailies.json: is not JSON: Expecting property name enclosed in double quotes: line 2 "
         "column 1 (char 2)",
-        "next: mend it, or move it aside and run the render again, which writes it afresh from the takes on disk, "
+        "next: mend it, or put it aside and run the render again, which writes it afresh from the takes on disk, "
         "without the accepts and the retake seeds it held, as in:\nvideotape render --story chalk",
     ),
     "VT501": Code(
@@ -581,14 +581,14 @@ CODES: dict[str, Code] = {
     ),
     "VT607": Code(
         "an earlier publish left files aside",
-        "Publish moves the app, the zip and videotape.lock it replaces aside into dist/<app>.partial/aside, and moves "
-        "them back when it fails or is stopped. A publish stopped while it moved them back leaves some there, and the "
-        "next publish, of that story or any other, moves each back to its place. A place that already holds another "
+        "Publish puts the app, the zip and videotape.lock it replaces aside into dist/<app>.partial/aside, and puts "
+        "them back when it fails or is stopped. A publish stopped while it put them back leaves some there, and the "
+        "next publish, of that story or any other, puts each back in its place. A place that already holds another "
         "file keeps it, so the file aside stays, and publish stops before it builds anything, so that neither file is "
         "deleted.",
-        "error VT607 dist/Contrail-starter.partial/aside: holds Contrail-starter.zip, which an earlier publish moved "
+        "error VT607 dist/Contrail-starter.partial/aside: holds Contrail-starter.zip, which an earlier publish put "
         "aside and was stopped before it put back",
-        "fix: move back the ones to keep, delete the folder, and publish again",
+        "fix: put back the ones to keep, delete the folder, and publish again",
     ),
 }
 
