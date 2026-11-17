@@ -11,7 +11,6 @@ import hashlib
 import os
 import re
 import shlex
-import shutil
 import subprocess
 import sys
 import time
@@ -21,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CONTRAIL, planned, told
+from conftest import CONTRAIL, contrail_copy, planned, told
 from videotape import dailies, player, project, qwen, standin, story
 from videotape.cli import main
 from videotape.plan import Shot
@@ -195,8 +194,7 @@ def quit_player() -> bool:
 
 def contrail_over(folder: Path) -> None:
     """Write examples/contrail over the reader's project, with videotape from this checkout by its absolute path."""
-    shutil.copytree(CONTRAIL, folder, dirs_exist_ok=True, ignore=shutil.ignore_patterns(
-        ".venv", "tapes", "ledger.jsonl", "uv.lock", "__pycache__"))
+    contrail_copy(folder)
     pyproject = folder / "pyproject.toml"
     pyproject.write_text(pyproject.read_text().replace('path = "../.."', f'path = "{ROOT}"'))
 

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 import videotape as vt
-from conftest import CONTRAIL, as_explained, copy_of, planned, told, words
+from conftest import as_explained, contrail_copy, copy_of, planned, told, words
 from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
 from videotape.errors import ModelError, RenderError
@@ -165,8 +165,7 @@ def test_the_tape_has_one_scene_for_each_state_with_its_words_its_hotspots_and_i
 
 def test_a_states_words_are_what_its_scene_shows_in_reading_order(tmp_path):
     """Contrail's words, computed by calling each scene and reading its elements, without the plan or the render."""
-    directory = Path(shutil.copytree(CONTRAIL, tmp_path / "contrail", ignore=shutil.ignore_patterns(
-        ".venv", "tape*", "ledger.jsonl", "__pycache__")))
+    directory = contrail_copy(tmp_path / "contrail")
     terminal, model, tape = told(directory, "terminal"), StandIn(flaw=clean), directory / "tapes" / "terminal"
     render(planned(directory), terminal, model, [StandInEye()], tape, ledger.of(directory, tape),
            made(project.find(directory), terminal, model), takes=1, limit=8)
@@ -315,8 +314,7 @@ def test_every_films_each_seed_up_to_the_limit_whatever_passed_before_and_keeps_
 
 def test_a_plan_of_keys_alone_films_only_them_and_its_tape_has_their_words_without_hotspots_or_search(tmp_path):
     """A screen test films a few of an app's keys and none of its moves."""
-    directory = Path(shutil.copytree(CONTRAIL, tmp_path / "contrail", ignore=shutil.ignore_patterns(
-        ".venv", "tape*", "ledger.jsonl", "__pycache__")))
+    directory = contrail_copy(tmp_path / "contrail")
     full = planned(directory)
     keys = Plan(full.title, full.scenes, tuple(key for key in full.keys if key.state.name in ("home()", "search()")),
                 (), full.warnings)

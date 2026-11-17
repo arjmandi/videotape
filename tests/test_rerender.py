@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CONTRAIL, planned, told, words
+from conftest import contrail_copy, planned, told, words
 from videotape import ledger, project
 from videotape.made import made
 from videotape.plan import Mode, Plan
@@ -78,8 +78,7 @@ def film(directory: Path) -> tuple[set[str], int]:
 @pytest.fixture(scope="module")
 def changes(tmp_path_factory) -> dict[str, Change]:
     root = tmp_path_factory.mktemp("rerender")
-    first = read(Path(shutil.copytree(CONTRAIL, root / "first", ignore=shutil.ignore_patterns(
-        ".venv", "tape*", "ledger.jsonl", "__pycache__"))))
+    first = read(contrail_copy(root / "first"))
     before = first.prompts
     assert film(first.directory) == (set(before), 160)
     after = dict[str, Planned]()

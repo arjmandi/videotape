@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CONTRAIL, copy_of, planned, told
+from conftest import CONTRAIL, contrail_copy, copy_of, planned, told
 from videotape import hosted, ledger, new, project
 from videotape.errors import PACKAGE
 from videotape.fal import Fal
@@ -17,11 +17,6 @@ from videotape.render import render
 from videotape.standin import Flaw, StandIn, StandInEye
 
 HASH = re.compile(r"[0-9a-f]{64}")
-
-
-def contrail(to: Path) -> Path:
-    return Path(shutil.copytree(CONTRAIL, to / "contrail", ignore=shutil.ignore_patterns(
-        ".venv", "tape*", "ledger.jsonl", "__pycache__")))
 
 
 def block(directory: Path, story: str = "terminal", model=None) -> dict:
@@ -42,7 +37,7 @@ def test_a_tapes_made_block_names_the_app_the_story_the_model_and_the_engine_and
 
 
 def test_the_same_everything_has_one_id_wherever_the_project_is(tmp_path):
-    assert block(contrail(tmp_path)) == block(CONTRAIL)
+    assert block(contrail_copy(tmp_path / "contrail")) == block(CONTRAIL)
 
 
 def test_each_listed_models_class_gives_the_made_block_its_built_model_does_without_a_key(monkeypatch):
@@ -68,7 +63,7 @@ def changed(directory: Path, after: dict) -> set[str]:
 
 
 def test_the_id_changes_with_the_code_the_data_the_story_and_the_models_settings_each_by_its_own_hash(tmp_path):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     copy_py = directory / "contrail" / "copy.py"
     copy_py.write_text(copy_py.read_text() + "\n# a comment\n")
     assert changed(directory, block(directory)) == {"app.code", "id"}
@@ -77,14 +72,14 @@ def test_the_id_changes_with_the_code_the_data_the_story_and_the_models_settings
     (directory / "contrail" / "words.py").rename(copy_py)
     assert renamed["app"]["code"] != block(directory)["app"]["code"]
 
-    directory = contrail(tmp_path / "data")
+    directory = contrail_copy(tmp_path / "data" / "contrail")
     (directory / "data" / ".DS_Store").write_bytes(b"left by a file browser")
     assert changed(directory, block(directory)) == set()
     flights = directory / "data" / "flights.json"
     flights.write_text(flights.read_text().replace('"fare": 89,', '"fare": 91,'))
     assert changed(directory, block(directory)) == {"app.data", "id"}
 
-    directory = contrail(tmp_path / "story")
+    directory = contrail_copy(tmp_path / "story" / "contrail")
     story = directory / "stories" / "terminal.toml"
     story.write_text(story.read_text().replace("low golden sun", "a low red sun"))
     assert changed(directory, block(directory)) == {"story", "id"}
@@ -93,7 +88,7 @@ def test_the_id_changes_with_the_code_the_data_the_story_and_the_models_settings
 
 
 def test_the_id_changes_with_the_screenplay_the_project_names_from_one_package(tmp_path):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     (directory / "contrail" / "again.py").write_text("from contrail.screenplay import app\n")
     before = block(directory)
     pyproject = directory / "pyproject.toml"

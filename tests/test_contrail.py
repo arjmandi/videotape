@@ -1,6 +1,9 @@
 import json
+import os
 
-from conftest import CONTRAIL, planned, videotape
+import conftest
+from conftest import CONTRAIL, contrail_copy, planned, videotape
+from videotape import project
 
 PLAN = """\
 Contrail 0.1.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
@@ -89,3 +92,20 @@ def test_booking_the_morning_flight_to_seattle_lands_back_on_home():
 
 def test_contrails_screenplay_stays_under_200_lines():
     assert len((CONTRAIL / "contrail" / "screenplay.py").read_text().splitlines()) < 200
+
+
+def test_a_copy_of_contrail_leaves_the_api_keys_in_its_env_behind(tmp_path, monkeypatch):
+    """A developer keeps examples/contrail's API keys in its .env, and a test's copy of it must not bill with them."""
+    source = tmp_path / "source"
+    source.mkdir()
+    (source / "pyproject.toml").write_text((CONTRAIL / "pyproject.toml").read_text())
+    (source / ".env").write_text("FAL_KEY=fal-not-a-real-key\nANTHROPIC_API_KEY=sk-ant-not-a-real-key\n")
+    monkeypatch.setattr(conftest, "CONTRAIL", source)
+    for key in ("FAL_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
+    project.find(contrail_copy(tmp_path / "copy"))
+    assert {key: os.environ.get(key) for key in ("FAL_KEY", "ANTHROPIC_API_KEY")} == {
+        "FAL_KEY": None, "ANTHROPIC_API_KEY": None}
+    project.find(source)
+    assert {key: os.environ.get(key) for key in ("FAL_KEY", "ANTHROPIC_API_KEY")} == {
+        "FAL_KEY": "fal-not-a-real-key", "ANTHROPIC_API_KEY": "sk-ant-not-a-real-key"}

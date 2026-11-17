@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import CONTRAIL, forget
+from conftest import CONTRAIL, contrail_copy, forget
 from test_claude import KEY as CLAUDE_KEY, Claude
 from videotape import claude, project, qwen
 from videotape.claude import ClaudeReader
@@ -60,12 +60,6 @@ def offline(monkeypatch):
         monkeypatch.delenv(key, raising=False)
 
 
-def contrail(to: Path) -> Path:
-    """A copy of Contrail without anything a render, a .env or a venv left in it."""
-    return Path(shutil.copytree(CONTRAIL, to / "contrail", ignore=shutil.ignore_patterns(
-        ".venv", "tape*", "ledger.jsonl", "__pycache__", ".env")))
-
-
 @pytest.fixture
 def run(script, capsys, monkeypatch):
     """Run the script in this process from the repo's root, on a project, with Contrail's modules forgotten before
@@ -91,7 +85,7 @@ def most() -> float:
 
 
 def test_the_estimate_prices_each_models_calls_and_its_reads_at_the_most_and_needs_no_api_key(run, tmp_path):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     code, out, err = run(directory, "--models", THREE, "--stories", BOTH, "--estimate")
     assert (code, err) == (0, "")
     wan, h3 = 32 * claude.estimate(1280, 720), 32 * claude.estimate(1344, 768)
@@ -112,7 +106,7 @@ def test_the_estimate_prices_each_models_calls_and_its_reads_at_the_most_and_nee
 
 
 def test_with_a_cap_the_estimate_says_whether_the_run_fits_under_it(run, tmp_path):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     code, out, _ = run(directory, "--models", THREE, "--stories", BOTH, "--estimate", "--cap-usd", "60")
     assert code == 0 and out.splitlines()[-1].endswith(", under the cap of $60.00")
     code, out, _ = run(directory, "--models", "wan3.0", "--stories", "terminal", "--estimate", "--cap-usd", "5")
@@ -121,7 +115,7 @@ def test_with_a_cap_the_estimate_says_whether_the_run_fits_under_it(run, tmp_pat
 
 
 def test_an_estimate_past_the_cap_stops_before_any_call_and_says_the_cap_the_run_needs(run, tmp_path):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     code, out, err = run(directory, "--models", THREE, "--stories", BOTH, "--cap-usd", "50")
     assert code == 1 and out.splitlines()[-1] == f"the screen test: 96 takes, at most ${most():.2f}, past the cap of $50.00"
     needed = f"{math.ceil(most() * 100) / 100:.2f}"
@@ -133,7 +127,7 @@ def test_an_estimate_past_the_cap_stops_before_any_call_and_says_the_cap_the_run
 
 
 def test_a_paid_run_without_a_cap_does_not_start(run, tmp_path):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     code, _, err = run(directory, "--models", "minimax-h3", "--stories", "terminal")
     assert code == 1 and err.startswith(
         "error VT402 before the first call: minimax-h3 and claude-opus-5-5 bill per call, and no cap is set\nnext: set "
@@ -142,7 +136,7 @@ def test_a_paid_run_without_a_cap_does_not_start(run, tmp_path):
 
 
 def test_a_missing_api_key_stops_the_screen_test_before_any_call_as_vt104(run, tmp_path, monkeypatch):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     code, out, err = run(directory, "--models", THREE, "--stories", BOTH, "--cap-usd", "60")
     assert (code, err) == (1, "error VT104 .env: wan3.0 needs FAL_KEY, and it is not in the environment or .env\n"
                               "fix: copy .env.example to .env and set FAL_KEY there, or export it\n")
@@ -158,7 +152,7 @@ def test_a_missing_api_key_stops_the_screen_test_before_any_call_as_vt104(run, t
 
 def test_the_sampler_holds_every_element_type_of_contrail_and_a_state_the_plan_lacks_is_vt212(run, script, tmp_path,
                                                                                                monkeypatch):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     forget(project.find(directory))
     found = project.find(directory)
     from videotape.plan import plan
@@ -236,7 +230,7 @@ def screened(script, tmp_path_factory):
         patch.chdir(ROOT)
         patch.setattr(urllib.request, "urlopen", no_network)
         fakes = fake(patch)
-        directory = contrail(tmp_path_factory.mktemp("screened"))
+        directory = contrail_copy(tmp_path_factory.mktemp("screened") / "contrail")
         return directory, fakes, screen(script, directory, *RUN)
 
 
@@ -303,7 +297,7 @@ def test_run_again_it_films_nothing_reads_nothing_and_writes_the_same_report(scr
 
 
 def test_one_cap_holds_for_the_whole_screen_test_and_counts_what_its_other_tapes_spent(script, tmp_path, monkeypatch):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     monkeypatch.chdir(ROOT)
     fake(monkeypatch)
     earlier = {"kind": "take", "tape": "tapes/screen-test/wan3.0/posters", "shot": "key home()", "seed": 9,
@@ -550,7 +544,7 @@ WAN3_TERMINAL = ("--models", "wan3.0", "--stories", "terminal", "--cap-usd", "60
 def test_a_refused_take_shows_as_refused_fails_the_first_take_and_counts_its_elements_not_drawn_right(script, tmp_path,
                                                                                                       monkeypatch):
     refusing(monkeypatch, RefusingOnFal({1}))
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     code, out, err = screen(script, directory, *WAN3_TERMINAL)
     assert code == 0 and err.count("error VT409 ") == 8, err
     report = (directory / "tapes" / "screen-test" / "report.html").read_text()
@@ -569,7 +563,7 @@ def test_a_refused_take_shows_as_refused_fails_the_first_take_and_counts_its_ele
 
 def test_a_key_whose_both_takes_are_refused_still_has_its_report_with_both_counted_against_the_model(script, tmp_path,
                                                                                                      monkeypatch):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     found = project.find(directory)
     sample = script.sampled(script.plan(found.load(), found.max_states))
     from videotape import story
@@ -600,7 +594,7 @@ class GarblingOnFal(RefusingOnFal):
 
 def test_a_key_whose_both_takes_are_corrupt_names_a_next_step_that_films_it_anew_when_followed(script, tmp_path,
                                                                                                monkeypatch):
-    directory = contrail(tmp_path)
+    directory = contrail_copy(tmp_path / "contrail")
     found = project.find(directory)
     sample = script.sampled(script.plan(found.load(), found.max_states))
     from videotape import story
