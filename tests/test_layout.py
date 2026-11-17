@@ -81,3 +81,8 @@ def test_marks_the_distances_cannot_part_leave_the_bar_short_of_agreement_and_no
 @pytest.mark.parametrize("agreed, of, held", [(9, 10, True), (18, 20, True), (17, 20, False), (0, 0, False)])
 def test_the_bar_holds_at_90_percent_of_the_marks(agreed, of, held):
     assert layout.AGREEMENT == 0.9 and Bar("shading", 0.1, agreed, of).held is held
+
+
+def test_the_bar_a_render_judges_by_is_the_one_the_marks_of_the_variants_test_set():
+    assert layout.BAR == Bar("shading", 0.1525, 72, 75) and layout.BAR.held
+    assert layout.BAR.same(at(0.1525)) and not layout.BAR.same(at(0.1526))

@@ -5,6 +5,7 @@ given, so no test loads a model or sends a request."""
 import dataclasses
 import json
 import time
+from collections import Counter
 from dataclasses import replace
 from datetime import date
 
@@ -15,6 +16,7 @@ from conftest import CONTRAIL, FIXTURES, a_story, copy_of, planned, words
 from videotape import dailies, standin
 from videotape.checks import Chart, Free, Read, Spot, readings, score
 from videotape.frames import Box
+from videotape.layout import Layout
 from videotape.model import MODELS, Listing
 from videotape.plan import Key, plan
 from videotape.standin import StandIn, StandInEye
@@ -86,6 +88,22 @@ def test_an_action_is_found_only_when_every_reader_finds_it_and_the_hotspot_is_t
     assert [(item.code, item.about, item.result) for item in checks.failures] == [
         ("VT501", "Order", "not found, by second"), ("VT502", "Order", 'read "Order" by stand-in and nothing by second, '
                                                                         "CER 0.000 and 1.000")]
+
+
+def test_vt505_judges_a_variants_layout_distances_by_the_bar_the_marks_set():
+    frame, seen = drawn(key_of(vt.Heading("Thanks"), vt.Button("Done", to=key_of(vt.Text("Bye")).state)))
+    checks = score(key_of(vt.Heading("Thanks"), vt.Button("Done", to=key_of(vt.Text("Bye")).state)), [seen])
+    assert checks.layout is None and "VT505" not in {item.code for item in checks.items()}
+    thanks, done = (spot.box for spot in seen.spots)
+    assert Counter(checks.boxes) == {done: 4, thanks: 2}
+    close = replace(checks, layout=Layout(0.1525, 0.9, 0.86))
+    assert [(item.code, item.about, item.passed, item.result, item.box) for item in close.items()][-1] == (
+        "VT505", "layout against the base", True,
+        "shading 0.1525, edges 0.9000, 86% of the picture compared; shading under the threshold of 0.1525", None)
+    far = replace(checks, layout=Layout(0.207, 0.812, 0.86))
+    assert far.failures[-1].result == ("shading 0.2070, edges 0.8120, 86% of the picture compared; shading over the "
+                                       "threshold of 0.1525")
+    assert far.rank(2) == checks.rank(2) and not far.passed
 
 
 def test_every_check_item_names_the_element_type_it_judges():

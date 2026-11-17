@@ -1,6 +1,7 @@
 """What the readers find on a take, and which of it fails. Each check carries the code it fails with: VT501 an action
 not found, VT502 a line misread or an option's label on a day that has none, VT503 a control the model invented,
-VT504 a chart off its data, VT508 a seam between a move and its keys, and VT509 a choice not drawn marked.
+VT504 a chart off its data, VT505 a variant's layout off its base's, VT508 a seam between a move and its keys, and
+VT509 a choice not drawn marked.
 
 The data shape, from what a reader sees to what the dailies record:
 
@@ -15,6 +16,7 @@ The data shape, from what a reader sees to what the dailies record:
       invented  a Sighting per reader of a control reading none of the key's lines, not a calendar's day     VT503
       charts    a Plotted per chart, per reader that reports charts                                          VT504
       marks     a Marked per element that offers a choice, per reader that reports marks                     VT509
+      layout    the Layout distances from the base's picture, for a key drawn from it, judged by layout.BAR   VT505
     Item      one check: its code, what it is about, its evidence, whether it passed, its box, the element type it
               judges, or None for a whole-key check, and each reader's reading behind a VT501 or VT502.
 
@@ -42,6 +44,7 @@ from typing import ClassVar, Protocol
 
 from videotape import frames
 from videotape.frames import Box, Frame
+from videotape.layout import BAR, Layout
 from videotape.plan import Key
 from videotape.screenplay import Chart, Line, Shown
 
@@ -292,11 +295,19 @@ class KeyChecks:
     stray: tuple[Sighting, ...] = ()
     charts: tuple[Plotted, ...] = ()
     marks: tuple[Marked, ...] = ()
+    layout: Layout | None = None
+    """How far the key's layout sits from its base's, for a key drawn from another key's picture."""
 
     @property
     def hotspots(self) -> dict[str, Box | None]:
         """A box per action, by its hotspot's label, or none."""
         return {hotspot.label: hotspot.box for hotspot in self.actions}
+
+    @property
+    def boxes(self) -> tuple[Box, ...]:
+        """Every box a reader found on the key: each check's, and each reader's reading behind it. The layout check
+        leaves them out of the pictures it compares."""
+        return tuple(box for item in self.items() for box in (item.box, *(seen.box for seen in item.readings)) if box)
 
     @property
     def readers(self) -> tuple[str, ...]:
@@ -335,6 +346,12 @@ class KeyChecks:
                 result = f"marked {_listed(quoted)}; {chosen}"
             items.append(Item("VT509", mark.chosen or mark.element, result + _by([mark.reader], many), mark.right,
                               mark.box, mark.element))
+        if self.layout is not None:
+            same = BAR.same(self.layout)
+            items.append(Item("VT505", "layout against the base",
+                              f"shading {self.layout.shading:.4f}, edges {self.layout.edges:.4f}, {self.layout.kept:.0%} "
+                              f"of the picture compared; {BAR.metric} {'under' if same else 'over'} the threshold of "
+                              f"{BAR.threshold:.4f}", same, None))
         return items
 
     @property

@@ -14,7 +14,7 @@ the flights of DAY, three ways:
     seed      every state of the scene at one seed, the base included; when any state fails a check, the whole
               scene again at the next seed, once
     from-key  each variant from the base's key picture, image to video with the variant's own words, keeping its
-              last frame as its key; a second take only when the first fails a check
+              last frame as its key; a second take only when the first fails a text check or is refused
     repaint   each variant by repainting only the text of the base's key, on a model with a mode that repaints
               masked regions; no model here has one, so the report says so and no call is made
 
@@ -26,13 +26,15 @@ call that would pass it, which a run again with a higher cap resumes. The tapes 
 Run again, it films no take on disk and reads no picture whose read is cached, so the report is rebuilt for free.
 
 Every key gets the render's checks by every reader of the model's eye, and every variant the layout check, VT505,
-against its method's base, by the distances of videotape.layout. tapes/variants-test/report.html shows each scene's
-keys method by method with their checks and their cost, what one fare change and one direction change would draw
-again under each method, and the recommendation: the method with the most variants whose kept take passes the
-layout check and every other check, then the lowest cost a passing variant, then the fewest keys and moves the two
-changes draw again. The layout check has no threshold until a person marks pairs in the report, the same layout or
-different, and downloads marks.json; --marks marks.json picks the metric and the threshold that agree with the most
-marks, and without marks, or below their agreement bar, the recommendation is withheld.
+against its method's base, by the distances of videotape.layout, measured here and judged by the marks alone: the
+verdict a render gives a from-key take by the package's bar is left out, since this test is where that bar comes
+from. tapes/variants-test/report.html shows each scene's keys method by method with their checks and their cost,
+what one fare change and one direction change would draw again under each method, and the recommendation: the
+method with the most variants whose kept take passes the layout check and every other check, then the lowest cost
+a passing variant, then the fewest keys and moves the two changes draw again. The layout check has no threshold
+until a person marks pairs in the report, the same layout or different, and downloads marks.json; --marks marks.json
+picks the metric and the threshold that agree with the most marks, and without marks, or below their agreement bar,
+the recommendation is withheld.
 
 Standard library only; it imports videotape.
 """
@@ -62,7 +64,7 @@ from videotape.layout import AGREEMENT, Bar, Layout
 from videotape.made import made
 from videotape.model import MODELS, SIZES, Listing, Model
 from videotape.plan import FromKey, Key, Mode, Plan, plan
-from videotape.render import EveryTakeRefused, Filmed, Render, eye, render
+from videotape.render import Base, EveryTakeRefused, Filmed, Render, eye, render
 from videotape.story import Story
 
 SCENES = ("results", "flight", "booked")
@@ -105,7 +107,7 @@ METHODS = (
     Method("seed", Mode.TEXT_TO_VIDEO, "a scene's base and variants at one seed, and the whole scene again at the next "
            "seed when any state fails a check", with_base=True, on_base=False),
     Method("from-key", Mode.FIRST_FRAME, "each variant from its base's key picture at seed 1, and again at seed 2 when "
-           "it fails a check", with_base=False, on_base=True),
+           "it fails a text check", with_base=False, on_base=True),
     Method("repaint", None, "each variant by repainting only the text of its base's key", with_base=False, on_base=True),
 )
 
@@ -229,7 +231,7 @@ class Shoot:
     resume: str
 
     def render(self, keys: tuple[Key, ...], takes: int, every: bool = False,
-               images: Mapping | None = None) -> Render:
+               bases: Mapping | None = None) -> Render:
         def report(filmed: Filmed) -> None:
             for error in filmed.reported:
                 print(error.report(), file=sys.stderr, flush=True)
@@ -241,7 +243,7 @@ class Shoot:
         return render(Plan(self.plan.title, self.plan.scenes, keys, (), ()), self.told, self.model, self.readers,
                       self.tape, ledger.of(self.found.root, self.tape), made(self.found, self.told, self.model),
                       takes=takes, limit=self.listing.limit, price=self.listing.price, cap=self.cap,
-                      resume=self.resume, report=report, every=every, images=images)
+                      resume=self.resume, report=report, every=every, bases=bases)
 
 
 def _seed_arm(shoot: Shoot, scene: Scene, tapes: Mapping[tuple[str, str], Path]) -> None:
@@ -272,7 +274,10 @@ def base_take(seed_tape: Path, base: Key) -> dict | None:
 
 
 def _from_key_arm(shoot: Shoot, scene: Scene, tapes: Mapping[tuple[str, str], Path]) -> None:
-    """Each variant from the base's key picture at seed 1, which the seed method drew, up to TAKES takes."""
+    """Each variant from the base's key picture at seed 1, which the seed method drew, and again at seed 2 when its
+    first take fails a text check or is refused. The render judges each take's layout by the package's bar and would
+    try seed 2 on that too, so the variants film at seed 1 alone, and the ones to draw again get seed 2 as a retake,
+    which the tape's record carries, so a run again films nothing."""
     seed_tape = tapes["seed", scene.name]
     take = base_take(seed_tape, scene.base)
     if take is None:
@@ -284,9 +289,25 @@ def _from_key_arm(shoot: Shoot, scene: Scene, tapes: Mapping[tuple[str, str], Pa
         shoot.tape.mkdir(parents=True, exist_ok=True)
         write_atomically(picture, lambda out: frames.write_png(frames.last_frame(clip), out))
     variants = tuple(FromKey(key.id, key.state, key.shown, scene.base.state) for key in scene.variants)
+    bases = {scene.base.state: Base(picture, tuple(boxes(take["items"])))}
     print(f"from-key, {scene.name}: {_count(len(variants), 'variant')} from {scene.base.state.name}'s key at seed 1, "
-          f"up to {TAKES} takes each, read by {eye(shoot.readers)} -> {errors.shown(shoot.tape)}", flush=True)
-    shoot.render(variants, takes=TAKES, images={scene.base.state: picture})
+          f"read by {eye(shoot.readers)} -> {errors.shown(shoot.tape)}", flush=True)
+    try:
+        shoot.render(variants, takes=1, bases=bases)
+    except EveryTakeRefused as error:
+        print(error.report(), file=sys.stderr, flush=True)
+    record = dailies.read(shoot.tape)
+    again = [variant for variant in variants if variant.title in record["unfilmed"]
+             or any(failure["shot"] == variant.title and failure["code"] != layout.CODE
+                    for failure in record["failures"])]
+    if not again:
+        return
+    names = [variant.state.name for variant in again]
+    print(f"from-key, {scene.name}: {_listed(names[:3])}{' and more' if len(names) > 3 else ''} failed a text check "
+          f"at seed 1, or had the take refused, so drawn again at seed {TAKES}", flush=True)
+    retakes = {**record["retakes"], **{variant.title: [TAKES] for variant in again}}
+    dailies.write(shoot.tape, {**record, "retakes": retakes}, ledger.of(shoot.found.root, shoot.tape).totals())
+    shoot.render(variants, takes=1, bases=bases)
 
 
 ARMS: dict[str, Callable[[Shoot, Scene, Mapping[tuple[str, str], Path]], None]] = {
@@ -348,6 +369,12 @@ def refusal() -> tuple[dict, ...]:
              "element": None, "readings": []},)
 
 
+def _measured_here(take: dict) -> dict:
+    """The take as its record holds it, without the layout verdict the render gave it by the package's bar, since the
+    report measures every variant's layout itself and judges it by the marks alone."""
+    return {**take, "items": [item for item in take["items"] if item["code"] != layout.CODE]}
+
+
 def gathered(root: Path, scenes: Sequence[Scene], tapes: Mapping[tuple[str, str], Path]) -> list[Drawn]:
     """Every take of every tape, with its cost from the ledger and its picture written into pictures/, and for each
     variant its layout distances from its method's base at the same seed, or for the from-key method from the base's
@@ -362,7 +389,8 @@ def gathered(root: Path, scenes: Sequence[Scene], tapes: Mapping[tuple[str, str]
             if "shot" in line and "seed" in line:
                 costs[line["shot"], line["seed"]] += line.get("usd") or 0.0
         record = dailies.read(tape)
-        takes = {(key["state"], take["seed"]): (key["title"], take) for key in record["keys"] for take in key["takes"]}
+        takes = {(key["state"], take["seed"]): (key["title"], _measured_here(take)) for key in record["keys"]
+                 for take in key["takes"]}
         for (state, seed), (title, take) in takes.items():
             picture = tape / "pictures" / f"{Path(take['clip']).stem}.png"
             if not picture.is_file() or picture.stat().st_mtime < (tape / take["clip"]).stat().st_mtime:

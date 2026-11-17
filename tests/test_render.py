@@ -4,6 +4,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -16,11 +17,12 @@ from videotape import dailies, frames, ledger, project
 from videotape.checks import MAX_DIFFERENCE
 from videotape.errors import ModelError, RenderError, ScreenplayError
 from videotape.fal import Price, Receipt
+from videotape.frames import Box, Frame
 from videotape.ledger import Ledger
 from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import FromKey, Mode, Plan, plan
-from videotape.render import render
+from videotape.render import Base, render
 from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 
 STATES = ("menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)")
@@ -64,6 +66,8 @@ def stand_in(model: StandIn, **listing) -> Listing:
 
 
 class Witness(StandIn):
+    """Notes whether each picture a take starts or ends on was there when the take was asked for."""
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.existed: list[bool] = []
@@ -71,6 +75,10 @@ class Witness(StandIn):
     def first_last_frame(self, prompt, start, end, seed, out):
         self.existed += [start.is_file(), end.is_file()]
         super().first_last_frame(prompt, start, end, seed, out)
+
+    def first_frame(self, prompt, start, seed, out):
+        self.existed.append(start.is_file())
+        super().first_frame(prompt, start, seed, out)
 
 
 TAPE = "tapes/chalk"
@@ -350,10 +358,11 @@ def test_a_key_drawn_from_another_keys_picture_films_from_that_picture_and_names
                       ledger.of(directory, tape), block, takes=1, **more)
 
     bases = directory / "tapes" / "bases"
-    rendered((base,), bases)
+    [drawn] = rendered((base,), bases).keys
     picture, tape = bases / base.image, directory / "tapes" / "from-key"
     variant = FromKey(other.id, other.state, other.shown, base.state)
-    [filmed] = rendered((variant,), tape, images={base.state: picture}).keys
+    start = Base(picture, drawn.kept.checks.boxes)
+    [filmed] = rendered((variant,), tape, bases={base.state: start}).keys
     assert filmed.shot.title == "key flight(CT 104, 2026-12-12) from flight(CT 500, 2026-12-11)"
     assert (model.calls[-1].mode, model.calls[-1].prompt, model.calls[-1].seed, model.calls[-1].start) == (
         Mode.FIRST_FRAME, words(variant, terminal), 1, picture)
@@ -361,13 +370,80 @@ def test_a_key_drawn_from_another_keys_picture_films_from_that_picture_and_names
     assert filmed.kept.path.name == f"{hashlib.sha256(json.dumps(recipe).encode()).hexdigest()}.mp4"
     assert filmed.passed and frames.read_png(tape / variant.image) == frames.last_frame(filmed.kept.path)
     assert frames.difference(frames.first_frame(filmed.kept.path), frames.read_png(picture)) < 0.01
+    [layout] = [item for item in filmed.kept.checks.items() if item.code == "VT505"]
+    assert layout.about == "layout against the base" and layout.passed and layout.result.startswith("shading 0.00")
+    assert layout.result.endswith("of the picture compared; shading under the threshold of 0.1525")
     record = dailies.read(tape)
     assert (record["keys"][0]["state"], record["keys"][0]["mode"]) == (other.state.name, "first-frame")
+    assert [item["code"] for item in record["keys"][0]["items"]][-1] == "VT505"
     [line] = ledger.of(directory, tape).lines()
     assert (line["shot"], line["mode"], line["seed"]) == (filmed.shot.title, "first-frame", 1)
     frames.write_png(frames.first_frame(filmed.kept.path), bases / "other.png")
-    [again] = rendered((variant,), tape, images={base.state: bases / "other.png"}).keys
+    [again] = rendered((variant,), tape, bases={base.state: Base(bases / "other.png", start.boxes)}).keys
     assert len(model.calls) == 3 and again.kept.path != filmed.kept.path
+
+
+WASHED, PALE = Box(0, 200, 1280, 504), bytes((255, 111, 255))
+"""The part of a key under the stand-in's boxes, and a colour whose green is the background's, so the stand-in's eye
+does not read it as a box."""
+
+
+class Relaid(Witness):
+    """Draws its first-frame takes at seed 1 in another layout: everything under the boxes is washed pale, which
+    every text check passes and only the layout check fails."""
+
+    def _film(self, mode, prompt, seed, start, end, out):
+        super()._film(mode, prompt, seed, start, end, out)
+        if mode is not Mode.FIRST_FRAME or seed != 1:
+            return
+        last = frames.last_frame(out)
+        canvas = bytearray(last.rgb)
+        for y in range(WASHED.y, WASHED.y + WASHED.h):
+            at = (y * last.width + WASHED.x) * 3
+            canvas[at:at + WASHED.w * 3] = PALE * WASHED.w
+        with tempfile.TemporaryDirectory() as scratch:
+            washed = Path(scratch) / "washed.png"
+            frames.write_png(Frame(last.width, last.height, bytes(canvas)), washed)
+            frames.crossfade(start, washed, out)
+
+
+def test_a_key_drawn_from_its_base_in_the_plan_waits_for_the_base_and_fails_vt505_when_it_leaves_its_layout(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    full, chalk = planned(directory), told(directory)
+    espresso, latte = full.keys[1], full.keys[2]
+    variant = FromKey(latte.id, latte.state, latte.shown, espresso.state)
+    model = Relaid(flaw=clean)
+    tape = directory / TAPE
+    result = render(Plan(full.title, full.scenes, (espresso, variant), (), ()), chalk, model, [StandInEye()], tape,
+                    ledger.of(directory, tape), made(project.find(directory), chalk, model), takes=2, limit=8)
+    base, filmed = result.keys
+    assert [(call.mode, call.seed, call.start) for call in model.calls] == [
+        (Mode.TEXT_TO_VIDEO, 1, None), (Mode.FIRST_FRAME, 1, tape / espresso.image), (Mode.FIRST_FRAME, 2, tape / espresso.image)]
+    assert model.existed == [True, True] and base.passed
+    washed, clean_take = filmed.takes
+    [failure] = washed.checks.failures
+    assert (failure.code, failure.about) == ("VT505", "layout against the base")
+    assert re.fullmatch(r"shading 0\.[2-4]\d{3}, edges \d\.\d{4}, 9\d% of the picture compared; shading over the "
+                        r"threshold of 0\.1525", failure.result)
+    assert filmed.kept is clean_take and clean_take.checks.passed and clean_take.checks.layout.shading < 0.01
+    record = dailies.read(tape)
+    assert record["failures"] == [] and record["yield"] == {"first_take": 1, "shots": 2}
+    [first, second] = record["keys"][1]["takes"]
+    assert [item["code"] for item in first["items"] if not item["passed"]] == ["VT505"]
+    assert all(item["passed"] for item in second["items"]) and second["kept"]
+    page = (tape / "dailies.html").read_text()
+    assert "<h2>2. key order(Latte) from order(Espresso) (first-frame)</h2>" in page
+    assert '<span class="name">VT505 layout against the base</span>' in page
+    model.calls.clear()
+    once = render(Plan(full.title, full.scenes, (espresso, variant), (), ()), chalk, model, [StandInEye()], tape,
+                  ledger.of(directory, tape), made(project.find(directory), chalk, model), takes=1, limit=8)
+    assert model.calls == [] and not once.keys[1].passed
+    [failure] = dailies.read(tape)["failures"]
+    assert (failure["shot"], failure["code"], failure["take"], failure["frame"]) == (variant.title, "VT505", 1, "last")
+    assert failure["next"]["retake"] == 'videotape retake "order(Latte)" --story chalk'
+    assert failure["next"]["accept"] == 'videotape accept "order(Latte)" VT505 --story chalk --reason "..."'
+    assert failure["next"]["story"].endswith("stories/chalk.toml line 11, scenes.order")
+    assert (tape / failure["crop"]).is_file()
 
 
 class Textual(StandIn):
