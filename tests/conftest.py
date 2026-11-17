@@ -3,6 +3,7 @@ import re
 import shutil
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -102,10 +103,15 @@ def as_explained(code: str) -> re.Pattern[str]:
 
 @pytest.fixture(autouse=True, scope="session")
 def refuse_urlopen():
-    """No test opens a URL in this process, so none pays fal or Claude with an API key the environment or a .env
-    holds."""
+    """No test opens a URL beyond this machine's files in this process, so none pays fal or Claude with an API key the
+    environment or a .env holds."""
+    opened = urllib.request.urlopen
+
     def refuse(request, *args, **kwargs):
-        raise AssertionError(f"a test reached for the network: {getattr(request, 'full_url', request)}")
+        url = getattr(request, "full_url", request)
+        if urllib.parse.urlsplit(url).scheme == "file":
+            return opened(request, *args, **kwargs)
+        raise AssertionError(f"a test reached for the network: {url}")
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(urllib.request, "urlopen", refuse)
         yield
