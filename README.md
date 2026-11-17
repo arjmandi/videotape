@@ -693,7 +693,7 @@ home() -> search() "Where to?"
 
 ### Render
 
-A render films every key first, then each move as soon as both of its keys are done, several shots at once. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, each chart's title, labels and values match the data, the chosen day or tab is drawn marked and no other, and each move starts and ends on its keys. The stand-in's eye is its own reader. A real model's eye is two readers, Qwen3-VL-8B and Claude, and a line reads back exactly from both or the check fails. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
+A render films every key first, then each move as soon as both of its keys are done, several shots at once. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, each chart's title, labels and values match the data, the chosen day or tab is drawn marked and no other, and each move starts and ends on its keys. The stand-in's eye is its own reader. A real model's eye is two readers, Qwen3-VL-8B and Claude, and a line reads back exactly from both or the check fails, but for a period one adds to the end of a line that has none while the other reads the line exactly. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
 
 The render prints a line for each shot as it finishes, then the totals, then each failing shot with the command to run next. It writes the tape to `tapes/terminal/`, and a line for each take to `ledger.jsonl`. The stand-in passes every shot within four takes, and a real model does not. So the output here comes from `tests/test_guide.py`, whose stand-in films every other shot clean on its first take, and fails two keys on every take:
 
@@ -737,7 +737,7 @@ uv run videotape explain VT502
 ```text
 VT502: a line was misread
 
-Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly from every reader or the check fails. The character error rate says how far off each reading was, and the dailies show each reader's reading and the line's box when a reader saw one. A DatePicker shows a month, and a day without an option shows no label, so an option's label read where the key has no such line fails this check too.
+Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly from every reader or the check fails. A period one reader adds to the end of a line that has none does not fail it while another reader reads the line exactly, since a key that draws the period is read with it by every reader. The character error rate says how far off each reading was, and the dailies show each reader's reading and the line's box when a reader saw one. A DatePicker shows a month, and a day without an option shows no label, so an option's label read where the key has no such line fails this check too.
 
 Example:
     vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"

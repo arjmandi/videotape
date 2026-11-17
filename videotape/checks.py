@@ -205,8 +205,9 @@ class Reading:
         return next((seen.box for seen in self.seen if seen.box), None)
 
     @property
-    def exact(self) -> bool:
-        return all(seen.cer <= MAX_CER for seen in self.seen)
+    def right(self) -> bool:
+        undrawn = not self.line.endswith(".") and any(seen.cer <= MAX_CER for seen in self.seen)
+        return all(seen.cer <= MAX_CER or (undrawn and seen.text == f"{self.line}.") for seen in self.seen)
 
 
 @dataclass(frozen=True)
@@ -312,7 +313,7 @@ class KeyChecks:
             items.append(Item("VT501", hotspot.label, result, found, hotspot.box, hotspot.element, hotspot.seen))
         for reading in self.text:
             if reading.seen:
-                items.append(Item("VT502", reading.line, _read(reading.seen, many), reading.exact, reading.box,
+                items.append(Item("VT502", reading.line, _read(reading.seen, many), reading.right, reading.box,
                                   reading.element, reading.seen))
         items += [Item("VT502", sighting.spot.text, f'a day with no option shows "{sighting.spot.text}" at '
                        f"{_placed(sighting.spot.box)}{_by([sighting.reader], many)}", False, sighting.spot.box,
