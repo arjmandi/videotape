@@ -21,8 +21,8 @@ its picture, its checks, its time and its cost, with the models side by side for
 choice of models. CALIBRATION's takes each list their key's elements with a checkbox, drawn right or not, and the page
 downloads them as marks.json. --marks marks.json reads them back and says how often the checks' verdict on an element,
 that every check judging it passed, agrees with a person's mark. Below AGREEMENT the pick is withheld. Otherwise the
-pick is the model with the most element types at BAR in every story, then the fewest controls invented, then the
-lowest cost. It is printed, and pyproject.toml is left as it is.
+pick is the model with the most element types at BAR in every story, then the largest share of elements that pass
+every check, then the fewest controls invented, then the lowest cost. It is printed, and pyproject.toml is left as it is.
 
 Standard library only; it imports videotape.
 """
@@ -303,18 +303,21 @@ def judged(key: Key, items: Sequence[dict]) -> tuple[Element, ...]:
 
 @dataclass(frozen=True)
 class Standing:
-    """How one model did: the element types at the bar in every story, the controls its takes invent, as each reader
-    saw them, and what its takes and reads cost."""
+    """How one model did: the element types at the bar in every story, its elements that pass every check in every
+    story, the controls its takes invent, as each reader saw them, and what its takes and reads cost."""
 
     model: str
     met: frozenset[str]
+    passing: Tally
     invented: int
     usd: float
 
 
 def pick(standings: Sequence[Standing]) -> Standing:
-    """The most element types at the bar, then the fewest controls invented, then the lowest cost."""
-    return min(standings, key=lambda standing: (-len(standing.met), standing.invented, standing.usd))
+    """The most element types at the bar, then the largest share of elements that pass every check, which decides
+    while no type meets the bar, then the fewest controls invented, then the lowest cost."""
+    return min(standings, key=lambda standing: (-len(standing.met), -standing.passing.share, standing.invented,
+                                                standing.usd))
 
 
 @dataclass(frozen=True)
@@ -404,6 +407,8 @@ class Screen:
     def standings(self) -> tuple[Standing, ...]:
         return tuple(Standing(model, frozenset(kind for kind in self.kinds if all(
             self.tally(model, told, kind).met for told in self.stories)),
+            Tally(sum(element.passed for take in self.takes if take.model == model for element in take.elements),
+                  sum(len(take.elements) for take in self.takes if take.model == model)),
             sum(take.invented for take in self.takes if take.model == model), self.spent[model])
             for model in self.models)
 
@@ -546,7 +551,9 @@ def _pick(screen: Screen) -> str:
             if other is chosen:
                 continue
             said = f"{other.model} brings {len(other.met)} to the bar"
-            if len(other.met) == len(chosen.met) and other.invented > chosen.invented:
+            if len(other.met) == len(chosen.met) and other.passing.share < chosen.passing.share:
+                said += f" too, and {other.passing} of its elements pass every check, {other.passing.share:.1%}"
+            elif len(other.met) == len(chosen.met) and other.invented > chosen.invented:
                 said += (f" too, and invents {_count(other.invented, 'control')} where {chosen.model} invents "
                          f"{chosen.invented}")
             elif len(other.met) == len(chosen.met):
@@ -554,7 +561,8 @@ def _pick(screen: Screen) -> str:
                          f"{_money(chosen.usd)}")
             others.append(f"{said}.")
         lines.append(f'<p class="pick">The pick is {escape(chosen.model)}: {len(chosen.met)} of {len(screen.kinds)} '
-                     f"element types at the bar in every story, {_count(chosen.invented, 'control')} invented.</p>"
+                     f"element types at the bar in every story, {chosen.passing} of its elements pass every check, "
+                     f"{chosen.passing.share:.1%}, {_count(chosen.invented, 'control')} invented.</p>"
                      f"<p>{escape(' '.join(others))}</p>")
         lines.append(f'<p>To render with it, set model = "{escape(chosen.model)}" in [tool.videotape] in the '
                      "project's pyproject.toml. The screen test leaves it as it is.</p>")
@@ -564,7 +572,8 @@ def _pick(screen: Screen) -> str:
             f"<li>{kind} misses the bar on every model; its best is {tally} on {escape(model)}, in {escape(told)}.</li>"
             for kind in missed for model, told, tally in [screen.best(kind)]) + "</ul>")
     lines.append(f"<p class=\"note\">{_bar_rule(screen)} The pick has the most element types at the bar, then the "
-                 "fewest controls invented, then the lowest cost.</p>")
+                 "largest share of elements that pass every check, then the fewest controls invented, then the lowest "
+                 "cost.</p>")
     attribute = f' data-pick="{escape(chosen.model)}"' if chosen else ""
     return f'<section class="shot" id="pick"{attribute}>\n<h2>The pick</h2>\n{"".join(lines)}\n</section>'
 
@@ -907,7 +916,8 @@ def _run(args: argparse.Namespace, marks: tuple[Mark, ...] | None) -> int:
         f"; the checks are not yet held to a person's marks, so mark {model}'s {story_} takes in the report and run "
         "again with --marks marks.json")
     print(f"pick: {chosen.model}, with {len(chosen.met)} of {len(screen.kinds)} element types at the bar of {BAR:.0%} in "
-          f"every story, {_count(chosen.invented, 'control')} invented and ${chosen.usd:.2f} spent{held}")
+          f"every story, {chosen.passing} elements passing every check, {chosen.passing.share:.1%}, "
+          f"{_count(chosen.invented, 'control')} invented and ${chosen.usd:.2f} spent{held}")
     print(f'to render with it, set model = "{chosen.model}" in [tool.videotape] in '
           f"{errors.shown(found.root / 'pyproject.toml')}")
     return 0

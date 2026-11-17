@@ -280,8 +280,8 @@ def test_it_films_both_takes_of_each_sampled_key_on_each_model_in_each_story_and
     assert all(", 2 takes filmed, $1.03, " in line for line in printed[6:14])
     assert printed[-3:] == [
         f"wrote {directory}/tapes/screen-test/report.html",
-        f"pick: wan3.0, with 8 of 10 element types at the bar of 90% in every story, 0 controls invented and ${spent:.2f} "
-        "spent; the checks are not yet held to a person's marks, so mark wan3.0's terminal takes in the report and "
+        f"pick: wan3.0, with 8 of 10 element types at the bar of 90% in every story, 112 of 120 elements passing every "
+        f"check, 93.3%, 0 controls invented and ${spent:.2f} spent; the checks are not yet held to a person's marks, so mark wan3.0's terminal takes in the report and "
         "run again with --marks marks.json",
         f'to render with it, set model = "wan3.0" in [tool.videotape] in {directory}/pyproject.toml',
     ]
@@ -413,7 +413,8 @@ def test_the_report_names_the_pick_why_and_each_element_type_no_model_brings_to_
     _, page = report(screened[0])
     [pick] = page.all("section", id="pick")
     assert pick["data-pick"] == "wan3.0"
-    assert "The pick is wan3.0: 8 of 10 element types at the bar in every story, 0 controls invented." in page.text
+    assert ("The pick is wan3.0: 8 of 10 element types at the bar in every story, 112 of 120 of its elements pass "
+            "every check, 93.3%, 0 controls invented.") in page.text
     # gemini-omni-flash-1.2's extra box is a control both readers see, on each of its 32 takes.
     assert "gemini-omni-flash-1.2 brings 8 to the bar too, and invents 64 controls where wan3.0 invents 0." in page.text
     assert "BarChart misses the bar on every model; its best is 0 of 2 on wan3.0" in page.text
@@ -586,15 +587,22 @@ def test_a_key_whose_both_takes_are_refused_still_has_its_report_with_both_count
     assert (directory / "tapes" / "screen-test" / "report.html").is_file()
 
 
-def test_the_pick_has_the_most_element_types_at_the_bar_then_the_fewest_invented_controls_then_the_lowest_cost(script):
-    standing = script.Standing
-    most = standing("most", frozenset({"Heading", "Text", "List"}), invented=9, usd=30.0)
-    fewer = standing("fewer", frozenset({"Heading", "Text"}), invented=0, usd=1.0)
+def test_the_pick_has_the_most_types_at_the_bar_then_the_most_elements_passing_then_the_fewest_invented_controls_then_the_lowest_cost(script):
+    standing, tally = script.Standing, script.Tally
+    most = standing("most", frozenset({"Heading", "Text", "List"}), tally(60, 120), invented=9, usd=30.0)
+    fewer = standing("fewer", frozenset({"Heading", "Text"}), tally(110, 120), invented=0, usd=1.0)
     assert script.pick([fewer, most]) is most
-    plain = standing("plain", frozenset({"Heading", "Text", "List"}), invented=2, usd=30.0)
+    plain = standing("plain", frozenset({"Heading", "Text", "List"}), tally(60, 120), invented=2, usd=30.0)
     assert script.pick([most, plain, fewer]) is plain
-    cheap = standing("cheap", frozenset({"Heading", "Text", "List"}), invented=2, usd=12.5)
+    cheap = standing("cheap", frozenset({"Heading", "Text", "List"}), tally(60, 120), invented=2, usd=12.5)
     assert script.pick([most, plain, cheap]) is cheap
+
+
+def test_while_no_type_meets_the_bar_the_pick_is_the_model_whose_elements_pass_most_whatever_it_invents(script):
+    standing, tally = script.Standing, script.Tally
+    sparse = standing("sparse", frozenset(), tally(66, 120), invented=17, usd=10.43)
+    drawn = standing("drawn", frozenset(), tally(95, 120), invented=82, usd=15.05)
+    assert script.pick([sparse, drawn]) is drawn
 
 
 @pytest.mark.parametrize("passed, of, met", [(9, 10, True), (18, 20, True), (17, 20, False), (0, 0, False)])
