@@ -6,6 +6,7 @@
 |---|---|---|
 | Key | `minimax/h3/text-to-video` | `google/gemini-omni-flash/v1.2/text-to-video` |
 | Move | `minimax/h3/image-to-video`, the first frame in `image_url` and the last in `end_image_url` | `google/gemini-omni-flash/v1.2/image-to-video`, the same two fields |
+| Variant | `minimax/h3/image-to-video`, the base's picture in `image_url` and no `end_image_url` | `google/gemini-omni-flash/v1.2/image-to-video`, the same one field |
 | Request | `resolution` `768P`, `aspect_ratio` `16:9` on a key only, `duration` 5, `prompt_expansion_mode` `disabled`, `seed` | `resolution` `720p`, `aspect_ratio` `16:9`, `duration` 5, no seed |
 | Size | 1344x768 | 720p; fal states no pixel size |
 | A five-second call | $0.30, at $0.06/s | $0.4395, at $0.0819/s plus $0.03 for the prompt |

@@ -90,18 +90,18 @@ def eye(model: str) -> Check:
     """What the model's eye needs to read a take back. Qwen3-VL-8B, a reader of the eye of every model but the
     stand-in, runs on Apple silicon or a CUDA GPU, through videotape's qwen extra."""
     if QwenEye not in MODELS[model].readers:
-        return Check("VT105", True, f"{model}'s checks need no GPU")
+        return Check("VT105", True, f"{model}'s eye needs no GPU")
     gpu = ("Apple silicon" if platform.system() == "Darwin" and platform.machine() == "arm64"
            else "a CUDA GPU" if shutil.which("nvidia-smi") else None)
     if gpu is None:
-        return Check("VT105", False, f"{model}'s checks need Apple silicon or a CUDA GPU, and this machine is "
+        return Check("VT105", False, f"{model}'s eye needs Apple silicon or a CUDA GPU, and this machine is "
                      f"{platform.system()} on {platform.machine()} without nvidia-smi",
                      "render on a Mac with Apple silicon or a machine with a CUDA GPU, or with the stand-in, as in "
                      "videotape render --story starter --model stand-in")
     if not qwen.installed():
-        return Check("VT105", False, f"{model}'s checks run Qwen3-VL-8B through videotape's qwen extra, which is not "
+        return Check("VT105", False, f"{model}'s eye runs Qwen3-VL-8B through videotape's qwen extra, which is not "
                      "installed here", qwen.ADD_EXTRA)
-    return Check("VT105", True, f"{gpu} and videotape's qwen extra, for {model}'s checks")
+    return Check("VT105", True, f"{gpu} and videotape's qwen extra, for {model}'s eye")
 
 
 def checks(start: Path) -> list[Check]:

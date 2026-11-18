@@ -50,7 +50,7 @@ ERRORS = {
     "VT306": ("stories/neon.toml:2", "the story is not TOML: Invalid value",
               'write each line as name = "words", under [scenes], [elements] or [moves], or above all three'),
     "VT308": ("stories/neon.toml:5", "home under [scenes] quotes '\u201cOpen\u201d.'",
-              "remove the quotes; the screenplay owns every word on screen, so describe how they look"),
+              "remove the quotes; the screenplay owns every word on screen, so describe how they are drawn"),
     "VT309": ("stories", 'no story "neon"', "name one of the stories there, glow"),
 }
 WARNINGS = {
@@ -281,7 +281,7 @@ CORRUPT = [
     ("tapes/chalk/tape.json", a_model_videotape_lacks, (RETAKE, PUBLISH), "VT601", "tapes/chalk",
      f"render the story again with a model it has, one of {MODELS}, as in:\n{{render}} --model stand-in"),
     ("tapes/chalk/dailies.json", not_json, (RENDER, RETAKE, ACCEPT, DAILIES, PUBLISH), "VT410",
-     "tapes/chalk/dailies.json", "mend it, or move it aside and run the render again, which writes it afresh from the "
+     "tapes/chalk/dailies.json", "mend it, or put it aside and run the render again, which writes it afresh from the "
      "takes on disk, without the accepts and the retake seeds it held, as in:\n{render}"),
     ("ledger.jsonl", a_line_that_is_not_json, (RENDER, RETAKE, DAILIES), "VT410", "ledger.jsonl:1",
      "delete the line, or mend it; the lines are appended and never rewritten, so the rest stand, and what the line's "

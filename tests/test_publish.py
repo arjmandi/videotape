@@ -18,12 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from conftest import as_explained, forget, told
+import conftest
+from conftest import CONTRAIL, as_explained, forget, told
+from test_checks import recorded
 from videotape import doctor, frames, made, new, player, project, publish
 from videotape.cli import main
-from videotape.errors import CODES
+from videotape.errors import CODES, ScreenplayError
 from videotape.model import MODELS, Listing
-from videotape.checks import Free, Read
+from videotape.checks import Free, Read, score
 from videotape.standin import Flaw, StandIn, StandInEye
 from videotape.plan import Mode
 from videotape.hosted import WAN3
@@ -252,13 +254,7 @@ def test_a_publish_stopped_while_it_puts_the_old_files_back_keeps_them_aside_and
     assert shipped(contrail) == old
 
 
-def test_a_lock_left_aside_by_a_stopped_publish_keeps_its_labels_when_the_next_publish_records_a_new_one(
-        contrail, cli, capsys, monkeypatch):
-    monkeypatch.setattr(frames, "hevc", shutil.copyfile)
-    assert cli(contrail, "publish", "--story", "starter") == 0
-    pyproject = contrail / "pyproject.toml"
-    pyproject.write_text(pyproject.read_text().replace('version = "0.1.0"', 'version = "0.1.1"'))
-    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+def stop_publishing_a_new_label_as_it_puts_the_old_lock_back(cli, folder: Path) -> None:
     real = Path.rename
 
     def rename(source: Path, target):
@@ -270,12 +266,42 @@ def test_a_lock_left_aside_by_a_stopped_publish_keeps_its_labels_when_the_next_p
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(Path, "rename", rename)
         with pytest.raises(KeyboardInterrupt):
-            cli(contrail, "publish", "--story", "starter")
-    assert not (contrail / "videotape.lock").exists()
+            cli(folder, "publish", "--story", "starter")
+    assert not (folder / "videotape.lock").exists()
+
+
+def test_a_lock_left_aside_by_a_stopped_publish_keeps_its_labels_when_the_next_publish_records_a_new_one(
+        contrail, cli, capsys, monkeypatch):
+    monkeypatch.setattr(frames, "hevc", shutil.copyfile)
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    pyproject = contrail / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('version = "0.1.0"', 'version = "0.1.1"'))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    stop_publishing_a_new_label_as_it_puts_the_old_lock_back(cli, contrail)
 
     assert cli(contrail, "publish", "--story", "starter") == 0
     assert sorted(tomllib.loads((contrail / "videotape.lock").read_text())) == [
         "contrail 0.1.0 + starter 1.0.0", "contrail 0.1.1 + starter 1.0.0"]
+
+
+def test_a_lock_left_aside_by_a_stopped_publish_of_one_story_keeps_its_labels_when_another_story_is_published(
+        contrail, cli, monkeypatch):
+    monkeypatch.setattr(frames, "hevc", shutil.copyfile)
+    stories = contrail / "stories"
+    shutil.copyfile(stories / "starter.toml", stories / "second.toml")
+    assert cli(contrail, "render", "--story", "second", "--model", "stand-in") == 0
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    starter = stories / "starter.toml"
+    starter.write_text(starter.read_text().replace('version = "1.0.0"', 'version = "1.0.1"'))
+    assert cli(contrail, "render", "--story", "starter", "--model", "stand-in") == 0
+    stop_publishing_a_new_label_as_it_puts_the_old_lock_back(cli, contrail)
+
+    assert cli(contrail, "publish", "--story", "second") == 0
+    assert sorted(tomllib.loads((contrail / "videotape.lock").read_text())) == [
+        "contrail 0.1.0 + second 1.0.0", "contrail 0.1.0 + starter 1.0.0"]
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    assert sorted(tomllib.loads((contrail / "videotape.lock").read_text())) == [
+        "contrail 0.1.0 + second 1.0.0", "contrail 0.1.0 + starter 1.0.0", "contrail 0.1.0 + starter 1.0.1"]
 
 
 def test_a_file_left_aside_whose_place_holds_another_is_vt607_and_publish_deletes_neither(contrail, cli, capsys):
@@ -289,9 +315,24 @@ def test_a_file_left_aside_whose_place_holds_another_is_vt607_and_publish_delete
     err = capsys.readouterr().err
     assert as_explained("VT607").fullmatch(err.rstrip("\n"))
     assert err.startswith("error VT607 dist/Contrail-starter.partial/aside: holds Contrail-starter.zip, which an earlier "
-                          "publish moved aside")
+                          "publish put aside")
     assert (aside / "Contrail-starter.zip").read_bytes() == b"an earlier zip"
     assert (contrail / "dist" / "Contrail-starter.zip").read_bytes() == before
+
+
+def test_a_lock_left_aside_by_another_storys_publish_while_the_project_holds_one_is_vt607_and_publish_deletes_neither(
+        contrail, cli, capsys):
+    assert cli(contrail, "publish", "--story", "starter") == 0
+    capsys.readouterr()
+    aside = contrail / "dist" / "Contrail-second.partial" / "aside"
+    aside.mkdir(parents=True)
+    (aside / "videotape.lock").write_text("an earlier lock")
+    before = (contrail / "videotape.lock").read_text()
+    assert cli(contrail, "publish", "--story", "starter") == 1
+    assert capsys.readouterr().err.startswith("error VT607 dist/Contrail-second.partial/aside: holds videotape.lock, "
+                                              "which an earlier publish put aside")
+    assert (aside / "videotape.lock").read_text() == "an earlier lock"
+    assert (contrail / "videotape.lock").read_text() == before
 
 
 def test_a_tape_made_before_its_made_id_named_the_screenplay_is_vt601(contrail, cli, capsys):
@@ -521,3 +562,35 @@ def test_an_encoded_clip_whose_last_frame_fails_a_check_its_key_passed_is_vt604(
     err = refused(contrail, capsys)
     assert as_explained("VT604").fullmatch(err.rstrip("\n"))
     assert [path.name for path in (contrail / "dist").iterdir()] == []
+
+
+@pytest.mark.parametrize(("read_again", "refused"), [("1:30 PM to 11:40 PM, 7h 10m, 1 stop.", False),
+                                                     ("1:30 PM to 11:40 PM, 7h 10m, 1 stp.", True)])
+def test_an_encoded_frame_the_free_reader_reads_with_the_period_it_added_at_render_is_not_vt604(
+        monkeypatch, read_again, refused):
+    """Render forgave Qwen's period because Claude read the line exactly. Publish reads again with Qwen alone, and
+    judges the line with Claude's reading from the record, so only a reading the encoding changed is VT604."""
+    line = "1:30 PM to 11:40 PM, 7h 10m, 1 stop"
+    planned = conftest.planned(CONTRAIL)
+    key = next(key for key in planned.keys if key.state.name == "flight(CT 104, 2026-12-13)")
+    qwen, claude = recorded("wan3-terminal-flight-ct104-take-2")
+    record = {"story": "terminal", "out": None, "moves": [],
+              "keys": [{"state": key.state.name, "key": key.image,
+                        "items": [dataclasses.asdict(item) for item in score(key, [qwen, claude]).items()]}]}
+    again = dataclasses.replace(qwen, spots=tuple(dataclasses.replace(spot, text=read_again)
+                                                  if spot.text == f"{line}." else spot for spot in qwen.spots))
+    for name, stub in (("last_frame", lambda clip: None), ("read_png", lambda path: None),
+                       ("difference", lambda a, b: 0.0)):
+        monkeypatch.setattr(frames, name, stub)
+
+    class Qwen:
+        def see(self, frame):
+            return again
+
+    rests = lambda: publish._rests(planned, record, [Qwen()], Path("tape"), Path("inside"),
+                                   {"moves/x.mp4": key.state.name})
+    if refused:
+        with pytest.raises(ScreenplayError, match=f"VT502 {line}: read"):
+            rests()
+    else:
+        rests()

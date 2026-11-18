@@ -272,9 +272,10 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
 
     [retake] = [index for index, done in enumerate(ran) if videotape_command(done.step, "retake")]
     [accept] = [index for index, done in enumerate(ran) if videotape_command(done.step, "accept")]
-    retaken = f"key {videotape_command(ran[retake].step, 'retake')[1]}"
+    titles = {key.state.name: key.title for key in planned(CONTRAIL).keys}
+    retaken = titles[videotape_command(ran[retake].step, "retake")[1]]
     _, state, code = videotape_command(ran[accept].step, "accept")[:3]
-    accepted = f"key {state}"
+    accepted = titles[state]
     failed = next(done.record for done in ran if videotape_command(done.step, "render") and done.tape == ran[retake].tape)
     assert {failure["shot"] for failure in failed["failures"]} == {retaken, accepted}
     assert (accepted, code) in {(failure["shot"], failure["code"]) for failure in failed["failures"]}

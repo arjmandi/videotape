@@ -123,6 +123,7 @@ class Wan:
 
     name = "wan2.2-5b"
     price = None
+    modes = frozenset({Mode.TEXT_TO_VIDEO, Mode.FIRST_AND_LAST_FRAME})
 
     def __init__(self):
         if find_spec("torch") is None or find_spec("diffusers") is None:
@@ -147,6 +148,10 @@ class Wan:
 
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> None:
         self._run(request(Mode.FIRST_AND_LAST_FRAME, prompt, start, end, seed), out)
+
+    def first_frame(self, prompt: str, start: Path, seed: int, out: Path) -> None:
+        raise ModelError(f"{self.name} films no take from a start picture alone", "VT111", "draw it with a model on "
+                         "fal, whose image-to-video takes one picture, as in --model gemini-omni-flash-1.2")
 
     def download_again(self, out: Path) -> None:
         return None

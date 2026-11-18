@@ -5,6 +5,7 @@ given, so no test loads a model or sends a request."""
 import dataclasses
 import json
 import time
+from collections import Counter
 from dataclasses import replace
 from datetime import date
 
@@ -15,6 +16,7 @@ from conftest import CONTRAIL, FIXTURES, a_story, copy_of, planned, words
 from videotape import dailies, standin
 from videotape.checks import Chart, Free, Read, Spot, readings, score
 from videotape.frames import Box
+from videotape.layout import BAR, Compared, Layout
 from videotape.model import MODELS, Listing
 from videotape.plan import Key, plan
 from videotape.standin import StandIn, StandInEye
@@ -62,6 +64,17 @@ def test_a_line_passes_vt502_only_when_every_reader_reads_it_exactly_and_the_rec
     assert checks.rank(1) > score(key, [exact]).rank(1)
 
 
+def test_a_period_at_the_end_of_a_line_fails_vt502_unless_the_line_has_none_and_another_reader_reads_it_exactly():
+    key = key_of(vt.Text("7h 10m, 1 stop"))
+    period = Read("qwen", spots("7h 10m, 1 stop."))
+    assert failed(score(key, [period, Read("claude", spots("7h 10m, 1 stop"))])) == []
+    assert failed(score(key, [period, replace(period, reader="claude")])) == [("VT502", "7h 10m, 1 stop")]
+    assert failed(score(key, [period])) == [("VT502", "7h 10m, 1 stop")]
+    latte = key_of(vt.Text("One Latte coming up."))
+    assert failed(score(latte, [Read("qwen", spots("One Latte coming up..")),
+                                Read("claude", spots("One Latte coming up."))])) == [("VT502", "One Latte coming up.")]
+
+
 def test_an_action_is_found_only_when_every_reader_finds_it_and_the_hotspot_is_the_first_readers_box():
     key = key_of(vt.Heading("Thanks"), vt.Button("Order", to=key_of(vt.Text("Done")).state))
     first = Read("stand-in", spots("Thanks", "Order", controls=("Order",)))
@@ -75,6 +88,22 @@ def test_an_action_is_found_only_when_every_reader_finds_it_and_the_hotspot_is_t
     assert [(item.code, item.about, item.result) for item in checks.failures] == [
         ("VT501", "Order", "not found, by second"), ("VT502", "Order", 'read "Order" by stand-in and nothing by second, '
                                                                         "CER 0.000 and 1.000")]
+
+
+def test_vt505_judges_a_variants_layout_distances_by_the_bar_the_marks_set():
+    frame, seen = drawn(key_of(vt.Heading("Thanks"), vt.Button("Done", to=key_of(vt.Text("Bye")).state)))
+    checks = score(key_of(vt.Heading("Thanks"), vt.Button("Done", to=key_of(vt.Text("Bye")).state)), [seen])
+    assert checks.layout is None and "VT505" not in {item.code for item in checks.items()}
+    thanks, done = (spot.box for spot in seen.spots)
+    assert Counter(checks.boxes) == {done: 4, thanks: 2}
+    close = replace(checks, layout=Compared(Layout(0.1525, 0.9, 0.86), BAR))
+    assert [(item.code, item.about, item.passed, item.result, item.box) for item in close.items()][-1] == (
+        "VT505", "layout against the base", True,
+        "shading 0.1525, edges 0.9000, 86% of the picture compared; shading under the threshold of 0.1525", None)
+    far = replace(checks, layout=Compared(Layout(0.207, 0.812, 0.86), BAR))
+    assert far.failures[-1].result == ("shading 0.2070, edges 0.8120, 86% of the picture compared; shading over the "
+                                       "threshold of 0.1525")
+    assert far.rank(2) == checks.rank(2) and not far.passed
 
 
 def test_every_check_item_names_the_element_type_it_judges():
@@ -321,7 +350,8 @@ def test_the_dailies_keep_each_readers_reading_and_show_both_when_the_readers_di
     record = dailies.read(directory / "tapes" / "chalk")
     assert record["checks"] == "stand-in and disagreeing"
     assert [(failure["shot"], failure["code"], failure["about"], failure["element"]) for failure in record["failures"]] == [
-        ("key thanks(Espresso)", "VT502", "Thanks", "Heading"), ("key thanks(Latte)", "VT502", "Thanks", "Heading")]
+        ("key thanks(Espresso)", "VT502", "Thanks", "Heading"),
+        ("key thanks(Latte) from thanks(Espresso)", "VT502", "Thanks", "Heading")]
     first = record["failures"][0]
     assert [(reading["reader"], reading["text"], reading["cer"]) for reading in first["readings"]] == [
         ("stand-in", "Thanks", 0.0), ("disagreeing", "Thank", 1 / 6)]
@@ -567,14 +597,27 @@ def test_a_weekday_and_day_tile_off_the_strips_line_is_an_invented_control():
     assert failed(score(key, [seen])) == [("VT503", "Mon 14")]
 
 
+def recorded(name: str) -> list[Read]:
+    return [Read(one["reader"], tuple(Spot(spot["text"], Box(**spot["box"]), spot["control"]) for spot in one["spots"]),
+                 None if one["marked"] is None else tuple(Box(**box) for box in one["marked"]),
+                 None if one["charts"] is None else ())
+            for one in json.loads((FIXTURES / "recorded" / "reads" / f"{name}.json").read_text())]
+
+
 def test_a_strip_whose_weekdays_the_readers_read_apart_from_their_days_reads_whole():
     """Both readers of gemini-omni-flash-1.2's take 2 of results(SEA, 2026-12-12) in the paid run read each tile as
     "Fri", "11" and "$99": Qwen one under another, Claude all in the tile's box, with Saturday's marked."""
-    recorded = json.loads((FIXTURES / "recorded" / "reads" / "gemini-posters-results-take-2.json").read_text())
-    reads = [Read(one["reader"], tuple(Spot(spot["text"], Box(**spot["box"]), spot["control"]) for spot in one["spots"]),
-                  None if one["marked"] is None else tuple(Box(**box) for box in one["marked"]),
-                  None if one["charts"] is None else ()) for one in recorded]
     key = next(key for key in planned(CONTRAIL).keys if key.state.name == "results(SEA, 2026-12-12)")
-    checks = score(key, reads)
+    checks = score(key, recorded("gemini-posters-results-take-2"))
     assert [(item.code, item.about) for item in checks.items() if item.element == "DateStrip" and not item.passed] == []
     assert checks.invented == ()
+
+
+def test_a_period_qwen_adds_to_a_line_claude_reads_exactly_passes_vt502():
+    key = next(key for key in planned(CONTRAIL).keys if key.state.name == "flight(CT 104, 2026-12-13)")
+    [item] = [item for item in score(key, recorded("wan3-terminal-flight-ct104-take-2")).items()
+              if item.about == "1:30 PM to 11:40 PM, 7h 10m, 1 stop"]
+    assert [(seen.reader, seen.text) for seen in item.readings] == [
+        ("qwen3-vl-8b", "1:30 PM to 11:40 PM, 7h 10m, 1 stop."),
+        ("claude-opus-5-5", "1:30 PM to 11:40 PM, 7h 10m, 1 stop")]
+    assert (item.code, item.passed) == ("VT502", True)

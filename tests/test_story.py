@@ -192,7 +192,7 @@ def test_shots_prints_each_prompt_under_its_title_one_clause_to_a_line_with_its_
     assert (result.stderr, result.returncode) == ("", 0)
     shots = [block.splitlines() for block in result.stdout.split("\n\n")]
     assert [shot[0] for shot in shots] == [
-        f"key {RESULTS}", f'{RESULTS} -> results(SEA, 2026-12-11) "Friday, December 11, $99"',
+        f"key {RESULTS} from results(HNL, 2026-12-11)", f'{RESULTS} -> results(SEA, 2026-12-11) "Friday, December 11, $99"',
         f'{RESULTS} -> results(SEA, 2026-12-13) "Sunday, December 13, $109"',
         f'{RESULTS} -> flight(CT 300, 2026-12-12) "8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89"',
         f'{RESULTS} -> flight(CT 306, 2026-12-12) "5:40 PM to 7:50 PM, 2h 10m, Nonstop, $119"']
@@ -297,7 +297,7 @@ def test_a_story_that_quotes_words_is_vt308_at_the_line_that_quotes_them(tmp_pat
         story.load(file)
     assert (error.value.code, error.value.place.rpartition(":")[2]) == ("VT308", str(line + 1))
     assert error.value.message.endswith(f"quotes {quoted}")
-    assert error.value.fix == "remove the quotes; the screenplay owns every word on screen, so describe how they look"
+    assert error.value.fix == "remove the quotes; the screenplay owns every word on screen, so describe how they are drawn"
 
 
 def test_contrails_stories_and_the_cafes_quote_nothing():

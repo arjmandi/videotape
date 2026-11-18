@@ -149,13 +149,23 @@ def last_frame(clip: Path) -> Frame:
     return _decode(clip, "-vf", "reverse")
 
 
-def difference(a: Frame, b: Frame) -> float:
-    if (a.width, a.height) != (b.width, b.height):
-        raise two_sizes("frames", f"cannot compare a {a.width}x{a.height} frame with a {b.width}x{b.height} one")
+def gray(*same: Frame) -> list[bytes]:
+    """Each frame scaled to SMALL in grey, a byte a pixel, in one pass of ffmpeg: VT407 when two differ in size."""
+    first = same[0]
+    for other in same[1:]:
+        if (other.width, other.height) != (first.width, first.height):
+            raise two_sizes("frames", f"cannot compare a {first.width}x{first.height} frame with a {other.width}x"
+                            f"{other.height} one")
     w, h = SMALL
-    grey = _ffmpeg(*_raw(a), "-vf", f"scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-", feed=a.rgb + b.rgb)
+    grey = _ffmpeg(*_raw(first), "-vf", f"scale={w}:{h}:flags=area,format=gray", "-f", "rawvideo", "-",
+                   feed=b"".join(frame.rgb for frame in same))
     n = w * h
-    return sum(abs(x - y) for x, y in zip(grey[:n], grey[n:])) / (255 * n)
+    return [grey[at:at + n] for at in range(0, n * len(same), n)]
+
+
+def difference(a: Frame, b: Frame) -> float:
+    small_a, small_b = gray(a, b)
+    return sum(abs(x - y) for x, y in zip(small_a, small_b)) / (255 * len(small_a))
 
 
 ENCODE = ("-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-r", str(FPS), "-movflags", "+faststart", "-f", "mp4", "-y")

@@ -68,6 +68,25 @@ def test_a_take_of_a_dense_key_still_reads_exactly_after_it_is_encoded(tmp_path,
         assert max(abs(found.x - truth.x), abs(found.y - truth.y), abs(found.w - truth.w), abs(found.h - truth.h)) <= 2
 
 
+def test_a_key_drawn_from_a_start_picture_opens_on_it_ends_on_the_prompts_lines_and_may_carry_a_key_flaw(tmp_path):
+    base, key = contrail_key("flight(CT 500, 2026-12-11)"), contrail_key("flight(CT 104, 2026-12-12)")
+    terminal = told(CONTRAIL, "terminal")
+    model = StandIn(flaw=clean)
+    assert model.modes == set(Mode)
+    model.text_to_video(words(base, terminal), 1, tmp_path / "base.mp4")
+    frames.write_png(frames.last_frame(tmp_path / "base.mp4"), tmp_path / "base.png")
+    model.first_frame(words(key, terminal), tmp_path / "base.png", 1, tmp_path / "take.mp4")
+    assert model.calls[-1] == standin.Call(Mode.FIRST_FRAME, words(key, terminal), 1, tmp_path / "base.png", None,
+                                           tmp_path / "take.mp4")
+    assert frames.difference(frames.first_frame(tmp_path / "take.mp4"), frames.read_png(tmp_path / "base.png")) < 0.01
+    checks = score(key, [StandInEye().see(frames.last_frame(tmp_path / "take.mp4"))])
+    assert checks.failures == [] and [reading.seen[0].text for reading in checks.text] == list(key.lines)
+    flawed = StandIn(flaw=lambda mode, prompt, seed: Flaw.MISSPELL)
+    flawed.first_frame(words(key, terminal), tmp_path / "base.png", 1, tmp_path / "flawed.mp4")
+    misread = failed(score(key, [StandInEye().see(frames.last_frame(tmp_path / "flawed.mp4"))]))
+    assert len(misread) == 1 and misread[0][0] == "VT502"
+
+
 def test_two_prompts_that_quote_the_same_line_give_two_pictures_and_the_eye_reads_the_line_in_both(tmp_path):
     seen = {}
     for prompt in ('A dark sign reads "Trips".', 'A printed poster reads "Trips".', 'A dark sign reads "Trips".'):

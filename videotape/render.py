@@ -1,8 +1,9 @@
 """A render draws every shot of a plan in a story into a tape. Each shot films one take at a time, seed by seed, and
 stops at the first take that passes every check. Shots that do not depend on each other film at once, up to the
-model's limit: every key is submitted first, and a move as soon as both of its keys are done. A model that bills per
-call films under a cap, and a reader that bills per read reads under the same cap. Every take on disk is reused, and so
-is every read, so a render run again resumes without paying for a take or a read twice."""
+model's limit: every base key is submitted first, a key drawn from a base's picture as soon as that base is done, and
+a move as soon as both of its keys are done. A model that bills per call films under a cap, and a reader that bills
+per read reads under the same cap. Every take on disk is reused, and so is every read, so a render run again resumes
+without paying for a take or a read twice."""
 
 import hashlib
 import json
@@ -11,21 +12,22 @@ import shutil
 import sys
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import FIRST_COMPLETED, CancelledError, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
-from videotape import dailies, frames
+from videotape import dailies, frames, layout
 from videotape.checks import Checks, Failure, KeyChecks, Reader, score, seams
 from videotape.dailies import Carried
-from videotape.errors import ModelError, RenderError, shown
+from videotape.errors import ModelError, RenderError, ScreenplayError, shown
 from videotape.fal import Price, Receipt
 from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.hosted import RecordedFailure, request_record
+from videotape.layout import Bar, Compared
 from videotape.ledger import Ledger, now
 from videotape.model import Model
-from videotape.plan import Key, Move, Plan, Shot
+from videotape.plan import FromKey, Key, Mode, Move, Plan, Shot
 from videotape.atomic import partial, write_atomically
 from videotape.screenplay import State
 from videotape.story import Prompt, Story, prompt, text
@@ -91,6 +93,15 @@ class Render:
         return *self.keys, *self.moves
 
 
+@dataclass(frozen=True)
+class Base:
+    """A base's kept key, which a key drawn from it starts on: its picture, and the boxes the readers found on it,
+    which the layout check leaves out of both pictures it compares."""
+
+    picture: Path
+    boxes: tuple[Box, ...]
+
+
 class Budget:
     """What a render may still spend. One lock keeps the invariant: spent plus reserved never passes the cap, where
     spent is the sum of this tape's lines in the ledger and reserved is the price of every call in flight, a take's
@@ -154,7 +165,10 @@ class _Set:
     readers: tuple[Reader, ...]
     tape: Path
     images: dict[State, Path]
-    """Each state's key image, which the moves that leave or land on it are pinned to."""
+    """Each state's key image, which the moves that leave or land on it are pinned to, and which a key drawn from
+    it starts on."""
+    bar: Bar | None
+    """What judges a variant's take against its base's picture, or None when the render makes no layout check."""
     budget: Budget
     resume: str
     """The command that runs this render again."""
@@ -221,13 +235,23 @@ def eye(readers: Sequence[Reader]) -> str:
 def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], tape: Path, ledger: Ledger, made: dict,
            takes: int = 4, limit: int = 1, price: Price | None = None, cap: float | None = None,
            resume: str = "videotape render", report: Callable[[Filmed], None] = lambda filmed: None,
-           every: bool = False) -> Render:
+           every: bool = False, bases: Mapping[State, Base] | None = None, bar: Bar | None = layout.BAR) -> Render:
     """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
     and write them into the tape. The readers are the model's eye, which reads each take of a key. made is the block
     that says what made the tape, which tape.json carries. report is told each shot as it finishes. every films each
     seed up to takes whatever passed before, as a retake's seeds are, so a screen test sees every take; a plan of
-    some keys alone, as a screen test films, gives a tape whose scenes have no hotspots."""
+    some keys alone, as a screen test films, gives a tape whose scenes have no hotspots. bases holds the kept keys
+    of states outside the plan that a FromKey of the plan starts from; a FromKey whose base is in the plan starts
+    from the key the render draws for it. bar judges every take of a FromKey against its base's picture, VT505, or
+    is None for a render that makes no layout check, as the variants test runs, which measures every layout itself."""
     started = time.perf_counter()
+    variants = [key for key in plan.keys if isinstance(key, FromKey)]
+    if variants and Mode.FIRST_FRAME not in model.modes:
+        count = len(variants)
+        raise ScreenplayError("VT111", model.name, f"films no key from another key's picture, and {count} key"
+                              f"{'' if count == 1 else 's'} of the plan {'is' if count == 1 else 'are'} drawn from "
+                              "the base's picture", "render with a model on fal, whose image-to-video takes one "
+                              "picture, as in --model gemini-omni-flash-1.2, or with the stand-in")
     billed = [*([model.name] if price else []), *(reader.name for reader in readers if reader.paid)]
     if billed and cap is None:
         raise RenderError("VT402", "before the first call", f"{' and '.join(billed)} bill{'s' if len(billed) == 1 else ''}"
@@ -237,17 +261,28 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     carried = dailies.carried(tape, resume)
-    shared = _Set(model, tuple(readers), tape, {key.state: tape / key.image for key in plan.keys},
+    shared = _Set(model, tuple(readers), tape, {key.state: tape / key.image for key in plan.keys}, bar,
                   Budget(ledger, price, cap), resume, threading.Event(), {}, threading.Lock())
     seeds = {shot.title: _seeds(shot, takes, carried, every) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
     stopped: RenderError | None = None
     unfilmed: dict[Shot, EveryTakeRefused] = {}
-    # Every key is submitted first. A move is submitted when both of its keys are done, since it is pinned to their
-    # images. With one worker the keys all run before any move, so Wan 2.2 swaps its checkpoint once.
+    states = {key.state for key in plan.keys}
+    by_base: dict[State, list[FromKey]] = {}
+    for key in variants:
+        if key.start in states:
+            by_base.setdefault(key.start, []).append(key)
     with ThreadPoolExecutor(max_workers=limit) as pool:
-        pending: dict[Future[Filmed], Shot] = {
-            pool.submit(_film_key, shared, key, prompt(key, story), *seeds[key.title]): key for key in plan.keys}
+        pending: dict[Future[Filmed], Shot] = {}
+
+        def film_key(key: Key, base: Base | None) -> None:
+            pending[pool.submit(_film_key, shared, key, prompt(key, story), *seeds[key.title], base)] = key
+
+        for key in plan.keys:
+            if not isinstance(key, FromKey):
+                film_key(key, None)
+            elif key.start not in states:
+                film_key(key, (bases or {})[key.start])
         waiting = list(plan.moves)
 
         def stop() -> None:
@@ -276,6 +311,8 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
                     report(filmed)
                     if stopped is not None or not isinstance(shot, Key):
                         continue
+                    for variant in by_base.get(shot.state, []):
+                        film_key(variant, Base(shared.images[shot.state], filmed.kept.checks.boxes))
                     ready = {key.state for key in plan.keys if key in finished}
                     for move in [move for move in waiting if {move.start, move.land} <= ready]:
                         waiting.remove(move)
@@ -326,17 +363,21 @@ def _corrupt(carried: Carried, result: Render) -> Carried:
     return Carried(carried.retakes, corrupt, carried.accepted)
 
 
-def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int],
-              skipped: list[int]) -> Filmed:
+def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: list[int],
+              base: Base | None) -> Filmed:
     words = text(clauses)
-    filmed = _film_shot(shared, key, clauses, seeds, retakes, skipped, lambda seed, out: shared.model.text_to_video(words, seed, out),
-                        (), lambda path, purse: _read(shared, key, path, purse))
+    if base is None:
+        film, images = (lambda seed, out: shared.model.text_to_video(words, seed, out)), ()
+    else:
+        film, images = (lambda seed, out: shared.model.first_frame(words, base.picture, seed, out)), (base.picture,)
+    filmed = _film_shot(shared, key, clauses, seeds, retakes, skipped, film, images,
+                        lambda path, purse: _read(shared, key, path, purse, base))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
     write_atomically(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
     return filmed
 
 
-def _read(shared: _Set, key: Key, path: Path, purse: _Purse) -> KeyChecks:
+def _read(shared: _Set, key: Key, path: Path, purse: _Purse, base: Base | None) -> KeyChecks:
     """Every reader's read of the take's picture, then the key's checks on them. A paid read is reserved under the
     cap before it is sent and reaches the ledger after. A read that fails stops the render at the take, as a model's
     call that fails does, and since only a whole read is cached, running the render again reads the take again."""
@@ -346,7 +387,11 @@ def _read(shared: _Set, key: Key, path: Path, purse: _Purse) -> KeyChecks:
     except ModelError as error:
         raise RenderError(error.code, purse.place, error.message, "run the render again, which resumes and reads this "
                           f"take again:\n{shared.resume}") from None
-    return score(key, reads)
+    checks = score(key, reads)
+    if base is None or shared.bar is None:
+        return checks
+    far = layout.distances(frames.read_png(base.picture), base.boxes, frame, checks.boxes)
+    return replace(checks, layout=Compared(far, shared.bar))
 
 
 def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], retakes: list[int],
@@ -366,9 +411,9 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
                check: Callable[[Path, _Purse], Checks]) -> Filmed:
     """Film the shot's takes seed by seed. Each take comes from the cache or the model, then its checks. The seeds up
     to the limit are filmed until one passes, and a take on disk is always read. The retake seeds are filmed whatever
-    passed before, and with them the shot keeps the best of all its takes. A take the model refused for its content,
-    VT409, is reported the first time and skipped, as a corrupt one is. skipped holds the seeds its record already
-    marks corrupt, which it does not try."""
+    passed before. The shot keeps a take that passes every check over one that does not, and the best by rank among
+    those. A take the model refused for its content, VT409, is reported the first time and skipped, as a corrupt one
+    is. skipped holds the seeds its record already marks corrupt, which it does not try."""
     words = text(clauses)
     takes, reported, corrupt, refused = list[Take](), list[RenderError](), list[int](), list[int]()
     passed = False
@@ -410,8 +455,8 @@ def _film_shot(shared: _Set, shot: Shot, clauses: Prompt, seeds: list[int], reta
                                    f"after these, or change the story's words for the shot, as in:\n{more}")
         raise RenderError("VT403", shot.title, "every take of the shot is corrupt",
                           f"render again with more takes, which films new seeds after these, as in:\n{more}")
-    return Filmed(shot, clauses, tuple(takes), min(takes, key=lambda take: take.checks.rank(take.seed)),
-                  tuple(reported), tuple(corrupt), tuple(refused))
+    kept = min(takes, key=lambda take: (not take.checks.passed, take.checks.rank(take.seed)))
+    return Filmed(shot, clauses, tuple(takes), kept, tuple(reported), tuple(corrupt), tuple(refused))
 
 
 def _take(shared: _Set, shot: Shot, words: str, images: tuple[Path, ...], seed: int, place: str,

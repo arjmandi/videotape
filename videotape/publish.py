@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from videotape import dailies, frames, player, story
-from videotape.checks import MAX_DIFFERENCE, Item, Reader, score
+from videotape.checks import MAX_DIFFERENCE, Item, Reader, Reading, Seen, score
 from videotape.errors import ScreenplayError, shown
 from videotape.frames import Frame
 from videotape.made import made, manifest, model_named
@@ -59,8 +59,8 @@ def publish(found: Project, tape: Path, render: str) -> Published:
     app = found.root / "dist" / f"{re.sub(r'[/:]', '-', planned.title)}-{told.name}.app"
     zipped, staging = app.with_suffix(".zip"), app.with_name(f"{app.stem}.partial")
     staged = staging / app.name
-    # Before the lock is read, so a lock an earlier publish left aside counts its labels.
-    _put_back(staging, [app, zipped, found.root / LOCK])
+    for partial in sorted((found.root / "dist").glob("*.partial")):
+        _put_back(partial, [partial.with_suffix(".app"), partial.with_suffix(".zip"), found.root / LOCK])
     _fresh(tape, block, made(found, told, listing.kind), record)
     _accepted(tape, record)
     lock = read_lock(found.root)
@@ -125,8 +125,8 @@ def _put_back(staging: Path, places: list[Path]) -> None:
         if (aside / place.name).exists() and not place.exists():
             (aside / place.name).rename(place)
     if left := sorted(path.name for path in aside.iterdir()):
-        raise ScreenplayError("VT607", shown(aside), f"holds {', '.join(left)}, which an earlier publish moved aside and "
-                              "was stopped before it put back", "move back the ones to keep, delete the folder, and "
+        raise ScreenplayError("VT607", shown(aside), f"holds {', '.join(left)}, which an earlier publish put aside and "
+                              "was stopped before it put back", "put back the ones to keep, delete the folder, and "
                               "publish again")
 
 
@@ -189,7 +189,7 @@ def _accepted(tape: Path, record: dict) -> None:
         "VT602", shown(tape), f"{len(failing)} check{'' if one else 's'} fail{'s' if one else ''} that nobody "
         f"accepted: {', '.join(f'{failure["shot"]} {failure["code"]}' for failure in failing)}",
         f"review {'it' if one else 'them'} with videotape dailies --story {record['story']}{_out(record)}, then "
-        f"retake the shot or accept the failure with a reason; for the first:\n{first['retake']}\n{first['accept']}")
+        f"retake the shot or accept the failing check with a reason; for the first:\n{first['retake']}\n{first['accept']}")
 
 
 def _unlocked(root: Path, lock: dict[str, dict[str, str]], block: dict, story_file: Path) -> None:
@@ -240,8 +240,8 @@ def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, i
     images: dict[str, Frame] = {}
     for clip, state in clips.items():
         before = [*recorded[state]["items"], *seams.get(clip, {}).get("items", [])]
-        failed = {check for check, item in zip(_numbered((item["code"], item["about"]) for item in before), before)
-                  if not item["passed"]}
+        earlier = dict(zip(_numbered((item["code"], item["about"]) for item in before), before))
+        failed = {check for check, item in earlier.items() if not item["passed"]}
         frame = frames.last_frame(inside / clip)
         if state not in images:
             images[state] = frames.read_png(tape / recorded[state]["key"])
@@ -249,7 +249,7 @@ def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, i
         items = [*score(keys[state], [reader.see(frame) for reader in readers]).items(),
                  Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)]
         broken = [item for check, item in zip(_numbered((item.code, item.about) for item in items), items)
-                  if not item.passed and check not in failed]
+                  if check not in failed and not _passes(item, earlier.get(check, {}))]
         if broken:
             shot = next((move for move in planned.moves if move.clip == clip), planned.keys[0])
             checks = "a check its key passed:" if len(broken) == 1 else f"{len(broken)} checks its key passed, the first"
@@ -257,6 +257,18 @@ def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, i
                                   f"{checks} {broken[0].code} {broken[0].about}: {broken[0].result}",
                                   "retake the shot, whose next take may come through the encoding, then publish again:"
                                   f'\nvideotape retake "{dailies.named(shot)}" --story {record["story"]}{_out(record)}')
+
+
+def _passes(item: Item, earlier: dict) -> bool:
+    """Whether a check passes on an encoded frame. A line is judged with the readings the record holds from the
+    readers that do not read it again, so a period one reader adds to a line another read exactly passes as it did
+    in the render."""
+    if item.passed or item.code != "VT502":
+        return item.passed
+    again = {seen.reader for seen in item.readings}
+    others = tuple(Seen(seen["reader"], seen["text"], seen["cer"], None)
+                   for seen in earlier.get("readings", ()) if seen["reader"] not in again)
+    return Reading(item.about, item.element, (*item.readings, *others)).right
 
 
 def _numbered(checks: Iterable[tuple[str, str]]) -> list[tuple[str, str, int]]:

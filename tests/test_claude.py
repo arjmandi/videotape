@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-from conftest import RECORDED, copy_of
+from conftest import RECORDED, copy_of, planned
 from videotape import claude, dailies, frames, ledger, standin
 from videotape.checks import Chart, Read, Spot
 from videotape.claude import ClaudeReader
@@ -275,8 +275,7 @@ def test_a_render_pays_for_each_keys_read_under_the_cap_and_writes_each_to_the_l
     assert len(read_by_claude.seen) == 5
     lines = [json.loads(line) for line in (directory / "ledger.jsonl").read_text().splitlines()]
     reads = [line for line in lines if line["kind"] == "read"]
-    assert sorted(line["shot"] for line in reads) == sorted(f"key {state}" for state in (
-        "menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)"))
+    assert sorted(line["shot"] for line in reads) == sorted(key.title for key in planned(directory).keys)
     assert all((line["tape"], line["seed"], line["model"], line["tokens"], line["usd"]) == (
         "tapes/chalk", 1, "claude-opus-5-5", {"input_tokens": 2191, "output_tokens": 900}, 0.026764) for line in reads)
     totals = ledger.of(directory, directory / "tapes" / "chalk").totals()
@@ -370,7 +369,7 @@ def test_doctor_checks_every_api_key_the_model_and_its_readers_need(tmp_path, cl
     lines = capsys.readouterr().out.splitlines()
     assert lines[3:6] == ["fail VT104 stand-in's reader claude-opus-5-5 needs ANTHROPIC_API_KEY, and it is not in the "
                           "environment or .env", "  fix: copy .env.example to .env and set ANTHROPIC_API_KEY there, or "
-                          "export it", "ok   VT105 stand-in's checks need no GPU"]
+                          "export it", "ok   VT105 stand-in's eye needs no GPU"]
     (directory / ".env").write_text(f"ANTHROPIC_API_KEY={KEY}\n")
     cli(directory, "doctor")
     assert capsys.readouterr().out.splitlines()[3] == "ok   VT104 ANTHROPIC_API_KEY is set, for stand-in's reader claude-opus-5-5"

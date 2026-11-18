@@ -51,6 +51,17 @@ class Project:
         return found
 
 
+def forget(found: Project) -> None:
+    """Drop a project's modules, and its folder from the import path, so that a copy or an edit of the project is
+    imported afresh. A regular package anywhere on the path wins over a namespace package before it, so a starter's
+    contrail package, left on the path, would stand in for examples/contrail's, which has no __init__.py."""
+    top = found.screenplay.partition(":")[0].partition(".")[0]
+    for name in [name for name in sys.modules if name == top or name.startswith(f"{top}.")]:
+        del sys.modules[name]
+    while str(found.root) in sys.path:
+        sys.path.remove(str(found.root))
+
+
 def find(start: Path) -> Project:
     """The project a command runs in: the nearest folder, from start upward, that holds a pyproject.toml."""
     root = next((folder for folder in (start, *start.parents) if (folder / "pyproject.toml").is_file()), None)

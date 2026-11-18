@@ -5,7 +5,11 @@ import pytest
 
 import videotape as vt
 from conftest import CONTRAIL, planned
-from videotape.plan import Mode, plan
+from videotape.plan import FromKey, Key, Mode, plan
+
+
+def plan_of_contrail():
+    return planned(CONTRAIL)
 
 
 class Airport(vt.Record, key="code"):
@@ -104,9 +108,28 @@ def test_the_walk_is_breadth_first_from_the_first_scene():
         ("hall()", "Left door", "room(left)"), ("hall()", "Right door", "room(right)"),
         ("room(left)", "Open", "inside(left)"), ("room(left)", "Back", "hall()"),
         ("room(right)", "Open", "inside(right)"), ("room(right)", "Back", "hall()")]
-    assert [key.mode for key in planned.keys] == [Mode.TEXT_TO_VIDEO] * 5
+    assert [key.mode for key in planned.keys] == [Mode.TEXT_TO_VIDEO, Mode.TEXT_TO_VIDEO, Mode.FIRST_FRAME,
+                                                  Mode.TEXT_TO_VIDEO, Mode.FIRST_FRAME]
     assert [move.mode for move in planned.moves] == [Mode.FIRST_AND_LAST_FRAME] * 6
     assert planned.shots == (*planned.keys, *planned.moves)
+
+
+def test_a_scenes_first_state_is_its_base_and_each_later_state_is_a_variant_drawn_from_the_bases_picture():
+    planned = plan(one_scene(vt.Button("Go", to=a_state())))
+    assert type(planned.keys[0]) is Key and planned.keys[0].title == "key home()"
+    contrail = plan_of_contrail()
+    bases = {key.state.scene.name: key for key in contrail.keys if type(key) is Key}
+    assert [base.state.name for base in bases.values()] == [
+        "home()", "search()", "trip(CT 100, 2026-12-18)", "my_trips()", "profile()", "not_found()", "no_flights(BOS)",
+        "dates(HNL)", "results(HNL, 2026-12-11)", "flight(CT 500, 2026-12-11)", "booked(CT 500, 2026-12-11)"]
+    variants = [key for key in contrail.keys if isinstance(key, FromKey)]
+    assert len(variants) == 47 and len(bases) + len(variants) == 58
+    assert all(key.start is bases[key.state.scene.name].state and key.start is not key.state for key in variants)
+    assert all(contrail.keys.index(bases[key.state.scene.name]) < contrail.keys.index(key) for key in variants)
+    flight = next(key for key in variants if key.state.name == "flight(CT 104, 2026-12-13)")
+    assert flight.title == "key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)"
+    assert (flight.image, flight.mode, flight.lines == bases["flight"].lines) == (
+        "keys/flight-ct-104-2026-12-13.png", Mode.FIRST_FRAME, False)
 
 
 def test_each_elements_words_are_its_lines_in_reading_order():

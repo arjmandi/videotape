@@ -42,6 +42,10 @@ class Ledger:
                                       "cap") from None
         return [line for line in lines if line["tape"] == self.tape]
 
+    def spent(self) -> float:
+        """What the tape's lines billed, summed before any rounding, where totals rounds to the cent."""
+        return sum(line.get("usd") or 0.0 for line in self.lines())
+
     def totals(self) -> dict:
         lines = self.lines()
         takes = [line for line in lines if line["kind"] == "take"]

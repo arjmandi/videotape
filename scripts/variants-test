@@ -1,0 +1,1070 @@
+#!/usr/bin/env python3
+"""Draw the states of three scenes of an app three ways, and measure which way keeps a scene's layout when only its
+data changes.
+
+    uv run scripts/variants-test examples/contrail --story terminal --cap-usd 40 [--model <name>] [--estimate] \\
+        [--marks marks.json]
+    open examples/contrail/tapes/variants-test/report.html
+
+Many states are one scene drawn with other data, and each key is drawn from its own prompt, so two flights can come
+out in two layouts. The variants test takes the SCENES, makes each scene's first state in walk order its base, drawn
+as a render draws it, and draws the scene's variants, every other results state and the flight and booked states of
+the flights of DAY, three ways:
+
+    seed      every state of the scene at one seed, the base included; when any state fails a check, the whole
+              scene again at the next seed, once
+    from-key  each variant from the base's key picture, image to video with the variant's own words, keeping its
+              last frame as its key; a second take only when the first fails a text check or is refused
+    repaint   each variant by repainting only the text of the base's key, on a model with a mode that repaints
+              masked regions; no model here has one, so the report says so and no call is made
+
+Before any call it prints the estimate: the calls of each method, the least and the most, at the model's price, and
+a read of each take by each paid reader of its eye at the most a read of its picture costs. --estimate prints it and
+stops, and needs no API key. A least past --cap-usd stops it before any call, and the cap stops a run before the
+call that would pass it, which a run again with a higher cap resumes. The tapes go into tapes/variants-test/<method>/
+<scene>/ in the project, one cap holds for them all, and every call and read goes into the project's ledger.jsonl.
+Run again, it films no take on disk and reads no picture whose read is cached, so the report is rebuilt for free.
+
+Every key gets the render's checks by every reader of the model's eye, and every variant the layout check, VT505,
+against its method's base, by the distances of videotape.layout, measured here and judged by the marks alone; the
+from-key arm renders with no bar, so the render makes no layout check of its own, since this test is where the
+render's bar comes from. tapes/variants-test/report.html shows each scene's keys method by method with their checks and their cost,
+what one fare change and one direction change would draw again under each method, and the recommendation: the
+method with the most variants whose kept take passes the layout check and every other check, then the lowest cost
+a passing variant, then the fewest keys and moves the two changes draw again. The layout check has no threshold
+until a person marks pairs in the report, the same layout or different, and downloads marks.json; --marks marks.json
+picks the metric and the threshold that agree with the most marks, and without marks, or below their agreement bar,
+the recommendation is withheld.
+
+Standard library only; it imports videotape.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import shlex
+import shutil
+import sys
+import tempfile
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from functools import cached_property
+from html import escape
+from pathlib import Path
+
+from videotape import dailies, errors, frames, layout, ledger, project, story
+from videotape.atomic import write_atomically
+from videotape.checks import Reader
+from videotape.errors import RenderError, ScreenplayError
+from videotape.frames import HEIGHT, WIDTH, Box
+from videotape.layout import AGREEMENT, Bar, Layout
+from videotape.made import made
+from videotape.model import MODELS, SIZES, Listing, Model
+from videotape.plan import FromKey, Key, Mode, Plan, plan
+from videotape.render import Base, EveryTakeRefused, Filmed, Render, eye, render
+from videotape.story import Story
+
+SCENES = ("results", "flight", "booked")
+"""The scenes under test, each drawn as its base and its variants."""
+DAY = "2026-12-12"
+"""The day whose flights are the flight and booked scenes' variants."""
+TAKES = 2
+FOLDER = Path("tapes") / "variants-test"
+FARE = ("CT 104", DAY, 2)
+"""The fare change: the flight whose fare rises, by number and day, and by how many dollars. A flight of DAY, which
+is no scene's base, since the bases are the first states in walk order and those fly on an earlier day."""
+DIRECTION = ("flight", "The gate desk at dusk, with the flight's details on its sign.")
+"""The direction change: the scene whose direction the story gives anew, and the new direction."""
+MASKED: dict[str, str] = {}
+"""Each model with a mode that repaints only the masked regions of a key, by name, and what the mode is called. None
+yet: gemini-omni-flash-1.2's only edit endpoint takes no mask, as SOURCES says, so the repaint method draws nothing."""
+
+
+def on_day(key: Key) -> bool:
+    return key.state.name.endswith(f", {DAY})")
+
+
+VARIANTS: dict[str, Callable[[Key], bool]] = {"results": lambda key: True, "flight": on_day, "booked": on_day}
+"""Which of a scene's states, after its base, are its variants."""
+
+
+@dataclass(frozen=True)
+class Method:
+    name: str
+    mode: Mode | None
+    """How a variant is drawn, or None for a method no model here has a mode for."""
+    rule: str
+    with_base: bool
+    """Whether the method draws the scene's base itself, or starts from the one the seed method drew at seed 1."""
+    on_base: bool
+    """Whether a variant's take depends on the base's key picture, so a change to the base draws every variant again."""
+
+
+METHODS = (
+    Method("seed", Mode.TEXT_TO_VIDEO, "a scene's base and variants at one seed, and the whole scene again at the next "
+           "seed when any state fails a check", with_base=True, on_base=False),
+    Method("from-key", Mode.FIRST_FRAME, "each variant from its base's key picture at seed 1, and again at seed 2 when "
+           "it fails a text check", with_base=False, on_base=True),
+    Method("repaint", None, "each variant by repainting only the text of its base's key", with_base=False, on_base=True),
+)
+
+
+@dataclass(frozen=True)
+class Source:
+    title: str
+    url: str
+    date: str
+    said: str
+
+
+SOURCES = (
+    Source("Gemini Omni Flash 1.2 image-to-video API page", "https://fal.ai/models/google/gemini-omni-flash/v1.2/image-to-video/api",
+           "no date, read 2026-11-17", "Takes prompt, image_url, the first frame, end_image_url, which is optional, "
+           "aspect_ratio, resolution and duration, and no mask, so the from-key method sends the base's key as "
+           "image_url and no end image."),
+    Source("Gemini Omni Flash 1.2 edit endpoint", "https://fal.ai/models/google/gemini-omni-flash/v1.2/edit/llms.txt",
+           "no date, read 2026-11-17", "Its only edit endpoint takes prompt, video_url of at most 15 s and "
+           "resolution, and no mask, region or image, so the model has no mode that repaints only the masked text of "
+           "a key, and the repaint method draws nothing on it."),
+    Source("fal queue OpenAPI schemas of Gemini Omni Flash 1.2",
+           "https://fal.ai/api/openapi/queue/openapi.json?endpoint_id=google/gemini-omni-flash/v1.2/text-to-video",
+           "no date, read 2026-11-15", "Neither the text-to-video nor the image-to-video schema has a seed, so the "
+           "seed method's seed only names a take, and the method draws each state on its own, as a render does."),
+)
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
+def _listed(names: Sequence[str]) -> str:
+    return " and ".join(filter(None, (", ".join(names[:-1]), names[-1]))) if names else ""
+
+
+def _money(usd: float) -> str:
+    return f"${usd:.2f}"
+
+
+def _cents_up(usd: float) -> float:
+    return math.ceil(round(usd * 100, 6)) / 100
+
+
+@dataclass(frozen=True)
+class Scene:
+    """A scene under test: its first state in walk order, drawn as a render draws it, and its variants."""
+
+    name: str
+    base: Key
+    variants: tuple[Key, ...]
+
+    @property
+    def keys(self) -> tuple[Key, ...]:
+        return self.base, *self.variants
+
+
+def selected(planned: Plan) -> tuple[Scene, ...]:
+    """Each of SCENES as a Scene: its first state in walk order is the base, and VARIANTS says which of its other
+    states are the variants, each as a key drawn from its own prompt. VT212 for a scene the plan lacks."""
+    scenes = []
+    for name in SCENES:
+        keys = [key.from_prompt() for key in planned.keys if key.state.scene.name == name]
+        if not keys:
+            raise ScreenplayError("VT212", f'"{name}"', "the app has no scene of this name, and the variants test draws "
+                                  "its states", "name one of the plan's scenes in SCENES in scripts/variants-test: "
+                                  f"{', '.join(planned.scenes)}")
+        base, *rest = keys
+        scenes.append(Scene(name, base, tuple(key for key in rest if VARIANTS[name](key))))
+    return tuple(scenes)
+
+
+def calls(method: Method, scenes: Sequence[Scene]) -> tuple[int, int]:
+    """The least and the most calls the method makes: once over what it draws, and twice when every scene or variant
+    is drawn again."""
+    if method.mode is None:
+        return 0, 0
+    once = sum(len(scene.keys) if method.with_base else len(scene.variants) for scene in scenes)
+    return once, TAKES * once
+
+
+def estimate(name: str, listing: Listing, scenes: Sequence[Scene]) -> tuple[list[str], float, float]:
+    """The estimate's lines, and the least and the most the whole test costs: the calls at the model's price, and a
+    read of each take by each paid reader of its eye at the most a read of the model's picture costs."""
+    lines, least, most = [], 0, 0
+    for method in METHODS:
+        low, high = calls(method, scenes)
+        if method.mode is None:
+            lines.append(f"{method.name}: no call; {name} has no mode that repaints only the masked text of a key")
+        else:
+            lines.append(f"{method.name}: {low} to {high} calls; {method.rule}")
+        least, most = least + low, most + high
+    price = listing.price
+    line = f"{name}: {least} to {most} calls, {price.span(least, most) if price else 'free'}"
+    low_usd, high_usd = (least * price.usd, most * price.usd) if price else (0.0, 0.0)
+    paid = [reader for reader in listing.readers if reader.paid]
+    if paid:
+        width, height = SIZES.get(name, (WIDTH, HEIGHT))
+        each = sum(reader.most(width, height) for reader in paid)
+        line += (f", and {least} to {most} reads by {_listed([reader.name for reader in paid])} of {width}x{height} "
+                 f"pictures, at most ${least * each:.2f} to ${most * each:.2f}")
+        low_usd, high_usd = low_usd + least * each, high_usd + most * each
+    lines.append(line)
+    return lines, low_usd, high_usd
+
+
+# Filming.
+
+@dataclass(frozen=True)
+class Shoot:
+    """Everything the renders of one tape share."""
+
+    found: project.Project
+    plan: Plan
+    told: Story
+    model: Model
+    listing: Listing
+    readers: list[Reader]
+    tape: Path
+    cap: float | None
+    resume: str
+
+    def render(self, keys: tuple[Key, ...], takes: int, every: bool = False, bases: Mapping | None = None,
+               bar: Bar | None = layout.BAR) -> Render:
+        def report(filmed: Filmed) -> None:
+            for error in filmed.reported:
+                print(error.report(), file=sys.stderr, flush=True)
+            verdict = "passed" if filmed.passed else f"fails {' '.join(sorted({f.code for f in filmed.failures}))}"
+            count = f"{_count(filmed.rendered, 'take')} filmed" if filmed.rendered else "cached"
+            print(f"{keys.index(filmed.shot) + 1}. {filmed.shot.title}  kept take {filmed.kept.seed}, {verdict}, "
+                  f"{count}, {_money(filmed.usd)}, {filmed.seconds:.1f} s", flush=True)
+
+        return render(Plan(self.plan.title, self.plan.scenes, keys, (), ()), self.told, self.model, self.readers,
+                      self.tape, ledger.of(self.found.root, self.tape), made(self.found, self.told, self.model),
+                      takes=takes, limit=self.listing.limit, price=self.listing.price, cap=self.cap,
+                      resume=self.resume, report=report, every=every, bases=bases, bar=bar)
+
+
+def _seed_arm(shoot: Shoot, scene: Scene, tapes: Mapping[tuple[str, str], Path]) -> None:
+    """The scene's base and variants at seed 1, and when any state fails a check, or has its take refused, the whole
+    scene again at seed 2."""
+    print(f"seed, {scene.name}: {_count(len(scene.keys), 'state')} at seed 1, read by {eye(shoot.readers)} -> "
+          f"{errors.shown(shoot.tape)}", flush=True)
+    try:
+        failed = [filmed.shot.state.name for filmed in shoot.render(scene.keys, takes=1).keys if not filmed.passed]
+    except EveryTakeRefused as error:
+        print(error.report(), file=sys.stderr, flush=True)
+        failed = [error.place]
+    if not failed:
+        return
+    print(f"seed, {scene.name}: {_listed(failed[:3])}{' and more' if len(failed) > 3 else ''} failed at seed 1, so "
+          f"the whole scene is drawn again at seed 2", flush=True)
+    shoot.render(scene.keys, takes=TAKES, every=True)
+
+
+def base_take(seed_tape: Path, base: Key) -> dict | None:
+    """The base's take at seed 1 in the seed method's tape, as its dailies record it, or None when none was filmed."""
+    if not (seed_tape / "dailies.json").is_file():
+        return None
+    for key in dailies.read(seed_tape)["keys"]:
+        if key["state"] == base.state.name:
+            return next((take for take in key["takes"] if take["seed"] == 1), None)
+    return None
+
+
+def _from_key_arm(shoot: Shoot, scene: Scene, tapes: Mapping[tuple[str, str], Path]) -> None:
+    """Each variant from the base's key picture at seed 1, which the seed method drew, up to TAKES takes. The render
+    makes no layout check here, since the report measures every layout itself and judges it by the marks, which is
+    where the render's bar came from."""
+    seed_tape = tapes["seed", scene.name]
+    take = base_take(seed_tape, scene.base)
+    if take is None:
+        print(f"from-key, {scene.name}: {scene.base.state.name} has no take at seed 1, so nothing is drawn from it",
+              file=sys.stderr, flush=True)
+        return
+    clip, picture = seed_tape / take["clip"], shoot.tape / "base.png"
+    if not picture.is_file() or picture.stat().st_mtime < clip.stat().st_mtime:
+        shoot.tape.mkdir(parents=True, exist_ok=True)
+        write_atomically(picture, lambda out: frames.write_png(frames.last_frame(clip), out))
+    variants = tuple(FromKey(key.id, key.state, key.shown, scene.base.state) for key in scene.variants)
+    print(f"from-key, {scene.name}: {_count(len(variants), 'variant')} from {scene.base.state.name}'s key at seed 1, "
+          f"up to {TAKES} takes each, read by {eye(shoot.readers)} -> {errors.shown(shoot.tape)}", flush=True)
+    shoot.render(variants, takes=TAKES, bases={scene.base.state: Base(picture, tuple(boxes(take["items"])))}, bar=None)
+
+
+ARMS: dict[str, Callable[[Shoot, Scene, Mapping[tuple[str, str], Path]], None]] = {
+    "seed": _seed_arm, "from-key": _from_key_arm}
+
+
+# What the report shows.
+
+@dataclass(frozen=True)
+class Drawn:
+    """One take of one state under one method, as its tape's dailies and the project's ledger record it, with its
+    layout distances from its method's base when it is a variant."""
+
+    method: str
+    scene: str
+    state: str
+    base: bool
+    seed: int
+    clip: str
+    seconds: float | None
+    usd: float
+    items: tuple[dict, ...]
+    layout: Layout | None
+    against: str | None
+    """The picture of the base it is compared with, from the report's folder."""
+    refused: bool = False
+
+    @property
+    def tape(self) -> str:
+        return f"{self.method}/{self.scene}"
+
+    @property
+    def picture(self) -> str:
+        return f"{self.tape}/pictures/{Path(self.clip).stem}.png"
+
+    @property
+    def text_passed(self) -> bool:
+        return all(item["passed"] for item in self.items)
+
+
+@dataclass(frozen=True)
+class Tally:
+    passed: int
+    of: int
+
+    def __str__(self) -> str:
+        return f"{self.passed} of {self.of}"
+
+
+def boxes(items: Sequence[dict]) -> list[Box]:
+    """Every box the readers found on a take: each check's, and each reader's reading behind it."""
+    found = [item["box"] for item in items] + [seen["box"] for item in items for seen in item["readings"]]
+    return [Box(**box) for box in found if box]
+
+
+def refusal() -> tuple[dict, ...]:
+    """A refused take's checks: one failing VT409 for the take, so the state counts as failing."""
+    return ({"code": "VT409", "about": "the take", "result": "refused for its content", "passed": False, "box": None,
+             "element": None, "readings": []},)
+
+
+def gathered(root: Path, scenes: Sequence[Scene], tapes: Mapping[tuple[str, str], Path]) -> list[Drawn]:
+    """Every take of every tape, with its cost from the ledger and its picture written into pictures/, and for each
+    variant its layout distances from its method's base at the same seed, or for the from-key method from the base's
+    picture it started on."""
+    drawn = []
+    for (method, name), tape in tapes.items():
+        if not (tape / "dailies.json").is_file():
+            continue
+        scene = next(scene for scene in scenes if scene.name == name)
+        costs = Counter[tuple[str, int]]()
+        for line in ledger.of(root, tape).lines():
+            if "shot" in line and "seed" in line:
+                costs[line["shot"], line["seed"]] += line.get("usd") or 0.0
+        record = dailies.read(tape)
+        takes = {(key["state"], take["seed"]): (key["title"], take) for key in record["keys"] for take in key["takes"]}
+        for (state, seed), (title, take) in takes.items():
+            picture = tape / "pictures" / f"{Path(take['clip']).stem}.png"
+            if not picture.is_file() or picture.stat().st_mtime < (tape / take["clip"]).stat().st_mtime:
+                picture.parent.mkdir(exist_ok=True)
+                write_atomically(picture, lambda out: frames.write_png(frames.last_frame(tape / take["clip"]), out))
+        bases: dict[int, tuple[Path, list[Box]]] = {}
+        if method == "seed":
+            for (state, seed), (_, take) in takes.items():
+                if state == scene.base.state.name:
+                    bases[seed] = tape / "pictures" / f"{Path(take['clip']).stem}.png", boxes(take["items"])
+        elif (first := base_take(tapes["seed", name], scene.base)) is not None:
+            bases[1] = tape / "base.png", boxes(first["items"])
+        for (state, seed), (title, take) in takes.items():
+            is_base = state == scene.base.state.name
+            against = bases.get(seed if method == "seed" else 1)
+            distance = None
+            if not is_base and against is not None:
+                picture = tape / "pictures" / f"{Path(take['clip']).stem}.png"
+                distance = layout.distances(frames.read_png(against[0]), against[1], frames.read_png(picture),
+                                            boxes(take["items"]))
+            drawn.append(Drawn(method, name, state, is_base, seed, take["clip"], take["seconds"], costs[title, seed],
+                               tuple(take["items"]), distance,
+                               against[0].relative_to(root / FOLDER).as_posix() if against and not is_base else None))
+        refused = [(key, seed) for key in record["keys"] for seed in key.get("refused", [])]
+        refused += [(key, seed) for key in record["keys"] for seed in record.get("unfilmed", {}).get(key["title"], [])]
+        for key, seed in refused:
+            drawn.append(Drawn(method, name, key["state"], key["state"] == scene.base.state.name, seed, "", None,
+                               costs[key["title"], seed], refusal(), None, None, refused=True))
+    return drawn
+
+
+@dataclass(frozen=True)
+class Mark:
+    """A person's mark of one variant's take: whether its layout is the same as its base's."""
+
+    method: str
+    state: str
+    seed: int
+    clip: str
+    same: bool
+
+
+@dataclass(frozen=True)
+class Standing:
+    """How one method did: the variants whose kept take passes the layout check and every other check, what its
+    variants' takes and reads cost, and the keys and moves the two changes draw again under it."""
+
+    method: str
+    passing: Tally
+    usd: float
+    keys: int
+    moves: int
+
+    @property
+    def per_passing(self) -> float:
+        return self.usd / self.passing.passed if self.passing.passed else math.inf
+
+    @property
+    def rerenders(self) -> str:
+        return f"{_count(self.keys, 'key')} and {_count(self.moves, 'move')} drawn again by the two changes"
+
+
+def recommend(standings: Sequence[Standing]) -> Standing:
+    """The most variants passing, then the lowest cost a passing variant, then the fewest keys and moves drawn again."""
+    return min(standings, key=lambda standing: (-standing.passing.passed, standing.per_passing,
+                                                standing.keys + standing.moves))
+
+
+@dataclass(frozen=True)
+class Change:
+    """One change to the app or the story, and how many keys and moves of the whole tape it draws again under each
+    method."""
+
+    name: str
+    said: str
+    keys: dict[str, int]
+    moves: dict[str, int]
+
+
+@dataclass(frozen=True)
+class Trial:
+    """What the report shows: the app, the story and the model, the scenes, every take, what each method's tapes
+    cost, the two changes, and the layout check's bar when a person's marks set one."""
+
+    app: str
+    story: str
+    model: str
+    seeded: bool
+    scenes: tuple[Scene, ...]
+    drawn: tuple[Drawn, ...]
+    spent: dict[str, float]
+    changes: tuple[Change, ...]
+    bar: Bar | None = None
+    marks: tuple[Mark, ...] = ()
+    stale: int = 0
+
+    @property
+    def methods(self) -> tuple[Method, ...]:
+        return tuple(method for method in METHODS if method.mode is not None)
+
+    def of(self, method: str, scene: str | None = None, state: str | None = None) -> list[Drawn]:
+        return sorted((one for one in self.drawn if one.method == method and scene in (None, one.scene)
+                       and state in (None, one.state)), key=lambda one: one.seed)
+
+    def judged(self, one: Drawn) -> bool | None:
+        """Whether a variant's take passes the layout check, or None while the bar is not held or it has no distance."""
+        if self.bar is None or not self.bar.held or one.layout is None:
+            return None
+        return self.bar.same(one.layout)
+
+    def passes(self, one: Drawn) -> bool:
+        return one.text_passed and self.judged(one) is not False
+
+    def kept(self, method: str, scene: Scene, state: str) -> Drawn | None:
+        """The take a state keeps under a method: under seed, the take at the scene's last seed, since the whole scene
+        moves to it; else the first take that passes, or the last."""
+        takes = self.of(method, scene.name, state)
+        if not takes:
+            return None
+        if method == "seed":
+            last = max(one.seed for one in self.of(method, scene.name))
+            return next((one for one in takes if one.seed == last), takes[-1])
+        return next((one for one in takes if self.passes(one)), takes[-1])
+
+    def passing(self, method: str) -> Tally:
+        kept = [self.kept(method, scene, key.state.name) for scene in self.scenes for key in scene.variants]
+        drawn = [one for one in kept if one is not None]
+        return Tally(sum(self.passes(one) for one in drawn), len(drawn))
+
+    @cached_property
+    def standings(self) -> tuple[Standing, ...]:
+        return tuple(Standing(method.name, self.passing(method.name),
+                              sum(one.usd for one in self.of(method.name) if not one.base),
+                              sum(change.keys[method.name] for change in self.changes),
+                              sum(change.moves[method.name] for change in self.changes)) for method in self.methods)
+
+    @property
+    def recommendation(self) -> Standing | None:
+        """The recommendation, or None until a person's marks hold the layout check's bar."""
+        if self.bar is None or not self.bar.held or not any(standing.passing.of for standing in self.standings):
+            return None
+        return recommend(self.standings)
+
+    def agreement(self) -> str:
+        assert self.bar is not None
+        return (f"{self.bar.metric} at {self.bar.threshold:.4f}, agreeing with a person's marks on {self.bar.agreed} of "
+                f"{self.bar.of} pairs, {self.bar.share:.1%}")
+
+
+def judged(marks: Sequence[Mark], drawn: Sequence[Drawn]) -> tuple[list[tuple[Layout, bool]], int]:
+    """Each mark's pair as its distances and the mark, and how many marks are of takes no longer on disk. A mark is
+    of a take by its clip, since a take filmed again keeps its seed and gets new pixels."""
+    held = {(one.method, one.state, one.clip): one for one in drawn if one.layout is not None}
+    pairs, stale = [], 0
+    for mark in marks:
+        one = held.get((mark.method, mark.state, mark.clip))
+        if one is None or one.layout is None:
+            stale += 1
+            continue
+        pairs.append((one.layout, mark.same))
+    return pairs, stale
+
+
+# What a change draws again.
+
+@dataclass(frozen=True)
+class Edition:
+    """An app as planned in a story, before or after a change."""
+
+    plan: Plan
+    story: Story
+
+    @cached_property
+    def prompts(self) -> dict[str, str]:
+        return {shot.id: story.text(story.prompt(shot, self.story)) for shot in self.plan.shots}
+
+    @cached_property
+    def bases(self) -> dict[str, Key]:
+        """Each key's scene's base: the scene's first key in walk order."""
+        firsts: dict[str, Key] = {}
+        for key in self.plan.keys:
+            firsts.setdefault(key.state.scene.name, key)
+        return {key.id: firsts[key.state.scene.name] for key in self.plan.keys}
+
+    def identity(self, key: Key, method: Method) -> str:
+        """What a key's take depends on under the method: its prompt, and under a method that draws variants from
+        the base, the base's prompt too."""
+        base = self.bases[key.id]
+        if base is key or not method.on_base:
+            return self.prompts[key.id]
+        return f"{self.prompts[key.id]}\n{self.prompts[base.id]}"
+
+
+def rerendered(before: Edition, after: Edition, method: Method) -> tuple[int, int]:
+    """How many keys and moves the change from before to after draws again under the method: each key whose identity
+    changed, and each move whose prompt changed or that leaves or lands on such a key."""
+    was = {key.id: before.identity(key, method) for key in before.plan.keys}
+    keys = {key.id for key in after.plan.keys if after.identity(key, method) != was.get(key.id)}
+    states = {key.state for key in after.plan.keys if key.id in keys}
+    moves = {move.id for move in after.plan.moves
+             if after.prompts[move.id] != before.prompts.get(move.id) or {move.start, move.land} & states}
+    return len(keys), len(moves)
+
+
+def fare_change(copy: Path, told: Story) -> str:
+    number, day, more = FARE
+    file = copy / "data" / "flights.json"
+    flights = json.loads(file.read_text())
+    [flight] = [flight for flight in flights if (flight["number"], flight["day"]) == (number, day)]
+    was = flight["fare"]
+    flight["fare"] = was + more
+    file.write_text(json.dumps(flights, indent=2) + "\n")
+    return f"the fare of {number} on {day}, ${was} to ${was + more}"
+
+
+def direction_change(copy: Path, told: Story) -> str:
+    scene, direction = DIRECTION
+    file = copy / "stories" / f"{told.name}.toml"
+    number = story.line_of(file, "scenes", scene)
+    if number is None:
+        raise ScreenplayError("VT304", errors.shown(told.path), f"the scene {scene} has no direction, which the "
+                              "direction change gives anew", f'add {scene} = "..." under [scenes]')
+    lines = file.read_text().splitlines(keepends=True)
+    lines[number - 1] = f'{scene} = "{direction}"\n'
+    file.write_text("".join(lines))
+    return f'the direction of the {scene} scene, "{told.scenes[scene]}" to "{direction}"'
+
+
+CHANGES: dict[str, Callable[[Path, Story], str]] = {"fare": fare_change, "direction": direction_change}
+
+LEFT_BEHIND = shutil.ignore_patterns(".venv", "tape*", "ledger.jsonl", "uv.lock", "__pycache__", ".env", "dist")
+
+
+def changes(found: project.Project, before: Edition) -> tuple[Change, ...]:
+    """Each change made on a copy of the project, planned, and counted against the plan before it under each
+    method. The copy is imported afresh, so the project's own modules are forgotten first."""
+    project.forget(found)
+    made = []
+    with tempfile.TemporaryDirectory() as scratch:
+        for name, change in CHANGES.items():
+            copy = Path(shutil.copytree(found.root, Path(scratch) / name, ignore=LEFT_BEHIND))
+            said = change(copy, before.story)
+            copied = project.find(copy)
+            try:
+                after = Edition(plan(copied.load(), copied.max_states), story.named(copy, before.story.name))
+                counts = {method.name: rerendered(before, after, method) for method in METHODS}
+            finally:
+                project.forget(copied)
+            made.append(Change(name, said, {method: keys for method, (keys, _) in counts.items()},
+                               {method: moves for method, (_, moves) in counts.items()}))
+    return tuple(made)
+
+
+# The report's page.
+
+STYLE = dailies.STYLE + """
+header, main { max-width: 1680px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.models { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-top: 10px; }
+.model h4 { margin: 0 0 6px; font-size: 14px; }
+.model .takes { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-top: 0; }
+.pair { display: grid; grid-template-columns: 1fr 2fr; gap: 6px; align-items: start; }
+.pair .base { opacity: 0.8; }
+.state > h3 { margin: 18px 0 0; }
+.marks { margin: 6px 0 0; font-size: 13px; }
+.marks label { margin-right: 12px; }
+button { font: inherit; padding: 6px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--card);
+  color: var(--text); cursor: pointer; }
+.pick { font-size: 17px; font-weight: 600; margin: 0 0 8px; }
+.withheld { color: var(--fail); }
+.sources li { margin: 6px 0; }
+"""
+
+# The marks persist in the browser while a person works through the pairs, and the button saves them as marks.json.
+SCRIPT = """
+const radios = [...document.querySelectorAll("input.mark")];
+let kept = {};
+try { kept = JSON.parse(localStorage.getItem("variants-test-marks") || "{}"); } catch {}
+for (const radio of radios) {
+  if (kept[radio.name] === radio.value) radio.checked = true;
+  radio.addEventListener("change", () => {
+    kept[radio.name] = radio.value;
+    try { localStorage.setItem("variants-test-marks", JSON.stringify(kept)); } catch {}
+  });
+}
+const trial = document.getElementById("recommendation");
+document.getElementById("download")?.addEventListener("click", () => {
+  const marks = radios.filter(radio => radio.checked).map(radio => ({method: radio.dataset.method,
+    state: radio.dataset.state, seed: Number(radio.dataset.seed), clip: radio.dataset.clip,
+    same: radio.value === "same"}));
+  const held = {test: "variants-test", model: trial.dataset.model, story: trial.dataset.story, marks};
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(new Blob([JSON.stringify(held, null, 2) + "\\n"], {type: "application/json"}));
+  link.download = "marks.json";
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+});
+"""
+
+RULE = ("The recommendation is the method with the most variants whose kept take passes the layout check and every "
+        "text check, then the lowest cost a passing variant, then the fewest keys and moves the two changes draw "
+        "again. It waits until a person's marks hold the layout check's threshold at "
+        f"{AGREEMENT:.0%}.")
+
+
+def _recommendation(trial: Trial) -> str:
+    chosen = trial.recommendation
+    lines = []
+    if trial.bar is None:
+        lines.append("<p class=\"pick withheld\">No recommendation yet: the layout check has no threshold until a "
+                     "person marks pairs. Under each scene, mark each variant the same layout as its base or "
+                     "different, download marks.json, and run the variants test again with --marks marks.json.</p>")
+    elif not trial.bar.held:
+        lines.append(f"<p class=\"pick withheld\">No recommendation: the layout check's best threshold, "
+                     f"{escape(trial.agreement())}, is below {AGREEMENT:.0%}. The distances do not tell the marked "
+                     "pairs apart, so mark them again or widen the check.</p>")
+    for standing in trial.standings:
+        said = (f"{standing.method}: {standing.passing} variants pass the layout check and every text check, "
+                f"{_money(standing.usd)} for their takes and reads"
+                + (f", {_money(standing.per_passing)} a passing variant" if standing.passing.passed else "")
+                + f", {standing.rerenders}.")
+        if chosen is not None and standing is chosen:
+            lines.append(f'<p class="pick">The recommendation is {escape(standing.method)}. {escape(said)}</p>')
+        else:
+            lines.append(f"<p>{escape(said)}</p>")
+    repaint = next(method for method in METHODS if method.mode is None)
+    lines.append(f"<p>{escape(repaint.name)}: {escape(trial.model)} has no mode that repaints only the masked text "
+                 "of a key, so nothing was drawn and it stands outside the recommendation.</p>")
+    seed = ("" if trial.seeded else f" {trial.model} takes no seed, so the seed method draws each state on its own, as a "
+            "render does today, and stands for that.")
+    lines.append(f'<p class="note">{escape(RULE + seed)}</p>')
+    attribute = f' data-recommend="{escape(chosen.method)}"' if chosen else ""
+    return (f'<section class="shot" id="recommendation" data-model="{escape(trial.model)}" '
+            f'data-story="{escape(trial.story)}"{attribute}>\n<h2>The recommendation</h2>\n{"".join(lines)}\n</section>')
+
+
+def _layout(trial: Trial) -> str:
+    lines = ["<p>The layout check, VT505, compares a variant's key with its method's base outside the text the readers "
+             "found: both keys scaled to a small grey picture, every line and control a reader read left out of "
+             "both, and what remains measured by shading, the mean absolute difference, and by edges, one minus the "
+             "correlation of where the edges lie. Under the seed method a variant is compared with the base at its "
+             "own seed; under from-key with the base's picture it started on.</p>"]
+    if trial.bar is None:
+        lines.append("<p class=\"note\">No threshold yet. The thresholds a person's marks can set lie midway between "
+                     "two neighbouring distances among the marked pairs; --marks picks the metric and the one that "
+                     f"agree with the most marks, and judges by it from {AGREEMENT:.0%} agreement up.</p>")
+    else:
+        lines.append(f"<p>The threshold is {escape(trial.agreement())}, "
+                     f"{'held' if trial.bar.held else 'not held'}.</p>")
+        wrong = []
+        for mark in trial.marks:
+            one = next((one for one in trial.drawn if (one.method, one.state, one.clip) == (mark.method, mark.state,
+                                                                                            mark.clip)), None)
+            if one is None or one.layout is None or trial.bar.same(one.layout) == mark.same:
+                continue
+            wrong.append(f"<li>{escape(one.method)}, {escape(one.state)} take {one.seed}: marked "
+                         f"{'the same layout' if mark.same else 'different'}, at {trial.bar.metric} "
+                         f"{one.layout.by(trial.bar.metric):.4f}</li>")
+        if wrong:
+            lines.append(f"<h3>Where the check disagrees with the marks</h3><ul>{''.join(wrong)}</ul>")
+        if trial.stale:
+            lines.append(f"<p class=\"note\">{_count(trial.stale, 'mark')} of takes no longer on disk "
+                         f"{'is' if trial.stale == 1 else 'are'} left out.</p>")
+    lines.append("<p><button type=\"button\" id=\"download\">Download marks.json</button></p>")
+    return f'<section class="shot" id="layout">\n<h2>The layout check</h2>\n{"".join(lines)}\n</section>'
+
+
+def _methods(trial: Trial) -> str:
+    head = "".join(f"<th>{escape(method.name)}</th>" for method in METHODS)
+    rows = []
+    cells = {}
+    for standing in trial.standings:
+        method = standing.method
+        text = sum(trial.kept(method, scene, key.state.name).text_passed for scene in trial.scenes
+                   for key in scene.variants if trial.kept(method, scene, key.state.name) is not None)
+        judged = [trial.judged(one) for one in (trial.kept(method, scene, key.state.name) for scene in trial.scenes
+                                                for key in scene.variants) if one is not None]
+        cells[method] = {
+            "variants drawn": f'<td data-method="{method}" data-drawn="{standing.passing.of}">{standing.passing.of}</td>',
+            "kept takes passing every text check": f"<td>{text}</td>",
+            "kept takes passing the layout check": "<td>" + (f"{sum(bool(verdict) for verdict in judged)} of "
+                                                            f"{sum(verdict is not None for verdict in judged)}"
+                                                            if any(verdict is not None for verdict in judged)
+                                                            else "no threshold yet") + "</td>",
+            "kept takes passing both": f'<td data-method="{method}" data-passing="{standing.passing}">{standing.passing}</td>',
+            "calls": f"<td>{len([one for one in trial.of(method) if not one.base])}</td>",
+            "cost of the variants' takes and reads": f"<td>{_money(standing.usd)}</td>",
+            "cost a passing variant": f"<td>{_money(standing.per_passing) if standing.passing.passed else 'none pass'}</td>",
+            "keys and moves the two changes draw again": f"<td>{standing.keys} keys, {standing.moves} moves</td>",
+        }
+    for what in next(iter(cells.values())):
+        row = "".join(cells[method.name][what] if method.name in cells else "<td>no masked mode</td>"
+                      for method in METHODS)
+        rows.append(f"<tr><th>{escape(what)}</th>{row}</tr>")
+    return f"""<section class="shot" id="methods">
+<h2>The methods</h2>
+<div class="scroll"><table>
+<thead><tr><th></th>{head}</tr></thead>
+<tbody>{"".join(rows)}</tbody>
+</table></div>
+</section>"""
+
+
+def _changes(trial: Trial) -> str:
+    head = "".join(f"<th>{escape(method.name)}</th>" for method in METHODS)
+    rows = []
+    for change in trial.changes:
+        cells = "".join(f'<td data-change="{change.name}" data-method="{method.name}" data-keys="{change.keys[method.name]}" '
+                        f'data-moves="{change.moves[method.name]}">{_count(change.keys[method.name], "key")}, '
+                        f'{_count(change.moves[method.name], "move")}</td>' for method in METHODS)
+        rows.append(f"<tr><th>{escape(change.said)}</th>{cells}</tr>")
+    return f"""<section class="shot" id="changes">
+<h2>What a change draws again</h2>
+<p class="note">Each change was made on a copy of the project and planned again, for free. A key is drawn again when
+its prompt changes, and under a method that draws variants from the base, when its base's prompt changes too; a move
+when its prompt changes or a key it leaves or lands on is drawn again. The counts are of the whole {escape(trial.story)}
+tape, with every scene's first state as its base.</p>
+<div class="scroll"><table>
+<thead><tr><th>Change</th>{head}</tr></thead>
+<tbody>{"".join(rows)}</tbody>
+</table></div>
+</section>"""
+
+
+def _figure(trial: Trial, one: Drawn) -> str:
+    attributes = (f'data-method="{escape(one.method)}" data-scene="{escape(one.scene)}" data-key="{escape(one.state)}" '
+                  f'data-seed="{one.seed}" data-usd="{one.usd:.2f}"')
+    if one.refused:
+        return (f'<figure class="take refused" {attributes}><p class="note fail">The model refused this take for its '
+                f"content, VT409, so nothing was filmed and the state fails.</p><figcaption><strong>Take {one.seed}"
+                f'</strong><span class="badge failing">refused VT409</span><span class="badge">{_money(one.usd)}'
+                "</span></figcaption></figure>")
+    items = list(one.items)
+    if one.layout is not None:
+        verdict = trial.judged(one)
+        attributes += (f' data-shading="{one.layout.shading:.4f}" data-edges="{one.layout.edges:.4f}" '
+                       f'data-vt505="{"unjudged" if verdict is None else "passed" if verdict else "failed"}"')
+        result = f"shading {one.layout.shading:.4f}, edges {one.layout.edges:.4f}, {one.layout.kept:.0%} of the picture compared"
+        if verdict is not None:
+            result += f"; {trial.bar.metric} {'under' if verdict else 'over'} the threshold of {trial.bar.threshold:.4f}"
+        else:
+            result += "; no threshold yet"
+        items.insert(0, {"code": "VT505", "about": "layout against the base", "result": result,
+                         "passed": verdict is not False})
+    failing = [item for item in items if not item["passed"]]
+    passing = [item for item in items if item["passed"]]
+    verdict = "fails " + " ".join(sorted({item["code"] for item in failing})) if failing else "passed"
+    seconds = f"{one.seconds:.1f} s" if one.seconds is not None else "time unknown"
+    picture = f'<img src="{escape(one.picture)}" alt="The last frame of take {one.seed} of {escape(one.state)} under {escape(one.method)}" loading="lazy">'
+    if one.against:
+        picture = (f'<div class="pair"><img class="base" src="{escape(one.against)}" alt="The base it is compared with" '
+                   f'loading="lazy">{picture}</div>')
+    marks = ""
+    if one.layout is not None:
+        name = f"{one.method}/{one.scene}/{one.clip}"
+        held = next((mark.same for mark in trial.marks if (mark.method, mark.state, mark.clip) == (one.method, one.state, one.clip)), None)
+        data = (f'class="mark" name="{escape(name)}" data-method="{escape(one.method)}" data-state="{escape(one.state)}" '
+                f'data-seed="{one.seed}" data-clip="{escape(one.clip)}"')
+        marks = (f'<p class="marks"><label><input type="radio" {data} value="same"{" checked" if held is True else ""}> '
+                 f'same layout as the base</label><label><input type="radio" {data} value="different"'
+                 f'{" checked" if held is False else ""}> different</label></p>')
+    folded = (f"<details><summary>{_count(len(passing), 'check')} passed</summary><ul class=\"checks\">"
+              f"{dailies.checklist(passing)}</ul></details>" if passing else "")
+    return (f'<figure class="take" {attributes}>{picture}<figcaption><strong>Take {one.seed}</strong>'
+            f'<span class="badge{"" if not failing else " failing"}">{verdict}</span><span class="badge">{seconds}</span>'
+            f'<span class="badge">{_money(one.usd)}</span><a href="{escape(one.tape)}/{escape(one.clip)}">clip</a>'
+            f'</figcaption>{marks}<ul class="checks">{dailies.checklist(failing)}</ul>{folded}</figure>')
+
+
+def _scenes(trial: Trial) -> str:
+    sections = []
+    for scene in trial.scenes:
+        states = []
+        for key in scene.keys:
+            is_base = key is scene.base
+            columns = []
+            for method in METHODS:
+                if method.mode is None:
+                    inner = f'<p class="note">{escape(trial.model)} has no masked mode, so nothing is drawn.</p>'
+                elif is_base and not method.with_base:
+                    inner = '<p class="note">Starts from the base as the seed method drew it at seed 1.</p>'
+                else:
+                    takes = trial.of(method.name, scene.name, key.state.name)
+                    inner = ('<div class="takes">' + "".join(_figure(trial, one) for one in takes) + "</div>"
+                             if takes else '<p class="note">Not drawn.</p>')
+                columns.append(f'<div class="model"><h4>{escape(method.name)}</h4>{inner}</div>')
+            states.append(f'<div class="state" data-key="{escape(key.state.name)}" data-role="{"base" if is_base else "variant"}">'
+                          f'<h3>{escape(key.state.name)}{" (the base)" if is_base else ""}</h3>'
+                          f'<div class="models">{"".join(columns)}</div></div>')
+        sections.append(f'<section class="shot scene" data-scene="{escape(scene.name)}"><h2>{escape(scene.name)}: '
+                        f"{escape(scene.base.state.name)} and {_count(len(scene.variants), 'variant')}</h2>"
+                        f'{"".join(states)}</section>')
+    return f'<section id="scenes">{"".join(sections)}</section>'
+
+
+def _sources() -> str:
+    items = "".join(f'<li><a href="{escape(source.url)}">{escape(source.title)}</a>, {escape(source.date)}. '
+                    f"{escape(source.said)}</li>" for source in SOURCES)
+    return f'<section class="shot sources" id="sources">\n<h2>Sources</h2>\n<ul>{items}</ul>\n</section>'
+
+
+def page(trial: Trial) -> str:
+    takes = len(trial.drawn)
+    spent = sum(trial.spent.values())
+    summary = (f"{escape(trial.story)}, on {escape(trial.model)}: {_count(len(trial.scenes), 'scene')}, "
+               f"{_count(sum(len(scene.keys) for scene in trial.scenes), 'state')}, {_count(takes, 'take')}, "
+               f"{_money(spent)} in the ledger.")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(trial.app)} variants test</title>
+<style>{STYLE}</style>
+</head>
+<body>
+<header>
+<h1>{escape(trial.app)} variants test</h1>
+<p class="summary">{summary}</p>
+</header>
+<main>
+{_recommendation(trial)}
+{_layout(trial)}
+{_methods(trial)}
+{_changes(trial)}
+{_scenes(trial)}
+{_sources()}
+</main>
+<script>{SCRIPT}</script>
+</body>
+</html>
+"""
+
+
+# The command.
+
+def _marks(path: str) -> tuple[dict, tuple[Mark, ...]]:
+    """The marks of a marks.json the report downloaded, with what it says of the model and the story. ValueError says
+    what is wrong with the file."""
+    again = "download it again from the report's Download marks.json button"
+    try:
+        held = json.loads(Path(path).read_text())
+    except OSError as error:
+        raise ValueError(f"{path} cannot be read: {error.strerror}; {again}") from None
+    except ValueError:
+        raise ValueError(f"{path} is not JSON; {again}") from None
+    if not isinstance(held, dict) or held.get("test") != "variants-test" or not isinstance(held.get("marks"), list):
+        raise ValueError(f"{path} holds no marks of a variants test; {again}")
+    shape = {"method": str, "state": str, "seed": int, "clip": str, "same": bool}
+    for entry in held["marks"]:
+        if not isinstance(entry, dict) or set(entry) != set(shape) or not all(
+                type(entry[name]) is kind for name, kind in shape.items()):
+            raise ValueError(f"{path} holds an entry that is not a mark, {json.dumps(entry)[:120]}; {again}")
+    return held, tuple(Mark(**entry) for entry in held["marks"])
+
+
+def command(args: argparse.Namespace, cap: float | None) -> str:
+    """The command that runs this variants test again, with the cap last."""
+    words = ["uv", "run", errors.shown(Path(__file__)), args.project, "--story", args.story]
+    if args.model:
+        words += ["--model", args.model]
+    if args.marks:
+        words += ["--marks", args.marks]
+    return shlex.join([*words, *(["--cap-usd", f"{cap:.2f}"] if cap is not None else [])])
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="scripts/variants-test", description=__doc__.splitlines()[0])
+    parser.add_argument("project", help="the app's project, the folder whose pyproject.toml has [tool.videotape]")
+    parser.add_argument("--story", required=True, help="the story to draw the scenes in, as in terminal")
+    parser.add_argument("--model", choices=sorted(MODELS), help="the model that draws every take (default: model in "
+                        "[tool.videotape])")
+    parser.add_argument("--cap-usd", type=float, help="the most the whole variants test may spend on the model's "
+                        "calls and the readers' reads")
+    parser.add_argument("--estimate", action="store_true", help="print the estimate and stop, before any call; needs "
+                        "no API key")
+    parser.add_argument("--marks", help="the marks.json the report downloads, whose marks set the layout check's "
+                        "threshold")
+    args = parser.parse_args(argv)
+    held, marks = None, None
+    if args.marks is not None:
+        try:
+            held, marks = _marks(args.marks)
+        except ValueError as error:
+            parser.error(f"argument --marks: {error}")
+        if held.get("story") != args.story:
+            parser.error(f"argument --marks: {args.marks} holds marks of the {held.get('story')} story, and this "
+                         f"variants test draws {args.story}")
+    try:
+        return _run(args, held, marks)
+    except (ScreenplayError, RenderError) as error:
+        print(error.report(), file=sys.stderr)
+        return 1
+
+
+def _run(args: argparse.Namespace, held: dict | None, marks: tuple[Mark, ...] | None) -> int:
+    found = project.find(Path(args.project).resolve())
+    name = args.model or found.model
+    if name is None:
+        raise ScreenplayError("VT110", errors.shown(found.root / "pyproject.toml"), "[tool.videotape] names no model, "
+                              "and neither does --model", 'set it in [tool.videotape], as in model = "stand-in", or name '
+                              "one for this variants test, as in --model stand-in")
+    if held is not None and held.get("model") != name:
+        print(f"{errors.shown(Path(__file__))}: error: argument --marks: {args.marks} holds marks of "
+              f"{held.get('model')}'s takes, and this variants test draws with {name}", file=sys.stderr)
+        return 2
+    listing = MODELS[name]
+    planned = plan(found.load(), found.max_states)
+    scenes = selected(planned)
+    told = story.named(found.root, args.story)
+    warnings = {warning.report("warning"): None
+                for warning in (*planned.warnings, *story.check(told, planned, listing.prompt_limit))}
+    for warning in warnings:
+        print(warning, file=sys.stderr)
+    variants = sum(len(scene.variants) for scene in scenes)
+    print(f"variants test of {' '.join(filter(None, (found.name, found.version)))} in {told.name}, on {name}: "
+          f"{_count(len(scenes), 'scene')}, {_count(len(scenes), 'base')} and {_count(variants, 'variant')}: "
+          + ", ".join(f"{scene.name} {len(scene.variants)}" for scene in scenes))
+    lines, least, most = estimate(name, listing, scenes)
+    for line in lines:
+        print(line)
+    low, high = (sum(counts) for counts in zip(*(calls(method, scenes) for method in METHODS)))
+    cap = args.cap_usd
+    if most == 0:
+        print(f"the variants test: {low} to {high} calls, free", flush=True)
+    else:
+        fits = "no cap" if cap is None else f"{'under' if least <= cap else 'past'} the cap of ${cap:.2f} at the least"
+        print(f"the variants test: {low} to {high} calls and as many reads, at most ${least:.2f} to ${most:.2f}, {fits}",
+              flush=True)
+    if args.estimate:
+        return 0
+    billed = [*([name] if listing.price else []), *(reader.name for reader in listing.readers if reader.paid)]
+    if billed and cap is None:
+        raise RenderError("VT402", "before the first call", f"{_listed(billed)} bill{'s' if len(billed) == 1 else ''} "
+                          "per call, and no cap is set", "set the most the variants test may spend, as in:\n"
+                          f"{command(args, _cents_up(least))}")
+    if cap is not None and least > cap:
+        raise RenderError("VT402", "before the first call", f"the variants test costs at least ${least:.2f}, which "
+                          f"passes the cap of ${cap:.2f}", f"run it with a cap of at least ${_cents_up(least):.2f}, "
+                          f"as in:\n{command(args, _cents_up(least))}")
+    tapes = {(method.name, scene.name): found.root / FOLDER / method.name / scene.name
+             for method in METHODS if method.mode is not None for scene in scenes}
+    model = listing.model()
+    readers = {tape: [reader(tape) for reader in listing.readers] for tape in tapes.values()}
+    resume = command(args, cap)
+    for scene in scenes:
+        for method in METHODS:
+            if method.mode is None:
+                continue
+            tape = tapes[method.name, scene.name]
+            others = sum(ledger.of(found.root, other).spent() for other in tapes.values() if other != tape)
+            shoot = Shoot(found, planned, told, model, listing, readers[tape], tape, None if cap is None else cap - others,
+                          resume)
+            try:
+                ARMS[method.name](shoot, scene, tapes)
+            except EveryTakeRefused as error:
+                print(RenderError(error.code, error.place, error.message, "nothing; the scene's other states are drawn, "
+                                  "and the report counts the state as failing").report(), file=sys.stderr, flush=True)
+            except RenderError as error:
+                if error.code == "VT403":
+                    raise RenderError(error.code, error.place, error.message, "the variants test films only seeds 1 "
+                                      f"and {TAKES}; delete each clip the lines above name, with the files beside it "
+                                      "that share its name, and run the variants test again, which films those seeds "
+                                      f"anew:\n{resume}") from None
+                if error.code != "VT402" or cap is None:
+                    raise
+                spent = sum(ledger.of(found.root, other).spent() for other in tapes.values())
+                raise RenderError("VT402", error.place, f"the next call would pass the variants test's cap of "
+                                  f"${cap:.2f}, with ${spent:.2f} spent on its tapes", "run the variants test again "
+                                  f"with a higher cap, which resumes, as in:\n{command(args, 2 * cap)}") from None
+    drawn = gathered(found.root, scenes, tapes)
+    spent = {method.name: sum(ledger.of(found.root, tape).spent() for (held_method, _), tape in tapes.items()
+                              if held_method == method.name) for method in METHODS}
+    counted = changes(found, Edition(planned, told))
+    pairs, stale = judged(marks or (), drawn)
+    trial = Trial(planned.title, told.name, name, getattr(listing.kind, "seeded", True), scenes, tuple(drawn), spent,
+                  counted, layout.bar(pairs) if marks is not None else None, marks or (), stale)
+    report = found.root / FOLDER / "report.html"
+    write_atomically(report, lambda out: out.write_text(page(trial)))
+    print(f"wrote {errors.shown(report)}")
+    if trial.bar is None:
+        print("the layout check: no threshold yet; mark pairs in the report and run again with --marks marks.json")
+    else:
+        print(f"the layout check: {trial.agreement()}{'' if trial.bar.held else f', below {AGREEMENT:.0%}'}")
+    chosen = trial.recommendation
+    if chosen is None:
+        why = ("the layout check has no threshold until a person marks pairs" if trial.bar is None
+               else f"the marks hold the layout check's threshold below {AGREEMENT:.0%}" if not trial.bar.held
+               else "no method drew a variant")
+        print(f"no recommendation: {why}")
+        return 0
+    others = ", ".join(f"{standing.method} {standing.passing}" for standing in trial.standings if standing is not chosen)
+    print(f"recommend: {chosen.method}, {chosen.passing} variants pass the layout check and every text check, "
+          f"{_money(chosen.per_passing)} a passing variant, {chosen.rerenders}; {others}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

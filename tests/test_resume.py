@@ -47,6 +47,10 @@ class Metered(StandIn):
         super().first_last_frame(prompt, start, end, seed, out)
         return self._receipt()
 
+    def first_frame(self, prompt, start, seed, out):
+        super().first_frame(prompt, start, seed, out)
+        return self._receipt()
+
     def _receipt(self) -> Receipt:
         self.submitted += 1
         return Receipt(f"request-{self.submitted}", 5.0, PRICE.usd, {"result": {"request": self.submitted}})

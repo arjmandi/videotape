@@ -248,8 +248,8 @@ def accept(args) -> int:
         where = f" --out {args.out}" if args.out else ""
         raise ScreenplayError(
             "VT408", shot.title, f"does not fail {args.code}; " + (f"it fails {', '.join(codes)}" if codes else "it passes")
-            + ", so nothing is recorded",
-            f'accept the code it fails: videotape accept "{dailies.named(shot)}" {codes[0]} --story {record["story"]}'
+            + ", so nothing is written down",
+            f'accept the check it fails: videotape accept "{dailies.named(shot)}" {codes[0]} --story {record["story"]}'
             f'{where} --reason "..."' if codes else "nothing; its kept take passes every check")
     accepted = {"shot": shot.title, "code": args.code, "reason": args.reason, "at": ledger.now(),
                 "seed": failing[0]["take"], "clip": failing[0]["clip"]}
@@ -322,7 +322,7 @@ def main(argv=None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     planning = commands.add_parser("plan", help="walk every state the app can reach, with the keys and moves a render "
                                    "films")
-    planning.add_argument("--story", help="also read this story, which is stories/<story>.toml in the project")
+    planning.add_argument("--story", help="also load this story, which is stories/<story>.toml in the project")
     planning.add_argument("--model", choices=sorted(MODELS), help="the model whose prompt limit the story's prompts "
                           "must fit (default: model in [tool.videotape])")
     planning.set_defaults(run=plan_app)

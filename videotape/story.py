@@ -185,7 +185,7 @@ def _unquoted(path: Path, words: str, what: str) -> None:
     # The line is found by the words beside the quote, since a straight quote is escaped in the file.
     beside = re.match(r"[^\\\"\u201c\u201d]{1,8}", words[at + 1:]) or re.search(r"[^\\\"\u201c\u201d]{1,8}$", words[:at])
     raise ScreenplayError("VT308", _line_with(path, beside[0] if beside else ""), f"{what} quotes {quoted!r}",
-                          "remove the quotes; the screenplay owns every word on screen, so describe how they look")
+                          "remove the quotes; the screenplay owns every word on screen, so describe how they are drawn")
 
 
 def _line_with(path: Path, needle: str) -> str:

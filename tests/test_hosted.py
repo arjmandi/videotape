@@ -1,5 +1,5 @@
 """minimax-h3 and gemini-omni-flash-1.2 film on fal through the adapter wan3.0 films through, each with its own
-endpoints, request fields, seed, price and prompt limit. fal's answers to a key are those the paid screen test
+endpoints, request fields, seed, price and prompt limit, and each films a key from another key's picture alone. fal's answers to a key are those the paid screen test
 recorded, in tests/fixtures/recorded/. Its answers to a move are written by hand, since the screen test films no move:
 tests/fixtures/fal-models.txt says where their shape comes from."""
 
@@ -19,7 +19,7 @@ from videotape import claude, frames, ledger, qwen
 from videotape.fal import Fal, Receipt
 from videotape.hosted import OnFal, request_record
 from videotape.model import MODELS
-from videotape.plan import Mode
+from videotape.plan import FromKey, Mode
 from videotape.standin import StandInEye
 
 KEY = "fal-test-key-0123456789abcdef"
@@ -154,17 +154,21 @@ def render_args(case: Case, cap: str = "20") -> tuple[str, ...]:
 
 
 @CASES
-def test_a_key_and_a_move_send_fal_the_models_own_fields(case, tmp_path):
+def test_a_key_a_move_and_a_key_from_a_picture_send_fal_the_models_own_fields(case, tmp_path):
     fal = Queue(case.name, tmp_path, (64, 36))
     model = OnFal(MODELS[case.name].kind, Fal(KEY, send=fal, sleep=lambda _: None))
+    assert model.modes == set(Mode)
     start, end = png(tmp_path / "start.png", "red"), png(tmp_path / "end.png", "blue")
     (tmp_path / "takes").mkdir()
     model.text_to_video("a key", 1, tmp_path / "takes" / "key.partial.mp4")
     model.first_last_frame("a move", start, end, 2, tmp_path / "takes" / "move.partial.mp4")
+    model.first_frame("a key from a picture", start, 3, tmp_path / "takes" / "from.partial.mp4")
     assert fal.posts == [
         (case.endpoints[0], {"prompt": "a key", **case.key, **seed(case, 1)}),
         (case.endpoints[1], {"prompt": "a move", **case.move, **seed(case, 2), case.start_image: data_uri(start),
-                             "end_image_url": data_uri(end)})]
+                             "end_image_url": data_uri(end)}),
+        (case.endpoints[1], {"prompt": "a key from a picture", **case.move, **seed(case, 3),
+                             case.start_image: data_uri(start)})]
 
 
 @CASES
@@ -207,16 +211,21 @@ def test_a_render_films_every_shot_on_fal_and_writes_each_calls_price_in_the_led
     assert fal.most == 2
     plan = planned(directory)
     images = {key.state: out / key.image for key in plan.keys}
-    keys = {words(key, told(directory)) for key in plan.keys}
+    keys = {words(key, told(directory)) for key in plan.keys if not isinstance(key, FromKey)}
+    variants = {(words(key, told(directory)), data_uri(images[key.start])) for key in plan.keys if isinstance(key, FromKey)}
     moves = {(words(move, told(directory)), data_uri(images[move.start]), data_uri(images[move.land])) for move in plan.moves}
-    assert sorted(endpoint for endpoint, _ in fal.posts) == sorted([case.endpoints[0]] * 5 + [case.endpoints[1]] * 6)
+    # Three bases are text-to-video, and the two variants and six moves image-to-video.
+    assert sorted(endpoint for endpoint, _ in fal.posts) == sorted([case.endpoints[0]] * 3 + [case.endpoints[1]] * 8)
     for endpoint, body in fal.posts:
         if endpoint == case.endpoints[0]:
             assert body == {"prompt": body["prompt"], **case.key, **seed(case, 1)} and body["prompt"] in keys
-        else:
+        elif "end_image_url" in body:
             assert body == {"prompt": body["prompt"], **case.move, **seed(case, 1), case.start_image: body[case.start_image],
                             "end_image_url": body["end_image_url"]}
             assert (body["prompt"], body[case.start_image], body["end_image_url"]) in moves
+        else:
+            assert body == {"prompt": body["prompt"], **case.move, **seed(case, 1), case.start_image: body[case.start_image]}
+            assert (body["prompt"], body[case.start_image]) in variants
     lines = ledger.of(directory, out).lines()
     assert sorted((line["tape"], line["model"], line["shot"], line["mode"], line["seed"], line["gpu"], line["duration"],
                    line["usd"]) for line in lines) == sorted(

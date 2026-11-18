@@ -1,6 +1,6 @@
 """The stand-in is a model that needs no GPU: it draws each of a prompt's quoted lines as a labelled box, the line
-the prompt says is chosen as an inverted one, and its eye reads them back from the pixels. A render with it proves
-everything around the model."""
+the prompt says is chosen as an inverted one, and its eye reads them back from the pixels. A key drawn from a start
+picture opens on that picture and ends on the boxes. A render with it proves everything around the model."""
 
 import hashlib
 import re
@@ -59,8 +59,10 @@ class Flaw(Enum):
 
 # Seeds 1 and 2 may carry a flaw of their kind, so the checks have something to reject. Seed 3 is always clean. A key
 # flaw is a misspelt line (VT502), a line left out (VT501 and VT502), or a box the prompt never asked for (VT503).
+KEY_FLAWS = (Flaw.MISSPELL, Flaw.DROP_LINE, Flaw.EXTRA_BOX)
 FLAWS = {
-    Mode.TEXT_TO_VIDEO: (Flaw.MISSPELL, Flaw.DROP_LINE, Flaw.EXTRA_BOX),
+    Mode.TEXT_TO_VIDEO: KEY_FLAWS,
+    Mode.FIRST_FRAME: KEY_FLAWS,
     Mode.FIRST_AND_LAST_FRAME: (Flaw.WRONG_START, Flaw.WRONG_END),
 }
 
@@ -85,6 +87,7 @@ class StandIn:
     name = "stand-in"
     device = "cpu"
     price = None
+    modes = frozenset(Mode)
 
     def __init__(self, flaw: Callable[[Mode, str, int], Flaw] | None = None):
         self.flaw = flaw
@@ -100,6 +103,9 @@ class StandIn:
 
     def first_last_frame(self, prompt: str, start: Path, end: Path, seed: int, out: Path) -> None:
         self._film(Mode.FIRST_AND_LAST_FRAME, prompt, seed, start, end, out)
+
+    def first_frame(self, prompt: str, start: Path, seed: int, out: Path) -> None:
+        self._film(Mode.FIRST_FRAME, prompt, seed, start, None, out)
 
     def download_again(self, out: Path) -> None:
         return None
@@ -127,7 +133,7 @@ class StandIn:
             else:
                 frame, drawn = draw(rows, prompt, marked)
                 last = _png(frame, scratch / "drawn.png")
-                first = _png(draw([], prompt)[0], scratch / "background.png")
+                first = start if mode is Mode.FIRST_FRAME else _png(draw([], prompt)[0], scratch / "background.png")
             if flaw is Flaw.WRONG_START:
                 first = _png(_negative(frames.read_png(first)), scratch / "wrong-start.png")
             if flaw is Flaw.WRONG_END:

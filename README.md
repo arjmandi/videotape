@@ -84,7 +84,7 @@ fail VT104 wan3.0 needs FAL_KEY, and it is not in the environment or .env
   fix: copy .env.example to .env and set FAL_KEY there, or export it
 fail VT104 wan3.0's reader claude-opus-5-5 needs ANTHROPIC_API_KEY, and it is not in the environment or .env
   fix: copy .env.example to .env and set ANTHROPIC_API_KEY there, or export it
-fail VT105 wan3.0's checks run Qwen3-VL-8B through videotape's qwen extra, which is not installed here
+fail VT105 wan3.0's eye runs Qwen3-VL-8B through videotape's qwen extra, which is not installed here
   fix: in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync
 ```
 
@@ -693,7 +693,7 @@ home() -> search() "Where to?"
 
 ### Render
 
-A render films every key first, then each move as soon as both of its keys are done, several shots at once. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, each chart's title, labels and values match the data, the chosen day or tab is drawn marked and no other, and each move starts and ends on its keys. The stand-in's eye is its own reader. A real model's eye is two readers, Qwen3-VL-8B and Claude, and a line reads back exactly from both or the check fails. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
+A render films each scene's base first, then each variant of the scene from the base's picture as soon as the base is done, and each move as soon as both of its keys are done, several shots at once. A scene's base is its first state in the plan, filmed from its own prompt. Each later state of the scene is a variant, which differs from the base in its data alone, so the model draws it as image to video from the base's picture with the variant's own prompt, and the variant keeps the base's layout. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, each chart's title, labels and values match the data, the chosen day or tab is drawn marked and no other, a variant's layout stays its base's outside the words, and each move starts and ends on its keys. The stand-in's eye is its own reader. A real model's eye is two readers, Qwen3-VL-8B and Claude, and a line reads back exactly from both or the check fails, but for a period one adds to the end of a line that has none while the other reads the line exactly. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
 
 The render prints a line for each shot as it finishes, then the totals, then each failing shot with the command to run next. It writes the tape to `tapes/terminal/`, and a line for each take to `ledger.jsonl`. The stand-in passes every shot within four takes, and a real model does not. So the output here comes from `tests/test_guide.py`, whose stand-in films every other shot clean on its first take, and fails two keys on every take:
 
@@ -705,18 +705,18 @@ uv run videotape render --story terminal
 1. key home()  kept take 1, passed, 1 take filmed, $0.00, 1.5 s
 2. key search()  kept take 1, passed, 1 take filmed, $0.00, 1.8 s
 ...
-34. key flight(CT 104, 2026-12-13)  kept take 1, fails VT502, 4 takes filmed, $0.00, 6.1 s
+34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 1, fails VT502, 4 takes filmed, $0.00, 6.1 s
 ...
-53. key booked(CT 300, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 6.3 s
+53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 6.3 s
 ...
 160 shots, 166 takes filmed, $0.00, 51.7 s, tape 9.8 MB -> tapes/terminal
-fail: 34. key flight(CT 104, 2026-12-13)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Exrns 2,586 miles.", CER 0.029
+fail: 34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Exrns 2,586 miles.", CER 0.029
   next: videotape retake "flight(CT 104, 2026-12-13)" --story terminal
-fail: 53. key booked(CT 300, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
+fail: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
   next: videotape retake "booked(CT 300, 2026-12-11)" --story terminal
 ```
 
-A render run again reuses every take on disk and films only what is missing or changed. An edit to the screenplay, the data, or a story films again only the shots whose prompts it changes, and the moves that start or end on a key that changed.
+A render run again reuses every take on disk and films only what is missing or changed. An edit to the screenplay, the data, or a story films again only the shots whose prompts it changes, the variants of a base it films again, and the moves that start or end on a key that changed.
 
 ### Review
 
@@ -737,7 +737,7 @@ uv run videotape explain VT502
 ```text
 VT502: a line was misread
 
-Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly from every reader or the check fails. The character error rate says how far off each reading was, and the dailies show each reader's reading and the line's box when a reader saw one. A DatePicker shows a month, and a day without an option shows no label, so an option's label read where the key has no such line fails this check too.
+Every line of a state is read back from its key by each reader of the eye, and a line reads back exactly from every reader or the check fails. A period one reader adds to the end of a line that has none does not fail it while another reader reads the line exactly, since a key that draws the period is read with it by every reader. The character error rate says how far off each reader was, and the dailies show what each reader read and the line's box when a reader saw one. A DatePicker shows a month, and a day without an option shows no words, so an option's words read where the key has no such line fail this check too.
 
 Example:
     vt.Text("Confirmation 7F2K9Q"), read back as "Confirmation 7F2K90"
@@ -757,7 +757,7 @@ uv run videotape accept "booked(CT 300, 2026-12-11)" VT503 --story terminal --re
 ```
 
 ```text
-accepted VT503 on key booked(CT 300, 2026-12-11): a printed logo, not a control
+accepted VT503 on key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11): a printed logo, not a control
 ```
 
 An accept holds for the take you reviewed, which is the shot's kept take. When a later render keeps another take of that shot, the failure counts again, and the dailies show your reason beside it.
@@ -769,18 +769,18 @@ uv run videotape retake "flight(CT 104, 2026-12-13)" --story terminal
 ```
 
 ```text
-retaking key flight(CT 104, 2026-12-13) with seed 5
+retaking key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11) with seed 5
 ...
-34. key flight(CT 104, 2026-12-13)  kept take 5, passed, 1 take filmed, $0.00, 1.1 s
+34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 5, passed, 1 take filmed, $0.00, 1.1 s
 ...
-53. key booked(CT 300, 2026-12-11)  kept take 1, fails VT503, cached, $0.00, 0.0 s
+53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, cached, $0.00, 0.0 s
 ...
 160 shots, 3 takes filmed, $0.00, 36.2 s, tape 9.8 MB -> tapes/terminal
-accepted: 53. key booked(CT 300, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
+accepted: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
   reason: a printed logo, not a control
 ```
 
-A retake films new takes of one shot, with seeds after the highest it has tried, and keeps the best of all its takes. It films with the model that made the tape, which `tape.json` names, so a retake of a stand-in tape costs nothing whatever model `[tool.videotape]` names. Add `--takes 3` to film three. It then renders the story again, so the moves that start or end on the key film again. To retake a move, name it by its states, as in `"flight(CT 104, 2026-12-13) -> booked(CT 104, 2026-12-13)"`.
+A retake films new takes of one shot, with seeds after the highest it has tried, and keeps the best of all its takes. It films with the model that made the tape, which `tape.json` names, so a retake of a stand-in tape costs nothing whatever model `[tool.videotape]` names. Add `--takes 3` to film three. It then renders the story again, so the moves that start or end on the key film again, and the variants of the scene when the key is its base. To retake a move, name it by its states, as in `"flight(CT 104, 2026-12-13) -> booked(CT 104, 2026-12-13)"`.
 
 Nothing fails now that nobody accepted. Play the tape:
 
@@ -837,8 +837,9 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **action**. What pressing an element does. It leads to the state that the element's `to=` names, and a render films it as a move.
 - **API key**. A secret that a model or a reader run as a service needs, such as `FAL_KEY` for wan3.0, minimax-h3 and gemini-omni-flash-1.2, which run on fal, and `ANTHROPIC_API_KEY` for Claude. It comes from the environment or the project's `.env`.
 - **appearance**. A story's words for how one type of element looks, under `[elements]`.
+- **base**. The first state of a scene in the plan. Its key is filmed from its own prompt, and the keys of the scene's variants are drawn from its picture.
 - **cap**. The most a render may spend on a model or a reader that bills per call. `cap_usd` in `[tool.videotape]` sets it, and `--cap-usd` sets it for one render.
-- **check**. One test that a take must pass: each action's words are found on the key (`VT501`), each line reads back exactly from every reader (`VT502`), the key shows no control the state lacks (`VT503`), each chart's title, labels and values match the data (`VT504`), a move starts and ends on its keys (`VT508`), and the chosen day or tab is drawn marked and no other (`VT509`).
+- **check**. One test that a take must pass: each action's words are found on the key (`VT501`), each line reads back exactly from every reader (`VT502`), the key shows no control the state lacks (`VT503`), each chart's title, labels and values match the data (`VT504`), a variant's layout stays its base's outside the words (`VT505`), a move starts and ends on its keys (`VT508`), and the chosen day or tab is drawn marked and no other (`VT509`).
 - **clause**. One part of a prompt, with its source: the engine, a part of the story, or an element of the screenplay.
 - **dailies**. The review of a tape: `dailies.json`, which holds what the render knew of each shot, and `dailies.html`, the page that shows it, failures first. `videotape dailies`.
 - **data table**. The records of one record class, loaded from a JSON array in `data/` with `vt.table`.
@@ -848,7 +849,7 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **estimate**. The last line of `videotape plan`: the shots, the calls a render makes if every first take passes and if none passes before the last, and their price.
 - **eye**. What reads a take back for its checks, made of one or more readers: the stand-in's own reader for the stand-in, and Qwen3-VL-8B with Claude for every other model.
 - **hotspot**. Where a person presses an action on a key: the box in which the eye found the action's words.
-- **key**. The shot of one state at rest, filmed from its own prompt. The last frame of its kept take is the state's picture in the tape, and the moves to and from the state start and end on that picture.
+- **key**. The shot of one state at rest, filmed from its own prompt, or for a variant from its base's picture. The last frame of its kept take is the state's picture in the tape, and the moves to and from the state start and end on that picture.
 - **kept take**. The take a shot keeps: the first that passes every check, or the best when none passes.
 - **label**. The name of a tape: the app's name and version and the story's name and version, as in `contrail 0.1.0 + terminal 1.0.0`.
 - **ledger**. `ledger.jsonl` in the project, with one line for each take filmed and its price, and one for each paid read.
@@ -876,3 +877,4 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **take**. One filming of a shot, with one seed.
 - **tape**. What a render writes in `tapes/<story>/`: each key's picture, each move's clip, every take, `tape.json`, and the dailies. `tape.json` holds each state's words and hotspots, and the label and made id. TapePlayer plays the tape.
 - **TapePlayer**. The Mac app that plays a tape. `videotape play` builds it and opens a tape in it.
+- **variant**. A state of a scene after its base, which differs from the base in its data alone. Its key is drawn from the base's picture with its own prompt, so it keeps the base's layout, which the layout check (`VT505`) holds it to.

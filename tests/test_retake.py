@@ -14,23 +14,24 @@ from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
 
 RENDER = ("render", "--story", "chalk")
 ORDER_LATTE = 'reading "Latte"'
+ORDER_LATTE_KEY, THANKS_LATTE_KEY = "key order(Latte) from order(Espresso)", "key thanks(Latte) from thanks(Espresso)"
 THANKS_ESPRESSO = '"One Espresso coming up."'
 THANKS_LATTE = '"One Latte coming up."'
 
 
 def misspelt_until_five(mode: Mode, prompt: str, seed: int) -> Flaw:
     """order(Latte)'s key is misspelt on every seed below 5."""
-    return Flaw.MISSPELL if ORDER_LATTE in prompt and mode is Mode.TEXT_TO_VIDEO and seed < 5 else Flaw.NONE
+    return Flaw.MISSPELL if ORDER_LATTE in prompt and mode is not Mode.FIRST_AND_LAST_FRAME and seed < 5 else Flaw.NONE
 
 
 def misspelt_thanks_latte(mode: Mode, prompt: str, seed: int) -> Flaw:
     """thanks(Latte)'s key is misspelt on every seed: its Done button on seed 1, so the button is not found, and its
     heading on seed 2, which the shot then keeps."""
-    return Flaw.MISSPELL if THANKS_LATTE in prompt and mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
+    return Flaw.MISSPELL if THANKS_LATTE in prompt and mode is not Mode.FIRST_AND_LAST_FRAME else Flaw.NONE
 
 
 def extra_on_thanks_espresso(mode: Mode, prompt: str, seed: int) -> Flaw:
-    return Flaw.EXTRA_BOX if THANKS_ESPRESSO in prompt and mode is Mode.TEXT_TO_VIDEO else Flaw.NONE
+    return Flaw.EXTRA_BOX if THANKS_ESPRESSO in prompt and mode is not Mode.FIRST_AND_LAST_FRAME else Flaw.NONE
 
 
 def stand_in(monkeypatch, flaw) -> StandIn:
@@ -52,40 +53,40 @@ def test_retake_films_seeds_after_the_highest_tried_keeps_the_best_and_redraws_t
     model = stand_in(monkeypatch, misspelt_until_five)
     assert cli(directory, *RENDER) == 1
     err = capsys.readouterr().err
-    assert "fail: 3. key order(Latte)  VT502 " in err and 'next: videotape retake "order(Latte)" --story chalk' in err
+    assert f"fail: 3. {ORDER_LATTE_KEY}  VT502 " in err and 'next: videotape retake "order(Latte)" --story chalk' in err
     assert [call.seed for call in model.calls if ORDER_LATTE in call.prompt] == [1, 2, 3, 4]
     before = kept(tape)
-    assert before["key order(Latte)"] in (1, 2, 3, 4)
+    assert before[ORDER_LATTE_KEY] in (1, 2, 3, 4)
     pinned = (tape / "keys" / "order-latte.png").read_bytes()
     model.calls.clear()
 
     assert cli(directory, "retake", "order(Latte)", "--story", "chalk") == 0
     out, err = capsys.readouterr()
-    assert out.splitlines()[0] == "retaking key order(Latte) with seed 5"
+    assert out.splitlines()[0] == f"retaking {ORDER_LATTE_KEY} with seed 5"
     assert err == ""
     assert [(call.mode, call.seed) for call in model.calls] == [
-        (Mode.TEXT_TO_VIDEO, 5), (Mode.FIRST_AND_LAST_FRAME, 1), (Mode.FIRST_AND_LAST_FRAME, 1)]
+        (Mode.FIRST_FRAME, 5), (Mode.FIRST_AND_LAST_FRAME, 1), (Mode.FIRST_AND_LAST_FRAME, 1)]
     assert {call.prompt.split('"')[1] for call in model.calls[1:]} == {"Latte", "Order"}
     after = kept(tape)
-    assert after["key order(Latte)"] == 5
+    assert after[ORDER_LATTE_KEY] == 5
     assert {title for title in after if after[title] != before[title]} <= {
-        "key order(Latte)", 'menu() -> order(Latte) "Latte, $5"', 'order(Latte) -> thanks(Latte) "Order"'}
+        ORDER_LATTE_KEY, 'menu() -> order(Latte) "Latte, $5"', 'order(Latte) -> thanks(Latte) "Order"'}
     assert (tape / "keys" / "order-latte.png").read_bytes() != pinned
     record = dailies.read(tape)
-    assert (record["retakes"], record["failures"], record["takes"]) == ({"key order(Latte)": [5]}, [], 4)
+    assert (record["retakes"], record["failures"], record["takes"]) == ({ORDER_LATTE_KEY: [5]}, [], 4)
     assert [take["seed"] for take in record["keys"][2]["takes"]] == [1, 2, 3, 4, 5]
-    assert "3. key order(Latte)  kept take 5, passed, 1 take filmed" in out
+    assert f"3. {ORDER_LATTE_KEY}  kept take 5, passed, 1 take filmed" in out
     model.calls.clear()
 
     assert cli(directory, *RENDER) == 0
     assert model.calls == [] and kept(tape) == after
-    assert "3. key order(Latte)  kept take 5, passed, cached" in capsys.readouterr().out
+    assert f"3. {ORDER_LATTE_KEY}  kept take 5, passed, cached" in capsys.readouterr().out
 
     assert cli(directory, "retake", "order(Latte)", "--story", "chalk", "--takes", "2") == 0
-    assert capsys.readouterr().out.splitlines()[0] == "retaking key order(Latte) with seeds 6, 7"
+    assert capsys.readouterr().out.splitlines()[0] == f"retaking {ORDER_LATTE_KEY} with seeds 6, 7"
     assert [call.seed for call in model.calls] == [6, 7]
-    assert kept(tape)["key order(Latte)"] == 5
-    assert dailies.read(tape)["retakes"] == {"key order(Latte)": [5, 6, 7]}
+    assert kept(tape)[ORDER_LATTE_KEY] == 5
+    assert dailies.read(tape)["retakes"] == {ORDER_LATTE_KEY: [5, 6, 7]}
 
 
 def test_retake_films_with_the_model_that_made_the_tape_and_not_the_projects(tmp_path, cli, capsys, monkeypatch):
@@ -100,8 +101,8 @@ def test_retake_films_with_the_model_that_made_the_tape_and_not_the_projects(tmp
 
     assert cli(directory, "retake", "order(Latte)", "--story", "chalk") == 0
     out, err = capsys.readouterr()
-    assert (out.splitlines()[0], err) == ("retaking key order(Latte) with seed 5", "")
-    assert [(call.mode, call.seed) for call in model.calls][0] == (Mode.TEXT_TO_VIDEO, 5)
+    assert (out.splitlines()[0], err) == (f"retaking {ORDER_LATTE_KEY} with seed 5", "")
+    assert [(call.mode, call.seed) for call in model.calls][0] == (Mode.FIRST_FRAME, 5)
     assert {line["model"] for line in ledger.of(directory, directory / "tapes" / "chalk").lines()} == {"stand-in"}
     with pytest.raises(SystemExit) as refused:
         cli(directory, "retake", "order(Latte)", "--story", "chalk", "--model", "stand-in")
@@ -202,12 +203,12 @@ def test_accept_of_a_check_that_is_not_failing_says_so_and_records_nothing(tmp_p
     assert cli(directory, "accept", "order(Latte)", "VT503", "--story", "chalk", "--reason", "fine") == 1
     out, err = capsys.readouterr()
     assert out == "" and as_explained("VT408").fullmatch(err.rstrip("\n"))
-    assert err == ("error VT408 key order(Latte): does not fail VT503; it passes, so nothing is recorded\n"
+    assert err == (f"error VT408 {ORDER_LATTE_KEY}: does not fail VT503; it passes, so nothing is written down\n"
                    "next: nothing; its kept take passes every check\n")
     assert cli(directory, "accept", "thanks(Espresso)", "VT501", "--story", "chalk", "--reason", "fine") == 1
     assert capsys.readouterr() == (
-        "", "error VT408 key thanks(Espresso): does not fail VT501; it fails VT503, so nothing is recorded\n"
-            'next: accept the code it fails: videotape accept "thanks(Espresso)" VT503 --story chalk --reason "..."\n')
+        "", "error VT408 key thanks(Espresso): does not fail VT501; it fails VT503, so nothing is written down\n"
+            'next: accept the check it fails: videotape accept "thanks(Espresso)" VT503 --story chalk --reason "..."\n')
     assert dailies.read(tape)["accepted"] == []
     with pytest.raises(SystemExit):
         cli(directory, "accept", "thanks(Espresso)", "VT301", "--story", "chalk", "--reason", "fine")
@@ -251,8 +252,8 @@ def test_an_accept_holds_for_its_take_and_a_retake_that_keeps_another_fails_agai
 
     assert cli(directory, "retake", "thanks(Latte)", "--story", "chalk") == 1
     out, err = capsys.readouterr()
-    assert "5. key thanks(Latte)  kept take 2, fails VT502, 1 take filmed" in out
-    assert err.splitlines() == ['fail: 5. key thanks(Latte)  VT502 Thanks: read "xhanks", CER 0.167',
+    assert f"5. {THANKS_LATTE_KEY}  kept take 2, fails VT502, 1 take filmed" in out
+    assert err.splitlines() == [f'fail: 5. {THANKS_LATTE_KEY}  VT502 Thanks: read "xhanks", CER 0.167',
                                 '  next: videotape retake "thanks(Latte)" --story chalk']
     record = dailies.read(tape)
     [failure] = record["failures"]
@@ -269,8 +270,8 @@ def test_an_accept_holds_for_its_take_and_a_retake_that_keeps_another_fails_agai
     capsys.readouterr()
     assert cli(directory, *RENDER, "--takes", "1") == 0
     out, err = capsys.readouterr()
-    assert "5. key thanks(Latte)  kept take 2, fails VT502, cached" in out
-    assert err.splitlines() == ['accepted: 5. key thanks(Latte)  VT502 Thanks: read "xhanks", CER 0.167',
+    assert f"5. {THANKS_LATTE_KEY}  kept take 2, fails VT502, cached" in out
+    assert err.splitlines() == [f'accepted: 5. {THANKS_LATTE_KEY}  VT502 Thanks: read "xhanks", CER 0.167',
                                 f"  reason: {again}"]
     [failure] = dailies.read(tape)["failures"]
     assert (failure["accepted"]["reason"], failure["accepted_before"]) == (again, None)
