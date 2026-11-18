@@ -18,12 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from conftest import as_explained, forget, told
+import conftest
+from conftest import CONTRAIL, as_explained, forget, told
+from test_checks import recorded
 from videotape import doctor, frames, made, new, player, project, publish
 from videotape.cli import main
-from videotape.errors import CODES
+from videotape.errors import CODES, ScreenplayError
 from videotape.model import MODELS, Listing
-from videotape.checks import Free, Read
+from videotape.checks import Free, Read, score
 from videotape.standin import Flaw, StandIn, StandInEye
 from videotape.plan import Mode
 from videotape.hosted import WAN3
@@ -560,3 +562,35 @@ def test_an_encoded_clip_whose_last_frame_fails_a_check_its_key_passed_is_vt604(
     err = refused(contrail, capsys)
     assert as_explained("VT604").fullmatch(err.rstrip("\n"))
     assert [path.name for path in (contrail / "dist").iterdir()] == []
+
+
+@pytest.mark.parametrize(("read_again", "refused"), [("1:30 PM to 11:40 PM, 7h 10m, 1 stop.", False),
+                                                     ("1:30 PM to 11:40 PM, 7h 10m, 1 stp.", True)])
+def test_an_encoded_frame_the_free_reader_reads_with_the_period_it_added_at_render_is_not_vt604(
+        monkeypatch, read_again, refused):
+    """Render forgave Qwen's period because Claude read the line exactly. Publish reads again with Qwen alone, and
+    judges the line with Claude's reading from the record, so only a reading the encoding changed is VT604."""
+    line = "1:30 PM to 11:40 PM, 7h 10m, 1 stop"
+    planned = conftest.planned(CONTRAIL)
+    key = next(key for key in planned.keys if key.state.name == "flight(CT 104, 2026-12-13)")
+    qwen, claude = recorded("wan3-terminal-flight-ct104-take-2")
+    record = {"story": "terminal", "out": None, "moves": [],
+              "keys": [{"state": key.state.name, "key": key.image,
+                        "items": [dataclasses.asdict(item) for item in score(key, [qwen, claude]).items()]}]}
+    again = dataclasses.replace(qwen, spots=tuple(dataclasses.replace(spot, text=read_again)
+                                                  if spot.text == f"{line}." else spot for spot in qwen.spots))
+    for name, stub in (("last_frame", lambda clip: None), ("read_png", lambda path: None),
+                       ("difference", lambda a, b: 0.0)):
+        monkeypatch.setattr(frames, name, stub)
+
+    class Qwen:
+        def see(self, frame):
+            return again
+
+    rests = lambda: publish._rests(planned, record, [Qwen()], Path("tape"), Path("inside"),
+                                   {"moves/x.mp4": key.state.name})
+    if refused:
+        with pytest.raises(ScreenplayError, match=f"VT502 {line}: read"):
+            rests()
+    else:
+        rests()
