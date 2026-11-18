@@ -52,3 +52,46 @@ def test_a_file_that_does_not_decode_is_a_decode_error_and_a_missing_ffmpeg_is_n
     with pytest.raises(FfmpegError, match="VT102 PATH: ffmpeg is not on PATH") as error:
         frames.last_frame(corrupt)
     assert not isinstance(error.value, DecodeError)
+
+
+def ramp(*levels: int) -> list[bytes]:
+    """A grey frame per level."""
+    return [solid(level, level, level).rgb for level in levels]
+
+
+def test_sampled_frames_are_spread_evenly_across_the_clip_the_first_and_the_last_among_them(tmp_path):
+    clip = tmp_path / "clip.mp4"
+    frames.write_video(ramp(*(10 * number for number in range(24))), clip)
+    picked = frames.sampled(clip, 8)
+    assert [number for number, _ in picked] == [0, 3, 7, 10, 13, 16, 20, 23]
+    for number, frame in picked:
+        assert frames.difference(frame, solid(10 * number, 10 * number, 10 * number)) < 0.02
+        far = 10 * ((number + 12) % 24)
+        assert frames.difference(frame, solid(far, far, far)) > 0.4
+    assert [number for number, _ in frames.sampled(clip, 3)] == [0, 12, 23]
+    assert [number for number, _ in frames.sampled(clip, 1)] == [0]
+    short = tmp_path / "short.mp4"
+    frames.write_video(ramp(0, 120, 240), short)
+    picked = frames.sampled(short, 8)
+    assert [number for number, _ in picked] == [0, 0, 1, 1, 1, 1, 2, 2] and picked[0][1] == picked[1][1]
+    assert frames.count(short) == 3
+
+
+def test_scene_scores_are_high_at_a_cut_and_low_through_a_fade(tmp_path):
+    cut, fade = tmp_path / "cut.mp4", tmp_path / "fade.mp4"
+    frames.write_video(ramp(*([20] * 12 + [230] * 12)), cut)
+    frames.write_video(ramp(*(20 + 9 * number for number in range(24))), fade)
+    scores = frames.scene_scores(cut)
+    assert len(scores) == 24 and scores[0] == 0.0
+    assert scores[12] > 0.3 and max(score for number, score in enumerate(scores) if number != 12) < 0.05
+    faded = frames.scene_scores(fade)
+    assert len(faded) == 24 and 0 < max(faded) < 0.1
+
+
+def test_a_corrupt_clip_gives_no_sample_and_no_scores(tmp_path):
+    corrupt = tmp_path / "take.mp4"
+    corrupt.write_bytes(b"not a clip at all")
+    with pytest.raises(FfmpegError):
+        frames.sampled(corrupt, 8)
+    with pytest.raises(FfmpegError):
+        frames.scene_scores(corrupt)
