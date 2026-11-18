@@ -16,11 +16,13 @@ from videotape.wan import Wan
 
 
 class Kind(Protocol):
-    """A model's name and settings, which is all a tape's made block reads of it. A model's class, or a model on fal's
-    FalModel, gives both without the model being built, so publish can say what made a tape without a model's key or
-    GPU."""
+    """A model's name, settings and modes, which is all a tape's made block and a plan read of it. A model's class, or a
+    model on fal's FalModel, gives them without the model being built, so publish can say what made a tape, and a plan
+    what the model cannot draw, without a model's key or GPU."""
 
     name: str
+    modes: frozenset[Mode]
+    """The modes the model films, which a render holds the plan's keys to before its first call."""
 
     def settings(self, mode: Mode) -> dict:
         """The generation settings a take depends on beyond its mode, prompt, images and seed. They go into the take's cache key."""
@@ -31,8 +33,6 @@ class Model(Kind, Protocol):
     device: str
     # Set for a model that bills per call, so a render can say what it will spend before it spends it.
     price: Price | None
-    modes: frozenset[Mode]
-    """The modes the model films, which a render holds the plan's keys to before its first call."""
 
     # A model that bills per call returns its receipt. A model on a GPU that bills by the hour returns None.
     def text_to_video(self, prompt: str, seed: int, out: Path) -> Receipt | None: ...

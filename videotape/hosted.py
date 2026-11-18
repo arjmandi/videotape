@@ -36,6 +36,10 @@ class FalModel:
     prompt_characters: int
     price: Price
 
+    @property
+    def modes(self) -> frozenset[Mode]:
+        return frozenset(self.endpoints)
+
     def settings(self, mode: Mode) -> dict:
         """Everything a request depends on beyond its prompt, seed and images, which the take cache already hashes."""
         return {"endpoint": self.endpoints[mode], **self.fields[mode], "duration": self.price.seconds}
@@ -153,7 +157,7 @@ class OnFal:
 
     def __init__(self, model: FalModel, fal: Fal):
         self.model, self.fal = model, fal
-        self.name, self.price, self.modes = model.name, model.price, frozenset(model.endpoints)
+        self.name, self.price, self.modes = model.name, model.price, model.modes
 
     def settings(self, mode: Mode) -> dict:
         return self.model.settings(mode)
