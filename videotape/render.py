@@ -233,9 +233,7 @@ def eye(readers: Sequence[Reader]) -> str:
 
 
 def check_modes(plan: Plan, model: Kind) -> None:
-    """VT111 when the plan has a key drawn from another key's picture and the model films none. A render holds its
-    plan to this before its first call, and so does videotape plan with a model, which scripts/runpod-render runs
-    before it rents a pod."""
+    """VT111 when the plan has a key drawn from another key's picture and the model films none."""
     variants = [key for key in plan.keys if isinstance(key, FromKey)]
     if variants and Mode.FIRST_FRAME not in model.modes:
         count = len(variants)

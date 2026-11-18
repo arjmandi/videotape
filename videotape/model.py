@@ -22,7 +22,7 @@ class Kind(Protocol):
 
     name: str
     modes: frozenset[Mode]
-    """The modes the model films, which a render holds the plan's keys to before its first call."""
+    """The modes the model films."""
 
     def settings(self, mode: Mode) -> dict:
         """The generation settings a take depends on beyond its mode, prompt, images and seed. They go into the take's cache key."""

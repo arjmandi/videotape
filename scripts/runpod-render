@@ -459,9 +459,8 @@ def find_story(project: str, story: str) -> str:
 
 
 def check_plan(project: str, story: str) -> subprocess.CompletedProcess:
-    """videotape plan in the project, with the story and the pod's model, which stops on what the pod's render would
-    stop on before its first take, such as VT111 for a key drawn from another key's picture. It runs here, for free,
-    so a plan the render refuses never rents a pod."""
+    """videotape plan in the project with the story and the pod's model, run here for free, so a plan the pod's render
+    would refuse never rents a pod."""
     uv = shutil.which("uv")
     if uv is None:
         raise PlanError("uv is not on PATH, and the plan is checked here with videotape before a pod is rented; "
