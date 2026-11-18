@@ -7,7 +7,7 @@ from videotape.checks import Hotspot, KeyChecks, Reading, Seen, Sighting, Spot, 
 from videotape.errors import ModelError
 from videotape.frames import Box
 from videotape.plan import Key, Mode, plan
-from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
+from videotape.standin import EXTRA, Flaw, StandIn, StandInEye, StandInJudge
 
 
 def seen(*texts: str) -> tuple[Spot, ...]:
@@ -208,3 +208,28 @@ def test_the_stand_in_says_which_line_it_has_no_room_or_no_letters_for(tmp_path)
         standin.draw([[f"row {number}"] for number in range(1, 30)])
     with pytest.raises(ModelError, match="VT406 the model.s call: the stand-in cannot draw 'é'"):
         standin.draw([["Café"]])
+
+
+def test_the_stand_ins_judge_calls_the_middle_of_its_own_crossfade_overlaid_and_a_held_or_cut_picture_one(tmp_path):
+    start, end = tmp_path / "start.png", tmp_path / "end.png"
+    frames.write_png(standin.draw([["Thanks"], ["One Espresso coming up."]])[0], start)
+    frames.write_png(standin.draw([["Corner Cafe"], ["Drinks"]])[0], end)
+    crossfade, held, cut = tmp_path / "crossfade.mp4", tmp_path / "held.mp4", tmp_path / "cut.mp4"
+    frames.crossfade(start, end, crossfade)
+    frames.crossfade(start, start, held)
+    first, last = frames.read_png(start).rgb, frames.read_png(end).rgb
+    frames.write_video([first] * 12 + [last] * 12, cut)
+    judge = StandInJudge(tmp_path)
+    assert (StandInJudge.name, StandInJudge.key, StandInJudge.paid, StandInJudge.most(1280, 704)) == ("stand-in", None, False, 0.0)
+    faded = judge.judge(frames.sampled(crossfade, 8))
+    assert faded.judge == "stand-in" and faded.at == (0, 3, 7, 10, 13, 16, 20, 23)
+    assert faded.overlaid == (False, False, True, True, False, False, False, False) and not faded.passed
+    assert faded.seen[0] == "the first frame" and faded.seen[-1] == "the last frame"
+    assert faded.seen[2].startswith("the first frame fading into the last, ") and faded.seen[2].endswith("% of the way")
+    assert max(frames.scene_scores(crossfade)) < 0.3
+    still = judge.judge(frames.sampled(held, 8))
+    assert still.passed and set(still.seen) == {"the first and last frames, which are alike"}
+    hard = judge.judge(frames.sampled(cut, 8))
+    assert hard.passed and set(hard.seen) == {"the first frame", "the last frame"}
+    # Two of the stand-in's keys share a background and differ in a few boxes, so a cut between them scores low.
+    assert max(frames.scene_scores(cut)) < 0.05

@@ -1,6 +1,7 @@
-"""Claude as a service: the Messages API over plain HTTP, which scripts/words-test and the reader share, and the
-reader, which sees a key's picture and reports every line of text on it, which look like controls, which are drawn
-marked, and each chart.
+"""Claude as a service: the Messages API over plain HTTP, which scripts/words-test, the reader and the judge share;
+the reader, which sees a key's picture and reports every line of text on it, which look like controls, which are
+drawn marked, and each chart; and the judge, which sees frames spread across a move and says of each whether it shows
+two pictures overlaid, as the middle of a dissolve does.
 
 The API (platform.claude.com/docs/en/api/messages): POST https://api.anthropic.com/v1/messages, and
 /v1/messages/count_tokens, which is free, with the headers x-api-key and anthropic-version. The model is pinned, so a
@@ -15,13 +16,13 @@ import json
 import os
 import urllib.error
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
 from videotape import frames
 from videotape.atomic import write_atomically
-from videotape.checks import Free, Purse, Read, Spot
+from videotape.checks import FRAMES, Dissolve, Free, Purse, Read, Spot
 from videotape.errors import ModelError, ScreenplayError
 from videotape.frames import Box, Frame
 from videotape.ledger import now
@@ -118,6 +119,55 @@ def call(body: dict, key: str, send: Send, what: str = "the call") -> Reply:
         raise ModelError(f"{what} answered with something other than a message: {json.dumps(raw)[:300]}") from None
 
 
+def paid(body: dict, key: str, send: Send, kind: str, most: float, purse: Purse, what: str) -> Reply:
+    """One paid call under a purse: its most cost is reserved before it is sent, and its bill, when it was billed,
+    settles it after, whole reply or not. kind names its ledger line, a read or a judgment."""
+    purse.reserve(most)
+    line = None
+    try:
+        reply = call(body, key, send, what)
+        line = bill(kind, reply)
+        if reply.stop != "end_turn" or not reply.text:
+            raise ModelError(f"{what} stopped with {reply.stop!r} after {len(reply.text)} characters, not a whole "
+                             f"{kind}; it cost ${reply.usd:.4f}")
+    finally:
+        purse.settle(line, most)
+    return reply
+
+
+def key_from_environment(role: str) -> str:
+    """The API key, from the environment or the project's .env: VT104 without one, or with one an HTTP header cannot
+    carry. role says what needs it, as in a reader of this model's eye."""
+    key = os.environ.get(KEY, "").strip()
+    if not key:
+        raise ScreenplayError("VT104", ".env", f"{MODEL}, {role}, needs {KEY}, and it is not in the environment or "
+                              ".env", f"copy .env.example to .env and set {KEY} there, or export it")
+    if not key.isprintable():
+        raise ScreenplayError("VT104", ".env", f"{KEY} holds a character an HTTP header cannot carry, such as a line "
+                              "break", f"set {KEY} to the API key alone, in .env or the environment")
+    return key
+
+
+def cached(looks: Path, fields: list) -> Path:
+    """Where a tape caches the reply to the request these fields name."""
+    return looks / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.json"
+
+
+def remembered[T](looks: Path, fields: list, ask: Callable[[], Reply], parse: Callable[[str], T]) -> T:
+    """What the reply to the request these fields name parses into: from the tape's cache, or from asking, whose reply
+    is cached once it parses, so a reply that is no answer is asked for again."""
+    path = cached(looks, fields)
+    if path.exists():
+        return parse(json.loads(path.read_text())["reply"])
+    reply = ask()
+    parsed = parse(reply.text)
+    looks.mkdir(parents=True, exist_ok=True)
+    write_atomically(path, lambda partial: partial.write_text(json.dumps(
+        {"model": reply.model, "reply": reply.text, "tokens": reply.tokens, "usd": round(reply.usd, 6)},
+        indent=2) + "\n"))
+    return parsed
+
+
 # The reader.
 
 MAX_TOKENS = 8192
@@ -205,16 +255,8 @@ class ClaudeReader:
     paid = True
 
     def __init__(self, tape: Path, send: Send | None = None) -> None:
-        key = os.environ.get(KEY, "").strip()
-        if not key:
-            raise ScreenplayError("VT104", ".env", f"{self.name}, a reader of this model's eye, needs {KEY}, and it is "
-                                  "not in the environment or .env", f"copy .env.example to .env and set {KEY} there, or "
-                                  "export it")
-        if not key.isprintable():
-            raise ScreenplayError("VT104", ".env", f"{KEY} holds a character an HTTP header cannot carry, such as a "
-                                  "line break", f"set {KEY} to the API key alone, in .env or the environment")
         # The sender is looked up when the reader is built, so a test that stands in for the network stands in here.
-        self._key, self._send = key, send or _urlopen
+        self._key, self._send = key_from_environment("a reader of this model's eye"), send or _urlopen
         self.looks = tape / "looks"
 
     @staticmethod
@@ -223,29 +265,101 @@ class ClaudeReader:
 
     def see(self, frame: Frame, purse: Purse = Free()) -> Read:
         fields = [MODEL, PROMPT, SCHEMA, MAX_TOKENS, EFFORT, frame.width, frame.height, hashlib.sha256(frame.rgb).hexdigest()]
-        path = self.looks / f"{hashlib.sha256(json.dumps(fields, sort_keys=True).encode()).hexdigest()}.json"
-        if not path.exists():
-            reply = self._ask(frame, purse)
-            seen = read(reply.text, frame.width, frame.height)
-            self.looks.mkdir(parents=True, exist_ok=True)
-            write_atomically(path, lambda partial: partial.write_text(json.dumps(
-                {"model": reply.model, "reply": reply.text, "tokens": reply.tokens, "usd": round(reply.usd, 6)},
-                indent=2) + "\n"))
-            return seen
-        return read(json.loads(path.read_text())["reply"], frame.width, frame.height)
+        return remembered(self.looks, fields,
+                          lambda: paid(request(frame), self._key, self._send, "read", estimate(frame.width, frame.height),
+                                       purse, f"{self.name}'s read"),
+                          lambda reply: read(reply, frame.width, frame.height))
 
-    def _ask(self, frame: Frame, purse: Purse) -> Reply:
-        """One paid read: its most cost is reserved before it is sent, and its bill, when it was billed, settles it
-        after, whole reply or not."""
-        most = estimate(frame.width, frame.height)
-        purse.reserve(most)
-        line = None
-        try:
-            reply = call(request(frame), self._key, self._send, f"{self.name}'s read")
-            line = bill("read", reply)
-            if reply.stop != "end_turn" or not reply.text:
-                raise ModelError(f"{self.name}'s read stopped with {reply.stop!r} after {len(reply.text)} characters, "
-                                 f"not a whole read; it cost ${reply.usd:.4f}")
-        finally:
-            purse.settle(line, most)
-        return reply
+
+# The judge.
+
+JUDGE_MAX_TOKENS = 4096
+"""The most output a judgment may take, thinking included, which the estimate charges in full."""
+JUDGE_PROMPT = """These are {count} frames taken at even steps across one short clip, {width} by {height} pixels, in the \
+order they play: the clip's first frame first and its last frame last. The clip moves from one screen of an app to the \
+next. For each frame, in order, say whether it shows two pictures overlaid: one image fading into another, so that \
+parts of both show through each other at once, as the middle of a cross-dissolve does. One picture in motion, \
+blurred, panned, zoomed, cropped or lit otherwise is one picture, not two. Then say in a few words what the frame \
+shows."""
+_JUDGED = {"type": "object", "properties": {"overlaid": {"type": "boolean"}, "seen": {"type": "string"}},
+           "required": ["overlaid", "seen"], "additionalProperties": False}
+JUDGE_SCHEMA = {"type": "object", "properties": {"frames": {"type": "array", "items": _JUDGED}}, "required": ["frames"],
+                "additionalProperties": False}
+"""What a judgment answers with: an entry per frame, in the frames' order."""
+
+
+def asked() -> str:
+    """What a judgment's answer answers, hashed: the model, the prompt, the schema and the settings. A recorded
+    answer to another question is no answer to this one."""
+    return hashlib.sha256(json.dumps([MODEL, JUDGE_PROMPT, JUDGE_SCHEMA, JUDGE_MAX_TOKENS, EFFORT, FRAMES],
+                                     sort_keys=True).encode()).hexdigest()
+
+
+def judge_estimate(width: int, height: int, count: int = FRAMES) -> float:
+    """The most one judgment of this many frames of this size costs, priced as a read is."""
+    image = count * (-(-width // PATCH) * -(-height // PATCH))
+    words = tokens(JUDGE_PROMPT.format(count=count, width=width, height=height)) + tokens(json.dumps(JUDGE_SCHEMA)) + UNCOUNTED
+    return price({"input_tokens": image + words, "output_tokens": JUDGE_MAX_TOKENS})
+
+
+def judge_request(pictures: Sequence[Frame]) -> dict:
+    """One judgment: every frame as a PNG, in order, then the prompt, answered in the schema's shape."""
+    images = [{"type": "image", "source": {"type": "base64", "media_type": "image/png",
+                                           "data": base64.b64encode(frames.png(picture)).decode()}}
+              for picture in pictures]
+    first = pictures[0]
+    return {"model": MODEL, "max_tokens": JUDGE_MAX_TOKENS,
+            "output_config": {"effort": EFFORT, "format": {"type": "json_schema", "schema": JUDGE_SCHEMA}},
+            "messages": [{"role": "user", "content": [*images, {"type": "text", "text": JUDGE_PROMPT.format(
+                count=len(pictures), width=first.width, height=first.height)}]}]}
+
+
+def judged(reply: str, at: Sequence[int]) -> Dissolve:
+    """What a reply says of each frame, as a Dissolve, with the frames numbered as at numbers them: ModelError when
+    it does not answer for every frame."""
+    try:
+        told = json.loads(reply)["frames"]
+        if len(told) != len(at):
+            raise ValueError
+        overlaid = tuple(entry["overlaid"] is True for entry in told)
+        seen = tuple(str(entry["seen"]).strip() for entry in told)
+    except (ValueError, KeyError, TypeError):
+        raise ModelError(f"{MODEL} answered with something other than a judgment of {len(at)} frames: "
+                         f"{reply[:300]!r}") from None
+    return Dissolve(MODEL, tuple(at), overlaid, seen)
+
+
+class ClaudeJudge:
+    """Claude, run as a service, which looks at frames spread across a move's take and says of each whether it shows
+    two pictures overlaid: the dissolve check, VT507. A judgment is paid, so the tape caches each reply in looks/, as
+    a read is cached, by the model, the prompt and the frames' hashes."""
+
+    name = MODEL
+    key = KEY
+    paid = True
+
+    def __init__(self, tape: Path, send: Send | None = None) -> None:
+        self._key, self._send = key_from_environment("the judge of this model's moves"), send or _urlopen
+        self.looks = tape / "looks"
+
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        return judge_estimate(width, height)
+
+    def judge(self, sampled: Sequence[tuple[int, Frame]], purse: Purse = Free()) -> Dissolve:
+        at, pictures = [number for number, _ in sampled], [picture for _, picture in sampled]
+        most = judge_estimate(pictures[0].width, pictures[0].height, len(pictures))
+        return remembered(self.looks, _fields(pictures),
+                          lambda: paid(judge_request(pictures), self._key, self._send, "judgment", most, purse,
+                                       f"{self.name}'s judgment"),
+                          lambda reply: judged(reply, at))
+
+    def recorded(self, sampled: Sequence[tuple[int, Frame]]) -> dict | None:
+        """The cached reply to a judgment of these frames, as the cache holds it, or None when none was asked."""
+        path = cached(self.looks, _fields([picture for _, picture in sampled]))
+        return json.loads(path.read_text()) if path.exists() else None
+
+
+def _fields(pictures: Sequence[Frame]) -> list:
+    return [MODEL, JUDGE_PROMPT, JUDGE_SCHEMA, JUDGE_MAX_TOKENS, EFFORT,
+            [[picture.width, picture.height, hashlib.sha256(picture.rgb).hexdigest()] for picture in pictures]]

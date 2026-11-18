@@ -1,6 +1,6 @@
 """A project's ledger.jsonl records render time and money: one line per filmed take, with its price when the call was
-paid for, one per paid read of a key's picture, and one per pod session. Each line names its tape, and lines are
-appended and never rewritten."""
+paid for, one per paid read of a key's picture, one per paid judgment of a move's frames, and one per pod session.
+Each line names its tape, and lines are appended and never rewritten."""
 
 import json
 from dataclasses import dataclass
@@ -50,14 +50,14 @@ class Ledger:
         lines = self.lines()
         takes = [line for line in lines if line["kind"] == "take"]
         pods = [line for line in lines if line["kind"] == "pod"]
-        reads = [line for line in lines if line["kind"] == "read"]
         return {
             "takes": len(takes),
             "gpu_seconds": round(sum((line["seconds"] for line in takes), 0.0), 1),
             "pods": len(pods),
             "pod_hours": round(sum((line["seconds"] for line in pods), 0.0) / 3600, 3),
-            "reads": len(reads),
-            "usd": round(sum((line.get("usd", 0.0) for line in takes + pods + reads), 0.0), 2),
+            "reads": sum(line["kind"] == "read" for line in lines),
+            "judgments": sum(line["kind"] == "judgment" for line in lines),
+            "usd": round(self.spent(), 2),
         }
 
 

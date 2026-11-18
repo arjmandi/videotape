@@ -129,6 +129,25 @@ class Reader(Protocol):
     def see(self, frame: Frame, purse: Purse = Free()) -> Read: ...
 
 
+class Judge(Protocol):
+    """What judges a move's take for the dissolve check: it is shown frames spread across the take and says of each
+    whether it shows two pictures overlaid. It is built for the tape it may cache its judgments in, and its class
+    says what it needs, as a Reader's does."""
+
+    name: ClassVar[str]
+    key: ClassVar[str | None]
+    paid: ClassVar[bool]
+
+    def __init__(self, tape: Path) -> None: ...
+
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        """The most one judgment of FRAMES frames this size costs. 0 for a judge that runs here."""
+        ...
+
+    def judge(self, sampled: Sequence[tuple[int, Frame]], purse: Purse = Free()) -> Dissolve: ...
+
+
 def cer(expected: str, actual: str) -> float:
     previous = list(range(len(actual) + 1))
     for i, a in enumerate(expected, 1):

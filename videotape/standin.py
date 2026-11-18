@@ -1,19 +1,21 @@
 """The stand-in is a model that needs no GPU: it draws each of a prompt's quoted lines as a labelled box, the line
 the prompt says is chosen as an inverted one, and its eye reads them back from the pixels. A key drawn from a start
-picture opens on that picture and ends on the boxes. A render with it proves everything around the model."""
+picture opens on that picture and ends on the boxes. A move crossfades from the key it leaves to the key it lands on,
+and its judge tells that crossfade's middle frames, a blend of its two ends, from its ends. A render with it proves
+everything around the model."""
 
 import hashlib
 import re
 import tempfile
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from itertools import groupby
 from pathlib import Path
 
 from videotape import frames
-from videotape.checks import Free, Purse, Read, Spot
+from videotape.checks import Dissolve, Free, Purse, Read, Spot
 from videotape.errors import ModelError
 from videotape.frames import HEIGHT, WIDTH, Box, Frame
 from videotape.plan import Mode
@@ -161,6 +163,60 @@ class StandInEye:
         found = _segment(frame)
         return Read(self.name, tuple(Spot(text, box, True) for box, text, _ in found),
                     marked=tuple(box for box, _, inverted in found if inverted))
+
+
+BLEND = (0.1, 0.9)
+"""How far from the first frame toward the last a blend must lie, as a share, to show both: nearer either end it
+shows that end."""
+BLEND_RESIDUAL = 0.04
+"""How far a frame may sit from the nearest blend of the first and last frames, as a mean grey difference, and still
+be one."""
+BLEND_APART = 0.001
+"""How far the first and last frames must sit from each other, as a mean grey difference, before a frame can be a
+blend of them: nearer, they are alike but for the encoding, and every frame shows the one picture. Two of the
+stand-in's keys sit about 0.007 apart, and one key encoded twice 0.00004."""
+
+
+class StandInJudge:
+    """Judges the stand-in's moves without a model. A frame shows two pictures overlaid when it is a blend of the
+    clip's first and last frames, which the stand-in's own crossfade makes its middle frames; the first and last
+    frames, a frame all of one or the other, and a frame that is neither nor a blend of them show one picture. It
+    costs nothing and caches nothing."""
+
+    name = "stand-in"
+    key = None
+    paid = False
+
+    def __init__(self, tape: Path | None = None) -> None:
+        pass
+
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        return 0.0
+
+    def judge(self, sampled: Sequence[tuple[int, Frame]], purse: Purse = Free()) -> Dissolve:
+        greys = frames.gray(*(picture for _, picture in sampled))
+        verdicts = [blended(greys[0], greys[-1], grey) for grey in greys]
+        return Dissolve(self.name, tuple(number for number, _ in sampled), tuple(overlaid for overlaid, _ in verdicts),
+                        tuple(seen for _, seen in verdicts))
+
+
+def blended(first: bytes, last: bytes, grey: bytes) -> tuple[bool, str]:
+    """Whether a grey frame is a blend of the first and last frames that shows both, and what it shows. The blend
+    nearest the frame is found by least squares, and the frame is that blend when it sits within BLEND_RESIDUAL of
+    it."""
+    if sum(abs(b - a) for a, b in zip(first, last)) / (255 * len(grey)) < BLEND_APART:
+        return False, "the first and last frames, which are alike"
+    span = sum((b - a) ** 2 for a, b in zip(first, last))
+    along = sum((x - a) * (b - a) for a, b, x in zip(first, last, grey)) / span
+    residual = sum(abs(x - (a + along * (b - a))) for a, b, x in zip(first, last, grey)) / (255 * len(grey))
+    if residual > BLEND_RESIDUAL:
+        return False, "a picture that is neither the first frame nor the last"
+    if along <= BLEND[0]:
+        return False, "the first frame"
+    if along >= BLEND[1]:
+        return False, "the last frame"
+    return True, f"the first frame fading into the last, {along:.0%} of the way"
 
 
 def quoted(prompt: str) -> list[list[str]]:

@@ -7,17 +7,19 @@ import base64
 import io
 import json
 import re
+import tempfile
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 
 import pytest
 
 from conftest import RECORDED, copy_of, planned
 from videotape import claude, dailies, frames, ledger, standin
 from videotape.checks import Chart, Read, Spot
-from videotape.claude import ClaudeReader
-from videotape.errors import CODES
+from videotape.claude import ClaudeJudge, ClaudeReader
+from videotape.errors import CODES, ModelError, ScreenplayError
 from videotape.frames import Box
 from videotape.model import MODELS, Listing, estimate
 from videotape.qwen import QwenEye
@@ -374,3 +376,119 @@ def test_doctor_checks_every_api_key_the_model_and_its_readers_need(tmp_path, cl
     cli(directory, "doctor")
     assert capsys.readouterr().out.splitlines()[3] == "ok   VT104 ANTHROPIC_API_KEY is set, for stand-in's reader claude-opus-5-5"
     assert CODES["VT104"].title == "an API key the project's model or one of its readers needs is not set"
+
+
+# The judge.
+
+def sampled(first: list[str], last: list[str]) -> list[tuple[int, frames.Frame]]:
+    """Eight frames across a made-up move: the stand-in's crossfade from one drawn picture to another, as a take's
+    frames are sampled."""
+    with tempfile.TemporaryDirectory() as scratch:
+        start, end, clip = (Path(scratch) / name for name in ("start.png", "end.png", "clip.mp4"))
+        frames.write_png(a_frame(first), start)
+        frames.write_png(a_frame(last), end)
+        frames.crossfade(start, end, clip)
+        return frames.sampled(clip, claude.FRAMES)
+
+
+def judgment(*overlaid: bool, seen: str = "a screen") -> str:
+    return json.dumps({"frames": [{"overlaid": flag, "seen": seen} for flag in overlaid]})
+
+
+@pytest.fixture
+def judge(tmp_path, monkeypatch):
+    """A judge of the tape at tmp_path, with its key in the environment, that sends through the Claude it is given."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", KEY)
+
+    def build(*answers) -> tuple[ClaudeJudge, Claude]:
+        hosted = Claude(*answers)
+        return ClaudeJudge(tmp_path / "tape", send=hosted), hosted
+    return build
+
+
+def test_a_judgment_sends_every_frame_as_png_in_order_before_a_prompt_that_asks_about_each_and_parses_the_answers(judge):
+    taken = sampled(["Thanks"], ["Done"])
+    made, hosted = judge(message(judgment(False, False, True, True, False, False, False, False, seen="a blend")))
+    verdict = made.judge(taken, Purse())
+    [body] = hosted.bodies()
+    assert set(body) == {"model", "max_tokens", "output_config", "messages"}
+    assert (body["model"], body["max_tokens"], body["output_config"]["effort"]) == ("claude-opus-5-5", 4096, "medium")
+    schema = body["output_config"]["format"]
+    assert schema["type"] == "json_schema" and set(schema["schema"]["properties"]) == {"frames"}
+    assert all(found["additionalProperties"] is False for found in objects(schema["schema"]))
+    *images, text = body["messages"][0]["content"]
+    assert len(images) == 8 and all(image["type"] == "image" and image["source"]["media_type"] == "image/png" for image in images)
+    assert [frames.png_frame(base64.b64decode(image["source"]["data"])) for image in images] == [picture for _, picture in taken]
+    assert text["type"] == "text" and "8 frames" in text["text"] and "1280 by 704" in text["text"]
+    for asked in ("overlaid", "dissolve", "order", "first", "last"):
+        assert asked in text["text"]
+    assert verdict.judge == "claude-opus-5-5" and verdict.at == (0, 3, 7, 10, 13, 16, 20, 23)
+    assert verdict.overlaid == (False, False, True, True, False, False, False, False) and set(verdict.seen) == {"a blend"}
+    assert not verdict.passed and verdict.item().about == "frames 7 and 10"
+
+
+def test_a_judgment_is_cached_in_the_tape_by_its_frames_so_a_run_again_pays_nothing(judge, tmp_path):
+    taken, other = sampled(["Thanks"], ["Done"]), sampled(["Done"], ["Thanks"])
+    made, hosted = judge(message(judgment(*[False] * 8)), message(judgment(*[True] * 8)))
+    first = made.judge(taken, Purse())
+    assert made.judge(taken, Purse()) == first and len(hosted.seen) == 1 and first.passed
+    [looked] = list((tmp_path / "tape" / "looks").iterdir())
+    assert json.loads(looked.read_text())["reply"] == judgment(*[False] * 8)
+    assert made.recorded(taken) == json.loads(looked.read_text()) and made.recorded(other) is None
+    assert not made.judge(other, Purse()).passed and len(hosted.seen) == 2
+    again, _ = judge()
+    assert again.judge(taken, Purse()) == first
+
+
+def test_a_paid_judgment_reserves_its_most_cost_before_it_is_sent_and_settles_its_bill_after_like_a_read(judge):
+    taken = sampled(["Thanks"], ["Done"])
+    made, _ = judge(message(judgment(*[False] * 8), input_tokens=9900, output_tokens=700))
+    purse = Purse()
+    made.judge(taken, purse)
+    most = claude.judge_estimate(1280, 704)
+    [(reserved, held), (settled, line, released)] = [(call[0], call[1]) if len(call) == 2 else call for call in purse.calls]
+    assert (reserved, held, settled, released) == ("reserve", most, "settle", most)
+    assert {key: line[key] for key in ("kind", "model", "request_id", "tokens", "usd")} == {
+        "kind": "judgment", "model": "claude-opus-5-5", "request_id": "msg_01ClaudeRead000000000000",
+        "tokens": {"input_tokens": 9900, "output_tokens": 700}, "usd": 0.0536}
+    assert made.judge(taken, purse).passed and purse.calls[2:] == []
+    assert ClaudeJudge.most(1280, 704) == most and 0.11 < most < 0.14
+    image = 1196 * 4.00 / 1_000_000
+    assert claude.judge_estimate(1280, 704) - claude.judge_estimate(1280, 704, 4) == pytest.approx(4 * image)
+
+
+def test_a_reply_that_does_not_answer_for_every_frame_is_no_judgment_and_is_not_cached(judge, tmp_path):
+    taken = sampled(["Thanks"], ["Done"])
+    made, hosted = judge(message(judgment(*[False] * 7)), message('{"frames": "none"}'), message(judgment(*[False] * 8)))
+    for _ in range(2):
+        with pytest.raises(ModelError, match="answered with something other than a judgment of 8 frames"):
+            made.judge(taken, Purse())
+    assert not (tmp_path / "tape" / "looks").exists()
+    assert made.judge(taken, Purse()).passed and len(hosted.seen) == 3
+
+
+def test_the_judge_needs_the_same_key_as_the_reader_and_says_what_needs_it(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    with pytest.raises(ScreenplayError) as refused:
+        ClaudeJudge(tmp_path)
+    assert (refused.value.code, refused.value.message) == (
+        "VT104", "claude-opus-5-5, the judge of this model's moves, needs ANTHROPIC_API_KEY, and it is not in the "
+                 "environment or .env")
+    assert (ClaudeJudge.name, ClaudeJudge.key, ClaudeJudge.paid) == ("claude-opus-5-5", "ANTHROPIC_API_KEY", True)
+
+
+def test_what_a_judgment_answers_is_hashed_so_a_recorded_answer_holds_only_for_the_question_it_answered(monkeypatch):
+    before = claude.asked()
+    assert re.fullmatch(r"[0-9a-f]{64}", before) and claude.asked() == before
+    monkeypatch.setattr(claude, "JUDGE_PROMPT", claude.JUDGE_PROMPT + " Be brief.")
+    assert claude.asked() != before
+
+
+def test_the_ledger_counts_judgments_with_the_reads_and_the_takes(tmp_path):
+    book = ledger.Ledger(tmp_path / "ledger.jsonl", "tapes/x")
+    book.append({"kind": "take", "seconds": 2.0, "usd": 0.44})
+    book.append({"kind": "read", "seconds": 0.0, "usd": 0.03})
+    book.append({"kind": "judgment", "seconds": 0.0, "usd": 0.05})
+    book.append({"kind": "take", "seconds": 1.0, "usd": None})
+    assert book.totals() == {"takes": 2, "gpu_seconds": 3.0, "pods": 0, "pod_hours": 0.0, "reads": 1, "judgments": 1,
+                             "usd": 0.52}
