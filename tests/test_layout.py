@@ -28,6 +28,13 @@ def test_one_picture_twice_is_at_no_distance_with_the_whole_picture_compared():
     assert distances(plain, [], plain, []) == Layout(0.0, 0.0, 1.0)
 
 
+def test_text_over_the_whole_picture_leaves_nothing_compared_which_no_bar_calls_the_same_layout():
+    plain = picture()
+    far = distances(plain, [Box(0, 0, WIDTH, HEIGHT)], plain, [])
+    assert far == Layout(1.0, 1.0, 0.0)
+    assert not layout.BAR.same(far)
+
+
 def test_text_inside_a_readers_box_is_left_out_of_both_and_what_is_painted_outside_counts():
     a, b = picture((TEXT, INK)), picture((Box(TEXT.x + 10, TEXT.y, 60, TEXT.h), AMBER))
     unmasked, masked = distances(a, [], b, []), distances(a, [TEXT], b, [TEXT])

@@ -99,7 +99,8 @@ def distances(a: Frame, a_text: Sequence[Box], b: Frame, b_text: Sequence[Box]) 
                 masked[y * width + x0:y * width + x1] = b"\x01" * (x1 - x0)
     kept = [at for at, hidden in enumerate(masked) if not hidden]
     if not kept:
-        return Layout(0.0, 0.0, 0.0)
+        # Text covering every cell leaves no layout to compare, which is no evidence of the same one.
+        return Layout(1.0, 1.0, 0.0)
     shading = sum(abs(small_a[at] - small_b[at]) for at in kept) / (255 * len(kept))
     edges_a, edges_b = _edges(small_a, width, height), _edges(small_b, width, height)
     edges = 1 - _correlation([edges_a[at] for at in kept], [edges_b[at] for at in kept])
