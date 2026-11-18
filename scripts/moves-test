@@ -1,0 +1,1126 @@
+#!/usr/bin/env python3
+"""Draw twelve moves of an app two ways, in each of its stories, and measure which way makes a move travel from one
+screen to the next as a camera would, with no cut and no dissolve.
+
+    uv run scripts/moves-test examples/contrail --stories terminal,posters --cap-usd 50 [--model <name>] [--estimate] \\
+        [--clips <folder>] [--fixture <file>]
+    open examples/contrail/tapes/moves-test/report.html
+
+A render draws every base key on its own, text to video, so the base keys of two scenes are two places, and a move
+between them, drawn first-and-last-frame between the two pictures, cannot travel like a camera: in a prototype, Wan 2.2
+5B dissolved all five moves, and Wan 3.0 dissolved two, cut one and whipped two past a surfboard, which counts as a
+cut. The moves test draws the MOVES, twelve moves of the app, in each story two ways:
+
+    pinned    as a render draws today: each base key on its own, each variant from its base's picture, and each move
+              first-and-last-frame between its two keys
+    rehearse  the entry's key as today, and every other scene's base key as the move that first reaches it in the
+              walk: image to video from the key of the state it is reached from, with a prompt that carries the move
+              and the state's words, so the clip is the move and its last frame is the key, and the two share one
+              place. A later move into the state is pinned, and a variant keeps its method and follows its base.
+
+It draws only the states the twelve moves need and what they depend on: their bases, and under rehearse the chain of
+states each base is first reached through. Each move's kept take gets the cut check, VT506, by ffmpeg's scene score,
+the dissolve check, VT507, by the model's judge on FRAMES frames across the take, and the seams, VT508; a rehearsed
+clip's key is its own last frame, so its end seam is 0 by construction, and the report says so. Every key gets the
+readers' checks as a render makes them, and each variant the layout check.
+
+The ten labelled moves of 2026-11-10 under --clips, LABELS, calibrate the two checks: their scene scores cost nothing,
+their judgments are paid, and the report shows where each check agrees with the labels. --fixture <file> writes the
+judge's recorded answers to them, text only, which tests/test_moves_test.py replays.
+
+Before any call it prints the estimate: each method's and story's shots and calls, the least and the most, at the
+model's price, a read of each key's take by each paid reader, and a judgment of each move and each labelled clip by
+the judge, at the most each costs. --estimate prints it and stops, and needs no API key. A least past --cap-usd stops
+it before any call, and the cap stops a run before the call that would pass it, which a run again with a higher cap
+resumes. The tapes go into tapes/moves-test/<method>/<story>/ in the project, the calibration into
+tapes/moves-test/calibration/, one cap holds for them all, and every call, read and judgment goes into the project's
+ledger.jsonl. Run again, it films no take on disk, reads no picture and judges no take whose answer is cached, so the
+report is rebuilt for free.
+
+tapes/moves-test/report.html shows the recommendation for each story, the calibration, the methods side by side,
+what one direction change would draw again under each, and each move under each method with the frames across its
+take, the judge's answer on each, its checks, its key and its cost. The recommendation is the method with the most
+of the twelve moves that neither cut nor dissolve, then the most of their keys passing every check, then the lower
+cost, then the fewer keys and moves the direction change draws again. The bar is no cut and no dissolve on all
+twelve, and a method short of it is reported with its frames.
+
+Standard library only; it imports videotape.
+"""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import json
+import math
+import shlex
+import shutil
+import sys
+import tempfile
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from functools import cached_property
+from html import escape
+from pathlib import Path
+
+from videotape import claude, dailies, errors, frames, ledger, project, story
+from videotape.atomic import write_atomically
+from videotape.checks import FRAMES, MAX_SCENE, Cut, Dissolve, Judge, MoveChecks, Reader
+from videotape.claude import ClaudeJudge
+from videotape.errors import RenderError, ScreenplayError
+from videotape.frames import HEIGHT, WIDTH
+from videotape.made import made
+from videotape.model import MODELS, SIZES, Listing, Model
+from videotape.plan import FromKey, Key, Move, Plan, Shot, plan
+from videotape.render import Budget, EveryTakeRefused, Filmed, Render, eye, render
+from videotape.screenplay import State
+from videotape.standin import StandInJudge
+from videotape.story import STATIC, Clause, Engine, Prompt, Story, prompt, text
+
+MOVES = (
+    ("home()", "search()"),
+    ("home()", "my_trips()"),
+    ("home()", "profile()"),
+    ("search()", "dates(JFK)"),
+    ("search()", "dates(SEA)"),
+    ("search()", "no_flights(BOS)"),
+    ("dates(JFK)", "results(JFK, 2026-12-11)"),
+    ("dates(SEA)", "results(SEA, 2026-12-12)"),
+    ("results(SEA, 2026-12-12)", "results(SEA, 2026-12-13)"),
+    ("results(SEA, 2026-12-12)", "flight(CT 300, 2026-12-12)"),
+    ("flight(CT 300, 2026-12-12)", "booked(CT 300, 2026-12-12)"),
+    ("my_trips()", "trip(CT 100, 2026-12-18)"),
+)
+"""The moves under test, each by the states it leaves and lands on, as videotape plan names them."""
+TAKES = 2
+FOLDER = Path("tapes") / "moves-test"
+CLIPS = Path(__file__).resolve().parent.parent / "examples" / "surf_shop"
+"""Where the labelled clips are unless --clips says: a folder git ignores, never copied into the repo."""
+LABELS = {
+    "tape/moves/entrance--browse-as-guest.mp4": "VT507",
+    "tape/moves/entrance--create-an-account.mp4": "VT507",
+    "tape/moves/entrance--i-have-an-account.mp4": "VT507",
+    "tape/moves/signup--sign-up.mp4": "VT507",
+    "tape/moves/welcome--enter-shop.mp4": "VT507",
+    "tape-wan3/moves/welcome--enter-shop.mp4": "VT507",
+    "tape-wan3/moves/entrance--i-have-an-account.mp4": "VT506",
+    "tape-wan3/moves/entrance--create-an-account.mp4": "VT507",
+    "tape-wan3/moves/entrance--browse-as-guest.mp4": "VT506",
+    "tape-wan3/moves/signup--sign-up.mp4": "VT506",
+}
+"""The ten labelled moves of 2026-11-10, by their path under the clips folder, and the check a person says each
+fails: VT506 for a cut, a whip past a surfboard among them, and VT507 for a dissolve. Each passes the other. Wan 2.2
+5B's five, under tape/, all dissolve. Of Wan 3.0's, under tape-wan3/, welcome--enter-shop walks to the door and then
+dissolves, entrance--i-have-an-account pushes in and then cuts, entrance--create-an-account dissolves, and
+entrance--browse-as-guest and signup--sign-up whip past a surfboard."""
+DIRECTION = ("search", "The same place, seen from a step further back.")
+"""The direction change: the scene whose direction the story gives anew, and the new direction. Under rehearse the
+search scene's key is drawn as the move from home, and the dates, no_flights and not_found scenes are first reached
+from it, so the change carries down the walk."""
+JUDGES: dict[str, type[Judge]] = {"stand-in": StandInJudge}
+"""The judge of each model's moves, by the model's name. Every other model's is Claude's."""
+ARRIVES = Clause("It ends held still on the next screen.", Engine())
+"""What a rehearsal's prompt says between the move's clauses and the state's."""
+
+
+@dataclass(frozen=True)
+class Method:
+    name: str
+    rule: str
+
+
+PINNED = Method("pinned", "each base key on its own, each variant from its base's picture, and each move first-and-"
+                "last-frame between its two keys, as a render draws today")
+REHEARSE = Method("rehearse", "the entry's key on its own, every other base key as the move that first reaches it, "
+                  "image to video from the key it is reached from with the move's words and the state's, a later move "
+                  "into a state pinned, and each variant from its base's picture")
+METHODS = (PINNED, REHEARSE)
+
+
+@dataclass(frozen=True)
+class Rehearsal(FromKey):
+    """A base key drawn as the move that first reaches it: image to video from the key of the state the move leaves,
+    with a prompt of the move's clauses and the state's, so the clip is the move and its last frame the key."""
+
+    move: Move
+
+    @property
+    def title(self) -> str:
+        return f"key {self.state.name} rehearsed from {self.start.name}"
+
+
+@dataclass(frozen=True)
+class Source:
+    title: str
+    url: str
+    date: str
+    said: str
+
+
+SOURCES = (
+    Source("ffmpeg filters, select", "https://ffmpeg.org/ffmpeg-filters.html#select_002c-aselect", "no date, read 2026-11-18",
+           "The select filter's scene variable is the scene change detection score of a frame against the one "
+           "before it, between 0 and 1, and the filter's own example takes 0.3 and up as a scene change. VT506 "
+           "scores every frame with select='gte(scene,0)' and metadata=print, and fails a move whose highest "
+           f"score is over {MAX_SCENE}."),
+    Source("Claude vision", "https://platform.claude.com/docs/en/build-with-claude/vision", "no date, read 2026-11-15",
+           "An image costs its width over 28 times its height over 28 tokens, so a judgment of eight 1280x720 "
+           "frames sends about 9,600 image tokens, and several images go in one request in order."),
+    Source("Gemini Omni Flash 1.2 image-to-video API page",
+           "https://fal.ai/models/google/gemini-omni-flash/v1.2/image-to-video/api", "no date, read 2026-11-17",
+           "Takes prompt, image_url, the first frame, and end_image_url, which is optional, so a rehearsal sends the "
+           "parent's key as image_url and no end image, and a pinned move sends both keys."),
+)
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
+def _listed(names: Sequence[str]) -> str:
+    return " and ".join(filter(None, (", ".join(names[:-1]), names[-1]))) if names else ""
+
+
+def _money(usd: float) -> str:
+    return f"${usd:.2f}"
+
+
+def _cents_up(usd: float) -> float:
+    return math.ceil(round(usd * 100, 6)) / 100
+
+
+# The cast: what each method draws.
+
+def selected(planned: Plan) -> tuple[Move, ...]:
+    """The MOVES as the plan has them, in order: VT212 for one the plan lacks, or for two that join the same states."""
+    chosen = []
+    for start, land in MOVES:
+        found = [move for move in planned.moves if (move.start.name, move.land.name) == (start, land)]
+        if len(found) != 1:
+            what = "no move between states of these names" if not found else f"{len(found)} moves between these states"
+            raise ScreenplayError("VT212", f'"{start} -> {land}"', f"the app has {what}, and the moves test draws one",
+                                  "name two states the plan has, joined by one action, in MOVES in scripts/moves-test, "
+                                  "as videotape plan prints them")
+        chosen.append(found[0])
+    return tuple(chosen)
+
+
+def reached_from(planned: Plan) -> dict[State, Move]:
+    """The move that first reaches each state in the walk, by the state: the first in walk order to land on it. The
+    entry has none."""
+    first: dict[State, Move] = {}
+    for move in planned.moves:
+        first.setdefault(move.land, move)
+    first.pop(planned.keys[0].state, None)
+    return first
+
+
+def bases(planned: Plan) -> dict[State, Key]:
+    """Each state's scene's base, the scene's first key in walk order, by the state."""
+    firsts: dict[str, Key] = {}
+    for key in planned.keys:
+        firsts.setdefault(key.state.scene.name, key)
+    return {key.state: firsts[key.state.scene.name] for key in planned.keys}
+
+
+def cast(method: Method, planned: Plan, moves: Sequence[Move]) -> Plan:
+    """What the method draws for these moves: every state they leave or land on, its base, and under rehearse the
+    chain of states each base is first reached through, as keys in walk order, with each base but the entry a
+    Rehearsal; and the moves no rehearsal stands for, pinned."""
+    base, parent = bases(planned), reached_from(planned)
+    needed: set[State] = set()
+    queue = [state for move in moves for state in (move.start, move.land)]
+    while queue:
+        state = queue.pop()
+        if state in needed:
+            continue
+        needed.add(state)
+        queue.append(base[state].state)
+        if method is REHEARSE and base[state].state is state and state in parent:
+            queue.append(parent[state].start)
+    keys: list[Key] = []
+    rehearsed: set[tuple[State, State]] = set()
+    for key in planned.keys:
+        if key.state not in needed:
+            continue
+        if method is REHEARSE and type(key) is Key and key.state in parent:
+            move = parent[key.state]
+            keys.append(Rehearsal(key.id, key.state, key.shown, move.start, move))
+            rehearsed.add((move.start, move.land))
+        else:
+            keys.append(key)
+    pinned = tuple(move for move in moves if (move.start, move.land) not in rehearsed)
+    return Plan(planned.title, planned.scenes, tuple(keys), pinned, ())
+
+
+def rehearsals(drawn: Plan) -> tuple[Rehearsal, ...]:
+    return tuple(key for key in drawn.keys if isinstance(key, Rehearsal))
+
+
+def composed(key: Rehearsal, told: Story) -> Prompt:
+    """A rehearsal's prompt: the move's clauses, that the control is pressed and what the camera does, then the
+    state's, but for the static shot a key alone is drawn as, since this clip moves."""
+    arrival = tuple(clause for clause in prompt(key.from_prompt(), told) if clause is not STATIC)
+    return (*prompt(key.move, told), ARRIVES, *arrival)
+
+
+def prompts(told: Story) -> Callable[[Shot], Prompt]:
+    return lambda shot: composed(shot, told) if isinstance(shot, Rehearsal) else prompt(shot, told)
+
+
+# The estimate.
+
+@dataclass(frozen=True)
+class Labelled:
+    """One labelled clip: its path under the clips folder, the check it fails, and its size, when it is there."""
+
+    clip: str
+    fails: str
+    path: Path
+    shape: frames.Shape | None
+
+    @property
+    def missing(self) -> bool:
+        return self.shape is None
+
+
+def labelled(clips: Path) -> tuple[Labelled, ...]:
+    """The LABELS as clips in the folder, or none when the folder is not there."""
+    if not clips.is_dir():
+        return ()
+    found = []
+    for name, fails in LABELS.items():
+        path = clips / name
+        found.append(Labelled(name, fails, path, frames.shape(path) if path.is_file() else None))
+    return tuple(found)
+
+
+def estimate(name: str, listing: Listing, judge: type[Judge], casts: Mapping[str, Plan], stories: Sequence[str],
+             clips: Path, labels: Sequence[Labelled]) -> tuple[list[str], float, float]:
+    """The estimate's lines, and the least and the most the whole test costs: the calls at the model's price, a read
+    of each key's take by each paid reader, and a judgment of each move's kept take and each labelled clip."""
+    lines, least, most, keys_least, keys_most, judged = [], 0, 0, 0, 0, 0
+    width, height = SIZES.get(name, (WIDTH, HEIGHT))
+    for told in stories:
+        for method in METHODS:
+            drawn = casts[method.name]
+            shots, keys, moves = len(drawn.shots), len(drawn.keys), len(drawn.moves) + len(rehearsals(drawn))
+            lines.append(f"{method.name}, {told}: {_count(shots, 'shot')}, {_count(keys, 'key')} of which "
+                         f"{len(rehearsals(drawn))} rehearsed, {_count(len(drawn.moves), 'pinned move')}; {shots} to "
+                         f"{TAKES * shots} calls, {_count(moves, 'judgment')}")
+            least, most, keys_least, keys_most, judged = (least + shots, most + TAKES * shots, keys_least + keys,
+                                                           keys_most + TAKES * keys, judged + moves)
+    present = [label for label in labels if not label.missing]
+    if labels:
+        lines.append(f"calibration: {_count(len(present), 'labelled clip')} under {errors.shown(clips)}, their scene "
+                     f"scores free, and {_count(len(present), 'judgment')}")
+    else:
+        lines.append(f"calibration: no clips folder at {errors.shown(clips)}, so none")
+    price = listing.price
+    line = f"{name}: {least} to {most} calls, {price.span(least, most) if price else 'free'}"
+    low_usd, high_usd = (least * price.usd, most * price.usd) if price else (0.0, 0.0)
+    paid = [reader for reader in listing.readers if reader.paid]
+    if paid:
+        each = sum(reader.most(width, height) for reader in paid)
+        line += (f", {keys_least} to {keys_most} reads by {_listed([reader.name for reader in paid])} of {width}x{height} "
+                 f"pictures, at most ${keys_least * each:.2f} to ${keys_most * each:.2f}")
+        low_usd, high_usd = low_usd + keys_least * each, high_usd + keys_most * each
+    if judge.paid:
+        own = judge.most(width, height) * judged
+        calibration = sum(judge.most(label.shape.width, label.shape.height) for label in labels if label.shape is not None)
+        line += (f", and {_count(judged + len(present), 'judgment')} of {FRAMES} frames each by {judge.name}, at most "
+                 f"${own + calibration:.2f}")
+        low_usd, high_usd = low_usd + own + calibration, high_usd + own + calibration
+    lines.append(line)
+    return lines, low_usd, high_usd
+
+
+# Filming and judging.
+
+@dataclass
+class Purse:
+    """What a paid judgment reserves and settles: the reservation goes under the test's cap at the shot, and the
+    judgment's ledger line names the shot and the seed, as a read's does."""
+
+    budget: Budget
+    shot: str
+    seed: int
+    resume: str
+    spent: float = 0.0
+
+    def reserve(self, usd: float) -> None:
+        self.budget.reserve(usd, f"{self.shot} take {self.seed}", self.resume)
+
+    def settle(self, line: dict | None, reserved: float) -> None:
+        self.budget.settle({**line, "shot": self.shot, "seed": self.seed} if line else None, reserved)
+        self.spent += (line or {}).get("usd") or 0.0
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """A take judged for travel: whether it cuts, whether it dissolves, and the pictures of the frames judged, from
+    the report's folder."""
+
+    cut: Cut
+    dissolve: Dissolve
+    pictures: tuple[str, ...]
+
+    @property
+    def travels(self) -> bool:
+        return self.cut.passed and self.dissolve.passed
+
+
+def judged(clip: Path, judge: Judge, purse: Purse, pictures: Path, root: Path) -> Verdict:
+    """The take's cut and dissolve checks, with its judged frames written into pictures/ once."""
+    sampled = frames.sampled(clip, FRAMES)
+    written = []
+    for at, picture in sampled:
+        out = pictures / f"{clip.stem}-{at}.png"
+        if not out.is_file() or out.stat().st_mtime < clip.stat().st_mtime:
+            pictures.mkdir(parents=True, exist_ok=True)
+            write_atomically(out, lambda partial: frames.write_png(picture, partial))
+        written.append(out.relative_to(root).as_posix())
+    return Verdict(Cut(tuple(frames.scene_scores(clip))), judge.judge(sampled, purse), tuple(written))
+
+
+@dataclass(frozen=True)
+class Shoot:
+    """Everything the render and the judging of one tape share."""
+
+    found: project.Project
+    told: Story
+    model: Model
+    listing: Listing
+    readers: list[Reader]
+    judge: Judge
+    tape: Path
+    cap: float | None
+    resume: str
+
+    def render(self, drawn: Plan) -> Render:
+        def report(filmed: Filmed) -> None:
+            for error in filmed.reported:
+                print(error.report(), file=sys.stderr, flush=True)
+            verdict = "passed" if filmed.passed else f"fails {' '.join(sorted({f.code for f in filmed.failures}))}"
+            count = f"{_count(filmed.rendered, 'take')} filmed" if filmed.rendered else "cached"
+            print(f"{drawn.shots.index(filmed.shot) + 1}. {filmed.shot.title}  kept take {filmed.kept.seed}, {verdict}, "
+                  f"{count}, {_money(filmed.usd)}, {filmed.seconds:.1f} s", flush=True)
+
+        return render(drawn, self.told, self.model, self.readers, self.tape, ledger.of(self.found.root, self.tape),
+                      made(self.found, self.told, self.model), takes=TAKES, limit=self.listing.limit,
+                      price=self.listing.price, cap=self.cap, resume=self.resume, report=report,
+                      prompts=prompts(self.told))
+
+
+def _arm(shoot: Shoot, method: Method, drawn: Plan) -> dict[str, Verdict]:
+    """One method's tape: its render, then the cut and dissolve checks on each move's kept take, by the shot's
+    title."""
+    print(f"{method.name}, {shoot.told.name}: {_count(len(drawn.keys), 'key')} of which {len(rehearsals(drawn))} "
+          f"rehearsed and {_count(len(drawn.moves), 'pinned move')}, up to {TAKES} takes each, read by "
+          f"{eye(shoot.readers)} -> {errors.shown(shoot.tape)}", flush=True)
+    try:
+        shoot.render(drawn)
+    except EveryTakeRefused as error:
+        print(RenderError(error.code, error.place, error.message, "nothing; the other shots are drawn, and the report "
+                          "counts the move as failing").report(), file=sys.stderr, flush=True)
+    clips = kept_clips(shoot.tape)
+    judged_shots = [*rehearsals(drawn), *drawn.moves]
+    print(f"{method.name}, {shoot.told.name}: {_count(len(judged_shots), 'move')} judged by {shoot.judge.name}", flush=True)
+    budget, verdicts = Budget(ledger.of(shoot.found.root, shoot.tape), None, shoot.cap), {}
+    for number, shot in enumerate(judged_shots, 1):
+        if shot.title not in clips:
+            continue
+        seed, clip = clips[shot.title]
+        purse = Purse(budget, shot.title, seed, shoot.resume)
+        verdict = judged(shoot.tape / clip, shoot.judge, purse, shoot.tape / "frames", shoot.found.root / FOLDER)
+        verdicts[shot.title] = verdict
+        cost = f"{_money(purse.spent)} judged" if purse.spent else "cached" if shoot.judge.paid else "free"
+        print(f"{number}. {shot.title}  VT506 {verdict.cut.top[1]:.3f} {'passed' if verdict.cut.passed else 'failed'}, "
+              f"VT507 {sum(verdict.dissolve.overlaid)} of {FRAMES} overlaid, {cost}", flush=True)
+    return verdicts
+
+
+def kept_clips(tape: Path) -> dict[str, tuple[int, str]]:
+    """Each shot's kept take, by the shot's title: its seed and its clip in the tape."""
+    if not (tape / "dailies.json").is_file():
+        return {}
+    record = dailies.read(tape)
+    return {shot["title"]: next((take["seed"], take["clip"]) for take in shot["takes"] if take["kept"])
+            for shot in [*record["keys"], *record["moves"]]}
+
+
+def calibrate(labels: Sequence[Labelled], judge: Judge, shoot_root: Path, budget: Budget, resume: str) -> list[Verdict | None]:
+    """Each labelled clip judged, in LABELS order, or None for one that is missing."""
+    verdicts: list[Verdict | None] = []
+    print(f"calibration: {_count(sum(not label.missing for label in labels), 'labelled clip')} judged by {judge.name} -> "
+          f"{errors.shown(shoot_root / FOLDER / 'calibration')}", flush=True)
+    for number, label in enumerate(labels, 1):
+        if label.missing:
+            print(f"{number}. {label.clip}  missing", file=sys.stderr, flush=True)
+            verdicts.append(None)
+            continue
+        purse = Purse(budget, label.clip, 1, resume)
+        verdict = judged(label.path, judge, purse, shoot_root / FOLDER / "calibration" / "frames", shoot_root / FOLDER)
+        verdicts.append(verdict)
+        cost = f"{_money(purse.spent)} judged" if purse.spent else "cached" if judge.paid else "free"
+        print(f"{number}. {label.clip}  labelled {label.fails}, VT506 {verdict.cut.top[1]:.3f} "
+              f"{'passed' if verdict.cut.passed else 'failed'}, VT507 {sum(verdict.dissolve.overlaid)} of {FRAMES} "
+              f"overlaid, {cost}", flush=True)
+    return verdicts
+
+
+# What the report shows.
+
+@dataclass(frozen=True)
+class Calibrated:
+    label: Labelled
+    verdict: Verdict | None
+
+    def agrees(self, code: str) -> bool | None:
+        """Whether the check of this code says what the label says: it fails the check the label names and passes the
+        other. None for a missing clip."""
+        if self.verdict is None:
+            return None
+        passed = self.verdict.cut.passed if code == "VT506" else self.verdict.dissolve.passed
+        return passed == (self.label.fails != code)
+
+
+@dataclass(frozen=True)
+class Tally:
+    passed: int
+    of: int
+
+    def __str__(self) -> str:
+        return f"{self.passed} of {self.of}"
+
+
+@dataclass(frozen=True)
+class Drawn:
+    """One move under one method in one story: its kept take judged, and the key it lands on."""
+
+    method: str
+    story: str
+    move: Move
+    tested: bool
+    """Whether it is one of the MOVES, or a rehearsal the chain needed."""
+    rehearsed: bool
+    title: str
+    prompt: str
+    seed: int
+    clip: str
+    """Its kept take, from the report's folder."""
+    checks: MoveChecks
+    verdict: Verdict
+    key: str
+    """The picture of the key it lands on, from the report's folder."""
+    key_items: tuple[dict, ...]
+    usd: float
+    """What its takes, its reads and its judgment cost."""
+
+    @property
+    def travels(self) -> bool:
+        return self.verdict.travels
+
+    @property
+    def key_passed(self) -> bool:
+        return all(item["passed"] for item in self.key_items)
+
+    @property
+    def items(self) -> list[dict]:
+        return [dataclasses.asdict(item) for item in self.checks.items()]
+
+
+@dataclass(frozen=True)
+class Standing:
+    """How one method did in one story: the tested moves that travel, those whose key passes every check, what its
+    tape cost, and the keys and moves the direction change draws again under it."""
+
+    story: str
+    method: str
+    travel: Tally
+    keys: Tally
+    usd: float
+    rerendered_keys: int
+    rerendered_moves: int
+
+    @property
+    def meets_the_bar(self) -> bool:
+        return self.travel.of > 0 and self.travel.passed == self.travel.of
+
+    @property
+    def rerenders(self) -> str:
+        return (f"{_count(self.rerendered_keys, 'key')} and {_count(self.rerendered_moves, 'move')} drawn again by the "
+                "direction change")
+
+
+def recommend(standings: Sequence[Standing]) -> Standing:
+    """The most moves that travel, then the most of their keys passing, then the lower cost, then the fewer keys and
+    moves drawn again."""
+    return min(standings, key=lambda standing: (-standing.travel.passed, -standing.keys.passed, standing.usd,
+                                                standing.rerendered_keys + standing.rerendered_moves))
+
+
+def gathered(root: Path, told: str, method: Method, drawn: Plan, tape: Path, verdicts: Mapping[str, Verdict],
+             moves: Sequence[Move]) -> list[Drawn]:
+    """Every move of a tape as its dailies, the project's ledger and the arm's verdicts record it, in walk order: the
+    rehearsals first, then the pinned moves."""
+    if not (tape / "dailies.json").is_file():
+        return []
+    record = dailies.read(tape)
+    report_root = root / FOLDER
+    costs = Counter[str]()
+    for line in ledger.of(root, tape).lines():
+        if "shot" in line:
+            costs[line["shot"]] += line.get("usd") or 0.0
+    keys = {shot["state"]: shot for shot in record["keys"]}
+    shots = {shot["title"]: shot for shot in [*record["keys"], *record["moves"]]}
+    tested = {(move.start, move.land) for move in moves}
+    found = []
+    for shot in [*rehearsals(drawn), *drawn.moves]:
+        held, verdict = shots.get(shot.title), verdicts.get(shot.title)
+        if held is None or verdict is None:
+            continue
+        kept = next(take for take in held["takes"] if take["kept"])
+        clip = tape / kept["clip"]
+        move = shot.move if isinstance(shot, Rehearsal) else shot
+        if isinstance(shot, Rehearsal):
+            start = frames.difference(frames.first_frame(clip), frames.read_png(tape / keys[shot.start.name]["key"]))
+            checks = MoveChecks(start, 0.0, verdict.cut, verdict.dissolve)
+        else:
+            checks = MoveChecks(kept["start"], kept["end"], verdict.cut, verdict.dissolve)
+        land = keys[move.land.name]
+        found.append(Drawn(method.name, told, move, (move.start, move.land) in tested, isinstance(shot, Rehearsal),
+                           shot.title, held["prompt"], kept["seed"], clip.relative_to(report_root).as_posix(), checks,
+                           verdict, (tape / land["key"]).relative_to(report_root).as_posix(), tuple(land["items"]),
+                           costs[shot.title]))
+    return found
+
+
+# What a change draws again.
+
+@dataclass(frozen=True)
+class Edition:
+    """An app as planned in a story, before or after a change, with what each shot's take depends on under each
+    method."""
+
+    plan: Plan
+    story: Story
+
+    @cached_property
+    def rehearsed(self) -> dict[State, Rehearsal]:
+        """Each base but the entry as rehearse draws it, by its state."""
+        return {key.state: key for key in rehearsals(cast(REHEARSE, self.plan, self.plan.moves))}
+
+    @cached_property
+    def bases(self) -> dict[State, Key]:
+        return bases(self.plan)
+
+    @cached_property
+    def keys(self) -> dict[State, Key]:
+        return {key.state: key for key in self.plan.keys}
+
+    @cached_property
+    def prompts(self) -> dict[str, str]:
+        """Each shot's prompt by its id, a rehearsal's the composed one, which under rehearse is the base's."""
+        own = {shot.id: text(prompt(shot, self.story)) for shot in self.plan.shots}
+        for key in self.rehearsed.values():
+            own[key.id] = text(composed(key, self.story))
+        return own
+
+    def identity(self, shot: Shot, method: Method) -> str:
+        """What a shot's take depends on under the method: its prompt, and the identity of each key its picture starts
+        on or ends on. Under rehearse a base's clip starts on its parent's key, so the parent's identity is in it, and
+        the move the base rehearses is the base's clip."""
+        if method is REHEARSE:
+            if isinstance(shot, Move) and shot.land in self.rehearsed and self.rehearsed[shot.land].move is shot:
+                return self.identity(self.rehearsed[shot.land], method)
+            if isinstance(shot, Key) and shot.state in self.rehearsed:
+                key = self.rehearsed[shot.state]
+                return f"{self.prompts[key.id]}\n{self.identity(self.keys[key.start], method)}"
+        if isinstance(shot, Move):
+            return (f"{self.prompts[shot.id]}\n{self.identity(self.keys[shot.start], method)}\n"
+                    f"{self.identity(self.keys[shot.land], method)}")
+        if isinstance(shot, FromKey):
+            return f"{self.prompts[shot.id]}\n{self.identity(self.bases[shot.state], method)}"
+        return self.prompts[shot.id]
+
+
+def rerendered(before: Edition, after: Edition, method: Method) -> tuple[int, int]:
+    """How many keys and moves the change from before to after draws again under the method: each whose identity
+    changed."""
+    was = {shot.id: before.identity(shot, method) for shot in before.plan.shots}
+    keys = sum(after.identity(key, method) != was.get(key.id) for key in after.plan.keys)
+    moves = sum(after.identity(move, method) != was.get(move.id) for move in after.plan.moves)
+    return keys, moves
+
+
+@dataclass(frozen=True)
+class Change:
+    said: str
+    keys: dict[str, int]
+    moves: dict[str, int]
+
+
+def direction_change(copy: Path, told: Story) -> str:
+    scene, direction = DIRECTION
+    file = copy / "stories" / f"{told.name}.toml"
+    number = story.line_of(file, "scenes", scene)
+    if number is None:
+        raise ScreenplayError("VT304", errors.shown(told.path), f"the scene {scene} has no direction, which the "
+                              "direction change gives anew", f'add {scene} = "..." under [scenes]')
+    lines = file.read_text().splitlines(keepends=True)
+    lines[number - 1] = f'{scene} = "{direction}"\n'
+    file.write_text("".join(lines))
+    return f'the direction of the {scene} scene, "{told.scenes[scene]}" to "{direction}"'
+
+
+LEFT_BEHIND = shutil.ignore_patterns(".venv", "tape*", "ledger.jsonl", "uv.lock", "__pycache__", ".env", "dist")
+
+
+def changed(found: project.Project, before: Edition) -> Change:
+    """The direction change made on a copy of the project, planned, and counted against the plan before it under each
+    method. The copy is imported afresh, so the project's own modules are forgotten first."""
+    project.forget(found)
+    with tempfile.TemporaryDirectory() as scratch:
+        copy = Path(shutil.copytree(found.root, Path(scratch) / "direction", ignore=LEFT_BEHIND))
+        said = direction_change(copy, before.story)
+        copied = project.find(copy)
+        try:
+            after = Edition(plan(copied.load(), copied.max_states), story.named(copy, before.story.name))
+            counts = {method.name: rerendered(before, after, method) for method in METHODS}
+        finally:
+            project.forget(copied)
+    return Change(said, {method: keys for method, (keys, _) in counts.items()},
+                  {method: moves for method, (_, moves) in counts.items()})
+
+
+# The report's page.
+
+@dataclass(frozen=True)
+class Trial:
+    """What the report shows: the app, the stories, the model and its judge, the moves, every move drawn, the
+    calibration, each story's direction change, and what each tape cost."""
+
+    app: str
+    stories: tuple[str, ...]
+    model: str
+    judge: str
+    clips: str
+    moves: tuple[Move, ...]
+    drawn: tuple[Drawn, ...]
+    calibrated: tuple[Calibrated, ...]
+    changes: dict[str, Change]
+    spent: dict[tuple[str, str], float]
+    """What each story's tape under each method cost, by story and method."""
+    calibration_usd: float
+
+    def of(self, told: str, method: str) -> list[Drawn]:
+        return [one for one in self.drawn if (one.story, one.method) == (told, method)]
+
+    def tested(self, told: str, method: str) -> list[Drawn]:
+        return [one for one in self.of(told, method) if one.tested]
+
+    @cached_property
+    def standings(self) -> tuple[Standing, ...]:
+        found = []
+        for told in self.stories:
+            for method in METHODS:
+                tested = self.tested(told, method.name)
+                change = self.changes[told]
+                found.append(Standing(told, method.name, Tally(sum(one.travels for one in tested), len(tested)),
+                                      Tally(sum(one.key_passed for one in tested), len(tested)),
+                                      self.spent[told, method.name], change.keys[method.name],
+                                      change.moves[method.name]))
+        return tuple(found)
+
+    def recommendation(self, told: str) -> Standing | None:
+        standings = [standing for standing in self.standings if standing.story == told]
+        return recommend(standings) if any(standing.travel.of for standing in standings) else None
+
+    def agreement(self, code: str) -> Tally:
+        judged = [one.agrees(code) for one in self.calibrated if one.verdict is not None]
+        return Tally(sum(bool(agreed) for agreed in judged), len(judged))
+
+
+STYLE = dailies.STYLE + """
+header, main { max-width: 1680px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
+.models { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; margin-top: 10px; }
+.model h4 { margin: 0 0 6px; font-size: 14px; }
+.strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.strip figure { margin: 0; font-size: 11px; color: var(--muted); }
+.strip figcaption { display: block; margin: 2px 0 0; overflow-wrap: anywhere; }
+.strip .overlaid figcaption { color: var(--fail); }
+.move > h3 { margin: 18px 0 0; }
+#calibration .takes { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.key { align-items: flex-start; }
+.pick { font-size: 17px; font-weight: 600; margin: 0 0 8px; }
+.short { color: var(--fail); }
+.sources li { margin: 6px 0; }
+"""
+
+RULE = ("The recommendation for a story is the method with the most of the twelve moves that neither cut nor "
+        "dissolve, then the most of their keys passing every check, then the lower cost, then the fewer keys and moves "
+        "the direction change draws again. The bar is no cut and no dissolve on all twelve.")
+
+
+def _standing(standing: Standing) -> str:
+    return (f"{standing.method}: {standing.travel} moves travel with no cut and no dissolve, {standing.keys} keys "
+            f"pass every check, {_money(standing.usd)} for the tape, {standing.rerenders}.")
+
+
+def _recommendation(trial: Trial) -> str:
+    lines = []
+    for told in trial.stories:
+        chosen = trial.recommendation(told)
+        lines.append(f"<h3>{escape(told)}</h3>")
+        if chosen is None:
+            lines.append(f'<p class="pick short">No recommendation for {escape(told)}: no method drew a move.</p>')
+        for standing in trial.standings:
+            if standing.story != told:
+                continue
+            said = _standing(standing)
+            if standing is chosen:
+                bar = "meets the bar" if standing.meets_the_bar else f"short of the bar at {standing.travel}"
+                lines.append(f'<p class="pick{"" if standing.meets_the_bar else " short"}" data-story="{escape(told)}" '
+                             f'data-recommend="{escape(standing.method)}" data-bar="{"met" if standing.meets_the_bar else "short"}">'
+                             f"The recommendation for {escape(told)} is {escape(standing.method)}, {bar}. {escape(said)}</p>")
+            else:
+                lines.append(f"<p>{escape(said)}</p>")
+    lines.append(f'<p class="note">{escape(RULE)}</p>')
+    return f'<section class="shot" id="recommendation">\n<h2>The recommendation</h2>\n{"".join(lines)}\n</section>'
+
+
+def _strip(verdict: Verdict) -> str:
+    figures = []
+    for picture, at, overlaid, seen in zip(verdict.pictures, verdict.dissolve.at, verdict.dissolve.overlaid,
+                                           verdict.dissolve.seen):
+        figures.append(f'<figure class="{"overlaid" if overlaid else "one"}" data-frame="{at}" '
+                       f'data-overlaid="{"yes" if overlaid else "no"}"><img src="{escape(picture)}" alt="Frame {at}" '
+                       f'loading="lazy"><figcaption>frame {at}: {"two pictures overlaid" if overlaid else "one picture"}, '
+                       f"{escape(seen)}</figcaption></figure>")
+    return f'<div class="strip">{"".join(figures)}</div>'
+
+
+def _calibration(trial: Trial) -> str:
+    if not trial.calibrated:
+        return (f'<section class="shot" id="calibration"><h2>Calibration</h2><p class="note">No labelled clips: the '
+                f"folder {escape(trial.clips)} is not there, so the ten labelled moves of 2026-11-10 were not judged. "
+                "Name it with --clips.</p></section>")
+    cut, dissolve = trial.agreement("VT506"), trial.agreement("VT507")
+    figures = []
+    for one in trial.calibrated:
+        label = one.label
+        if one.verdict is None:
+            figures.append(f'<figure class="take" data-clip="{escape(label.clip)}"><p class="note fail">'
+                           f"{escape(label.clip)} is missing.</p></figure>")
+            continue
+        items = [one.verdict.cut.item(), one.verdict.dissolve.item()]
+        agreed = {code: one.agrees(code) for code in ("VT506", "VT507")}
+        badges = "".join(f'<span class="badge{"" if agreed[code] else " failing"}">{code} '
+                         f'{"agrees" if agreed[code] else "disagrees"}</span>' for code in agreed)
+        figures.append(f'<figure class="take" data-clip="{escape(label.clip)}" data-label="{label.fails}" '
+                       f'data-vt506="{"agrees" if agreed["VT506"] else "disagrees"}" '
+                       f'data-vt507="{"agrees" if agreed["VT507"] else "disagrees"}">{_strip(one.verdict)}'
+                       f"<figcaption><strong>{escape(label.clip)}</strong><span class=\"badge\">labelled "
+                       f"{'a cut' if label.fails == 'VT506' else 'a dissolve'}</span>{badges}</figcaption>"
+                       f'<ul class="checks">{dailies.checklist([dataclasses.asdict(item) for item in items])}</ul></figure>')
+    return f"""<section class="shot" id="calibration" data-vt506="{cut}" data-vt507="{dissolve}">
+<h2>Calibration</h2>
+<p>The ten labelled moves of 2026-11-10 under {escape(trial.clips)}, judged by both checks. A clip labelled a cut should
+fail VT506 and pass VT507, and one labelled a dissolve the other way round. VT506 agrees with the labels on {cut} clips,
+and VT507, by {escape(trial.judge)}, on {dissolve}.</p>
+<div class="takes">
+{"".join(figures)}
+</div>
+</section>"""
+
+
+def _methods(trial: Trial) -> str:
+    rows = []
+    for told in trial.stories:
+        head = "".join(f"<th>{escape(method.name)}</th>" for method in METHODS)
+        cells: dict[str, dict[str, str]] = {}
+        for standing in trial.standings:
+            if standing.story != told:
+                continue
+            tested = trial.tested(told, standing.method)
+            cells[standing.method] = {
+                "moves with no cut and no dissolve": f'<td data-story="{escape(told)}" data-method="{standing.method}" '
+                                                     f'data-travel="{standing.travel}">{standing.travel}</td>',
+                "moves that cut": f"<td>{sum(not one.verdict.cut.passed for one in tested)}</td>",
+                "moves that dissolve": f"<td>{sum(not one.verdict.dissolve.passed for one in tested)}</td>",
+                "keys passing every check": f'<td data-keys="{standing.keys}">{standing.keys}</td>',
+                "cost of the tape": f"<td>{_money(standing.usd)}</td>",
+                "keys and moves the direction change draws again":
+                    f"<td>{standing.rerendered_keys} keys, {standing.rerendered_moves} moves</td>",
+            }
+        body = "".join(f"<tr><th>{escape(what)}</th>{''.join(cells[method.name][what] for method in METHODS)}</tr>"
+                       for what in cells[PINNED.name])
+        rows.append(f"<h3>{escape(told)}</h3><div class=\"scroll\"><table><thead><tr><th></th>{head}</tr></thead>"
+                    f"<tbody>{body}</tbody></table></div>")
+    return f'<section class="shot" id="methods">\n<h2>The methods</h2>\n{"".join(rows)}\n</section>'
+
+
+def _changes(trial: Trial) -> str:
+    head = "".join(f"<th>{escape(method.name)}</th>" for method in METHODS)
+    rows = []
+    for told in trial.stories:
+        change = trial.changes[told]
+        cells = "".join(f'<td data-story="{escape(told)}" data-method="{method.name}" data-keys="{change.keys[method.name]}" '
+                        f'data-moves="{change.moves[method.name]}">{_count(change.keys[method.name], "key")}, '
+                        f'{_count(change.moves[method.name], "move")}</td>' for method in METHODS)
+        rows.append(f"<tr><th>{escape(told)}: {escape(change.said)}</th>{cells}</tr>")
+    return f"""<section class="shot" id="changes">
+<h2>What a direction change draws again</h2>
+<p class="note">The change was made on a copy of the project and planned again, for free, and the counts are of the
+whole tape. Under pinned a key is drawn again when its prompt changes, a variant when its base's does too, and a move
+when its prompt or either of its keys changes. Under rehearse a base's clip starts on its parent's key, so a change to
+any state on the walk to it draws it again, and everything first reached through it, and the move it rehearses is
+that clip.</p>
+<div class="scroll"><table>
+<thead><tr><th>Change</th>{head}</tr></thead>
+<tbody>{"".join(rows)}</tbody>
+</table></div>
+</section>"""
+
+
+def _figure(one: Drawn) -> str:
+    items = one.items
+    failing = [item for item in items if not item["passed"]]
+    verdict = "fails " + " ".join(sorted({item["code"] for item in failing})) if failing else "passed"
+    seam = ("" if not one.rehearsed else '<p class="note">A rehearsal: the key is this clip\'s last frame, so its end '
+            "seam is 0 by construction, and its start seam is measured against the key it leaves.</p>")
+    key_failing = [item for item in one.key_items if not item["passed"]]
+    key = (f'<div class="key"><img src="{escape(one.key)}" alt="The key of {escape(one.move.land.name)}" loading="lazy">'
+           f"<span>Lands on <strong>{escape(one.move.land.name)}</strong>, whose key "
+           f"{'passes every check' if not key_failing else 'fails ' + ' '.join(sorted({item['code'] for item in key_failing}))}."
+           + (f'<ul class="checks">{dailies.checklist(key_failing)}</ul>' if key_failing else "") + "</span></div>")
+    return (f'<figure class="take" data-story="{escape(one.story)}" data-method="{escape(one.method)}" '
+            f'data-move="{escape(one.move.title)}" data-tested="{"yes" if one.tested else "no"}" '
+            f'data-rehearsed="{"yes" if one.rehearsed else "no"}" data-travels="{"yes" if one.travels else "no"}" '
+            f'data-key-passed="{"yes" if one.key_passed else "no"}" data-usd="{one.usd:.2f}">{_strip(one.verdict)}'
+            f'<figcaption><strong>{escape(one.title)}</strong><span class="badge{"" if not failing else " failing"}">'
+            f'{verdict}</span><span class="badge">take {one.seed}</span><span class="badge">{_money(one.usd)}</span>'
+            f'<a href="{escape(one.clip)}">clip</a></figcaption><ul class="checks">{dailies.checklist(items)}</ul>'
+            f"{seam}{key}<details><summary>Prompt</summary><p>{escape(one.prompt)}</p></details></figure>")
+
+
+def _moves(trial: Trial) -> str:
+    sections = []
+    for told in trial.stories:
+        blocks = []
+        for move in trial.moves:
+            columns = []
+            for method in METHODS:
+                figures = [one for one in trial.of(told, method.name) if one.move is move]
+                inner = "".join(_figure(one) for one in figures) if figures else '<p class="note">Not drawn.</p>'
+                columns.append(f'<div class="model"><h4>{escape(method.name)}</h4>{inner}</div>')
+            blocks.append(f'<div class="move" data-story="{escape(told)}" data-move="{escape(move.title)}">'
+                          f'<h3>{escape(move.title)}</h3><div class="models">{"".join(columns)}</div></div>')
+        chain = [one for one in trial.of(told, REHEARSE.name) if not one.tested]
+        if chain:
+            blocks.append(f'<div class="move" data-story="{escape(told)}" data-chain="yes"><h3>The chain under rehearse: '
+                          f"{_count(len(chain), 'base')} the moves above are first reached through</h3>"
+                          f'<div class="models">{"".join(f"<div class=\"model\"><h4>{escape(one.move.title)}</h4>{_figure(one)}</div>" for one in chain)}'
+                          "</div></div>")
+        sections.append(f'<section class="shot story" data-story="{escape(told)}"><h2>{escape(told)}: '
+                        f"{_count(len(trial.moves), 'move')} under each method</h2>{''.join(blocks)}</section>")
+    return f'<section id="moves">{"".join(sections)}</section>'
+
+
+def _sources() -> str:
+    items = "".join(f'<li><a href="{escape(source.url)}">{escape(source.title)}</a>, {escape(source.date)}. '
+                    f"{escape(source.said)}</li>" for source in SOURCES)
+    return f'<section class="shot sources" id="sources">\n<h2>Sources</h2>\n<ul>{items}</ul>\n</section>'
+
+
+def page(trial: Trial) -> str:
+    spent = sum(trial.spent.values()) + trial.calibration_usd
+    summary = (f"{_count(len(trial.moves), 'move')} in {escape(_listed(trial.stories))}, on {escape(trial.model)}, "
+               f"judged by {escape(trial.judge)}: {_count(len(trial.drawn), 'move')} drawn, {_money(spent)} in the ledger.")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escape(trial.app)} moves test</title>
+<style>{STYLE}</style>
+</head>
+<body>
+<header>
+<h1>{escape(trial.app)} moves test</h1>
+<p class="summary">{summary}</p>
+</header>
+<main>
+{_recommendation(trial)}
+{_calibration(trial)}
+{_methods(trial)}
+{_changes(trial)}
+{_moves(trial)}
+{_sources()}
+</main>
+</body>
+</html>
+"""
+
+
+# The command.
+
+def command(args: argparse.Namespace, cap: float | None) -> str:
+    """The command that runs this moves test again, with the cap last."""
+    words = ["uv", "run", errors.shown(Path(__file__)), args.project, "--stories", args.stories]
+    if args.model:
+        words += ["--model", args.model]
+    if args.clips:
+        words += ["--clips", args.clips]
+    return shlex.join([*words, *(["--cap-usd", f"{cap:.2f}"] if cap is not None else [])])
+
+
+def fixture(labels: Sequence[Labelled], judge: ClaudeJudge) -> dict:
+    """The judge's recorded answers to the labelled clips, text only, with what they answer, for a test to replay."""
+    clips = {label.clip: judge.recorded(frames.sampled(label.path, FRAMES)) for label in labels if not label.missing}
+    return {"test": "moves-test", "judge": judge.name, "asked": claude.asked(), "clips": clips}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="scripts/moves-test", description=__doc__.splitlines()[0])
+    parser.add_argument("project", help="the app's project, the folder whose pyproject.toml has [tool.videotape]")
+    parser.add_argument("--stories", required=True, help="the stories to draw the moves in, with commas, as in "
+                        "terminal,posters")
+    parser.add_argument("--model", choices=sorted(MODELS), help="the model that draws every take (default: model in "
+                        "[tool.videotape])")
+    parser.add_argument("--cap-usd", type=float, help="the most the whole moves test may spend on the model's calls, "
+                        "the readers' reads and the judge's judgments")
+    parser.add_argument("--estimate", action="store_true", help="print the estimate and stop, before any call; needs "
+                        "no API key")
+    parser.add_argument("--clips", help=f"the folder of the ten labelled clips (default: {errors.shown(CLIPS)})")
+    parser.add_argument("--fixture", help="write the judge's recorded answers to the labelled clips into this file, "
+                        "for tests/test_moves_test.py to replay")
+    args = parser.parse_args(argv)
+    stories = [name.strip() for name in args.stories.split(",") if name.strip()]
+    if not stories:
+        parser.error("argument --stories: name at least one story, as in terminal,posters")
+    try:
+        return _run(args, stories)
+    except (ScreenplayError, RenderError) as error:
+        print(error.report(), file=sys.stderr)
+        return 1
+
+
+def _run(args: argparse.Namespace, stories: Sequence[str]) -> int:
+    found = project.find(Path(args.project).resolve())
+    name = args.model or found.model
+    if name is None:
+        raise ScreenplayError("VT110", errors.shown(found.root / "pyproject.toml"), "[tool.videotape] names no model, "
+                              "and neither does --model", 'set it in [tool.videotape], as in model = "stand-in", or name '
+                              "one for this moves test, as in --model stand-in")
+    listing, judge = MODELS[name], JUDGES.get(name, ClaudeJudge)
+    if args.fixture and judge is not ClaudeJudge:
+        raise ScreenplayError("VT110", "--fixture", f"holds {ClaudeJudge.name}'s answers, and {name}'s judge is "
+                              f"{judge.name}", "run the moves test with a model whose moves Claude judges, as in --model "
+                              "gemini-omni-flash-1.2")
+    planned = plan(found.load(), found.max_states)
+    moves = selected(planned)
+    casts = {method.name: cast(method, planned, moves) for method in METHODS}
+    tolds = {told: story.named(found.root, told) for told in stories}
+    warnings = {warning.report("warning"): None for told in tolds.values()
+                for warning in (*planned.warnings, *story.check(told, planned, listing.prompt_limit))}
+    for warning in warnings:
+        print(warning, file=sys.stderr)
+    clips = Path(args.clips).absolute() if args.clips else CLIPS
+    labels = labelled(clips)
+    states = {state for move in moves for state in (move.start, move.land)}
+    print(f"moves test of {' '.join(filter(None, (found.name, found.version)))} in {_listed(stories)}, on {name}, "
+          f"judged by {judge.name}: {_count(len(moves), 'move')} across {_count(len(states), 'state')}")
+    lines, least, most = estimate(name, listing, judge, casts, stories, clips, labels)
+    for line in lines:
+        print(line)
+    low = sum(len(casts[method.name].shots) for method in METHODS) * len(stories)
+    cap = args.cap_usd
+    if most == 0:
+        print(f"the moves test: {low} to {TAKES * low} calls, free", flush=True)
+    else:
+        fits = "no cap" if cap is None else f"{'under' if least <= cap else 'past'} the cap of ${cap:.2f} at the least"
+        print(f"the moves test: {low} to {TAKES * low} calls, at most ${least:.2f} to ${most:.2f}, {fits}", flush=True)
+    if args.estimate:
+        return 0
+    billed = [*([name] if listing.price else []), *(reader.name for reader in listing.readers if reader.paid),
+              *([judge.name] if judge.paid else [])]
+    billed = list(dict.fromkeys(billed))
+    if billed and cap is None:
+        raise RenderError("VT402", "before the first call", f"{_listed(billed)} bill{'s' if len(billed) == 1 else ''} "
+                          "per call, and no cap is set", "set the most the moves test may spend, as in:\n"
+                          f"{command(args, _cents_up(least))}")
+    if cap is not None and least > cap:
+        raise RenderError("VT402", "before the first call", f"the moves test costs at least ${least:.2f}, which "
+                          f"passes the cap of ${cap:.2f}", f"run it with a cap of at least ${_cents_up(least):.2f}, "
+                          f"as in:\n{command(args, _cents_up(least))}")
+    tapes = {(method.name, told): found.root / FOLDER / method.name / told for method in METHODS for told in stories}
+    calibration = found.root / FOLDER / "calibration"
+    model = listing.model()
+    readers = {tape: [reader(tape) for reader in listing.readers] for tape in tapes.values()}
+    judges = {tape: judge(tape) for tape in (*tapes.values(), calibration)}
+    resume = command(args, cap)
+
+    def left(tape: Path) -> float | None:
+        others = sum(ledger.of(found.root, other).spent() for other in (*tapes.values(), calibration) if other != tape)
+        return None if cap is None else cap - others
+
+    verdicts: dict[tuple[str, str], dict[str, Verdict]] = {}
+    try:
+        calibrated = calibrate(labels, judges[calibration], found.root, Budget(ledger.of(found.root, calibration), None,
+                                                                                left(calibration)), resume) if labels else []
+        for told in stories:
+            for method in METHODS:
+                tape = tapes[method.name, told]
+                shoot = Shoot(found, tolds[told], model, listing, readers[tape], judges[tape], tape, left(tape), resume)
+                verdicts[method.name, told] = _arm(shoot, method, casts[method.name])
+    except RenderError as error:
+        if error.code == "VT403":
+            raise RenderError(error.code, error.place, error.message, "the moves test films only seeds 1 and "
+                              f"{TAKES}; delete each clip the lines above name, with the files beside it that share "
+                              f"its name, and run the moves test again, which films those seeds anew:\n{resume}") from None
+        if error.code != "VT402" or cap is None:
+            raise
+        spent = sum(ledger.of(found.root, tape).spent() for tape in (*tapes.values(), calibration))
+        raise RenderError("VT402", error.place, f"the next call would pass the moves test's cap of ${cap:.2f}, with "
+                          f"${spent:.2f} spent on its tapes", "run the moves test again with a higher cap, which "
+                          f"resumes, as in:\n{command(args, 2 * cap)}") from None
+    if args.fixture:
+        held = fixture(labels, judges[calibration])
+        write_atomically(Path(args.fixture), lambda out: out.write_text(json.dumps(held, indent=2) + "\n"))
+        print(f"wrote {errors.shown(Path(args.fixture))}: {_count(len(held['clips']), 'recorded answer')}")
+    drawn = [one for (method_name, told), tape in tapes.items()
+             for one in gathered(found.root, told, next(method for method in METHODS if method.name == method_name),
+                                 casts[method_name], tape, verdicts[method_name, told], moves)]
+    spent = {(told, method.name): ledger.of(found.root, tapes[method.name, told]).spent()
+             for told in stories for method in METHODS}
+    changes = {told: changed(found, Edition(planned, tolds[told])) for told in stories}
+    trial = Trial(planned.title, tuple(stories), name, judge.name, errors.shown(clips), moves, tuple(drawn),
+                  tuple(Calibrated(label, verdict) for label, verdict in zip(labels, calibrated)), changes, spent,
+                  ledger.of(found.root, calibration).spent())
+    report = found.root / FOLDER / "report.html"
+    write_atomically(report, lambda out: out.write_text(page(trial)))
+    print(f"wrote {errors.shown(report)}")
+    if trial.calibrated:
+        print(f"the calibration: VT506 agrees with the labels on {trial.agreement('VT506')} clips, VT507 on "
+              f"{trial.agreement('VT507')}")
+    for told in stories:
+        chosen = trial.recommendation(told)
+        if chosen is None:
+            print(f"no recommendation for {told}: no method drew a move")
+            continue
+        others = ", ".join(f"{standing.method} {standing.travel}" for standing in trial.standings
+                           if standing.story == told and standing is not chosen)
+        bar = "meets the bar" if chosen.meets_the_bar else f"short of the bar at {chosen.travel}"
+        print(f"recommend for {told}: {chosen.method}, {bar}; {chosen.travel} moves travel, {chosen.keys} keys pass, "
+              f"{_money(chosen.usd)}, {chosen.rerenders}; {others}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
