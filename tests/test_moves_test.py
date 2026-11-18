@@ -373,7 +373,7 @@ def test_run_again_it_films_nothing_reads_nothing_judges_nothing_and_writes_the_
     assert sum(line.endswith(" overlaid, cached") for line in out.splitlines()) == judgments()
 
 
-def test_one_cap_holds_for_the_whole_moves_test_and_counts_what_its_other_tapes_spent(script, tmp_path, monkeypatch):
+def test_one_cap_holds_for_the_whole_moves_test_counts_what_its_other_tapes_spent_and_still_writes_the_report(script, tmp_path, monkeypatch):
     directory = contrail_copy(tmp_path / "contrail")
     monkeypatch.chdir(ROOT)
     fake(monkeypatch, script)
@@ -387,7 +387,10 @@ def test_one_cap_holds_for_the_whole_moves_test_and_counts_what_its_other_tapes_
                         f"scripts/moves-test {directory} --stories terminal,posters --cap-usd 280.00\n")
     spent = sum(line.get("usd", 0.0) for line in ledger_lines(directory))
     assert 139 <= spent <= 140
-    assert not (directory / "tapes" / "moves-test" / "report.html").exists()
+    assert "the report shows what was drawn and judged before it" in err
+    _, shown = report(directory)
+    judged = [cell.get("data-judged") for cell in shown.all("td") if cell.get("data-judged")]
+    assert judged == ["0 of 12"] * 4
 
 
 def test_the_report_shows_each_move_under_each_method_with_its_frames_the_judges_answers_the_checks_and_its_key(tested):
@@ -456,16 +459,17 @@ def test_the_report_counts_what_a_direction_change_draws_again_under_each_method
 def test_the_recommendation_has_the_most_moves_travelling_then_the_most_keys_passing_then_the_lower_cost_then_fewer_redraws(
         script):
     standing, tally = script.Standing, script.Tally
-    most = standing("terminal", "most", tally(11, 12), tally(8, 12), 30.0, 50, 90)
-    fewer = standing("terminal", "fewer", tally(9, 12), tally(12, 12), 1.0, 1, 2)
+    all12 = tally(12, 12)
+    most = standing("terminal", "most", all12, tally(11, 12), tally(8, 12), 30.0, 50, 90)
+    fewer = standing("terminal", "fewer", all12, tally(9, 12), tally(12, 12), 1.0, 1, 2)
     assert script.recommend([fewer, most]) is most and not most.meets_the_bar
-    keys = standing("terminal", "keys", tally(11, 12), tally(12, 12), 40.0, 50, 90)
+    keys = standing("terminal", "keys", all12, tally(11, 12), tally(12, 12), 40.0, 50, 90)
     assert script.recommend([most, keys, fewer]) is keys
-    cheap = standing("terminal", "cheap", tally(11, 12), tally(12, 12), 20.0, 60, 90)
+    cheap = standing("terminal", "cheap", all12, tally(11, 12), tally(12, 12), 20.0, 60, 90)
     assert script.recommend([keys, cheap]) is cheap
-    steady = standing("terminal", "steady", tally(11, 12), tally(12, 12), 20.0, 10, 20)
+    steady = standing("terminal", "steady", all12, tally(11, 12), tally(12, 12), 20.0, 10, 20)
     assert script.recommend([cheap, steady]) is steady
-    assert standing("terminal", "bar", tally(12, 12), tally(12, 12), 50.0, 1, 1).meets_the_bar
+    assert standing("terminal", "bar", all12, tally(12, 12), tally(12, 12), 50.0, 1, 1).meets_the_bar
 
 
 # The calibration.
@@ -510,10 +514,10 @@ def test_the_fixture_flag_writes_the_judges_recorded_answers_to_the_labelled_cli
     directory = copied(tested, tmp_path)
     monkeypatch.chdir(ROOT)
     fakes = fake(monkeypatch, script)
-    code, out, err = moves(script, directory, *RUN, "--fixture", str(tmp_path / "calibration.json"))
+    code, out, err = moves(script, directory, *RUN, "--fixture", str(tmp_path / "recorded" / "calibration.json"))
     assert (code, err) == (0, "") and fakes.claude.seen == []
-    assert f"wrote {tmp_path / 'calibration.json'}: 10 recorded answers" in out.splitlines()
-    held = json.loads((tmp_path / "calibration.json").read_text())
+    assert f"wrote {tmp_path / 'recorded' / 'calibration.json'}: 10 recorded answers" in out.splitlines()
+    held = json.loads((tmp_path / "recorded" / "calibration.json").read_text())
     assert (held["test"], held["judge"], held["asked"]) == ("moves-test", "claude-opus-5-5", claude.asked())
     assert sorted(held["clips"]) == sorted(script.LABELS)
     for clip, answer in held["clips"].items():

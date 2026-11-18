@@ -31,8 +31,8 @@ judge's recorded answers to them, text only, which tests/test_moves_test.py repl
 Before any call it prints the estimate: each method's and story's shots and calls, the least and the most, at the
 model's price, a read of each key's take by each paid reader, and a judgment of each move and each labelled clip by
 the judge, at the most each costs. --estimate prints it and stops, and needs no API key. A least past --cap-usd stops
-it before any call, and the cap stops a run before the call that would pass it, which a run again with a higher cap
-resumes. The tapes go into tapes/moves-test/<method>/<story>/ in the project, the calibration into
+it before any call, and the cap stops a run before the call that would pass it: the report still shows what was drawn
+and judged before it, the run exits 1, and a run again with a higher cap resumes. The tapes go into tapes/moves-test/<method>/<story>/ in the project, the calibration into
 tapes/moves-test/calibration/, one cap holds for them all, and every call, read and judgment goes into the project's
 ledger.jsonl. Run again, it films no take on disk, reads no picture and judges no take whose answer is cached, so the
 report is rebuilt for free.
@@ -359,20 +359,28 @@ class Purse:
 
 @dataclass(frozen=True)
 class Verdict:
-    """A take judged for travel: whether it cuts, whether it dissolves, and the pictures of the frames judged, from
-    the report's folder."""
+    """A take judged for travel: whether it cuts, whether it dissolves, None when the cap stopped its judgment, and
+    the frames sampled, as ffmpeg numbers them, with their pictures from the report's folder."""
 
     cut: Cut
-    dissolve: Dissolve
+    dissolve: Dissolve | None
+    at: tuple[int, ...]
     pictures: tuple[str, ...]
 
     @property
     def travels(self) -> bool:
-        return self.cut.passed and self.dissolve.passed
+        return self.cut.passed and self.dissolve is not None and self.dissolve.passed
+
+    def said(self) -> str:
+        cut = f"VT506 {self.cut.top[1]:.3f} {'passed' if self.cut.passed else 'failed'}"
+        if self.dissolve is None:
+            return f"{cut}, VT507 not judged, the cap"
+        return f"{cut}, VT507 {sum(self.dissolve.overlaid)} of {FRAMES} overlaid"
 
 
 def judged(clip: Path, judge: Judge, purse: Purse, pictures: Path, root: Path) -> Verdict:
-    """The take's cut and dissolve checks, with its judged frames written into pictures/ once."""
+    """The take's cut and dissolve checks, with its judged frames written into pictures/ once. The cut check is free,
+    and a dissolve check the cap stops is None."""
     sampled = frames.sampled(clip, FRAMES)
     written = []
     for at, picture in sampled:
@@ -381,7 +389,13 @@ def judged(clip: Path, judge: Judge, purse: Purse, pictures: Path, root: Path) -
             pictures.mkdir(parents=True, exist_ok=True)
             write_atomically(out, lambda partial: frames.write_png(picture, partial))
         written.append(out.relative_to(root).as_posix())
-    return Verdict(Cut(tuple(frames.scene_scores(clip))), judge.judge(sampled, purse), tuple(written))
+    try:
+        dissolve = judge.judge(sampled, purse)
+    except RenderError as error:
+        if error.code != "VT402":
+            raise
+        dissolve = None
+    return Verdict(Cut(tuple(frames.scene_scores(clip))), dissolve, tuple(at for at, _ in sampled), tuple(written))
 
 
 @dataclass(frozen=True)
@@ -413,17 +427,22 @@ class Shoot:
                       prompts=prompts(self.told))
 
 
-def _arm(shoot: Shoot, method: Method, drawn: Plan) -> dict[str, Verdict]:
-    """One method's tape: its render, then the cut and dissolve checks on each move's kept take, by the shot's
-    title."""
+def _arm(shoot: Shoot, method: Method, drawn: Plan) -> tuple[dict[str, Verdict], str | None]:
+    """One method's tape: its render, then the cut and dissolve checks on each move's kept take, by the shot's title,
+    and where the cap stopped it, if it did."""
     print(f"{method.name}, {shoot.told.name}: {_count(len(drawn.keys), 'key')} of which {len(rehearsals(drawn))} "
           f"rehearsed and {_count(len(drawn.moves), 'pinned move')}, up to {TAKES} takes each, read by "
           f"{eye(shoot.readers)} -> {errors.shown(shoot.tape)}", flush=True)
+    stopped = None
     try:
         shoot.render(drawn)
     except EveryTakeRefused as error:
         print(RenderError(error.code, error.place, error.message, "nothing; the other shots are drawn, and the report "
                           "counts the move as failing").report(), file=sys.stderr, flush=True)
+    except RenderError as error:
+        if error.code != "VT402":
+            raise
+        stopped = error.place
     clips = kept_clips(shoot.tape)
     judged_shots = [*rehearsals(drawn), *drawn.moves]
     print(f"{method.name}, {shoot.told.name}: {_count(len(judged_shots), 'move')} judged by {shoot.judge.name}", flush=True)
@@ -435,10 +454,13 @@ def _arm(shoot: Shoot, method: Method, drawn: Plan) -> dict[str, Verdict]:
         purse = Purse(budget, shot.title, seed, shoot.resume)
         verdict = judged(shoot.tape / clip, shoot.judge, purse, shoot.tape / "frames", shoot.found.root / FOLDER)
         verdicts[shot.title] = verdict
+        if verdict.dissolve is None:
+            stopped = stopped or f"{shot.title} take {seed}"
+            print(f"{number}. {shot.title}  {verdict.said()}", flush=True)
+            continue
         cost = f"{_money(purse.spent)} judged" if purse.spent else "cached" if shoot.judge.paid else "free"
-        print(f"{number}. {shot.title}  VT506 {verdict.cut.top[1]:.3f} {'passed' if verdict.cut.passed else 'failed'}, "
-              f"VT507 {sum(verdict.dissolve.overlaid)} of {FRAMES} overlaid, {cost}", flush=True)
-    return verdicts
+        print(f"{number}. {shot.title}  {verdict.said()}, {cost}", flush=True)
+    return verdicts, stopped
 
 
 def kept_clips(tape: Path) -> dict[str, tuple[int, str]]:
@@ -450,9 +472,12 @@ def kept_clips(tape: Path) -> dict[str, tuple[int, str]]:
             for shot in [*record["keys"], *record["moves"]]}
 
 
-def calibrate(labels: Sequence[Labelled], judge: Judge, shoot_root: Path, budget: Budget, resume: str) -> list[Verdict | None]:
-    """Each labelled clip judged, in LABELS order, or None for one that is missing."""
+def calibrate(labels: Sequence[Labelled], judge: Judge, shoot_root: Path, budget: Budget,
+              resume: str) -> tuple[list[Verdict | None], str | None]:
+    """Each labelled clip judged, in LABELS order, or None for one that is missing, and where the cap stopped the
+    judging, if it did."""
     verdicts: list[Verdict | None] = []
+    stopped = None
     print(f"calibration: {_count(sum(not label.missing for label in labels), 'labelled clip')} judged by {judge.name} -> "
           f"{errors.shown(shoot_root / FOLDER / 'calibration')}", flush=True)
     for number, label in enumerate(labels, 1):
@@ -463,11 +488,13 @@ def calibrate(labels: Sequence[Labelled], judge: Judge, shoot_root: Path, budget
         purse = Purse(budget, label.clip, 1, resume)
         verdict = judged(label.path, judge, purse, shoot_root / FOLDER / "calibration" / "frames", shoot_root / FOLDER)
         verdicts.append(verdict)
+        if verdict.dissolve is None:
+            stopped = stopped or label.clip
+            print(f"{number}. {label.clip}  labelled {label.fails}, {verdict.said()}", flush=True)
+            continue
         cost = f"{_money(purse.spent)} judged" if purse.spent else "cached" if judge.paid else "free"
-        print(f"{number}. {label.clip}  labelled {label.fails}, VT506 {verdict.cut.top[1]:.3f} "
-              f"{'passed' if verdict.cut.passed else 'failed'}, VT507 {sum(verdict.dissolve.overlaid)} of {FRAMES} "
-              f"overlaid, {cost}", flush=True)
-    return verdicts
+        print(f"{number}. {label.clip}  labelled {label.fails}, {verdict.said()}, {cost}", flush=True)
+    return verdicts, stopped
 
 
 # What the report shows.
@@ -479,8 +506,8 @@ class Calibrated:
 
     def agrees(self, code: str) -> bool | None:
         """Whether the check of this code says what the label says: it fails the check the label names and passes the
-        other. None for a missing clip."""
-        if self.verdict is None:
+        other. None for a missing clip, or a dissolve check the cap stopped."""
+        if self.verdict is None or (code == "VT507" and self.verdict.dissolve is None):
             return None
         passed = self.verdict.cut.passed if code == "VT506" else self.verdict.dissolve.passed
         return passed == (self.label.fails != code)
@@ -533,11 +560,13 @@ class Drawn:
 
 @dataclass(frozen=True)
 class Standing:
-    """How one method did in one story: the tested moves that travel, those whose key passes every check, what its
-    tape cost, and the keys and moves the direction change draws again under it."""
+    """How one method did in one story, each of the twelve moves: those drawn and judged, those that travel, those
+    whose key passes every check, what its tape cost, and the keys and moves the direction change draws again under
+    it."""
 
     story: str
     method: str
+    judged: Tally
     travel: Tally
     keys: Tally
     usd: float
@@ -726,10 +755,12 @@ class Trial:
         found = []
         for told in self.stories:
             for method in METHODS:
-                tested = self.tested(told, method.name)
+                tested, of = self.tested(told, method.name), len(self.moves)
                 change = self.changes[told]
-                found.append(Standing(told, method.name, Tally(sum(one.travels for one in tested), len(tested)),
-                                      Tally(sum(one.key_passed for one in tested), len(tested)),
+                found.append(Standing(told, method.name,
+                                      Tally(sum(one.verdict.dissolve is not None for one in tested), of),
+                                      Tally(sum(one.travels for one in tested), of),
+                                      Tally(sum(one.key_passed for one in tested), of),
                                       self.spent[told, method.name], change.keys[method.name],
                                       change.moves[method.name]))
         return tuple(found)
@@ -739,8 +770,8 @@ class Trial:
         return recommend(standings) if any(standing.travel.of for standing in standings) else None
 
     def agreement(self, code: str) -> Tally:
-        judged = [one.agrees(code) for one in self.calibrated if one.verdict is not None]
-        return Tally(sum(bool(agreed) for agreed in judged), len(judged))
+        judged = [agreed for one in self.calibrated if (agreed := one.agrees(code)) is not None]
+        return Tally(sum(judged), len(judged))
 
 
 STYLE = dailies.STYLE + """
@@ -768,8 +799,10 @@ RULE = ("The recommendation for a story is the method with the most of the twelv
 
 
 def _standing(standing: Standing) -> str:
+    short = ("" if standing.judged.passed == standing.judged.of else
+             f" The cap stopped it with {standing.judged} moves drawn and judged; the rest count as not travelling.")
     return (f"{standing.method}: {standing.travel} moves travel with no cut and no dissolve, {standing.keys} keys "
-            f"pass every check, {_money(standing.usd)} for the tape, {standing.rerenders}.")
+            f"pass every check, {_money(standing.usd)} for the tape, {standing.rerenders}.{short}")
 
 
 def _recommendation(trial: Trial) -> str:
@@ -795,6 +828,11 @@ def _recommendation(trial: Trial) -> str:
 
 
 def _strip(verdict: Verdict) -> str:
+    if verdict.dissolve is None:
+        figures = [f'<figure class="one" data-frame="{at}" data-overlaid="unjudged"><img src="{escape(picture)}" '
+                   f'alt="Frame {at}" loading="lazy"><figcaption>frame {at}: not judged, the cap</figcaption></figure>'
+                   for picture, at in zip(verdict.pictures, verdict.at)]
+        return f'<div class="strip">{"".join(figures)}</div>'
     figures = []
     for picture, at, overlaid, seen in zip(verdict.pictures, verdict.dissolve.at, verdict.dissolve.overlaid,
                                            verdict.dissolve.seen):
@@ -818,13 +856,13 @@ def _calibration(trial: Trial) -> str:
             figures.append(f'<figure class="take" data-clip="{escape(label.clip)}"><p class="note fail">'
                            f"{escape(label.clip)} is missing.</p></figure>")
             continue
-        items = [one.verdict.cut.item(), one.verdict.dissolve.item()]
-        agreed = {code: one.agrees(code) for code in ("VT506", "VT507")}
-        badges = "".join(f'<span class="badge{"" if agreed[code] else " failing"}">{code} '
-                         f'{"agrees" if agreed[code] else "disagrees"}</span>' for code in agreed)
+        items = [check.item() for check in (one.verdict.cut, one.verdict.dissolve) if check is not None]
+        agreed = {code: {True: "agrees", False: "disagrees", None: "not judged"}[one.agrees(code)]
+                  for code in ("VT506", "VT507")}
+        badges = "".join(f'<span class="badge{"" if said == "agrees" else " failing"}">{code} {said}</span>'
+                         for code, said in agreed.items())
         figures.append(f'<figure class="take" data-clip="{escape(label.clip)}" data-label="{label.fails}" '
-                       f'data-vt506="{"agrees" if agreed["VT506"] else "disagrees"}" '
-                       f'data-vt507="{"agrees" if agreed["VT507"] else "disagrees"}">{_strip(one.verdict)}'
+                       f'data-vt506="{agreed["VT506"]}" data-vt507="{agreed["VT507"]}">{_strip(one.verdict)}'
                        f"<figcaption><strong>{escape(label.clip)}</strong><span class=\"badge\">labelled "
                        f"{'a cut' if label.fails == 'VT506' else 'a dissolve'}</span>{badges}</figcaption>"
                        f'<ul class="checks">{dailies.checklist([dataclasses.asdict(item) for item in items])}</ul></figure>')
@@ -849,10 +887,11 @@ def _methods(trial: Trial) -> str:
                 continue
             tested = trial.tested(told, standing.method)
             cells[standing.method] = {
+                "moves drawn and judged": f'<td data-judged="{standing.judged}">{standing.judged}</td>',
                 "moves with no cut and no dissolve": f'<td data-story="{escape(told)}" data-method="{standing.method}" '
                                                      f'data-travel="{standing.travel}">{standing.travel}</td>',
                 "moves that cut": f"<td>{sum(not one.verdict.cut.passed for one in tested)}</td>",
-                "moves that dissolve": f"<td>{sum(not one.verdict.dissolve.passed for one in tested)}</td>",
+                "moves that dissolve": f"<td>{sum(one.verdict.dissolve is not None and not one.verdict.dissolve.passed for one in tested)}</td>",
                 "keys passing every check": f'<td data-keys="{standing.keys}">{standing.keys}</td>',
                 "cost of the tape": f"<td>{_money(standing.usd)}</td>",
                 "keys and moves the direction change draws again":
@@ -1071,27 +1110,26 @@ def _run(args: argparse.Namespace, stories: Sequence[str]) -> int:
         return None if cap is None else cap - others
 
     verdicts: dict[tuple[str, str], dict[str, Verdict]] = {}
+    stops: list[str] = []
     try:
-        calibrated = calibrate(labels, judges[calibration], found.root, Budget(ledger.of(found.root, calibration), None,
-                                                                                left(calibration)), resume) if labels else []
+        calibrated, stop = calibrate(labels, judges[calibration], found.root, Budget(ledger.of(found.root, calibration),
+                                     None, left(calibration)), resume) if labels else ([], None)
+        stops += [stop] if stop else []
         for told in stories:
             for method in METHODS:
                 tape = tapes[method.name, told]
                 shoot = Shoot(found, tolds[told], model, listing, readers[tape], judges[tape], tape, left(tape), resume)
-                verdicts[method.name, told] = _arm(shoot, method, casts[method.name])
+                verdicts[method.name, told], stop = _arm(shoot, method, casts[method.name])
+                stops += [stop] if stop else []
     except RenderError as error:
         if error.code == "VT403":
             raise RenderError(error.code, error.place, error.message, "the moves test films only seeds 1 and "
                               f"{TAKES}; delete each clip the lines above name, with the files beside it that share "
                               f"its name, and run the moves test again, which films those seeds anew:\n{resume}") from None
-        if error.code != "VT402" or cap is None:
-            raise
-        spent = sum(ledger.of(found.root, tape).spent() for tape in (*tapes.values(), calibration))
-        raise RenderError("VT402", error.place, f"the next call would pass the moves test's cap of ${cap:.2f}, with "
-                          f"${spent:.2f} spent on its tapes", "run the moves test again with a higher cap, which "
-                          f"resumes, as in:\n{command(args, 2 * cap)}") from None
+        raise
     if args.fixture:
         held = fixture(labels, judges[calibration])
+        Path(args.fixture).parent.mkdir(parents=True, exist_ok=True)
         write_atomically(Path(args.fixture), lambda out: out.write_text(json.dumps(held, indent=2) + "\n"))
         print(f"wrote {errors.shown(Path(args.fixture))}: {_count(len(held['clips']), 'recorded answer')}")
     drawn = [one for (method_name, told), tape in tapes.items()
@@ -1119,6 +1157,13 @@ def _run(args: argparse.Namespace, stories: Sequence[str]) -> int:
         bar = "meets the bar" if chosen.meets_the_bar else f"short of the bar at {chosen.travel}"
         print(f"recommend for {told}: {chosen.method}, {bar}; {chosen.travel} moves travel, {chosen.keys} keys pass, "
               f"{_money(chosen.usd)}, {chosen.rerenders}; {others}")
+    if stops:
+        spent = sum(ledger.of(found.root, tape).spent() for tape in (*tapes.values(), calibration))
+        print(RenderError("VT402", stops[0], f"the next call would pass the moves test's cap of ${cap:.2f}, with "
+                          f"${spent:.2f} spent on its tapes, and the report shows what was drawn and judged before it",
+                          "run the moves test again with a higher cap, which resumes, as in:\n"
+                          f"{command(args, 2 * cap)}").report(), file=sys.stderr)
+        return 1
     return 0
 
 

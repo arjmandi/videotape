@@ -1,0 +1,97 @@
+{
+  "test": "moves-test",
+  "judge": "claude-opus-5-5",
+  "asked": "461028d66ebf5de89856cd3ca7d62726e77fbf0dcfea728b886c29b68655f525",
+  "clips": {
+    "tape/moves/entrance--browse-as-guest.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Surf shop counter with surfboards, sign-in menu text overlaid: 'How would you like to come in?' with garbled options.\"},{\"overlaid\":true,\"seen\":\"Surf shop interior blending with beach dune scene; menu text garbled.\"},{\"overlaid\":true,\"seen\":\"Building with surfboards on wall fading in over menu screen; text still visible.\"},{\"overlaid\":true,\"seen\":\"Beach shed with surfboards, faint ghost of menu text remaining.\"},{\"overlaid\":false,\"seen\":\"White beach shed with row of surfboards leaning against wall by the ocean.\"},{\"overlaid\":false,\"seen\":\"Same beach shed with surfboards, sunny shoreline.\"},{\"overlaid\":false,\"seen\":\"Beach shed with surfboards and garbled wall lettering, waves behind.\"},{\"overlaid\":false,\"seen\":\"Beach shed with surfboards against wall, dunes and sea at sunset.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 338
+      },
+      "usd": 0.04702
+    },
+    "tape/moves/entrance--create-an-account.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Surf shack with boards; text 'How would you like to come in?' with three garbled option buttons.\"},{\"overlaid\":false,\"seen\":\"Same scene shifted, text and buttons smeared and garbled as the camera pans.\"},{\"overlaid\":true,\"seen\":\"Old option buttons fading out while a 'Create your account' panel fades in over the surfboards.\"},{\"overlaid\":true,\"seen\":\"Faint blurry boards still showing through as 'Create your account' and 'Sign up' panels firm up.\"},{\"overlaid\":false,\"seen\":\"Clear 'Create your account' panel and 'Sign up' button over beach view with boards.\"},{\"overlaid\":false,\"seen\":\"Same sign-up panels; view drifts showing shack and blue boards.\"},{\"overlaid\":false,\"seen\":\"Sign-up panels before shack with colorful boards and dunes by the sea.\"},{\"overlaid\":false,\"seen\":\"Final sign-up screen on a post beside surfboards leaning on beach hut.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 355
+      },
+      "usd": 0.04736
+    },
+    "tape/moves/entrance--i-have-an-account.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Surf shop interior with surfboards and garbled sign-in options: create account, guest.\"},{\"overlaid\":true,\"seen\":\"Smeared menu text fading over surfboards as beach view and login card show through.\"},{\"overlaid\":true,\"seen\":\"Remnants of menu text over surfboards, beach view with login card on counter.\"},{\"overlaid\":true,\"seen\":\"Blurred boards fading, faint menu remnants, beach and login card.\"},{\"overlaid\":false,\"seen\":\"Blue boards at left, ocean view, login card on counter.\"},{\"overlaid\":false,\"seen\":\"Surfboards by wall, ocean view, login card on counter.\"},{\"overlaid\":false,\"seen\":\"Colorful surfboards by wall, beach view and login card.\"},{\"overlaid\":false,\"seen\":\"Surfboards at left, ocean and login card sign on counter.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 307
+      },
+      "usd": 0.0464
+    },
+    "tape/moves/signup--sign-up.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Beach scene with surfboards and a sign-up panel reading 'Sign up' with garbled 'Create your Accunt' text above.\"},{\"overlaid\":true,\"seen\":\"Sign-up panel fading out as a different beach view with surfboards and a counter shows through it.\"},{\"overlaid\":true,\"seen\":\"Ghostly stacked panels fading over the beach scene with surfboards and a wooden counter.\"},{\"overlaid\":true,\"seen\":\"Translucent remnants of the panels blending with a login card on the counter as the beach view settles.\"},{\"overlaid\":false,\"seen\":\"Beach view from a shack with surfboards and a small card reading 'Password' on the counter.\"},{\"overlaid\":false,\"seen\":\"Login card reading 'Log in' and 'Password' on the counter, surfboards left, a red ribbon on a wooden post.\"},{\"overlaid\":false,\"seen\":\"Same scene: 'Log in' card on the counter by the ocean, surfboards against the wall, wooden post.\"},{\"overlaid\":false,\"seen\":\"Slightly closer view of the 'Log in' card with the ocean behind and surfboards at left.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 401
+      },
+      "usd": 0.04828
+    },
+    "tape/moves/welcome--enter-shop.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Beach surf shack with surfboards, 'Brushstroke Surf Co.' title and 'Enter shop' text\"},{\"overlaid\":true,\"seen\":\"Surf shop title fading out over shack interior with surfboards and account options\"},{\"overlaid\":false,\"seen\":\"Shack interior with surfboards, 'How would you like to come in?' and account option buttons\"},{\"overlaid\":false,\"seen\":\"Same interior screen with account creation and guest options\"},{\"overlaid\":false,\"seen\":\"Same interior screen with account creation and guest options\"},{\"overlaid\":false,\"seen\":\"Same interior screen with account creation and guest options\"},{\"overlaid\":false,\"seen\":\"Same interior screen with account creation and guest options\"},{\"overlaid\":false,\"seen\":\"Same interior screen with account creation and guest options\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 297
+      },
+      "usd": 0.0462
+    },
+    "tape-wan3/moves/welcome--enter-shop.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Brushstoke Surf Co. shop front with surfboards, 'Enter shop' button overlay.\"},{\"overlaid\":false,\"seen\":\"Same shop front slightly zoomed in, 'Enter shop' button.\"},{\"overlaid\":false,\"seen\":\"Closer zoom toward open shop doors, sign partly cropped, 'Enter shop' button.\"},{\"overlaid\":false,\"seen\":\"Further zoom into doorway showing interior shelves and boards, 'Enter shop' button.\"},{\"overlaid\":false,\"seen\":\"Close view through doors into shop interior, 'Enter shop' button.\"},{\"overlaid\":true,\"seen\":\"Shop doorway dissolving into beach kiosk with 'How would you like to come in' sign and account options; translucent 'Enter shop' button.\"},{\"overlaid\":true,\"seen\":\"Beach kiosk with account options, faint 'Enter shop' remnant still showing through.\"},{\"overlaid\":false,\"seen\":\"Beach kiosk zoomed slightly with 'How would you like to come in' sign and three account buttons.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 382
+      },
+      "usd": 0.0479
+    },
+    "tape-wan3/moves/entrance--i-have-an-account.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Beach surf shack with sign 'How would you like to come in?' and three account option buttons on counter.\"},{\"overlaid\":false,\"seen\":\"Same surf shack scene, camera slightly zooming in on sign and account buttons.\"},{\"overlaid\":false,\"seen\":\"Closer view of surf shack, 'I have an account', 'Create an account', 'Browse as guest' buttons.\"},{\"overlaid\":false,\"seen\":\"Further zoomed shack view, top sign and bottom button partly cropped.\"},{\"overlaid\":false,\"seen\":\"Motion-blurred surf shack with string lights and a framed log-in sign on the counter.\"},{\"overlaid\":false,\"seen\":\"Surf shack counter with framed 'Log in' sign showing email, password fields and dark button.\"},{\"overlaid\":false,\"seen\":\"Same log-in sign scene, button now blue, surfboards inside shop.\"},{\"overlaid\":false,\"seen\":\"Slightly closer view of the 'Log in' framed sign with Email and Password fields on shack counter.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 472
+      },
+      "usd": 0.0497
+    },
+    "tape-wan3/moves/entrance--create-an-account.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Beach surf shack with 'How would you like to come in?' sign and three options: I have an account, Create an account, Browse as guest.\"},{\"overlaid\":false,\"seen\":\"Same surf shack sign-in choice screen, slightly zoomed in.\"},{\"overlaid\":false,\"seen\":\"Surf shack counter with the three account options, zoomed in further.\"},{\"overlaid\":true,\"seen\":\"Surf shack options fading into a 'Create your account' easel sign at a surf shop entrance.\"},{\"overlaid\":false,\"seen\":\"Easel sign 'Create your account' with email and password fields beside colorful surfboards at a beach shop.\"},{\"overlaid\":false,\"seen\":\"Same create-account easel sign with surfboards, slightly zoomed.\"},{\"overlaid\":false,\"seen\":\"Create-account easel sign closer up, shop doorway and surfboards behind.\"},{\"overlaid\":false,\"seen\":\"Create-account easel sign now with 'Sign up' button, surf shop and beach behind.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 358
+      },
+      "usd": 0.04742
+    },
+    "tape-wan3/moves/entrance--browse-as-guest.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Beach surf shack counter with 'How would you like to come in?' sign and three account option buttons.\"},{\"overlaid\":false,\"seen\":\"Same surf shack, slightly zoomed in, plus icon appearing on 'I have an account'.\"},{\"overlaid\":false,\"seen\":\"Closer view of surf shack counter, 'I have an account' button highlighted with plus icons.\"},{\"overlaid\":false,\"seen\":\"Camera panning right past the counter, motion-blurred, large painted surfboard on right.\"},{\"overlaid\":false,\"seen\":\"Blurred pan arriving at white building with 'The gallery' sign and row of surfboards.\"},{\"overlaid\":false,\"seen\":\"'The gallery' storefront with open door and colorful surfboards lined up.\"},{\"overlaid\":false,\"seen\":\"Wider view of 'The gallery' shop with many painted surfboards against the wall.\"},{\"overlaid\":false,\"seen\":\"Settled view of 'The gallery' surf shop with surfboards, final screen.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 483
+      },
+      "usd": 0.04992
+    },
+    "tape-wan3/moves/signup--sign-up.mp4": {
+      "model": "claude-opus-5-5",
+      "reply": "{\"frames\":[{\"overlaid\":false,\"seen\":\"Easel sign at beach surf shop showing 'Create your account' form with black Sign up button.\"},{\"overlaid\":false,\"seen\":\"Same sign slightly closer, a hand reaching up from bottom toward the form.\"},{\"overlaid\":false,\"seen\":\"Finger tapping the Sign up button, which is now blue.\"},{\"overlaid\":false,\"seen\":\"Closer view of the sign with blue Sign up button, hand gone.\"},{\"overlaid\":false,\"seen\":\"New scene, motion-blurred pan past a surfboard to a surf shack counter with a 'Log in' sign.\"},{\"overlaid\":false,\"seen\":\"Surf shack counter with framed 'Log in' sign, surfboards and ocean behind.\"},{\"overlaid\":false,\"seen\":\"Slightly closer view of the 'Log in' sign on the shack counter.\"},{\"overlaid\":false,\"seen\":\"Closer still on the Log in sign with blue button, pencils and surfboards around.\"}]}",
+      "tokens": {
+        "input_tokens": 10065,
+        "output_tokens": 344
+      },
+      "usd": 0.04714
+    }
+  }
+}
