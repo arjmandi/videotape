@@ -19,7 +19,7 @@ from videotape import claude, frames, ledger, qwen
 from videotape.fal import Fal, Receipt
 from videotape.hosted import OnFal, request_record
 from videotape.model import MODELS
-from videotape.plan import Mode
+from videotape.plan import FromKey, Mode
 from videotape.standin import StandInEye
 
 KEY = "fal-test-key-0123456789abcdef"
@@ -211,16 +211,21 @@ def test_a_render_films_every_shot_on_fal_and_writes_each_calls_price_in_the_led
     assert fal.most == 2
     plan = planned(directory)
     images = {key.state: out / key.image for key in plan.keys}
-    keys = {words(key, told(directory)) for key in plan.keys}
+    keys = {words(key, told(directory)) for key in plan.keys if not isinstance(key, FromKey)}
+    variants = {(words(key, told(directory)), data_uri(images[key.start])) for key in plan.keys if isinstance(key, FromKey)}
     moves = {(words(move, told(directory)), data_uri(images[move.start]), data_uri(images[move.land])) for move in plan.moves}
-    assert sorted(endpoint for endpoint, _ in fal.posts) == sorted([case.endpoints[0]] * 5 + [case.endpoints[1]] * 6)
+    # Three bases are text-to-video, and the two variants and six moves image-to-video.
+    assert sorted(endpoint for endpoint, _ in fal.posts) == sorted([case.endpoints[0]] * 3 + [case.endpoints[1]] * 8)
     for endpoint, body in fal.posts:
         if endpoint == case.endpoints[0]:
             assert body == {"prompt": body["prompt"], **case.key, **seed(case, 1)} and body["prompt"] in keys
-        else:
+        elif "end_image_url" in body:
             assert body == {"prompt": body["prompt"], **case.move, **seed(case, 1), case.start_image: body[case.start_image],
                             "end_image_url": body["end_image_url"]}
             assert (body["prompt"], body[case.start_image], body["end_image_url"]) in moves
+        else:
+            assert body == {"prompt": body["prompt"], **case.move, **seed(case, 1), case.start_image: body[case.start_image]}
+            assert (body["prompt"], body[case.start_image]) in variants
     lines = ledger.of(directory, out).lines()
     assert sorted((line["tape"], line["model"], line["shot"], line["mode"], line["seed"], line["gpu"], line["duration"],
                    line["usd"]) for line in lines) == sorted(
