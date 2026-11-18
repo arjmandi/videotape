@@ -393,7 +393,7 @@ def _read(shared: _Set, key: Key, path: Path, purse: _Purse, base: Base | None) 
         raise RenderError(error.code, purse.place, error.message, "run the render again, which resumes and reads this "
                           f"take again:\n{shared.resume}") from None
     checks = score(key, reads)
-    if base is None or shared.bar is None or not isinstance(key, FromKey) or key.start.scene is not key.state.scene:
+    if base is None or shared.bar is None or not (isinstance(key, FromKey) and key.start.scene is key.state.scene):
         return checks
     far = layout.distances(frames.read_png(base.picture), base.boxes, frame, checks.boxes)
     return replace(checks, layout=Compared(far, shared.bar))

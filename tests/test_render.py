@@ -594,7 +594,7 @@ def test_each_filmed_take_records_its_render_time_and_a_line_in_the_projects_led
         for filmed in result.shots for take in filmed.takes)
     assert all(line["at"].endswith("+00:00") for line in lines_)
     assert ledger.of(directory, directory / TAPE).totals() == {
-        "takes": 17, "gpu_seconds": round(sum(line["seconds"] for line in lines_), 1), "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
+        "takes": 17, "gpu_seconds": round(sum(line["seconds"] for line in lines_), 1), "pods": 0, "pod_hours": 0.0, "reads": 0, "judgments": 0, "usd": 0.0}
     assert not (directory / TAPE / "ledger.jsonl").exists()
 
 
@@ -1288,12 +1288,11 @@ def test_a_key_drawn_from_another_scenes_picture_gets_no_layout_check_and_the_pr
     assert [(call.mode, call.seed, call.start, call.prompt) for call in model.calls] == [
         (Mode.TEXT_TO_VIDEO, 1, None, words(menu, chalk)), (Mode.FIRST_FRAME, 1, tape / menu.image, text(composed)),
         (Mode.FIRST_FRAME, 2, tape / menu.image, text(composed))]
-    # The stand-in letters every line a prompt quotes, the pressed words among them, so both takes fail VT503 and
-    # nothing else: the washed seed-1 take is not held to menu()'s layout.
-    assert base.passed and not filmed.passed and len(filmed.takes) == 2
-    for take in filmed.takes:
-        assert [(item.code, item.about) for item in take.checks.failures] == [("VT503", "Espresso, $3")]
-        assert take.checks.layout is None and "VT505" not in {item.code for item in take.checks.items()}
+    assert base.passed and not filmed.passed
+    washed, lettered = filmed.takes
+    assert washed.checks.layout is None and "VT505" not in {item.code for item in washed.checks.items()}
+    assert [(item.code, item.about) for item in washed.checks.failures] == [("VT503", "Espresso, $3")]
+    assert lettered.checks.failures == washed.checks.failures
     assert frames.difference(frames.first_frame(filmed.kept.path), frames.read_png(tape / menu.image)) < 0.01
     record = dailies.read(tape)
     assert (record["keys"][1]["title"], record["keys"][1]["mode"], record["keys"][1]["prompt"]) == (

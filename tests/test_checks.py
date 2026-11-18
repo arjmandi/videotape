@@ -14,7 +14,7 @@ import pytest
 import videotape as vt
 from conftest import CONTRAIL, FIXTURES, a_story, copy_of, planned, words
 from videotape import dailies, standin
-from videotape.checks import MAX_SCENE, Chart, Cut, Dissolve, Free, MoveChecks, Read, Spot, dissolved, readings, score
+from videotape.checks import MAX_SCENE, Chart, Cut, Dissolve, Free, MoveChecks, Read, Spot, readings, score
 from videotape.frames import Box
 from videotape.layout import BAR, Compared, Layout
 from videotape.model import MODELS, Listing
@@ -642,14 +642,14 @@ def test_a_move_dissolves_when_any_judged_frame_shows_two_pictures_overlaid():
     at = (0, 21, 43, 64, 85, 106, 128, 149)
     seen = ("the shop door",) * 2 + ("the door fading into a form",) * 2 + ("the form",) * 4
     judged = Dissolve("claude-opus-5-5", at, (False, False, True, True, False, False, False, False), seen)
-    assert not judged.passed and dissolved(judged.overlaid)
+    assert not judged.passed
     item = judged.item()
     assert (item.code, item.about, item.passed) == ("VT507", "frames 43 and 64", False)
     assert item.result == "2 of 8 frames across the move show two pictures overlaid, by claude-opus-5-5"
     one = Dissolve("stand-in", at, (False,) * 5 + (True,) + (False,) * 2, seen)
     assert one.item().about == "frame 106" and one.item().result.startswith("1 of 8 frames")
     clean = Dissolve("claude-opus-5-5", at, (False,) * 8, seen)
-    assert clean.passed and not dissolved(clean.overlaid)
+    assert clean.passed
     assert (clean.item().about, clean.item().result) == (
         "no frame", "none of 8 frames across the move shows two pictures overlaid, by claude-opus-5-5")
     checks = MoveChecks(0.3, 0.01, dissolve=judged)

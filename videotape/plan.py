@@ -65,7 +65,9 @@ class FromKey(Key):
     own prompt, so the picture's layout carries over. Its kept take's last frame is its key image, as a Key's is."""
 
     start: State
-    """The base: the first state of the variant's scene in the walk."""
+    """The state whose kept key picture this key starts on: the base, the first state of the variant's scene in the
+    walk, whose layout the key is held to. A key drawn from another scene's picture, as a test may draw, is held to no
+    layout."""
     mode: ClassVar[Mode] = Mode.FIRST_FRAME
 
     @property

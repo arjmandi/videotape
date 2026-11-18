@@ -55,7 +55,6 @@ def test_a_file_that_does_not_decode_is_a_decode_error_and_a_missing_ffmpeg_is_n
 
 
 def ramp(*levels: int) -> list[bytes]:
-    """A grey frame per level."""
     return [solid(level, level, level).rgb for level in levels]
 
 

@@ -7,7 +7,7 @@ from videotape.checks import Hotspot, KeyChecks, Reading, Seen, Sighting, Spot, 
 from videotape.errors import ModelError
 from videotape.frames import Box
 from videotape.plan import Key, Mode, plan
-from videotape.standin import EXTRA, Flaw, StandIn, StandInEye, StandInJudge
+from videotape.standin import EXTRA, Flaw, StandIn, StandInEye, StandInJudge, _png
 
 
 def seen(*texts: str) -> tuple[Spot, ...]:
@@ -231,5 +231,10 @@ def test_the_stand_ins_judge_calls_the_middle_of_its_own_crossfade_overlaid_and_
     assert still.passed and set(still.seen) == {"the first and last frames, which are alike"}
     hard = judge.judge(frames.sampled(cut, 8))
     assert hard.passed and set(hard.seen) == {"the first frame", "the last frame"}
-    # Two of the stand-in's keys share a background and differ in a few boxes, so a cut between them scores low.
-    assert max(frames.scene_scores(cut)) < 0.05
+
+
+def test_a_cut_between_two_stand_in_keys_scores_under_the_cut_threshold_since_they_share_a_background(tmp_path):
+    first = frames.read_png(_png(standin.draw([["Thanks"], ["One Espresso coming up."]])[0], tmp_path / "s.png")).rgb
+    last = frames.read_png(_png(standin.draw([["Corner Cafe"], ["Drinks"]])[0], tmp_path / "e.png")).rgb
+    frames.write_video([first] * 12 + [last] * 12, tmp_path / "cut.mp4")
+    assert max(frames.scene_scores(tmp_path / "cut.mp4")) < 0.05

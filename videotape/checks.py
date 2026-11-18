@@ -443,7 +443,8 @@ class Dissolve:
 
     @property
     def passed(self) -> bool:
-        return not dissolved(self.overlaid)
+        """The rule the calibration tunes: a move dissolves when any judged frame shows two pictures overlaid."""
+        return not any(self.overlaid)
 
     def item(self) -> Item:
         found = [str(at) for at, overlaid in zip(self.at, self.overlaid) if overlaid]
@@ -455,11 +456,6 @@ class Dissolve:
             about = "no frame"
             result = f"none of {count} frames across the move shows two pictures overlaid, by {self.judge}"
         return Item("VT507", about, result, self.passed, None)
-
-
-def dissolved(overlaid: Sequence[bool]) -> bool:
-    """The rule: a move dissolves when any judged frame shows two pictures overlaid."""
-    return any(overlaid)
 
 
 @dataclass(frozen=True)

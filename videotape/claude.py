@@ -288,11 +288,15 @@ JUDGE_SCHEMA = {"type": "object", "properties": {"frames": {"type": "array", "it
 """What a judgment answers with: an entry per frame, in the frames' order."""
 
 
+def _question() -> list:
+    """What a judgment's answer answers: the model, the prompt, the schema and the settings."""
+    return [MODEL, JUDGE_PROMPT, JUDGE_SCHEMA, JUDGE_MAX_TOKENS, EFFORT]
+
+
 def asked() -> str:
-    """What a judgment's answer answers, hashed: the model, the prompt, the schema and the settings. A recorded
-    answer to another question is no answer to this one."""
-    return hashlib.sha256(json.dumps([MODEL, JUDGE_PROMPT, JUDGE_SCHEMA, JUDGE_MAX_TOKENS, EFFORT, FRAMES],
-                                     sort_keys=True).encode()).hexdigest()
+    """The question hashed, with how many frames it is asked of. A recorded answer to another question is no answer
+    to this one."""
+    return hashlib.sha256(json.dumps([*_question(), FRAMES], sort_keys=True).encode()).hexdigest()
 
 
 def judge_estimate(width: int, height: int, count: int = FRAMES) -> float:
@@ -361,5 +365,4 @@ class ClaudeJudge:
 
 
 def _fields(pictures: Sequence[Frame]) -> list:
-    return [MODEL, JUDGE_PROMPT, JUDGE_SCHEMA, JUDGE_MAX_TOKENS, EFFORT,
-            [[picture.width, picture.height, hashlib.sha256(picture.rgb).hexdigest()] for picture in pictures]]
+    return [*_question(), [[picture.width, picture.height, hashlib.sha256(picture.rgb).hexdigest()] for picture in pictures]]
