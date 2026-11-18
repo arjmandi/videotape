@@ -512,6 +512,34 @@ CODES: dict[str, Code] = {
         "retake the shot, change the scene's direction in the story so that the model has less to lay out anew, or "
         "accept it with a reason",
     ),
+    "VT506": Code(
+        "a move cuts",
+        "A move is one clip from the key it leaves to the key it lands on, and it should travel between the two as "
+        "a camera would, with no cut. ffmpeg's scene score says how much each frame differs from the one before it, "
+        "and a cut is a frame far from the one before. The check scores every frame of the kept take and fails the "
+        "move when the highest score after the first frame is over 0.3. That threshold parts the ten labelled moves "
+        "of 2026-11-10, which scripts/moves-test judges: the three that cut, two of them a whip past a surfboard, "
+        "score 0.319 and up, and the seven that dissolve 0.187 and under. The check names the frame, as ffmpeg "
+        "numbers frames from 0, and its score.",
+        "frame 37: scene score 0.350, over the threshold of 0.3",
+        "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
+        "with a reason",
+    ),
+    "VT507": Code(
+        "a move dissolves",
+        "A move should travel from one screen to the next as a camera would, and a video model often dissolves "
+        "instead: one picture fades into the other, and for a while the frame shows both overlaid. No pixel measure "
+        "tells a dissolve from a camera move, so a judge looks. Claude, claude.py's model, is shown eight frames "
+        "spread evenly across the kept take in one request and says of each whether it shows two pictures overlaid, "
+        "and what it shows. The move fails when any frame does. A judgment is paid like a read, under the cap and "
+        "into the ledger, and cached by its frames, so a render run again pays for none. The stand-in's judge calls "
+        "a frame overlaid when it is a blend of the clip's first and last frames, which the stand-in's own crossfade "
+        "makes its middle frames. scripts/moves-test judges the ten labelled moves of 2026-11-10 and shows where the "
+        "judge agrees with the labels.",
+        "frames 43 and 64: 2 of 8 frames across the move show two pictures overlaid, by claude-opus-5-5",
+        "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
+        "with a reason",
+    ),
     "VT508": Code(
         "a seam between a move and its key is too wide",
         "A move is filmed from the key it leaves to the key it lands on, and its first and last frames are compared "

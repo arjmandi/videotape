@@ -14,7 +14,7 @@ import pytest
 import videotape as vt
 from conftest import CONTRAIL, FIXTURES, a_story, copy_of, planned, words
 from videotape import dailies, standin
-from videotape.checks import Chart, Free, Read, Spot, readings, score
+from videotape.checks import MAX_SCENE, Chart, Cut, Dissolve, Free, MoveChecks, Read, Spot, dissolved, readings, score
 from videotape.frames import Box
 from videotape.layout import BAR, Compared, Layout
 from videotape.model import MODELS, Listing
@@ -621,3 +621,38 @@ def test_a_period_qwen_adds_to_a_line_claude_reads_exactly_passes_vt502():
         ("qwen3-vl-8b", "1:30 PM to 11:40 PM, 7h 10m, 1 stop."),
         ("claude-opus-5-5", "1:30 PM to 11:40 PM, 7h 10m, 1 stop")]
     assert (item.code, item.passed) == ("VT502", True)
+
+
+def test_a_move_cuts_at_the_frame_whose_scene_score_is_over_the_threshold():
+    cut = Cut((0.0, 0.04, 0.35, 0.02))
+    assert (cut.top, cut.passed) == ((2, 0.35), False)
+    item = cut.item()
+    assert (item.code, item.about, item.result, item.passed, item.box) == (
+        "VT506", "frame 2", f"scene score 0.350, over the threshold of {MAX_SCENE}", False, None)
+    smooth = Cut((0.0, 0.1, 0.187, 0.12))
+    assert smooth.passed and smooth.item().about == "frame 2" and "0.187, under the threshold" in smooth.item().result
+    assert Cut((0.0,)).passed and Cut(()).passed
+    checks = MoveChecks(0.01, 0.02, cut=cut)
+    assert [(item.code, item.passed) for item in checks.items()] == [("VT508", True), ("VT508", True), ("VT506", False)]
+    assert not checks.passed and [item.code for item in checks.failures] == ["VT506"]
+    assert MoveChecks(0.01, 0.02).items()[-1].code == "VT508"
+
+
+def test_a_move_dissolves_when_any_judged_frame_shows_two_pictures_overlaid():
+    at = (0, 21, 43, 64, 85, 106, 128, 149)
+    seen = ("the shop door",) * 2 + ("the door fading into a form",) * 2 + ("the form",) * 4
+    judged = Dissolve("claude-opus-5-5", at, (False, False, True, True, False, False, False, False), seen)
+    assert not judged.passed and dissolved(judged.overlaid)
+    item = judged.item()
+    assert (item.code, item.about, item.passed) == ("VT507", "frames 43 and 64", False)
+    assert item.result == "2 of 8 frames across the move show two pictures overlaid, by claude-opus-5-5"
+    one = Dissolve("stand-in", at, (False,) * 5 + (True,) + (False,) * 2, seen)
+    assert one.item().about == "frame 106" and one.item().result.startswith("1 of 8 frames")
+    clean = Dissolve("claude-opus-5-5", at, (False,) * 8, seen)
+    assert clean.passed and not dissolved(clean.overlaid)
+    assert (clean.item().about, clean.item().result) == (
+        "no frame", "none of 8 frames across the move shows two pictures overlaid, by claude-opus-5-5")
+    checks = MoveChecks(0.3, 0.01, dissolve=judged)
+    assert [(item.code, item.about, item.passed) for item in checks.items()] == [
+        ("VT508", "start", False), ("VT508", "end", True), ("VT507", "frames 43 and 64", False)]
+    assert checks.rank(2) == (0.31, 2)
