@@ -25,6 +25,7 @@ from videotape.model import MODELS, Listing
 from videotape.plan import FromKey, Key, Mode, Plan, plan
 from videotape.render import Base, render
 from videotape.standin import BACKGROUND, EXTRA, Flaw, StandIn, StandInEye
+from videotape.story import STATIC, Clause, Engine, prompt, text
 
 STATES = ("menu()", "order(Espresso)", "order(Latte)", "thanks(Espresso)", "thanks(Latte)")
 KEYS = {"menu()": "menu", "order(Espresso)": "order-espresso", "order(Latte)": "order-latte",
@@ -1265,3 +1266,36 @@ def test_the_dailies_folder_holds_only_the_crops_of_the_failures_the_record_name
 
 def data_ok(tape: Path) -> bool:
     return json.loads((tape / "tape.json").read_text())["opening"]["lands"] == "menu()"
+
+
+def test_a_key_drawn_from_another_scenes_picture_gets_no_layout_check_and_the_prompt_the_caller_composes(tmp_path):
+    """A moves test draws a scene's base as the move that first reaches it: image to video from the picture of the
+    state it is reached from, with a prompt it composes. The key travels to a place of its own, so no base layout
+    holds it, and the composed prompt is what the take is drawn from and what the dailies record."""
+    directory = copy_of("cafe", tmp_path)
+    full, chalk = planned(directory), told(directory)
+    menu, espresso = full.keys[0], full.keys[1]
+    rehearsed = FromKey(espresso.id, espresso.state, espresso.shown, menu.state)
+    assert rehearsed.start.scene is not rehearsed.state.scene
+    composed = (Clause('The row "Espresso, $3" is pressed.', Engine()),
+                *(clause for clause in prompt(espresso, chalk) if clause is not STATIC))
+    model = Relaid(flaw=clean)
+    tape = directory / TAPE
+    result = render(Plan(full.title, full.scenes, (menu, rehearsed), (), ()), chalk, model, [StandInEye()], tape,
+                    ledger.of(directory, tape), made(project.find(directory), chalk, model), takes=2, limit=8,
+                    prompts=lambda shot: composed if shot is rehearsed else prompt(shot, chalk))
+    base, filmed = result.keys
+    assert [(call.mode, call.seed, call.start, call.prompt) for call in model.calls] == [
+        (Mode.TEXT_TO_VIDEO, 1, None, words(menu, chalk)), (Mode.FIRST_FRAME, 1, tape / menu.image, text(composed)),
+        (Mode.FIRST_FRAME, 2, tape / menu.image, text(composed))]
+    # The stand-in letters every line a prompt quotes, the pressed words among them, so both takes fail VT503 and
+    # nothing else: the washed seed-1 take is not held to menu()'s layout.
+    assert base.passed and not filmed.passed and len(filmed.takes) == 2
+    for take in filmed.takes:
+        assert [(item.code, item.about) for item in take.checks.failures] == [("VT503", "Espresso, $3")]
+        assert take.checks.layout is None and "VT505" not in {item.code for item in take.checks.items()}
+    assert frames.difference(frames.first_frame(filmed.kept.path), frames.read_png(tape / menu.image)) < 0.01
+    record = dailies.read(tape)
+    assert (record["keys"][1]["title"], record["keys"][1]["mode"], record["keys"][1]["prompt"]) == (
+        "key order(Espresso) from menu()", "first-frame", text(composed))
+    assert record["keys"][1]["prompt"].startswith('The row "Espresso, $3" is pressed. A ') and "Static shot" not in record["keys"][1]["prompt"]

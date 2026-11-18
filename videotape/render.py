@@ -235,7 +235,8 @@ def eye(readers: Sequence[Reader]) -> str:
 def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], tape: Path, ledger: Ledger, made: dict,
            takes: int = 4, limit: int = 1, price: Price | None = None, cap: float | None = None,
            resume: str = "videotape render", report: Callable[[Filmed], None] = lambda filmed: None,
-           every: bool = False, bases: Mapping[State, Base] | None = None, bar: Bar | None = layout.BAR) -> Render:
+           every: bool = False, bases: Mapping[State, Base] | None = None, bar: Bar | None = layout.BAR,
+           prompts: Callable[[Shot], Prompt] | None = None) -> Render:
     """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
     and write them into the tape. The readers are the model's eye, which reads each take of a key. made is the block
     that says what made the tape, which tape.json carries. report is told each shot as it finishes. every films each
@@ -243,8 +244,10 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     some keys alone, as a screen test films, gives a tape whose scenes have no hotspots. bases holds the kept keys
     of states outside the plan that a FromKey of the plan starts from; a FromKey whose base is in the plan starts
     from the key the render draws for it. bar judges every take of a FromKey against its base's picture, VT505, or
-    is None for a render that makes no layout check, as the variants test runs, which measures every layout itself."""
+    is None for a render that makes no layout check, as the variants test runs, which measures every layout itself.
+    prompts gives each shot its prompt in place of the story's, for a test that composes its own."""
     started = time.perf_counter()
+    clauses = prompts or (lambda shot: prompt(shot, story))
     variants = [key for key in plan.keys if isinstance(key, FromKey)]
     if variants and Mode.FIRST_FRAME not in model.modes:
         count = len(variants)
@@ -276,7 +279,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
         pending: dict[Future[Filmed], Shot] = {}
 
         def film_key(key: Key, base: Base | None) -> None:
-            pending[pool.submit(_film_key, shared, key, prompt(key, story), *seeds[key.title], base)] = key
+            pending[pool.submit(_film_key, shared, key, clauses(key), *seeds[key.title], base)] = key
 
         for key in plan.keys:
             if not isinstance(key, FromKey):
@@ -316,7 +319,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
                     ready = {key.state for key in plan.keys if key in finished}
                     for move in [move for move in waiting if {move.start, move.land} <= ready]:
                         waiting.remove(move)
-                        pending[pool.submit(_film_move, shared, move, prompt(move, story), *seeds[move.title])] = move
+                        pending[pool.submit(_film_move, shared, move, clauses(move), *seeds[move.title])] = move
         except BaseException:
             # Leaving the pool waits for every future, so a Ctrl-C or a worker's unexpected error would otherwise
             # run every queued shot. Cancelled, only the takes in flight finish, and they are settled.
@@ -380,7 +383,9 @@ def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes
 def _read(shared: _Set, key: Key, path: Path, purse: _Purse, base: Base | None) -> KeyChecks:
     """Every reader's read of the take's picture, then the key's checks on them. A paid read is reserved under the
     cap before it is sent and reaches the ledger after. A read that fails stops the render at the take, as a model's
-    call that fails does, and since only a whole read is cached, running the render again reads the take again."""
+    call that fails does, and since only a whole read is cached, running the render again reads the take again. The
+    layout check holds a key to the layout of its own scene's base; a key drawn from a picture of another scene
+    travels to a place of its own, and no base layout holds it."""
     frame = frames.last_frame(path)
     try:
         reads = [reader.see(frame, purse) for reader in shared.readers]
@@ -388,7 +393,7 @@ def _read(shared: _Set, key: Key, path: Path, purse: _Purse, base: Base | None) 
         raise RenderError(error.code, purse.place, error.message, "run the render again, which resumes and reads this "
                           f"take again:\n{shared.resume}") from None
     checks = score(key, reads)
-    if base is None or shared.bar is None:
+    if base is None or shared.bar is None or not isinstance(key, FromKey) or key.start.scene is not key.state.scene:
         return checks
     far = layout.distances(frames.read_png(base.picture), base.boxes, frame, checks.boxes)
     return replace(checks, layout=Compared(far, shared.bar))
