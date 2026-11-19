@@ -26,7 +26,7 @@ from videotape.frames import Box, DecodeError, FfmpegError, Shape
 from videotape.hosted import RecordedFailure, request_record
 from videotape.layout import Bar, Compared
 from videotape.ledger import Ledger, now
-from videotape.model import Model
+from videotape.model import Kind, Model
 from videotape.plan import FromKey, Key, Mode, Move, Plan, Shot
 from videotape.atomic import partial, write_atomically
 from videotape.screenplay import State
@@ -232,6 +232,17 @@ def eye(readers: Sequence[Reader]) -> str:
     return " and ".join(reader.name for reader in readers)
 
 
+def check_modes(plan: Plan, model: Kind) -> None:
+    """VT111 when the plan has a key drawn from another key's picture and the model films none."""
+    variants = [key for key in plan.keys if isinstance(key, FromKey)]
+    if variants and Mode.FIRST_FRAME not in model.modes:
+        count = len(variants)
+        raise ScreenplayError("VT111", model.name, f"films no key from another key's picture, and {count} key"
+                              f"{'' if count == 1 else 's'} of the plan {'is' if count == 1 else 'are'} drawn from "
+                              "the base's picture", "render with a model on fal, whose image-to-video takes one "
+                              "picture, as in --model gemini-omni-flash-1.2, or with the stand-in")
+
+
 def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], tape: Path, ledger: Ledger, made: dict,
            takes: int = 4, limit: int = 1, price: Price | None = None, cap: float | None = None,
            resume: str = "videotape render", report: Callable[[Filmed], None] = lambda filmed: None,
@@ -247,14 +258,9 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     is None for a render that makes no layout check, as the variants test runs, which measures every layout itself.
     prompts gives each shot its prompt in place of the story's, for a test that composes its own."""
     started = time.perf_counter()
+    check_modes(plan, model)
     clauses = prompts or (lambda shot: prompt(shot, story))
     variants = [key for key in plan.keys if isinstance(key, FromKey)]
-    if variants and Mode.FIRST_FRAME not in model.modes:
-        count = len(variants)
-        raise ScreenplayError("VT111", model.name, f"films no key from another key's picture, and {count} key"
-                              f"{'' if count == 1 else 's'} of the plan {'is' if count == 1 else 'are'} drawn from "
-                              "the base's picture", "render with a model on fal, whose image-to-video takes one "
-                              "picture, as in --model gemini-omni-flash-1.2, or with the stand-in")
     billed = [*([model.name] if price else []), *(reader.name for reader in readers if reader.paid)]
     if billed and cap is None:
         raise RenderError("VT402", "before the first call", f"{' and '.join(billed)} bill{'s' if len(billed) == 1 else ''}"

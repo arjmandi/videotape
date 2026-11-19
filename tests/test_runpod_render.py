@@ -4,17 +4,27 @@ import importlib.machinery
 import importlib.util
 import json
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
 
-from conftest import CONTRAIL
+from conftest import CONTRAIL, planned
+from videotape import new
+from videotape.errors import ScreenplayError
 from videotape.ledger import Ledger
+from videotape.model import MODELS
+from videotape.render import check_modes
 
 ROOT = Path(__file__).parent.parent
 SCRIPT = str(ROOT / "scripts" / "runpod-render")
+BARE = {"PATH": f"{Path(shutil.which('uv')).parent}:/usr/bin:/bin", "UV_PROJECT_ENVIRONMENT": sys.prefix,
+        "https_proxy": "http://127.0.0.1:9"}
+"""An environment with no API key, where the script finds uv, which checks the plan with this venv, and whose requests go
+to a proxy that answers none."""
 PUBLIC_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFakeFake videotape-runpod\n"
 
 
@@ -26,6 +36,14 @@ def script():
     sys.modules[spec.name] = module
     loader.exec_module(module)
     return module
+
+
+@pytest.fixture
+def starter():
+    """The starter as a project inside the repository, whose two scenes have one state each, so wan2.2-5b draws its plan."""
+    (ROOT / ".runpod").mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=ROOT / ".runpod") as folder:
+        yield new.project("shop", Path(folder))
 
 
 @pytest.fixture
@@ -149,8 +167,8 @@ def test_the_pods_take_lines_and_its_pod_line_land_in_the_projects_ledger_for_th
                            f"{tmp_path}/examples/contrail/tape-wan2/")]
     assert pod.ran == ["cat /workspace/videotape/examples/contrail/ledger.jsonl"]
     assert [json.loads(line)["kind"] for line in book.read_text().splitlines()] == ["take", "take", "take", "pod"]
-    assert Ledger(book, "tape-wan2").totals() == {"takes": 2, "gpu_seconds": 190.5, "pods": 1, "pod_hours": 0.5, "reads": 0, "usd": 2.0}
-    assert Ledger(book, "tapes/terminal").totals() == {"takes": 1, "gpu_seconds": 0.5, "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
+    assert Ledger(book, "tape-wan2").totals() == {"takes": 2, "gpu_seconds": 190.5, "pods": 1, "pod_hours": 0.5, "reads": 0, "judgments": 0, "usd": 2.0}
+    assert Ledger(book, "tapes/terminal").totals() == {"takes": 1, "gpu_seconds": 0.5, "pods": 0, "pod_hours": 0.0, "reads": 0, "judgments": 0, "usd": 0.0}
 
 
 def test_describe_names_every_part_of_the_plan(script, built):
@@ -167,26 +185,50 @@ def test_describe_names_every_part_of_the_plan(script, built):
     assert "AAAAIFakeFakeFake" not in text.split("create body")[1].split("\n")[0]
 
 
-def test_dry_run_in_a_project_without_a_key_prints_the_plan_and_creates_nothing():
-    result = subprocess.run([SCRIPT, "--story", "posters", "--takes", "3", "--cap-usd", "20", "--dry-run"],
-                            capture_output=True, text=True, cwd=CONTRAIL, env={"PATH": "/usr/bin:/bin"})
+def test_dry_run_in_a_project_without_a_key_prints_the_plan_and_creates_nothing(starter):
+    project = starter.relative_to(ROOT).as_posix()
+    result = subprocess.run([SCRIPT, "--story", "starter", "--takes", "3", "--cap-usd", "20", "--dry-run"],
+                            capture_output=True, text=True, cwd=starter, env=BARE)
     assert result.returncode == 0, result.stderr
-    assert ("project       examples/contrail in the story posters, 3 takes per shot, tape examples/contrail/tapes/posters"
+    assert (f"project       {project} in the story starter, 3 takes per shot, tape {project}/tapes/starter"
             in result.stdout.splitlines())
-    assert ("render        cd examples/contrail && uv run --project /workspace/videotape videotape render --story posters "
+    assert (f"render        cd {project} && uv run --project /workspace/videotape videotape render --story starter "
             "--model wan2.2-5b --takes 3 --cap-usd 20.00") in result.stdout.splitlines()
     assert result.stdout.rstrip().endswith("dry run: nothing was created.")
     assert "$3.99/h (assumed, catalog read of 2026-11-09; set RUNPOD_API_KEY for the live price)" in result.stdout
     assert (ROOT / ".runpod" / "id_ed25519.pub").read_text().startswith("ssh-ed25519 ")
 
 
-def test_a_real_run_without_a_key_stops_before_anything_else():
-    result = subprocess.run([SCRIPT, "--story", "terminal", "--cap-usd", "20"], capture_output=True, text=True,
-                            cwd=CONTRAIL, env={"PATH": "/usr/bin:/bin"})
+@pytest.mark.parametrize("dry", [[], ["--dry-run"]], ids=["real", "dry"])
+def test_a_plan_wan_cannot_draw_stops_it_with_render_s_vt111_before_any_call_to_runpod(script, monkeypatch, capsys,
+                                                                                     dry):
+    monkeypatch.delenv("RUNPOD_API_KEY", raising=False)
+    monkeypatch.chdir(CONTRAIL)
+    monkeypatch.setattr(script, "ensure_key", lambda: pytest.fail("made or read the SSH key for a pod"))
+    with pytest.raises(ScreenplayError) as refused:
+        check_modes(planned(CONTRAIL), MODELS["wan2.2-5b"].kind)
+    assert script.main(["--story", "terminal", "--takes", "3", "--cap-usd", "20", *dry]) == 2
+    out, err = capsys.readouterr()
+    assert out == "" and err == refused.value.report() + "\n"
+    assert err.startswith("error VT111 wan2.2-5b: films no key from another key's picture, and 47 keys of the plan are "
+                          "drawn from the base's picture\nfix: render with a model on fal")
+
+
+def test_without_uv_it_cannot_check_the_plan_and_stops(starter):
+    result = subprocess.run([SCRIPT, "--story", "starter", "--cap-usd", "20", "--dry-run"], capture_output=True,
+                            text=True, cwd=starter, env={"PATH": "/usr/bin:/bin"})
+    assert (result.returncode, result.stdout) == (2, "")
+    assert result.stderr.startswith("error: uv is not on PATH, and the plan is checked here with videotape before a pod "
+                                    "is rented")
+
+
+def test_a_real_run_without_a_key_stops_before_anything_else(starter):
+    result = subprocess.run([SCRIPT, "--story", "starter", "--cap-usd", "20"], capture_output=True, text=True,
+                            cwd=starter, env=BARE)
     assert result.returncode == 2
     assert result.stderr.strip() == "error: RUNPOD_API_KEY is not set; export it, or pass --dry-run to see the plan"
-    result = subprocess.run([SCRIPT, "--story", "terminal", "--cap-usd", "20"], capture_output=True, text=True,
-                            cwd=CONTRAIL, env={"PATH": "/usr/bin:/bin", "RUNPOD_API_KEY": "rp-not-a-real-key"})
+    result = subprocess.run([SCRIPT, "--story", "starter", "--cap-usd", "20"], capture_output=True, text=True,
+                            cwd=starter, env={**BARE, "RUNPOD_API_KEY": "rp-not-a-real-key"})
     assert result.returncode == 2
     assert result.stderr.strip() == ("error: ANTHROPIC_API_KEY is not set, and the pod's render reads each key with Claude; "
                                      "export it, or pass --dry-run to see the plan")

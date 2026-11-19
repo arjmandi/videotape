@@ -9,6 +9,8 @@ Run it in the app's project, the folder whose pyproject.toml has [tool.videotape
 Needs RUNPOD_API_KEY and ANTHROPIC_API_KEY in the environment, except under --dry-run, which prints the plan and
 creates nothing. Claude reads each take of a key on the pod, so the pod gets ANTHROPIC_API_KEY and the render runs
 under the same cap for its reads, which the pod's own ledger starts counting from nothing.
+Before it reads a key or calls Runpod, it runs videotape plan here with wan2.2-5b through uv, and stops on any error
+that plan prints, such as VT111 for a plan with a key wan2.2-5b cannot draw.
 Only this script creates pods. Standard library only, on any Python from 3.9, so the system python3 can run it.
 
 Runpod REST API v2 (https://api.runpod.io/v2/openapi.json):
@@ -42,6 +44,7 @@ ROOT = Path(__file__).resolve().parent.parent
 KEY = ROOT / ".runpod" / "id_ed25519"
 REMOTE = "/workspace/videotape"
 DEFAULT_GPU = "NVIDIA H100 80GB HBM3"
+MODEL = "wan2.2-5b"
 CLOUD = "SECURE"
 # Published 2026-11-05 from runpod/containers main: Ubuntu 24.04, CUDA 13.0, uv, Python 3.12, ffmpeg, rsync, sshd from PUBLIC_KEY.
 IMAGE = "runpod/pytorch:2.0.0-cu1300-torch2130-ubuntu2404"
@@ -193,7 +196,7 @@ def which_tape(built: Plan) -> list[str]:
 def render_command(built: Plan) -> str:
     """Run in the project on the pod. The repository's environment has the wan and qwen extras, so it runs videotape."""
     out = "" if built.tape == own_tape(built.story) else f" --out {shlex.quote(built.tape)}"
-    return (f"uv run --project {REMOTE} videotape render --story {shlex.quote(built.story)} --model wan2.2-5b "
+    return (f"uv run --project {REMOTE} videotape render --story {shlex.quote(built.story)} --model {MODEL} "
             f"--takes {built.takes} --cap-usd {built.cap_usd:.2f}{out}")
 
 
@@ -455,6 +458,17 @@ def find_story(project: str, story: str) -> str:
     return story
 
 
+def check_plan(project: str, story: str) -> subprocess.CompletedProcess:
+    """videotape plan in the project with the story and the pod's model, run here for free, so a plan the pod's render
+    would refuse never rents a pod."""
+    uv = shutil.which("uv")
+    if uv is None:
+        raise PlanError("uv is not on PATH, and the plan is checked here with videotape before a pod is rented; "
+                        "install uv from https://docs.astral.sh/uv/")
+    return subprocess.run([uv, "run", "--quiet", "--project", str(ROOT), "videotape", "plan", "--story", story,
+                           "--model", MODEL], cwd=ROOT / project, capture_output=True, text=True)
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--story", required=True, help="the story to render the app in, stories/<story>.toml in the project")
@@ -470,8 +484,12 @@ def main(argv=None) -> int:
     try:
         project = find_project(Path.cwd())
         story = find_story(project, args.story)
+        checked = check_plan(project, story)
     except PlanError as error:
         print(f"error: {error}", file=sys.stderr)
+        return 2
+    if checked.returncode != 0:
+        sys.stderr.write(checked.stderr)
         return 2
     key = os.environ.get("RUNPOD_API_KEY")
     if not key and not args.dry_run:

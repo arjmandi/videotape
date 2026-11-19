@@ -13,7 +13,7 @@ from videotape.made import finished, made, manifest, model_named
 from videotape.model import MODELS, Listing, estimate
 from videotape.plan import Key, Plan, Shot, plan
 from videotape.project import Project
-from videotape.render import Filmed, render
+from videotape.render import Filmed, check_modes, render
 from videotape.story import Story
 
 
@@ -50,6 +50,8 @@ def plan_app(args) -> int:
                               "no --story names one", f"name the story too, as in videotape plan --story starter "
                               f"--model {args.model}")
     planned, listing = _planned(found), _listing(found, args.model)
+    if listing:
+        check_modes(planned, listing.kind)
     warnings, in_story = planned.warnings, ""
     if args.story:
         told, more = _told(found, planned, args.story, listing)

@@ -1,15 +1,16 @@
 # Plan
 
-`videotape plan`, run in an app's project, walks every state the app can reach, breadth first from the first scene, before anything renders. It prints one line with the app's title, its version and its counts, then a table with each scene's states and the moves out of them, then `0 errors, N warnings`, then the estimate for the project's model: its name, the shots, the calls from one take each up to `takes` in `[tool.videotape]` (4 unless set), and their price, `free` for a model that bills per call nothing, or a range at the model's price per second, one price when `takes` is 1. A state is a scene with its arguments. A render draws one key for each state and one move for each action, so the shots are the states plus the moves. With `--story <name>` it checks that story as well, and the first line names the story and its version after the app's. With `--model <name>` it checks the story's prompts against that model's limit and not the project's model's, and the estimate is that model's. A project that names no model gets no estimate line. The plan writes no file.
+`videotape plan`, run in an app's project, walks every state the app can reach, breadth first from the first scene, before anything renders. It prints one line with the app's title, its version and its counts, then a table with each scene's states and the moves out of them, then `0 errors, N warnings`, then the estimate for the project's model: its name, the shots, the calls from one take each up to `takes` in `[tool.videotape]` (4 unless set), and their price, `free` for a model that bills per call nothing, or a range at the model's price per second, one price when `takes` is 1. A state is a scene with its arguments. A render draws one key for each state and one move for each action, so the shots are the states plus the moves. With `--story <name>` it checks that story as well, and the first line names the story and its version after the app's. With `--model <name>` it checks the story's prompts against that model's limit and not the project's model's, and the estimate is that model's. With a model, from `--model` or the project, the plan holds its keys to the model's modes the way a render does before its first call: a plan with a variant stops with `VT111` on a model that films no key from another key's picture, `wan2.2-5b`, with the lines a render on it prints. A project that names no model gets no estimate line. The plan writes no file.
 
 ## Sub-features
 
 - `plan-contrail` prints Contrail's 11 scenes, 58 states, 58 keys, 102 moves and 160 shots, then the estimate for gemini-omni-flash-1.2, Contrail's model, and exits 0.
-- `plan-story` prints the same table for each of Contrail's stories, under a first line that names the story, with `0 errors, 0 warnings` against every model, and each model's estimate.
+- `plan-story` prints the same table for each of Contrail's stories, under a first line that names the story, with `0 errors, 0 warnings` against every model but `wan2.2-5b`, and each model's estimate.
 - `plan-readme` prints the same through the README's own command, `uv run videotape plan` in `examples/contrail`.
 - `plan-subfolder` finds the project from a folder inside it and prints the same.
 - `plan-types` checks the example in pyright's strict mode with `uv run pyright contrail`, with 0 errors.
 - `plan-cafe` prints the cafe fixture's 3 scenes, 5 states and 6 moves in its story, `chalk`.
+- `plan-wan` stops Contrail's plan with `--model wan2.2-5b` with `VT111`, since 47 of its keys are variants, and exits 1.
 - `plan-warning` prints each `VT211` warning to stderr, still prints the table, and exits 0.
 
 ## How to get to it (user POV)
@@ -60,6 +61,12 @@ Preconditions:
   0 errors, 0 warnings
   stand-in: 11 shots, 11 to 44 calls, free
   ```
+- **Wan.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-wan examples/contrail -- plan --story terminal --model wan2.2-5b`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is exactly:
+  ```
+  error VT111 wan2.2-5b: films no key from another key's picture, and 47 keys of the plan are drawn from the base's picture
+  fix: render with a model on fal, whose image-to-video takes one picture, as in --model gemini-omni-flash-1.2, or with the stand-in
+  ```
+  `scripts/runpod-render` runs this plan before it calls Runpod; [gpu-render.md](./gpu-render.md) drives it.
 - **Warning.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-warning tests/fixtures/errors/vt211 -- plan`. `.exit` is `0`, the first `.stdout` line is `Cafe 0.1.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot`, the last is `0 errors, 2 warnings` (the fixture names no model, so there is no estimate line), and `.stderr` is exactly:
   ```
   warning VT211 home(): the line "Café Lumière" has the characters è é
@@ -77,6 +84,6 @@ Preconditions:
 - When the plan finds an error it prints nothing to stdout and exits 1. [errors.md](./errors.md) covers each one.
 - A state's name appears in a render's shot lines, in `videotape shots` and in `tape.json`, not in the plan's table. It reads as the call that names the state, so the state of a scene without arguments is `home()`. [render.md](./render.md) and [stories.md](./stories.md) show them.
 - A plan without `--story` checks no story, so a broken story passes it. `render` and `shots` always check theirs first.
-- The plan reads a model's prompt limit and its price without building the model, so `--model wan2.2-5b` needs neither the wan extra nor a GPU, and `--model wan3.0`, `--model minimax-h3` and `--model gemini-omni-flash-1.2` need no `FAL_KEY`.
+- The plan reads a model's prompt limit, its price and its modes without building the model, so `--model wan2.2-5b` needs neither the wan extra nor a GPU, and `--model wan3.0`, `--model minimax-h3` and `--model gemini-omni-flash-1.2` need no `FAL_KEY`.
 - The estimate's calls are the shots times one to `takes`, since a shot stops at the first take that passes. `wan2.2-5b` reads `free` because its calls cost nothing per call; the GPU it needs is billed by the hour through `scripts/runpod-render`, whose pod lines the ledger holds.
 - `takes = 2` in `[tool.videotape]` changes the estimate to `160 to 320 calls`. `--takes` is a render flag, not a plan flag.

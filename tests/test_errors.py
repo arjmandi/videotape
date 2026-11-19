@@ -143,6 +143,16 @@ def test_the_stand_in_reads_any_length_of_prompt_so_the_same_story_has_no_vt307_
         "", ["0 errors, 0 warnings", "wan3.0: 1 shot, 1 to 4 calls, $0.50 to $2.00 at $0.10/s, and 1 to 4 reads by claude-opus-5-5, at most $0.17 to $0.69"])
 
 
+def test_a_plan_with_a_variant_stops_on_a_model_that_films_no_key_from_a_picture_as_its_render_would():
+    result = videotape(FIXTURES / "cafe", "plan", "--story", "chalk", "--model", "wan2.2-5b")
+    assert (result.returncode, result.stdout) == (1, "")
+    assert result.stderr == ("error VT111 wan2.2-5b: films no key from another key's picture, and 2 keys of the plan are "
+                             "drawn from the base's picture\nfix: render with a model on fal, whose image-to-video "
+                             "takes one picture, as in --model gemini-omni-flash-1.2, or with the stand-in\n")
+    drawn = videotape(FIXTURES / "cafe", "plan", "--story", "chalk", "--model", "gemini-omni-flash-1.2")
+    assert (drawn.returncode, drawn.stderr) == (0, "")
+
+
 def test_explain_has_a_long_form_an_example_and_a_fix_for_every_code_the_framework_can_raise():
     package = Path(__file__).parent.parent / "videotape"
     raised = {code for path in package.glob("*.py") if path.name != "errors.py"
