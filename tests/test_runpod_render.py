@@ -40,10 +40,19 @@ def script():
 
 @pytest.fixture
 def starter():
-    """The starter as a project inside the repository, whose two scenes have one state each, so wan2.2-5b draws its plan."""
+    """The starter as a project inside the repository, cut to its first scene alone, since wan2.2-5b draws no key from a
+    picture and every scene's base but the entry's is rehearsed from one."""
     (ROOT / ".runpod").mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(dir=ROOT / ".runpod") as folder:
-        yield new.project("shop", Path(folder))
+        project = new.project("shop", Path(folder))
+        (project / "shop" / "screenplay.py").write_text(
+            'import videotape as vt\n\napp = vt.Screenplay("Shop")\n\n\n@app.scene\ndef home():\n'
+            '    return [vt.Heading("Shop"), vt.Text("One page, for a pod to draw.")]\n')
+        (project / "stories" / "starter.toml").write_text(
+            'version = "1.0.0"\nlook = "A paper notebook open on a wooden desk under a warm lamp."\n\n[scenes]\n'
+            'home = "The notebook\'s first page, seen from above."\n\n[elements]\n'
+            'Heading = "large black letters across the top of the page"\nText = "a line of smaller black letters"\n')
+        yield project
 
 
 @pytest.fixture
@@ -210,8 +219,9 @@ def test_a_plan_wan_cannot_draw_stops_it_with_render_s_vt111_before_any_call_to_
     assert script.main(["--story", "terminal", "--takes", "3", "--cap-usd", "20", *dry]) == 2
     out, err = capsys.readouterr()
     assert out == "" and err == refused.value.report() + "\n"
-    assert err.startswith("error VT111 wan2.2-5b: films no key from another key's picture, and 47 keys of the plan are "
-                          "drawn from the base's picture\nfix: render with a model on fal")
+    assert err.startswith("error VT111 wan2.2-5b: films no key from another key's picture, and 57 keys of the plan are "
+                          "drawn from one, a base's or the picture of the state a rehearsed base is reached from\nfix: "
+                          "render with a model on fal")
 
 
 def test_without_uv_it_cannot_check_the_plan_and_stops(starter):

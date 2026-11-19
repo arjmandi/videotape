@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from conftest import as_explained
-from videotape import dailies, new
+from videotape import claude, dailies, new
 
 ROOT = Path(__file__).parent.parent
 
@@ -76,13 +76,15 @@ def test_the_starter_plans_without_a_warning_and_renders_clean_with_the_stand_in
     project = tmp_path / "shop"
     capsys.readouterr()
     assert cli(project, "plan") == 0
-    assert capsys.readouterr().out.splitlines()[0] == "Shop 0.1.0: 2 scenes, 2 states, 2 keys, 2 moves, 4 shots"
+    assert capsys.readouterr().out.splitlines()[0] == "Shop 0.1.0: 2 scenes, 2 states, 2 keys of which 1 rehearsed, 2 moves, 3 shots"
     assert cli(project, "plan", "--story", "starter") == 0
+    judgment = claude.judge_estimate(1280, 704)
     assert capsys.readouterr().out.splitlines()[-2:] == ["0 errors, 0 warnings",
-                                                         "wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.35 to $1.38"]
+                                                         "wan3.0: 3 shots, 3 to 12 calls, $1.50 to $6.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.35 to $1.38, "
+                                                         f"and 2 to 8 judgments by claude-opus-5-5, at most ${2 * judgment:.2f} to ${8 * judgment:.2f}"]
     assert cli(project, "render", "--story", "starter", "--model", "stand-in") == 0
     out, err = capsys.readouterr()
-    assert err == "" and out.splitlines()[-1].startswith("4 shots, ")
+    assert err == "" and out.splitlines()[-1].startswith("3 shots, ")
     record = dailies.read(project / "tapes" / "starter")
     assert record["failures"] == [] and record["takes"] == 4
     assert json.loads((project / "tapes" / "starter" / "tape.json").read_text())["made"]["label"] == \

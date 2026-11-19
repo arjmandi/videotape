@@ -41,7 +41,7 @@ def repeated() -> Key:
 def test_the_stand_in_draws_every_contrail_key_so_its_eye_reads_every_line_and_finds_every_action(name):
     eye, look = StandInEye(), told(CONTRAIL, name)
     for key in planned(CONTRAIL).keys:
-        prompt = words(key, look)
+        prompt = words(key.from_prompt(), look)
         frame, drawn = standin.draw(standin.quoted(prompt), prompt)
         assert (frame.width, frame.height) == (1280, 704)
         seen = eye.see(frame)

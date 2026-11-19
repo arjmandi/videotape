@@ -7,15 +7,14 @@ from __future__ import annotations
 import hashlib
 import re
 import tomllib
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from difflib import get_close_matches
 from pathlib import Path
 
 from videotape import errors
 from videotape.errors import ScreenplayError
-from videotape.model import PromptLimit
-from videotape.plan import Key, Move, Plan, Shot
+from videotape.plan import Key, Move, Plan, Rehearsal, Shot
 from videotape.screenplay import Shown
 
 DEFAULT = "default"
@@ -36,6 +35,16 @@ class Story:
     """A camera move for each element type, by its class name, and one for the rest, named default."""
     path: Path
     hash: str
+
+
+@dataclass(frozen=True)
+class PromptLimit:
+    """The longest prompt a model takes, in the unit it counts in, and how a count in that unit reads in a warning."""
+
+    model: str
+    most: int
+    says: str
+    count: Callable[[str], int]
 
 
 @dataclass(frozen=True)
@@ -77,6 +86,8 @@ Prompt = tuple[Clause, ...]
 
 STATIC = Clause("Static shot.", Engine())
 LETTERING = Clause("Sharp, legible lettering.", Engine())
+ARRIVES = Clause("It ends held still on the next screen.", Engine())
+"""What a rehearsal's prompt says between the move's clauses and the state's."""
 
 
 def text(prompt: Prompt) -> str:
@@ -85,8 +96,12 @@ def text(prompt: Prompt) -> str:
 
 def prompt(shot: Shot, story: Story) -> Prompt:
     """The shot's prompt in this story. A key is the look, its scene's direction, then each element as its type's
-    appearance and its own words. A move is the element that was pressed, then its type's move."""
+    appearance and its own words. A move is the element that was pressed, then its type's move. A rehearsal is the
+    move's clauses, that it ends held still on the next screen, then the state's own clauses, but for the static shot
+    a key alone is drawn as, since this clip moves."""
     match shot:
+        case Rehearsal():
+            return (*_move(shot.move, story), ARRIVES, *(clause for clause in _key(shot, story) if clause is not STATIC))
         case Key():
             return _key(shot, story)
         case Move():

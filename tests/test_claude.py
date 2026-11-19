@@ -23,7 +23,7 @@ from videotape.errors import CODES, ModelError, ScreenplayError
 from videotape.frames import Box
 from videotape.model import MODELS, Listing, estimate
 from videotape.qwen import QwenEye
-from videotape.standin import StandIn, StandInEye
+from videotape.standin import StandIn, StandInEye, StandInJudge
 
 KEY = "sk-ant-test-key-0123456789abcdef"
 MESSAGES = "https://api.anthropic.com/v1/messages"
@@ -249,10 +249,17 @@ def test_every_model_but_the_stand_in_reads_with_qwen_and_claude_and_the_stand_i
         assert MODELS[name].keys(name) == ((name, "FAL_KEY"), (f"{name}'s reader claude-opus-5-5", "ANTHROPIC_API_KEY"))
     assert MODELS["wan2.2-5b"].keys("wan2.2-5b") == (("wan2.2-5b's reader claude-opus-5-5", "ANTHROPIC_API_KEY"),)
     assert MODELS["stand-in"].keys("stand-in") == ()
-    assert estimate("wan3.0", MODELS["wan3.0"], 160, 58, 4) == (
-        "wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s, and 58 to 232 reads by claude-opus-5-5, "
-        f"at most ${58 * claude.estimate(1280, 704):.2f} to ${232 * claude.estimate(1280, 704):.2f}")
-    assert estimate("stand-in", MODELS["stand-in"], 160, 58, 4) == "stand-in: 160 shots, 160 to 640 calls, free"
+    assert {name: listing.judge for name, listing in MODELS.items()} == {
+        "stand-in": StandInJudge, "wan2.2-5b": ClaudeJudge, "wan3.0": ClaudeJudge, "minimax-h3": ClaudeJudge,
+        "gemini-omni-flash-1.2": ClaudeJudge}
+    read, judgment = claude.estimate(1280, 704), claude.judge_estimate(1280, 704)
+    assert estimate("wan3.0", MODELS["wan3.0"], 150, 58, 102, 4) == (
+        "wan3.0: 150 shots, 150 to 600 calls, $75.00 to $300.00 at $0.10/s, and 58 to 232 reads by claude-opus-5-5, "
+        f"at most ${58 * read:.2f} to ${232 * read:.2f}, and 102 to 408 judgments by claude-opus-5-5, at most "
+        f"${102 * judgment:.2f} to ${408 * judgment:.2f}")
+    assert estimate("stand-in", MODELS["stand-in"], 150, 58, 102, 4) == "stand-in: 150 shots, 150 to 600 calls, free"
+    assert estimate("wan3.0", MODELS["wan3.0"], 1, 1, 0, 1) == (
+        f"wan3.0: 1 shot, 1 call, $0.50 at $0.10/s, and 1 read by claude-opus-5-5, at most ${read:.2f}")
 
 
 @pytest.fixture
@@ -262,7 +269,7 @@ def read_by_claude(monkeypatch):
     monkeypatch.setattr(claude, "_urlopen", hosted)
     clean = lambda mode, prompt, seed: standin.Flaw.NONE
     monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), (StandInEye, ClaudeReader), limit=8,
-                                                     kind=StandIn))
+                                                     kind=StandIn, judge=StandInJudge))
     return hosted
 
 
@@ -272,7 +279,7 @@ def test_a_render_pays_for_each_keys_read_under_the_cap_and_writes_each_to_the_l
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "render", "--story", "chalk", "--takes", "1", "--cap-usd", "2") == 0
     out = capsys.readouterr().out
-    assert out.splitlines()[0] == ("stand-in: 11 shots, 11 calls, free, and 5 reads by claude-opus-5-5, at most "
+    assert out.splitlines()[0] == ("stand-in: 9 shots, 9 calls, free, and 5 reads by claude-opus-5-5, at most "
                                    f"${5 * claude.estimate(1280, 704):.2f}, cap $2.00, $0.00 spent")
     assert len(read_by_claude.seen) == 5
     lines = [json.loads(line) for line in (directory / "ledger.jsonl").read_text().splitlines()]
@@ -281,7 +288,7 @@ def test_a_render_pays_for_each_keys_read_under_the_cap_and_writes_each_to_the_l
     assert all((line["tape"], line["seed"], line["model"], line["tokens"], line["usd"]) == (
         "tapes/chalk", 1, "claude-opus-5-5", {"input_tokens": 2191, "output_tokens": 900}, 0.026764) for line in reads)
     totals = ledger.of(directory, directory / "tapes" / "chalk").totals()
-    assert (totals["takes"], totals["reads"], totals["usd"]) == (11, 5, 0.13)
+    assert (totals["takes"], totals["reads"], totals["usd"]) == (9, 5, 0.13)
     record = dailies.read(directory / "tapes" / "chalk")
     assert record["checks"] == "stand-in and claude-opus-5-5" and record["ledger"] == totals
     assert [reading["reader"] for reading in record["keys"][0]["items"][2]["readings"]] == ["stand-in", "claude-opus-5-5"]
@@ -341,8 +348,8 @@ def test_a_reply_that_is_not_whole_stops_the_render_and_its_cost_still_reaches_t
     reads = [json.loads(line) for line in (directory / "ledger.jsonl").read_text().splitlines() if '"read"' in line]
     [line] = [line for line in reads if line["tokens"]["output_tokens"] == 8192]
     assert line["usd"] == 0.172604
-    # The reads that came back whole are cached; the one cut short is not, so the next render asks again.
-    assert len(list((directory / "tapes" / "chalk" / "looks").iterdir())) == len(reads) - 1
+    assert len(reads) == 1 and line["shot"] == "key menu()"
+    assert not (directory / "tapes" / "chalk" / "looks").exists()
 
 
 def test_the_key_never_appears_in_an_error_and_a_refused_request_is_not_in_the_ledger(tmp_path, cli, capsys, monkeypatch,
@@ -365,7 +372,7 @@ def test_the_key_never_appears_in_an_error_and_a_refused_request_is_not_in_the_l
 
 def test_doctor_checks_every_api_key_the_model_and_its_readers_need(tmp_path, cli, capsys, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(StandIn, (StandInEye, ClaudeReader), limit=8, kind=StandIn))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(StandIn, (StandInEye, ClaudeReader), limit=8, kind=StandIn, judge=ClaudeJudge))
     directory = copy_of("cafe", tmp_path)
     cli(directory, "doctor")
     lines = capsys.readouterr().out.splitlines()

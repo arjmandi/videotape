@@ -1,6 +1,7 @@
 """The stand-in is a model that needs no GPU: it draws each of a prompt's quoted lines as a labelled box, the line
 the prompt says is chosen as an inverted one, and its eye reads them back from the pixels. A key drawn from a start
-picture opens on that picture and ends on the boxes. Every clip travels from its first picture to its last by a wipe,
+picture opens on that picture and ends on the boxes; a rehearsal's prompt names the control pressed before it says
+the clip ends held still on the next screen, and the boxes are that screen's lines. Every clip travels from its first picture to its last by a wipe,
 which shows a part of each and blends nothing, unless a flaw makes it dissolve or cut instead; its judge tells a frame
 that blends the clip's two ends from one that shows a part of each. A render with it proves everything around the
 model."""
@@ -20,6 +21,7 @@ from videotape.checks import Dissolve, Free, Purse, Read, Spot
 from videotape.errors import ModelError
 from videotape.frames import HEIGHT, WIDTH, Box, Frame
 from videotape.plan import Mode
+from videotape.story import ARRIVES
 
 # Printable ASCII from " " to "~", five column bytes per glyph, bit 0 at the top row.
 GLYPHS = bytes.fromhex(
@@ -62,18 +64,22 @@ class Flaw(Enum):
     CUT = "cut"
 
 
-# Seeds 1 and 2 may carry a flaw of their kind, so the checks have something to reject. Seed 3 is always clean. A key
-# flaw is a misspelt line (VT502), a line left out (VT501 and VT502), or a box the prompt never asked for (VT503). A
-# move flaw is a first or last frame that is not its key (VT508), a crossfade in place of the wipe (VT507), or a jump
-# through the last picture's negative (VT506). A key drawn from a start picture is a move too, so it may carry a
-# crossfade or a jump when asked, and by default carries a key flaw.
 KEY_FLAWS = (Flaw.MISSPELL, Flaw.DROP_LINE, Flaw.EXTRA_BOX)
+"""A misspelt line (VT502), a line left out (VT501 and VT502), or a box the prompt never asked for (VT503)."""
 TRAVEL_FLAWS = (Flaw.DISSOLVE, Flaw.CUT)
+"""A crossfade in place of the wipe (VT507), or a jump through the last picture's negative (VT506)."""
 FLAWS = {
     Mode.TEXT_TO_VIDEO: KEY_FLAWS,
     Mode.FIRST_FRAME: KEY_FLAWS,
     Mode.FIRST_AND_LAST_FRAME: (Flaw.WRONG_START, Flaw.WRONG_END, *TRAVEL_FLAWS),
 }
+"""The flaws a take of each mode may carry by default, so the checks have something to reject: a key flaw on a key,
+and on a move a first or last frame that is not its key (VT508) or a travel flaw."""
+ASKED = {**FLAWS, Mode.FIRST_FRAME: (*KEY_FLAWS, *TRAVEL_FLAWS)}
+"""The flaws a take of each mode carries when asked: a key drawn from a start picture is a move too, so it may
+crossfade or jump, though by default it carries a key flaw."""
+FLAWED_SEEDS = (1, 2)
+"""The seeds that may carry a flaw by default; every later seed is clean."""
 
 
 @dataclass(frozen=True)
@@ -121,11 +127,12 @@ class StandIn:
 
     def _film(self, mode: Mode, prompt: str, seed: int, start: Path | None, end: Path | None, out: Path) -> None:
         self.calls.append(Call(mode, prompt, seed, start, end, out))
-        rows, marked = quoted(prompt), chosen(prompt)
+        screen = prompt.partition(ARRIVES.text)[2] or prompt
+        rows, marked = quoted(screen), chosen(screen)
         digest = hashlib.sha256(f"{seed}\n{prompt}".encode()).digest()
         kinds = [kind for kind in FLAWS[mode] if mode is Mode.FIRST_AND_LAST_FRAME or rows]
         flaw = self.flaw(mode, prompt, seed) if self.flaw else _default_flaw(digest, seed, kinds)
-        if flaw is not Flaw.NONE and flaw not in (*kinds, *(TRAVEL_FLAWS if mode is Mode.FIRST_FRAME else ())):
+        if flaw is not Flaw.NONE and (flaw not in ASKED[mode] or (flaw in KEY_FLAWS and not rows)):
             raise ValueError(f"{flaw.name} does not apply to this {mode.value} take")
         if flaw in (Flaw.MISSPELL, Flaw.DROP_LINE):
             rows, (r, i) = _spoil(rows, flaw, digest)
@@ -273,7 +280,9 @@ def _quotes(prompt: str) -> list[list[tuple[str, bool]]]:
 
 
 def _default_flaw(digest: bytes, seed: int, kinds: list[Flaw]) -> Flaw:
-    if seed not in (1, 2) or not kinds or digest[0] % 2:
+    """The flaw a take carries by default: one of its kinds on a flawed seed, picked by the hash of the seed and the
+    prompt, and none on the other seeds or on half the hashes."""
+    if seed not in FLAWED_SEEDS or not kinds or digest[0] % 2:
         return Flaw.NONE
     return kinds[digest[1] % len(kinds)]
 

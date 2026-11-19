@@ -63,9 +63,9 @@ WARNINGS = {
                "shorten the look, the scene's direction or the appearances in stories/neon.toml, or show fewer lines "
                "in this state")],
 }
-SUMMARIES = {"VT211": "Cafe 0.1.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot",
-             "VT304": "Shop 0.1.0 + neon 1.0.0: 2 scenes, 2 states, 2 keys, 1 move, 3 shots",
-             "VT307": "Shop 0.1.0 + neon 1.0.0: 1 scene, 1 state, 1 key, 0 moves, 1 shot"}
+SUMMARIES = {"VT211": "Cafe 0.1.0: 1 scene, 1 state, 1 key of which 0 rehearsed, 0 moves, 1 shot",
+             "VT304": "Shop 0.1.0 + neon 1.0.0: 2 scenes, 2 states, 2 keys of which 1 rehearsed, 1 move, 2 shots",
+             "VT307": "Shop 0.1.0 + neon 1.0.0: 1 scene, 1 state, 1 key of which 0 rehearsed, 0 moves, 1 shot"}
 ESTIMATES = {"VT307": ["wan2.2-5b: 1 shot, 1 to 4 calls, free, and 1 to 4 reads by claude-opus-5-5, at most $0.17 to $0.69"]}
 """The plan ends with the estimate for the project's model, and only the vt307 fixture names one."""
 
@@ -128,8 +128,9 @@ def test_a_key_of_a_scene_without_a_direction_gets_only_the_look_before_its_elem
     result = videotape(FIXTURES / "errors" / "vt304", "shots", "--story", "neon", "--state", "detail()")
     [(place, message, fix)] = WARNINGS["VT304"]
     assert (result.stderr, result.returncode) == (f"warning VT304 {place}: {message}\nfix: {fix}\n", 0)
-    assert result.stdout.splitlines()[:4] == [
-        "key detail()", "  engine                      Static shot.",
+    assert result.stdout.splitlines()[:5] == [
+        "key detail() rehearsed from home()", '  screenplay home, Button     The button "Open" is pressed.',
+        "  engine                      It ends held still on the next screen.",
         "  story look                  A narrow shop on a rainy street at night.",
         '  screenplay detail, Heading  Reading "Detail".']
 
@@ -146,9 +147,10 @@ def test_the_stand_in_reads_any_length_of_prompt_so_the_same_story_has_no_vt307_
 def test_a_plan_with_a_variant_stops_on_a_model_that_films_no_key_from_a_picture_as_its_render_would():
     result = videotape(FIXTURES / "cafe", "plan", "--story", "chalk", "--model", "wan2.2-5b")
     assert (result.returncode, result.stdout) == (1, "")
-    assert result.stderr == ("error VT111 wan2.2-5b: films no key from another key's picture, and 2 keys of the plan are "
-                             "drawn from the base's picture\nfix: render with a model on fal, whose image-to-video "
-                             "takes one picture, as in --model gemini-omni-flash-1.2, or with the stand-in\n")
+    assert result.stderr == ("error VT111 wan2.2-5b: films no key from another key's picture, and 4 keys of the plan are "
+                             "drawn from one, a base's or the picture of the state a rehearsed base is reached from\n"
+                             "fix: render with a model on fal, whose image-to-video takes one picture, as in --model "
+                             "gemini-omni-flash-1.2, or with the stand-in\n")
     drawn = videotape(FIXTURES / "cafe", "plan", "--story", "chalk", "--model", "gemini-omni-flash-1.2")
     assert (drawn.returncode, drawn.stderr) == (0, "")
 

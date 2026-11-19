@@ -26,7 +26,7 @@ from videotape.cli import main
 from videotape.errors import CODES, ScreenplayError
 from videotape.model import MODELS, Listing
 from videotape.checks import Free, Read, score
-from videotape.standin import Flaw, StandIn, StandInEye
+from videotape.standin import Flaw, StandIn, StandInEye, StandInJudge
 from videotape.plan import Mode
 from videotape.hosted import WAN3
 
@@ -142,14 +142,23 @@ def test_publish_makes_the_starter_into_a_signed_app_that_holds_its_tape_and_rec
 
 class Wider(StandIn):
     """Pads every key take to 1344x768 in the stand-in's background, the size minimax-h3 draws at, so the moves the
-    stand-in fades between two keys are 1344x768 too."""
+    stand-in wipes between two keys are 1344x768 too, and crops a start picture back to the stand-in's size before
+    it draws from it."""
 
-    def text_to_video(self, prompt, seed, out):
-        drawn = out.with_name(f"drawn-{out.name}")
-        super().text_to_video(prompt, seed, drawn)
+    def _film(self, mode, prompt, seed, start, end, out):
+        if mode is Mode.FIRST_AND_LAST_FRAME:
+            super()._film(mode, prompt, seed, start, end, out)
+            return
+        drawn, cropped = out.with_name(f"drawn-{out.name}"), out.with_name(f"cropped-{out.stem}.png")
+        if start is not None:
+            subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(start), "-vf", "crop=1280:704:32:32", "-y", str(cropped)],
+                           check=True)
+            start = cropped
+        super()._film(mode, prompt, seed, start, end, drawn)
         subprocess.run(["ffmpeg", "-loglevel", "error", "-i", str(drawn), "-vf", "pad=1344:768:32:32:color=0x2f6f7e",
                         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", "24", "-f", "mp4", "-y", str(out)], check=True)
         drawn.unlink()
+        cropped.unlink(missing_ok=True)
 
 
 def test_a_1344x768_tape_is_published_at_its_own_size(contrail, cli, capsys, monkeypatch):
@@ -445,7 +454,7 @@ def as_wan3(folder: Path) -> dict:
 
 
 def test_a_wan3_tape_is_checked_against_its_sources_without_fal_key(contrail, cli, capsys, monkeypatch):
-    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], readers=(StandInEye,)))
+    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], readers=(StandInEye,), judge=StandInJudge))
     made_by = as_wan3(contrail)
     assert cli(contrail, "publish", "--story", "starter") == 0
     assert capsys.readouterr().out.splitlines()[-3:-1] == [f"label {LABEL}", f"id {made_by['id']}"]
@@ -459,12 +468,12 @@ def test_a_wan3_tape_is_checked_against_its_sources_without_fal_key(contrail, cl
 
 
 def extra_box_on_todo(mode: Mode, prompt: str, seed: int) -> Flaw:
-    return Flaw.EXTRA_BOX if mode is Mode.TEXT_TO_VIDEO and '"Make it yours"' in prompt else Flaw.NONE
+    return Flaw.EXTRA_BOX if mode is not Mode.FIRST_AND_LAST_FRAME and '"Make it yours"' in prompt else Flaw.NONE
 
 
 def test_a_failing_check_nobody_accepted_is_vt602_until_it_is_accepted(contrail, cli, capsys, monkeypatch):
     monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=extra_box_on_todo), (StandInEye,),
-                                                    limit=8, kind=StandIn))
+                                                    limit=8, kind=StandIn, judge=StandInJudge))
     shutil.rmtree(contrail / "tapes")
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
     capsys.readouterr()
@@ -520,12 +529,12 @@ def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_a
     steps = contrail / "data" / "steps.json"
     steps.write_text(steps.read_text().replace("in the stories folder", TWICE))
     eye = lambda clear: Listing(lambda: StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE),
-                                (smudging(clear),), limit=8, kind=StandIn)
+                                (smudging(clear),), limit=8, kind=StandIn, judge=StandInJudge)
     monkeypatch.setitem(MODELS, "stand-in", eye(1))
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
     assert [(failure["shot"], failure["code"], failure["about"]) for failure in
             json.loads((contrail / "tapes" / "starter" / "dailies.json").read_text())["failures"]] == \
-        [("key todo()", "VT502", TWICE)]
+        [("key todo() rehearsed from home()", "VT502", TWICE)]
     assert cli(contrail, "accept", "todo()", "VT502", "--story", "starter", "--reason", "the second line, smudged") == 0
     capsys.readouterr()
 

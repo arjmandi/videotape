@@ -9,7 +9,7 @@ from conftest import CONTRAIL, contrail_copy, planned, videotape
 from videotape import claude, fal, project
 
 PLAN = """\
-Contrail 0.1.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
+Contrail 0.1.0: 11 scenes, 58 states, 58 keys of which 10 rehearsed, 102 moves, 150 shots
 
 scene        states   moves out
 home              1           4
@@ -25,8 +25,8 @@ trip              2           0
 profile           1           2
 
 0 errors, 0 warnings
-gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the \
-prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04
+gemini-omni-flash-1.2: 150 shots, 150 to 600 calls, $65.92 to $263.70 at $0.0819/s plus $0.03 a call for the prompt, \
+and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04, and 102 to 408 judgments by claude-opus-5-5, at most $12.47 to $49.87
 """
 TODAY = "2026-12-01"
 HOME = "SFO"
@@ -73,8 +73,9 @@ def test_the_data_alone_gives_every_number_the_plan_prints():
     counted = counted_from_the_data()
     assert counted == table(PLAN)
     states, moves = sum(states for states, _ in counted.values()), sum(moves for _, moves in counted.values())
-    assert PLAN.startswith(f"Contrail 0.1.0: {len(counted)} scenes, {states} states, {states} keys, {moves} moves, "
-                           f"{states + moves} shots\n")
+    rehearsed = len(counted) - 1
+    assert PLAN.startswith(f"Contrail 0.1.0: {len(counted)} scenes, {states} states, {states} keys of which {rehearsed} "
+                           f"rehearsed, {moves} moves, {states + moves - rehearsed} shots\n")
     assert [name for name, (_, moves) in counted.items() if not moves] == ["trip"]
 
 

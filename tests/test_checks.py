@@ -19,7 +19,7 @@ from videotape.frames import Box
 from videotape.layout import BAR, Compared, Layout
 from videotape.model import MODELS, Listing
 from videotape.plan import Key, plan
-from videotape.standin import StandIn, StandInEye
+from videotape.standin import StandIn, StandInEye, StandInJudge
 
 
 def key_of(*elements) -> Key:
@@ -36,7 +36,7 @@ def spots(*texts: str, controls: tuple[str, ...] = ()) -> tuple[Spot, ...]:
 
 def drawn(key: Key) -> tuple:
     """The stand-in's picture of a key from its prompt, and what its eye reads on it."""
-    prompt = words(key, a_story())
+    prompt = words(key.from_prompt(), a_story())
     frame, _ = standin.draw(standin.quoted(prompt), prompt)
     return frame, StandInEye().see(frame)
 
@@ -342,15 +342,15 @@ def test_the_dailies_keep_each_readers_reading_and_show_both_when_the_readers_di
     directory = copy_of("cafe", tmp_path)
     clean = lambda mode, prompt, seed: standin.Flaw.NONE
     monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), (StandInEye, Disagreeing), limit=8,
-                                                     kind=StandIn))
+                                                     kind=StandIn, judge=StandInJudge))
     assert cli(directory, "render", "--story", "chalk", "--takes", "1") == 1
     err = capsys.readouterr().err
-    assert ('fail: 4. key thanks(Espresso)  VT502 Thanks: read "Thanks" by stand-in and "Thank" by disagreeing, CER 0.000 '
-            "and 0.167") in err
+    assert ('fail: 4. key thanks(Espresso) rehearsed from order(Espresso)  VT502 Thanks: read "Thanks" by stand-in and '
+            '"Thank" by disagreeing, CER 0.000 and 0.167') in err
     record = dailies.read(directory / "tapes" / "chalk")
     assert record["checks"] == "stand-in and disagreeing"
     assert [(failure["shot"], failure["code"], failure["about"], failure["element"]) for failure in record["failures"]] == [
-        ("key thanks(Espresso)", "VT502", "Thanks", "Heading"),
+        ("key thanks(Espresso) rehearsed from order(Espresso)", "VT502", "Thanks", "Heading"),
         ("key thanks(Latte) from thanks(Espresso)", "VT502", "Thanks", "Heading")]
     first = record["failures"][0]
     assert [(reading["reader"], reading["text"], reading["cer"]) for reading in first["readings"]] == [
@@ -632,10 +632,11 @@ def test_a_move_cuts_at_the_frame_whose_scene_score_is_over_the_threshold():
     smooth = Cut((0.0, 0.1, 0.187, 0.12))
     assert smooth.passed and smooth.item().about == "frame 2" and "0.187, under the threshold" in smooth.item().result
     assert Cut((0.0,)).passed and Cut(()).passed
-    checks = MoveChecks(0.01, 0.02, cut=cut)
-    assert [(item.code, item.passed) for item in checks.items()] == [("VT508", True), ("VT508", True), ("VT506", False)]
+    clean = Dissolve("stand-in", (0, 3, 7, 10, 13, 16, 20, 23), (False,) * 8, ("one picture",) * 8)
+    checks = MoveChecks(0.01, 0.02, cut, clean)
+    assert [(item.code, item.passed) for item in checks.items()] == [("VT508", True), ("VT508", True), ("VT506", False),
+                                                                     ("VT507", True)]
     assert not checks.passed and [item.code for item in checks.failures] == ["VT506"]
-    assert MoveChecks(0.01, 0.02).items()[-1].code == "VT508"
 
 
 def test_a_move_dissolves_when_any_judged_frame_shows_two_pictures_overlaid():
@@ -652,7 +653,7 @@ def test_a_move_dissolves_when_any_judged_frame_shows_two_pictures_overlaid():
     assert clean.passed
     assert (clean.item().about, clean.item().result) == (
         "no frame", "none of 8 frames across the move shows two pictures overlaid, by claude-opus-5-5")
-    checks = MoveChecks(0.3, 0.01, dissolve=judged)
+    checks = MoveChecks(0.3, 0.01, Cut((0.0, 0.1)), judged)
     assert [(item.code, item.about, item.passed) for item in checks.items()] == [
-        ("VT508", "start", False), ("VT508", "end", True), ("VT507", "frames 43 and 64", False)]
+        ("VT508", "start", False), ("VT508", "end", True), ("VT506", "frame 1", True), ("VT507", "frames 43 and 64", False)]
     assert checks.rank(2) == (0.31, 2)

@@ -18,9 +18,9 @@ from videotape.fal import Fal, Receipt
 from videotape.hosted import WAN3, WAN3_FIELDS, FalRequest, OnFal, RecordedFailure, from_environment, request_record
 from videotape.made import made
 from videotape.model import MODELS, Listing
-from videotape.plan import FromKey, Mode
+from videotape.plan import FromKey, Mode, Plan
 from videotape.render import render
-from videotape.standin import StandInEye
+from videotape.standin import StandInEye, StandInJudge
 
 KEY = "fal-test-key-0123456789abcdef"
 SHOTS = {shot.title: words(shot, told(FIXTURES / "cafe")) for shot in planned(FIXTURES / "cafe").shots}
@@ -50,9 +50,9 @@ def unpacked(uri: str) -> bytes:
 
 
 def test_a_key_is_text_to_video_from_its_own_prompt_at_720p_without_sound_or_prompt_expansion():
-    order = SHOTS["key order(Espresso)"]
-    built = WAN3.request(Mode.TEXT_TO_VIDEO, order, 1)
-    assert built == FalRequest("alibaba/wan-3.0/text-to-video", {"prompt": order, **SETTINGS, "seed": 1})
+    menu = SHOTS["key menu()"]
+    built = WAN3.request(Mode.TEXT_TO_VIDEO, menu, 1)
+    assert built == FalRequest("alibaba/wan-3.0/text-to-video", {"prompt": menu, **SETTINGS, "seed": 1})
 
 
 def test_the_prompt_limit_is_the_20000_characters_fals_schema_gives_both_endpoints():
@@ -171,7 +171,8 @@ def hosted_by(queue: type[Hosted], tmp_path: Path, monkeypatch) -> tuple[Path, H
     (tmp_path / "clips").mkdir()
     fal = queue(tmp_path / "clips")
     monkeypatch.setitem(MODELS, "wan3.0", Listing(lambda: OnFal(WAN3, Fal(KEY, send=fal, sleep=lambda _: None)),
-                                                  (StandInEye,), price=WAN3.price, limit=2, kind=WAN3))
+                                                  (StandInEye,), price=WAN3.price, limit=2, kind=WAN3,
+                                                  judge=StandInJudge))
     return directory, fal
 
 
@@ -192,16 +193,16 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     out = directory / "tape-wan3"
     assert cli(directory, *RENDER) == 1
     stdout, stderr = capsys.readouterr()
-    assert stdout.splitlines()[0] == "wan3.0: 11 shots, 11 calls, $5.50 at $0.10/s, cap $20.00, $0.00 spent"
+    assert stdout.splitlines()[0] == "wan3.0: 9 shots, 9 calls, $4.50 at $0.10/s, cap $20.00, $0.00 spent"
     assert "fail: 1. key menu()  VT501 Espresso, $3: not found" in stderr.splitlines()
     assert '  next: videotape retake "menu()" --story chalk --out tape-wan3' in stderr.splitlines()
-    assert stdout.splitlines()[-1].startswith("11 shots, 11 takes filmed, $5.50, ") and stdout.endswith(" MB -> tape-wan3\n")
-    assert sorted(mode for mode, _ in fal.posts) == ["image-to-video"] * 8 + ["text-to-video"] * 3
+    assert stdout.splitlines()[-1].startswith("9 shots, 9 takes filmed, $4.50, ") and stdout.endswith(" MB -> tape-wan3\n")
+    assert sorted(mode for mode, _ in fal.posts) == ["image-to-video"] * 8 + ["text-to-video"]
     plan = planned(directory)
     assert sorted(arguments["prompt"] for _, arguments in fal.posts) == sorted(words(shot, told(directory)) for shot in plan.shots)
     images = {key.state: out / key.image for key in plan.keys}
     pinned = {(words(move, told(directory)), images[move.start].read_bytes(), images[move.land].read_bytes())
-              for move in plan.moves}
+              for move in plan.pinned}
     started = {(words(key, told(directory)), images[key.start].read_bytes(), None)
                for key in plan.keys if isinstance(key, FromKey)}
     for mode, arguments in fal.posts:
@@ -216,9 +217,9 @@ def test_wan3_renders_every_pixel_of_its_tape_and_pins_each_move_to_its_own_keys
     assert sorted((line["tape"], line["model"], line["shot"], line["mode"], line["seed"], line["duration"], line["usd"])
                   for line in lines) == sorted(("tape-wan3", "wan3.0", shot.title, shot.mode.value, 1, 5.0, 0.5)
                                                for shot in plan.shots)
-    assert {line["request_id"] for line in lines} == {f"request-{number}" for number in range(11)}
+    assert {line["request_id"] for line in lines} == {f"request-{number}" for number in range(9)}
     assert all(line["seconds"] > 0 and line["gpu"] == "fal" for line in lines)
-    assert ledger.of(directory, out).totals()["usd"] == 5.5
+    assert ledger.of(directory, out).totals()["usd"] == 4.5
     assert not (directory / "tapes").exists()
     written = "".join(path.read_text(errors="replace") for path in directory.rglob("*")
                       if path.suffix in (".json", ".jsonl", ".html"))
@@ -268,7 +269,7 @@ def test_a_corrupt_take_is_downloaded_again_from_its_record_and_counted_once(hos
     assert "VT403" not in capsys.readouterr().err
     assert clip.read_bytes() == fal.answers[video_of(sidecar)]
     book = ledger.of(directory, directory / "tape-wan3")
-    assert len(fal.posts) == len(book.lines()) == 11 and book.totals()["usd"] == 5.5
+    assert len(fal.posts) == len(book.lines()) == 9 and book.totals()["usd"] == 4.5
 
 
 def test_a_take_still_corrupt_after_a_download_is_vt403_and_its_seed_is_skipped(hosted, cli, capsys):
@@ -284,7 +285,7 @@ def test_a_take_still_corrupt_after_a_download_is_vt403_and_its_seed_is_skipped(
     assert "next: nothing; seed 1 is skipped from now on" in err
     assert dailies.read(directory / "tape-wan3")["corrupt"] == {shot: [1]}
     # Every shot fails its checks on these solid clips, so each films seed 2, and the corrupt seed is not filmed again.
-    assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 22
+    assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 18
 
 
 def test_a_corrupt_take_whose_record_is_gone_is_vt403_and_never_submitted_again(hosted, cli, capsys):
@@ -300,7 +301,7 @@ def test_a_corrupt_take_whose_record_is_gone_is_vt403_and_never_submitted_again(
     assert as_explained("VT403").search(err)
     assert "next: nothing; seed 1 is skipped from now on" in err
     assert dailies.read(directory / "tape-wan3")["corrupt"] == {shot: [1]}
-    assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 22
+    assert len(fal.posts) == len(ledger.of(directory, directory / "tape-wan3").lines()) == 18
 
 
 def test_a_take_whose_clip_is_gone_is_downloaded_again_under_any_cap_and_counted_once(hosted, cli, capsys):
@@ -310,14 +311,14 @@ def test_a_take_whose_clip_is_gone_is_downloaded_again_under_any_cap_and_counted
     clip.unlink()
     capsys.readouterr()
     # The tape has spent the whole cap. Downloading again costs nothing, so the cap does not stop it.
-    assert cli(directory, *render_args(cap="5.50")) == 1
+    assert cli(directory, *render_args(cap="4.50")) == 1
     out, err = capsys.readouterr()
     assert "VT402" not in err
     assert clip.read_bytes() == fal.answers[video_of(sidecar)]
     book = ledger.of(directory, directory / "tape-wan3")
-    assert len(fal.posts) == 11 and [line["request_id"] for line in book.lines()].count(sidecar["request_id"]) == 1
-    assert (book.totals()["takes"], book.totals()["usd"]) == (11, 5.5)
-    assert out.splitlines()[-1].startswith("11 shots, 0 takes filmed, $0.00, ")
+    assert len(fal.posts) == 9 and [line["request_id"] for line in book.lines()].count(sidecar["request_id"]) == 1
+    assert (book.totals()["takes"], book.totals()["usd"]) == (9, 4.5)
+    assert out.splitlines()[-1].startswith("9 shots, 0 takes filmed, $0.00, ")
 
 
 def test_a_render_that_died_between_submitting_and_downloading_downloads_on_resume_and_pays_once(hosted, cli, capsys):
@@ -331,9 +332,9 @@ def test_a_render_that_died_between_submitting_and_downloading_downloads_on_resu
     assert "request-0" not in {line["request_id"] for line in book.lines()} and len(fal.posts) <= 3
     assert cli(directory, *RENDER) == 1
     assert "VT401" not in capsys.readouterr().err
-    assert len(fal.posts) == 11
-    assert sorted(line["request_id"] for line in book.lines()) == sorted(f"request-{n}" for n in range(11))
-    assert book.totals()["usd"] == 5.5
+    assert len(fal.posts) == 9
+    assert sorted(line["request_id"] for line in book.lines()) == sorted(f"request-{n}" for n in range(9))
+    assert book.totals()["usd"] == 4.5
 
 
 class Window(Hosted):
@@ -365,7 +366,8 @@ class Window(Hosted):
 def test_a_call_that_fails_after_its_submit_keeps_its_reservation(tmp_path):
     """Under a cap of $1.50, two keys are submitted at once and a third is reserved. Request 0 then fails after its
     submit. Were its reservation let go, the worker could reserve that money before the main thread stops the
-    render, and four submits at $0.50 would pass the cap."""
+    render, and four submits at $0.50 would pass the cap. The plan is the cafe's three bases drawn from their own
+    prompts, which nothing holds back, since a rehearsal waits for the key it starts on."""
     directory = copy_of("cafe", tmp_path)
     (tmp_path / "clips").mkdir()
     fal = Window(tmp_path / "clips")
@@ -378,9 +380,11 @@ def test_a_call_that_fails_after_its_submit_keeps_its_reservation(tmp_path):
             fal.go.set()
             fal.fourth.wait(1.5)
 
-    chalk, tape = told(directory), directory / "tape-wan3"
+    chalk, tape, full = told(directory), directory / "tape-wan3", planned(directory)
+    bases = Plan(full.title, full.scenes, tuple(key.from_prompt() for key in full.keys if type(key) is not FromKey), (), ())
+    assert len(bases.keys) == 3
     with pytest.raises(RenderError) as error:
-        render(planned(directory), chalk, model, [StandInEye()], tape, ledger.of(directory, tape),
+        render(bases, chalk, model, [StandInEye()], StandInJudge(), tape, ledger.of(directory, tape),
                made(project.find(directory), chalk, model), takes=1, limit=2, price=WAN3.price, cap=1.5, report=report)
     assert error.value.code in ("VT401", "VT402")
     assert 0.5 * len(fal.posts) <= 1.5 and len(fal.posts) == 3
@@ -449,10 +453,10 @@ def test_two_shots_that_share_a_take_name_film_it_once(tmp_path, monkeypatch, cl
     assert cli(directory, *RENDER) == 1
     posts = [(mode, arguments["prompt"], arguments["seed"], arguments.get("start_image_url"), arguments.get("end_image_url"))
              for mode, arguments in fal.posts]
-    assert len(set(posts)) == len(posts) == 14
-    assert len(ledger.of(directory, directory / "tape-wan3").lines()) == 14
+    assert len(set(posts)) == len(posts) == 12
+    assert len(ledger.of(directory, directory / "tape-wan3").lines()) == 12
     record = dailies.read(directory / "tape-wan3")
-    variants = [shot for shot in record["keys"] if shot["title"].startswith("key thanks(") and " from " in shot["title"]]
+    variants = [shot for shot in record["keys"] if shot["title"].startswith("key thanks(") and " from thanks(" in shot["title"]]
     assert len(variants) == 2 and len({shot["takes"][0]["clip"] for shot in variants}) == 1
     assert [shot["takes"][0]["cached"] for shot in variants].count(True) == 1
     done = [shot for shot in record["moves"] if shot["start"] in ("thanks(Latte)", "thanks(Mocha)")]
@@ -460,8 +464,8 @@ def test_two_shots_that_share_a_take_name_film_it_once(tmp_path, monkeypatch, cl
 
 
 @pytest.mark.parametrize("old, new, calls", [
-    ('vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")', 5),
-    ("coming up.", "on its way.", 6),
+    ('vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")', 9),
+    ("coming up.", "on its way.", 5),
 ])
 def test_an_edit_submits_only_the_calls_it_needs(hosted, cli, capsys, old, new, calls):
     directory, fal = hosted
@@ -472,7 +476,7 @@ def test_an_edit_submits_only_the_calls_it_needs(hosted, cli, capsys, old, new, 
     posts = len(fal.posts)
     capsys.readouterr()
     cli(directory, *RENDER)
-    assert capsys.readouterr().out.splitlines()[0] == "wan3.0: 11 shots, 11 calls, $5.50 at $0.10/s, cap $20.00, $5.50 spent"
+    assert capsys.readouterr().out.splitlines()[0] == "wan3.0: 9 shots, 9 calls, $4.50 at $0.10/s, cap $20.00, $4.50 spent"
     assert len(fal.posts) - posts == calls
 
 
@@ -481,8 +485,8 @@ def test_a_change_to_the_request_settings_renders_again(hosted, cli, monkeypatch
     cli(directory, *RENDER)
     monkeypatch.setitem(WAN3_FIELDS, "resolution", "1080p")
     cli(directory, *RENDER)
-    assert len(fal.posts) == 22
-    assert {arguments["resolution"] for _, arguments in fal.posts[11:]} == {"1080p"}
+    assert len(fal.posts) == 18
+    assert {arguments["resolution"] for _, arguments in fal.posts[9:]} == {"1080p"}
 
 
 def test_wan3_without_fal_key_says_so_and_sends_nothing(tmp_path, cli, capsys, monkeypatch):
@@ -504,7 +508,7 @@ def test_a_key_in_the_projects_env_file_goes_only_into_the_submits_authorization
     directory = copy_of("cafe", tmp_path)
     (directory / ".env").write_text(f'# from fal.ai/dashboard/keys\nFAL_KEY="{KEY}"\n')
     monkeypatch.delenv("FAL_KEY", raising=False)
-    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], readers=(StandInEye,)))
+    monkeypatch.setitem(MODELS, "wan3.0", dataclasses.replace(MODELS["wan3.0"], readers=(StandInEye,), judge=StandInJudge))
     sent = []
     monkeypatch.setattr(urllib.request, "urlopen",
                         lambda request, timeout: sent.append(request) or Answer(b'{"detail": "no request today"}'))

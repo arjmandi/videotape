@@ -10,11 +10,12 @@ from conftest import as_explained, copy_of
 from videotape import dailies, ledger
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
-from videotape.standin import EXTRA, Flaw, StandIn, StandInEye
+from videotape.standin import EXTRA, Flaw, StandIn, StandInEye, StandInJudge
 
 RENDER = ("render", "--story", "chalk")
 ORDER_LATTE = 'reading "Latte"'
 ORDER_LATTE_KEY, THANKS_LATTE_KEY = "key order(Latte) from order(Espresso)", "key thanks(Latte) from thanks(Espresso)"
+THANKS_ESPRESSO_KEY = "key thanks(Espresso) rehearsed from order(Espresso)"
 THANKS_ESPRESSO = '"One Espresso coming up."'
 THANKS_LATTE = '"One Latte coming up."'
 
@@ -36,7 +37,7 @@ def extra_on_thanks_espresso(mode: Mode, prompt: str, seed: int) -> Flaw:
 
 def stand_in(monkeypatch, flaw) -> StandIn:
     model = StandIn(flaw=flaw)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, (StandInEye,), limit=8, kind=model))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, (StandInEye,), limit=8, kind=model, judge=StandInJudge))
     return model
 
 
@@ -170,13 +171,13 @@ def test_accept_records_a_failing_check_with_its_reason_and_render_then_passes_a
     stand_in(monkeypatch, extra_on_thanks_espresso)
     assert cli(directory, *RENDER) == 1
     err = capsys.readouterr().err
-    assert f"fail: 4. key thanks(Espresso)  VT503 {EXTRA}: " in err
+    assert f"fail: 4. {THANKS_ESPRESSO_KEY}  VT503 {EXTRA}: " in err
     reason = "a printed logo, not a control"
     assert cli(directory, "accept", "thanks(Espresso)", "VT503", "--story", "chalk", "--reason", reason) == 0
-    assert capsys.readouterr().out == f"accepted VT503 on key thanks(Espresso): {reason}\n"
+    assert capsys.readouterr().out == f"accepted VT503 on {THANKS_ESPRESSO_KEY}: {reason}\n"
     record = dailies.read(tape)
     [accepted] = record["accepted"]
-    assert (accepted["shot"], accepted["code"], accepted["reason"]) == ("key thanks(Espresso)", "VT503", reason)
+    assert (accepted["shot"], accepted["code"], accepted["reason"]) == (THANKS_ESPRESSO_KEY, "VT503", reason)
     assert accepted["at"].endswith("+00:00")
     [failure] = record["failures"]
     assert accepted["seed"] == failure["take"] == 1
@@ -187,9 +188,9 @@ def test_accept_records_a_failing_check_with_its_reason_and_render_then_passes_a
 
     assert cli(directory, *RENDER) == 0
     out, err = capsys.readouterr()
-    assert "4. key thanks(Espresso)  kept take 1, fails VT503, cached" in out
+    assert f"4. {THANKS_ESPRESSO_KEY}  kept take 1, fails VT503, cached" in out
     assert err.splitlines() == [
-        f'accepted: 4. key thanks(Espresso)  VT503 {EXTRA}: a control reading "{EXTRA}" at 24,150 315x33, and no action '
+        f'accepted: 4. {THANKS_ESPRESSO_KEY}  VT503 {EXTRA}: a control reading "{EXTRA}" at 24,150 315x33, and no action '
         "has those words", f"  reason: {reason}"]
     assert dailies.read(tape)["accepted"] == [accepted]
 
@@ -207,7 +208,7 @@ def test_accept_of_a_check_that_is_not_failing_says_so_and_records_nothing(tmp_p
                    "next: nothing; its kept take passes every check\n")
     assert cli(directory, "accept", "thanks(Espresso)", "VT501", "--story", "chalk", "--reason", "fine") == 1
     assert capsys.readouterr() == (
-        "", "error VT408 key thanks(Espresso): does not fail VT501; it fails VT503, so nothing is written down\n"
+        "", f"error VT408 {THANKS_ESPRESSO_KEY}: does not fail VT501; it fails VT503, so nothing is written down\n"
             'next: accept the check it fails: videotape accept "thanks(Espresso)" VT503 --story chalk --reason "..."\n')
     assert dailies.read(tape)["accepted"] == []
     with pytest.raises(SystemExit):
@@ -227,8 +228,8 @@ def test_an_accept_fails_again_when_a_story_edit_films_its_take_again(tmp_path, 
     capsys.readouterr()
     assert cli(directory, *RENDER) == 1
     out, err = capsys.readouterr()
-    assert "4. key thanks(Espresso)  kept take 1, fails VT503, 4 takes filmed" in out
-    assert "fail: 4. key thanks(Espresso)  VT503" in err and "accepted:" not in err
+    assert f"4. {THANKS_ESPRESSO_KEY}  kept take 1, fails VT503, 4 takes filmed" in out
+    assert f"fail: 4. {THANKS_ESPRESSO_KEY}  VT503" in err and "accepted:" not in err
     record = dailies.read(tape)
     [failure] = record["failures"]
     assert failure["take"] == 1 and failure["clip"] != accepted["clip"]
@@ -289,7 +290,7 @@ def test_an_accept_that_names_no_take_holds_for_none(tmp_path, cli, capsys, monk
     (tape / "dailies.json").write_text(json.dumps(record))
     capsys.readouterr()
     assert cli(directory, *RENDER) == 1
-    assert capsys.readouterr().err.startswith("fail: 4. key thanks(Espresso)  VT503 ")
+    assert capsys.readouterr().err.startswith(f"fail: 4. {THANKS_ESPRESSO_KEY}  VT503 ")
     [failure] = dailies.read(tape)["failures"]
     assert failure["accepted"] is None and failure["accepted_before"]["seed"] is None
     assert "Accepted on an earlier render: a logo; this is take 1, so look again" in (tape / "dailies.html").read_text()

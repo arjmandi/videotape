@@ -17,8 +17,10 @@ The data shape, from what a reader sees to what the dailies record:
       charts    a Plotted per chart, per reader that reports charts                                          VT504
       marks     a Marked per element that offers a choice, per reader that reports marks                     VT509
       layout    the Layout distances from the base's picture and the Bar that judges them, for a variant   VT505
+      move      the MoveChecks of a rehearsal, whose take is the move that first reaches its state
     MoveChecks a move's take judged:
-      start, end how far its first and last frames sit from the keys it is pinned to                       VT508
+      start, end how far its first and last frames sit from the keys it is pinned to; a rehearsal's end is
+                0, since its last frame is its own key                                                    VT508
       cut       the Cut: ffmpeg's scene score of every frame, whose highest says whether the move cuts    VT506
       dissolve  the Dissolve: a judge's answer for each of FRAMES frames across the move, whether it shows
                 two pictures overlaid, and what it shows                                                  VT507
@@ -325,6 +327,8 @@ class KeyChecks:
     charts: tuple[Plotted, ...] = ()
     marks: tuple[Marked, ...] = ()
     layout: Compared | None = None
+    move: MoveChecks | None = None
+    """A rehearsal's take judged as the move it is, or None for a key that is no move."""
 
     @property
     def hotspots(self) -> dict[str, Box | None]:
@@ -379,7 +383,7 @@ class KeyChecks:
                               f"shading {far.shading:.4f}, edges {far.edges:.4f}, {far.kept:.0%} of the picture "
                               f"compared; {bar.metric} {'under' if self.layout.same else 'over'} the threshold of "
                               f"{bar.threshold:.4f}", self.layout.same, None))
-        return items
+        return items + (self.move.items() if self.move is not None else [])
 
     @property
     def failures(self) -> list[Item]:
@@ -460,18 +464,18 @@ class Dissolve:
 
 @dataclass(frozen=True)
 class MoveChecks:
-    """A move's take judged: how far its first and last frames sit from the keys it is pinned to, and, when they were
-    measured, whether it cuts and whether it dissolves."""
+    """A move's take judged: how far its first and last frames sit from the keys it is pinned to, whether it cuts and
+    whether it dissolves."""
 
     start: float
     end: float
-    cut: Cut | None = None
-    dissolve: Dissolve | None = None
+    cut: Cut
+    dissolve: Dissolve
 
     def items(self) -> list[Item]:
         seams = [Item("VT508", name, f"difference {value:.3f}", value <= MAX_DIFFERENCE, None)
                  for name, value in (("start", self.start), ("end", self.end))]
-        return [*seams, *(judged.item() for judged in (self.cut, self.dissolve) if judged is not None)]
+        return [*seams, self.cut.item(), self.dissolve.item()]
 
     @property
     def failures(self) -> list[Item]:
@@ -559,10 +563,6 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
              for one in reads if one.marked is not None for element in key.shown
              if any(_choice(line) for line in element.lines)]
     return KeyChecks(actions, text, tuple(invented), tuple(stray), tuple(charts), tuple(marks))
-
-
-def seams(first: Frame, last: Frame, start_key: Frame, end_key: Frame) -> MoveChecks:
-    return MoveChecks(start=frames.difference(first, start_key), end=frames.difference(last, end_key))
 
 
 def readings(reader: str, lines: Sequence[str], spots: Sequence[Spot]) -> tuple[tuple[Seen, tuple[Spot, ...]], ...]:
