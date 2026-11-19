@@ -1,16 +1,16 @@
 # Plan
 
-`videotape plan`, run in an app's project, walks every state the app can reach, breadth first from the first scene, before anything renders. It prints one line with the app's title, its version and its counts, then a table with each scene's states and the moves out of them, then `0 errors, N warnings`, then the estimate for the project's model: its name, the shots, the calls from one take each up to `takes` in `[tool.videotape]` (4 unless set), and their price, `free` for a model that bills per call nothing, or a range at the model's price per second, one price when `takes` is 1. A state is a scene with its arguments. A render draws one key for each state and one move for each action, so the shots are the states plus the moves. With `--story <name>` it checks that story as well, and the first line names the story and its version after the app's. With `--model <name>` it checks the story's prompts against that model's limit and not the project's model's, and the estimate is that model's. With a model, from `--model` or the project, the plan holds its keys to the model's modes the way a render does before its first call: a plan with a variant stops with `VT111` on a model that films no key from another key's picture, `wan2.2-5b`, with the lines a render on it prints. A project that names no model gets no estimate line. The plan writes no file.
+`videotape plan`, run in an app's project, walks every state the app can reach, breadth first from the first scene, before anything renders. It prints one line with the app's title, its version and its counts, then a table with each scene's states and the moves out of them, then `0 errors, N warnings`, then the estimate for the project's model: its name, the shots, the calls from one take each up to `takes` in `[tool.videotape]` (4 unless set), and their price, `free` for a model that bills per call nothing, or a range at the model's price per second, one price when `takes` is 1. A state is a scene with its arguments. A render draws one key for each state and one move for each action, and every scene's base but the entry's is rehearsed, drawn as the move that first reaches it, so the shots are the states plus the moves less the rehearsed ones, and the first line says how many keys are rehearsed. With `--story <name>` it checks that story as well, and the first line names the story and its version after the app's. With `--model <name>` it checks the story's prompts against that model's limit and not the project's model's, and the estimate is that model's. With a model, from `--model` or the project, the plan holds its keys to the model's modes the way a render does before its first call: a plan with a key drawn from another key's picture, a variant or a rehearsed base, stops with `VT111` on a model that films none, `wan2.2-5b`, with the lines a render on it prints. A project that names no model gets no estimate line. The plan writes no file.
 
 ## Sub-features
 
-- `plan-contrail` prints Contrail's 11 scenes, 58 states, 58 keys, 102 moves and 160 shots, then the estimate for gemini-omni-flash-1.2, Contrail's model, and exits 0.
+- `plan-contrail` prints Contrail's 11 scenes, 58 states, 58 keys of which 10 rehearsed, 102 moves and 150 shots, then the estimate for gemini-omni-flash-1.2, Contrail's model, and exits 0.
 - `plan-story` prints the same table for each of Contrail's stories, under a first line that names the story, with `0 errors, 0 warnings` against every model but `wan2.2-5b`, and each model's estimate.
 - `plan-readme` prints the same through the README's own command, `uv run videotape plan` in `examples/contrail`.
 - `plan-subfolder` finds the project from a folder inside it and prints the same.
 - `plan-types` checks the example in pyright's strict mode with `uv run pyright contrail`, with 0 errors.
-- `plan-cafe` prints the cafe fixture's 3 scenes, 5 states and 6 moves in its story, `chalk`.
-- `plan-wan` stops Contrail's plan with `--model wan2.2-5b` with `VT111`, since 47 of its keys are variants, and exits 1.
+- `plan-cafe` prints the cafe fixture's 3 scenes, 5 states, of which 2 are rehearsed, and 6 moves in its story, `chalk`.
+- `plan-wan` stops Contrail's plan with `--model wan2.2-5b` with `VT111`, since 57 of its keys are drawn from another key's picture, 47 variants and 10 rehearsed bases, and exits 1.
 - `plan-warning` prints each `VT211` warning to stderr, still prints the table, and exits 0.
 
 ## How to get to it (user POV)
@@ -27,7 +27,7 @@ Preconditions:
 
 - **Contrail.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-contrail examples/contrail -- plan`. `$RUN/plan-contrail.exit` is `0`, `.stderr` is empty, and `.stdout` is exactly:
   ```
-  Contrail 0.1.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
+  Contrail 0.1.0: 11 scenes, 58 states, 58 keys of which 10 rehearsed, 102 moves, 150 shots
 
   scene        states   moves out
   home              1           4
@@ -43,15 +43,15 @@ Preconditions:
   profile           1           2
 
   0 errors, 0 warnings
-  gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04
+  gemini-omni-flash-1.2: 150 shots, 150 to 600 calls, $65.92 to $263.70 at $0.0819/s plus $0.03 a call for the prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04, and 102 to 408 judgments by claude-opus-5-5, at most $12.47 to $49.87
   ```
-- **Story.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-story examples/contrail -- plan --story terminal`. `.exit` is `0`, `.stderr` is empty, the first `.stdout` line is `Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots`, and every other line is as in `plan-contrail`, ending `0 errors, 0 warnings` and `gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04`. With `--story posters` the first line is `Contrail 0.1.0 + posters 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots`. Each story also prints `0 errors, 0 warnings` with `--model wan2.2-5b` added, then `wan2.2-5b: 160 shots, 160 to 640 calls, free, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04`, and with `--model wan3.0`, then `wan3.0: 160 shots, 160 to 640 calls, $80.00 to $320.00 at $0.10/s, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04`, since Claude reads the keys of every model but the stand-in. With `--model wan3.0` and no `--story`, `.exit` is `1` and `.stderr` is `error VT310 --model: names the model whose prompt limit a story's prompts must fit, and no --story names one` over `fix: name the story too, as in videotape plan --story starter --model wan3.0`.
+- **Story.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-story examples/contrail -- plan --story terminal`. `.exit` is `0`, `.stderr` is empty, the first `.stdout` line is `Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys of which 10 rehearsed, 102 moves, 150 shots`, and every other line is as in `plan-contrail`, ending `0 errors, 0 warnings` and `gemini-omni-flash-1.2: 150 shots, 150 to 600 calls, $65.92 to $263.70 at $0.0819/s plus $0.03 a call for the prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04, and 102 to 408 judgments by claude-opus-5-5, at most $12.47 to $49.87`. With `--story posters` the first line is `Contrail 0.1.0 + posters 1.0.0: 11 scenes, 58 states, 58 keys of which 10 rehearsed, 102 moves, 150 shots`. Each story also prints `0 errors, 0 warnings` with `--model wan2.2-5b` added, then `wan2.2-5b: 150 shots, 150 to 600 calls, free, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04, and 102 to 408 judgments by claude-opus-5-5, at most $12.47 to $49.87`, and with `--model wan3.0`, then `wan3.0: 150 shots, 150 to 600 calls, $75.00 to $300.00 at $0.10/s, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04, and 102 to 408 judgments by claude-opus-5-5, at most $12.47 to $49.87`, since Claude reads the keys and judges the moves of every model but the stand-in. With `--model wan3.0` and no `--story`, `.exit` is `1` and `.stderr` is `error VT310 --model: names the model whose prompt limit a story's prompts must fit, and no --story names one` over `fix: name the story too, as in videotape plan --story starter --model wan3.0`.
 - **README command.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" plan-readme -C examples/contrail -- uv run videotape plan`. `.exit` is `0`, and `cmp "$RUN/plan-contrail.stdout" "$RUN/plan-readme.stdout"` prints nothing.
 - **Subfolder.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-subfolder examples/contrail/data -- plan`. `.exit` is `0`, and `cmp "$RUN/plan-contrail.stdout" "$RUN/plan-subfolder.stdout"` prints nothing.
 - **Types.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" plan-types -C examples/contrail -- uv run pyright contrail`. `.exit` is `0` and the last `.stdout` line is `0 errors, 0 warnings, 0 informations`. pyright's wrapper prints a line above it when PyPI has a newer pyright. `examples/contrail/pyproject.toml` sets `typeCheckingMode = "strict"` under `[tool.pyright]`, so this is the strict check.
 - **Cafe.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-cafe tests/fixtures/cafe -- plan --story chalk`. `.exit` is `0` and `.stdout` is exactly:
   ```
-  Corner Cafe 0.3.0 + chalk 1.0.0: 3 scenes, 5 states, 5 keys, 6 moves, 11 shots
+  Corner Cafe 0.3.0 + chalk 1.0.0: 3 scenes, 5 states, 5 keys of which 2 rehearsed, 6 moves, 9 shots
 
   scene        states   moves out
   menu              1           2
@@ -59,11 +59,11 @@ Preconditions:
   thanks            2           2
 
   0 errors, 0 warnings
-  stand-in: 11 shots, 11 to 44 calls, free
+  stand-in: 9 shots, 9 to 36 calls, free
   ```
 - **Wan.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" plan-wan examples/contrail -- plan --story terminal --model wan2.2-5b`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is exactly:
   ```
-  error VT111 wan2.2-5b: films no key from another key's picture, and 47 keys of the plan are drawn from the base's picture
+  error VT111 wan2.2-5b: films no key from another key's picture, and 57 keys of the plan are drawn from one, a base's or the picture of the state a rehearsed base is reached from
   fix: render with a model on fal, whose image-to-video takes one picture, as in --model gemini-omni-flash-1.2, or with the stand-in
   ```
   `scripts/runpod-render` runs this plan before it calls Runpod; [gpu-render.md](./gpu-render.md) drives it.
