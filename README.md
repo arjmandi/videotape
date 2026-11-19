@@ -97,11 +97,10 @@ uv run videotape render --story starter --model stand-in
 ```
 
 ```text
-1. key home()  kept take 1, passed, 1 take filmed, $0.00, 0.3 s
-2. key todo()  kept take 3, passed, 3 takes filmed, $0.00, 0.8 s
-4. todo() -> home() "Back"  kept take 2, passed, 2 takes filmed, $0.00, 0.4 s
-3. home() -> todo() "See the steps"  kept take 3, passed, 3 takes filmed, $0.00, 0.6 s
-4 shots, 9 takes filmed, $0.00, 2.8 s, tape 0.2 MB -> tapes/starter
+1. key home()  kept take 1, passed, 1 take filmed, $0.00, 0.2 s
+2. key todo() rehearsed from home()  kept take 1, passed, 1 take filmed, $0.00, 0.2 s
+3. todo() -> home() "Back"  kept take 2, passed, 2 takes filmed, $0.00, 0.3 s
+3 shots, 4 takes filmed, $0.00, 3.0 s, tape 0.2 MB -> tapes/starter
 ```
 
 Each line is a shot. A shot films takes until one passes its checks, so the key of `todo()` kept its third take. The render wrote a tape to `tapes/starter/`. Play it:
@@ -142,14 +141,14 @@ uv run videotape plan
 ```
 
 ```text
-Contrail 0.1.0: 2 scenes, 2 states, 2 keys, 2 moves, 4 shots
+Contrail 0.1.0: 2 scenes, 2 states, 2 keys of which 1 rehearsed, 2 moves, 3 shots
 
 scene        states   moves out
 home              1           1
 todo              1           1
 
 0 errors, 0 warnings
-wan3.0: 4 shots, 4 to 16 calls, $2.00 to $8.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.35 to $1.38
+wan3.0: 3 shots, 3 to 12 calls, $1.50 to $6.00 at $0.10/s, and 2 to 8 reads by claude-opus-5-5, at most $0.35 to $1.38, and 2 to 8 judgments by claude-opus-5-5, at most $0.24 to $0.98
 ```
 
 A render films one shot for each state and one for each action. A key is the shot of a state at rest. A move is the shot of an action. It films the press, from the key of the state it leaves to the key of the state it lands on. The last line is the estimate for the project's model. A render makes one call for each shot if every first take passes, and four if none passes before the last.
@@ -490,7 +489,7 @@ uv run videotape plan
 ```
 
 ```text
-Contrail 0.1.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
+Contrail 0.1.0: 11 scenes, 58 states, 58 keys of which 10 rehearsed, 102 moves, 150 shots
 
 scene        states   moves out
 home              1           4
@@ -506,10 +505,10 @@ trip              2           0
 profile           1           2
 
 0 errors, 0 warnings
-stand-in: 160 shots, 160 to 640 calls, free
+stand-in: 150 shots, 150 to 600 calls, free
 ```
 
-The data gives every number that `plan` prints. Three cities have flights, on three days each, so `results` has 9 states. There are 18 flights, so `flight` and `booked` have 18 states each. The estimate is for the stand-in, the project's model since part 2.
+The data gives every number that `plan` prints. Three cities have flights, on three days each, so `results` has 9 states. There are 18 flights, so `flight` and `booked` have 18 states each. Every scene's base but the entry's is rehearsed, filmed as the move that first reaches it, so those ten moves are no shots of their own, and the 58 keys and 102 moves make 150 shots. The estimate is for the stand-in, the project's model since part 2.
 
 A mistake in the screenplay or its data stops the plan with an error code from `VT201` to `VT211`, or `VT213` for a record field that is not a `str`, an `int`, a `date` or a `time`, and the file and line it is at. A scene that raises for one state's arguments, an action that leads to a scene instead of a state, and a scene no action reaches are such mistakes. `uv run videotape explain <code>` prints a code's long form, with an example and its fix.
 
@@ -593,10 +592,10 @@ uv run videotape plan --story terminal
 ```
 
 ```text
-Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
+Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys of which 10 rehearsed, 102 moves, 150 shots
 ...
 0 errors, 0 warnings
-stand-in: 160 shots, 160 to 640 calls, free
+stand-in: 150 shots, 150 to 600 calls, free
 ```
 
 `shots` prints each shot's prompt, one clause to a line, with the clause's source beside it. Print the shots of the first state:
@@ -607,28 +606,30 @@ uv run videotape shots --story terminal --state "home()"
 
 ```text
 key home()
-  engine                      Static shot.
-  story look                  A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
-  story scenes.home           The main hall, facing the big departure board.
-  story elements.Heading      Large white letters on a long dark sign,
-  screenplay home, Heading    reading "Good morning, Alex".
-  story elements.SearchBar    A wide white slot in the departure board with black letters, its destinations listed below it as lines of the board,
-  screenplay home, SearchBar  reading "Where to?".
-  story elements.List         A departure board, one line per row, its words in columns,
-  screenplay home, List       reading "Your next trip"; and "San Francisco to New York" and "Friday, December 18".
-  story elements.Text         Smaller white letters on a dark sign,
-  screenplay home, Text       reading "48,250 Contrail Miles".
-  story elements.Tabs         Three dark signs hanging in a row, the current one lit amber,
-  screenplay home, Tabs       reading "Home", "Trips", and "Profile", with "Home" chosen.
-  engine                      Sharp, legible lettering.
+  engine                         Static shot.
+  story look                     A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
+  story scenes.home              The main hall, facing the big departure board.
+  story elements.Heading         Large white letters on a long dark sign,
+  screenplay home, Heading       reading "Good morning, Alex".
+  story elements.SearchBar       A wide white slot in the departure board with black letters, its destinations listed below it as lines of the board,
+  screenplay home, SearchBar     reading "Where to?".
+  story elements.List            A departure board, one line per row, its words in columns,
+  screenplay home, List          reading "Your next trip"; and "San Francisco to New York" and "Friday, December 18".
+  story elements.Text            Smaller white letters on a dark sign,
+  screenplay home, Text          reading "48,250 Contrail Miles".
+  story elements.Tabs            Three dark signs hanging in a row, the current one lit amber,
+  screenplay home, Tabs          reading "Home", "Trips", and "Profile", with "Home" chosen.
+  engine                         Sharp, legible lettering.
 
-home() -> search() "Where to?"
-  screenplay home, SearchBar  The search bar "Where to?" is pressed.
-  story moves.SearchBar       The slot lights up. The camera steps closer to the departure board.
+key search() rehearsed from home()
+  screenplay home, SearchBar     The search bar "Where to?" is pressed.
+  story moves.SearchBar          The slot lights up. The camera steps closer to the departure board.
+  engine                         It ends held still on the next screen.
+  story look                     A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
 ...
 ```
 
-A key's prompt is the look, then the scene's direction, then each element, as its appearance from the story and its words from the screenplay. The move's prompt is the press, from the screenplay, and then what the story says the camera does. When a shot comes out wrong, its sources say which line to change.
+A key's prompt is the look, then the scene's direction, then each element, as its appearance from the story and its words from the screenplay. The move's prompt is the press, from the screenplay, and then what the story says the camera does. A rehearsal's prompt is the move's, then that the clip ends held still on the next screen, then the key's without its static shot, so the search scene's base is drawn as the move that first reaches it from home. When a shot comes out wrong, its sources say which line to change.
 
 Write Contrail's second story, a wall of travel posters:
 
@@ -679,13 +680,13 @@ uv run videotape shots --story posters --state "home()"
 
 ```text
 key home()
-  engine                      Static shot.
-  story look                  A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat shapes, a few bold colors (teal, coral, mustard, and cream), paper grain, and bold geometric sans-serif letters. The camera faces the wall straight on.
-  story scenes.home           A poster of a plane over the Golden Gate Bridge.
+  engine                         Static shot.
+  story look                     A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat shapes, a few bold colors (teal, coral, mustard, and cream), paper grain, and bold geometric sans-serif letters. The camera faces the wall straight on.
+  story scenes.home              A poster of a plane over the Golden Gate Bridge.
 ...
-home() -> search() "Where to?"
-  screenplay home, SearchBar  The search bar "Where to?" is pressed.
-  story moves.default         The camera slides along the wall to the next poster and settles straight on.
+key search() rehearsed from home()
+  screenplay home, SearchBar     The search bar "Where to?" is pressed.
+  story moves.default            The camera slides along the wall to the next poster and settles straight on.
 ...
 ```
 
@@ -693,7 +694,7 @@ home() -> search() "Where to?"
 
 ### Render
 
-A render films each scene's base first, then each variant of the scene from the base's picture as soon as the base is done, and each move as soon as both of its keys are done, several shots at once. A scene's base is its first state in the plan, filmed from its own prompt. Each later state of the scene is a variant, which differs from the base in its data alone, so the model draws it as image to video from the base's picture with the variant's own prompt, and the variant keeps the base's layout. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, each chart's title, labels and values match the data, the chosen day or tab is drawn marked and no other, a variant's layout stays its base's outside the words, and each move starts and ends on its keys. The stand-in's eye is its own reader. A real model's eye is two readers, Qwen3-VL-8B and Claude, and a line reads back exactly from both or the check fails, but for a period one adds to the end of a line that has none while the other reads the line exactly. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
+A render films the entry's key first, from its own prompt. A scene's base is its first state in the plan, and every base but the entry's is rehearsed: filmed as the move that first reaches it in the plan, image to video from the key of the state that move leaves, with the move's words and then the state's, so the clip travels from one screen to the next as a camera would and its last frame is the state's key. Each later state of the scene is a variant, which differs from the base in its data alone, so the model draws it as image to video from the base's picture with the variant's own prompt, as soon as the base is done, and the variant keeps the base's layout. Every other move is pinned, filmed first-and-last-frame between its two keys as soon as both are done. Several shots film at once. Each shot films one take at a time, with seed 1, then 2, and on. The eye reads each take of a key back, and the take's checks compare what it read with the screenplay: each action's words are found on the key, each line reads back exactly, nothing on the key looks like a control the state lacks, each chart's title, labels and values match the data, the chosen day or tab is drawn marked and no other, and a variant's layout stays its base's outside the words. Each take of a move, a rehearsal's or a pinned move's, is checked too: it starts and ends on its keys, no frame jumps far from the one before it, and the judge, shown eight frames across it, sees two pictures overlaid on none of them. The stand-in's eye is its own reader, and its judge its own. A real model's eye is two readers, Qwen3-VL-8B and Claude, and a line reads back exactly from both or the check fails, but for a period one adds to the end of a line that has none while the other reads the line exactly; Claude judges its moves. A shot keeps the first take that passes every check, and stops there. When no take passes by `takes`, it keeps the best one.
 
 The render prints a line for each shot as it finishes, then the totals, then each failing shot with the command to run next. It writes the tape to `tapes/terminal/`, and a line for each take to `ledger.jsonl`. The stand-in passes every shot within four takes, and a real model does not. So the output here comes from `tests/test_guide.py`, whose stand-in films every other shot clean on its first take, and fails two keys on every take:
 
@@ -703,7 +704,7 @@ uv run videotape render --story terminal
 
 ```text
 1. key home()  kept take 1, passed, 1 take filmed, $0.00, 1.5 s
-2. key search()  kept take 1, passed, 1 take filmed, $0.00, 1.8 s
+2. key search() rehearsed from home()  kept take 1, passed, 1 take filmed, $0.00, 0.5 s
 ...
 34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 1, fails VT502, 4 takes filmed, $0.00, 6.1 s
 ...
@@ -716,7 +717,7 @@ fail: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 
   next: videotape retake "booked(CT 300, 2026-12-11)" --story terminal
 ```
 
-A render run again reuses every take on disk and films only what is missing or changed. An edit to the screenplay, the data, or a story films again only the shots whose prompts it changes, the variants of a base it films again, and the moves that start or end on a key that changed.
+A render run again reuses every take on disk and films only what is missing or changed. An edit to the screenplay, the data, or a story films again only the shots whose prompts it changes, every key drawn from the picture of a key it films again, down the plan, and the pinned moves that start or end on a key that changed. A rehearsed key starts on the picture of the state it is reached from, so a change to the entry films everything again, and a change to a leaf state films that state's keys and the moves that touch them.
 
 ### Review
 
@@ -725,7 +726,7 @@ uv run videotape dailies --story terminal
 ```
 
 ```text
-wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "reads": 0, "usd": 0.0}
+wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "reads": 0, "judgments": 0, "usd": 0.0}
 ```
 
 `dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what each reader read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. `explain` prints a code's long form:
@@ -780,7 +781,7 @@ accepted: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT
   reason: a printed logo, not a control
 ```
 
-A retake films new takes of one shot, with seeds after the highest it has tried, and keeps the best of all its takes. It films with the model that made the tape, which `tape.json` names, so a retake of a stand-in tape costs nothing whatever model `[tool.videotape]` names. Add `--takes 3` to film three. It then renders the story again, so the moves that start or end on the key film again, and the variants of the scene when the key is its base. To retake a move, name it by its states, as in `"flight(CT 104, 2026-12-13) -> booked(CT 104, 2026-12-13)"`.
+A retake films new takes of one shot, with seeds after the highest it has tried, and keeps the best of all its takes. It films with the model that made the tape, which `tape.json` names, so a retake of a stand-in tape costs nothing whatever model `[tool.videotape]` names. Add `--takes 3` to film three. It then renders the story again, so the pinned moves that start or end on the key film again, and every key drawn from its picture: the variants of the scene when the key is its base, and the rehearsed bases first reached from it. To retake a move, name it by its states, as in `"flight(CT 104, 2026-12-13) -> booked(CT 104, 2026-12-13)"`.
 
 Nothing fails now that nobody accepted. Play the tape:
 
@@ -799,12 +800,12 @@ uv run videotape plan --story terminal --model gemini-omni-flash-1.2
 ```
 
 ```text
-Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots
+Contrail 0.1.0 + terminal 1.0.0: 11 scenes, 58 states, 58 keys of which 10 rehearsed, 102 moves, 150 shots
 ...
-gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04
+gemini-omni-flash-1.2: 150 shots, 150 to 600 calls, $65.92 to $263.70 at $0.0819/s plus $0.03 a call for the prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04, and 102 to 408 judgments by claude-opus-5-5, at most $12.47 to $49.87
 ```
 
-fal bills $0.0819 for each second of a clip, and bills the prompt by the token. No answer says what the prompt cost, so the estimate and the cap count the most a prompt can cost, $0.03 a call. A read's estimate charges every output token the reply may take, so a read costs less than its share here, and a reply is cached in the tape, so a render run again pays for no read twice.
+fal bills $0.0819 for each second of a clip, and bills the prompt by the token. No answer says what the prompt cost, so the estimate and the cap count the most a prompt can cost, $0.03 a call. A read's estimate charges every output token the reply may take, so a read costs less than its share here, and a reply is cached in the tape, so a render run again pays for no read twice. Claude is the judge of every move too: it sees eight frames across each take of a move and says of each whether it shows two pictures overlaid. A judgment is priced, capped and cached as a read is.
 
 To render with it, first add videotape's `qwen` extra, which runs Qwen3-VL-8B, the reader of the eye that runs here. In `pyproject.toml`, put `[qwen]` right after `videotape` in `dependencies`, and keep the rest of the line. So `"videotape @ git+https://github.com/arjmandi/videotape-p1p@<commit>"` becomes `"videotape[qwen] @ git+https://github.com/arjmandi/videotape-p1p@<commit>"`, and the same goes for a `file://` URL or a version, as in `"videotape[qwen]==0.1.0"`. Then run `uv sync`. Copy `.env.example` to `.env` and set `FAL_KEY` and `ANTHROPIC_API_KEY` there, and set `model = "gemini-omni-flash-1.2"` in `pyproject.toml`. `uv run videotape doctor` now says `ok` for both `VT104` lines and for `VT105`. A render without either API key stops before its first call with doctor's `VT104` and doctor's fix. `.gitignore` keeps `.env` out of git, and no videotape command prints an API key. The render stops before a call that would spend more than the cap, with `VT402`. What the tape has spent is the sum of its lines in `ledger.jsonl`, so a render run again never pays for a take twice. To go on, run the render again with a higher cap, as in `--cap-usd 400`. fal takes no seed for gemini-omni-flash-1.2, so the seed only names a take, and a render run again reuses the take of each seed as it does for any model.
 
@@ -837,9 +838,9 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **action**. What pressing an element does. It leads to the state that the element's `to=` names, and a render films it as a move.
 - **API key**. A secret that a model or a reader run as a service needs, such as `FAL_KEY` for wan3.0, minimax-h3 and gemini-omni-flash-1.2, which run on fal, and `ANTHROPIC_API_KEY` for Claude. It comes from the environment or the project's `.env`.
 - **appearance**. A story's words for how one type of element looks, under `[elements]`.
-- **base**. The first state of a scene in the plan. Its key is filmed from its own prompt, and the keys of the scene's variants are drawn from its picture.
-- **cap**. The most a render may spend on a model or a reader that bills per call. `cap_usd` in `[tool.videotape]` sets it, and `--cap-usd` sets it for one render.
-- **check**. One test that a take must pass: each action's words are found on the key (`VT501`), each line reads back exactly from every reader (`VT502`), the key shows no control the state lacks (`VT503`), each chart's title, labels and values match the data (`VT504`), a variant's layout stays its base's outside the words (`VT505`), a move starts and ends on its keys (`VT508`), and the chosen day or tab is drawn marked and no other (`VT509`).
+- **base**. The first state of a scene in the plan. The entry's key is filmed from its own prompt, and every other base's as a rehearsal. The keys of the scene's variants are drawn from its picture.
+- **cap**. The most a render may spend on a model, a reader or a judge that bills per call. `cap_usd` in `[tool.videotape]` sets it, and `--cap-usd` sets it for one render.
+- **check**. One test that a take must pass: each action's words are found on the key (`VT501`), each line reads back exactly from every reader (`VT502`), the key shows no control the state lacks (`VT503`), each chart's title, labels and values match the data (`VT504`), a variant's layout stays its base's outside the words (`VT505`), a move does not cut (`VT506`) or dissolve (`VT507`), a move starts and ends on its keys (`VT508`), and the chosen day or tab is drawn marked and no other (`VT509`).
 - **clause**. One part of a prompt, with its source: the engine, a part of the story, or an element of the screenplay.
 - **dailies**. The review of a tape: `dailies.json`, which holds what the render knew of each shot, and `dailies.html`, the page that shows it, failures first. `videotape dailies`.
 - **data table**. The records of one record class, loaded from a JSON array in `data/` with `vt.table`.
@@ -849,19 +850,21 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **estimate**. The last line of `videotape plan`: the shots, the calls a render makes if every first take passes and if none passes before the last, and their price.
 - **eye**. What reads a take back for its checks, made of one or more readers: the stand-in's own reader for the stand-in, and Qwen3-VL-8B with Claude for every other model.
 - **hotspot**. Where a person presses an action on a key: the box in which the eye found the action's words.
-- **key**. The shot of one state at rest, filmed from its own prompt, or for a variant from its base's picture. The last frame of its kept take is the state's picture in the tape, and the moves to and from the state start and end on that picture.
+- **judge**. What sees eight frames across a take of a move and says of each whether it shows two pictures overlaid, for the dissolve check: the stand-in's own judge for the stand-in, and Claude for every other model. A judgment by Claude is paid, reserved under the cap before it is sent, cached in the tape's `looks/`, and written to the ledger.
+- **key**. The shot of one state at rest: the entry's filmed from its own prompt, a variant's from its base's picture, and every other base's as a rehearsal. The last frame of its kept take is the state's picture in the tape, and the moves to and from the state start and end on that picture.
 - **kept take**. The take a shot keeps: the first that passes every check, or the best when none passes.
 - **label**. The name of a tape: the app's name and version and the story's name and version, as in `contrail 0.1.0 + terminal 1.0.0`.
-- **ledger**. `ledger.jsonl` in the project, with one line for each take filmed and its price, and one for each paid read.
+- **ledger**. `ledger.jsonl` in the project, with one line for each take filmed and its price, and one for each paid read and each paid judgment.
 - **lock**. `videotape.lock` in the project, with the label, the made id, and the file hashes of each tape published. A label is published with one made id only.
 - **look**. The sentence or two of a story that every key's prompt starts with.
 - **made id**. One hash of everything that made a tape: the screenplay that `[tool.videotape]` names, the app's Python files and data, the story, the model and its settings, and videotape itself. Two tapes with one made id were made from the same things.
 - **model**. The video model that films takes: `stand-in`, `wan3.0`, `minimax-h3`, `gemini-omni-flash-1.2`, or `wan2.2-5b`.
-- **move**. The shot of one action: the press, from the key of the state it leaves to the key of the state it lands on. A story's `[moves]` says what the camera does in it.
+- **move**. One action as the tape plays it: the press, from the key of the state it leaves to the key of the state it lands on. A story's `[moves]` says what the camera does in it. The move that first reaches a base is that base's rehearsal, and every other move is pinned: a shot of its own, filmed first-and-last-frame between the two keys.
 - **plan**. Every state the app can reach, walked from the first scene, with the keys and moves to film. `videotape plan`.
 - **project**. The folder whose `pyproject.toml` has a `[tool.videotape]` section that names the screenplay.
 - **prompt**. The words a model is given for one shot, made of clauses from the story and the screenplay. `videotape shots` prints them.
 - **publish**. To turn a tape into a signed Mac app in `dist/` that plays it. `videotape publish`.
+- **rehearsal**. The key of a base other than the entry's, filmed as the move that first reaches it in the plan: image to video from the key of the state that move leaves, with the move's words and then the state's, so the clip is the move and its last frame is the key. It is checked as a key and as a move.
 - **read**. One reader's report on one picture: every line of text it saw with its box, which look like controls, which are drawn marked, and each chart's title, labels and values. A read by Claude is paid, reserved under the cap before it is sent, cached in the tape's `looks/`, and written to the ledger.
 - **reader**. One part of an eye, which reads a picture and reports a read: the stand-in's own, Qwen3-VL-8B, which runs here through the `qwen` extra and reports no marks and no charts, or Claude, which runs as a service and reports both.
 - **record**. One value of a record class, a `vt.Record` with typed fields. `key=` names the fields that tell two records apart.
@@ -870,7 +873,7 @@ Each word below has one meaning in this guide, and each meaning has one word.
 - **scene**. A function, marked with `@app.scene`, that returns the elements of one screen. Calling it names a state.
 - **screenplay**. The app written as scenes: a `vt.Screenplay` and its scenes. It holds every word on the screen and nothing of how the screen looks.
 - **seed**. The number a take is filmed with: 1, 2, 3, and on. A render run again reuses the take of each seed whose prompt has not changed. fal is not given the seed of a take of gemini-omni-flash-1.2, so there the seed only names the take.
-- **shot**. What a render films for the plan: a key or a move.
+- **shot**. What a render films for the plan: a key or a pinned move.
 - **stand-in**. A model that films each key as a box for each line of the state's words, and reads the boxes back as its eye. It needs no API key and no GPU, and costs nothing.
 - **state**. A scene with the arguments of one call, as in `flight(CT 104, 2026-12-13)`.
 - **story**. How the app looks, in one file, `stories/<name>.toml`: a version, a look, directions, appearances, and what the camera does in each move. Each story renders into its own tape.

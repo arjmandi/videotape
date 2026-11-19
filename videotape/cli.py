@@ -11,9 +11,9 @@ from videotape import dailies, doctor, errors, ledger, new, player, project, pub
 from videotape.errors import CODES, RenderError, ScreenplayError
 from videotape.made import finished, made, manifest, model_named
 from videotape.model import MODELS, Listing, estimate
-from videotape.plan import Key, Plan, Shot, plan
+from videotape.plan import Key, Move, Plan, Rehearsal, Shot, plan
 from videotape.project import Project
-from videotape.render import Filmed, render
+from videotape.render import Filmed, check_modes, render
 from videotape.story import Story
 
 
@@ -50,15 +50,18 @@ def plan_app(args) -> int:
                               "no --story names one", f"name the story too, as in videotape plan --story starter "
                               f"--model {args.model}")
     planned, listing = _planned(found), _listing(found, args.model)
+    if listing:
+        check_modes(planned, listing.kind)
     warnings, in_story = planned.warnings, ""
     if args.story:
         told, more = _told(found, planned, args.story, listing)
         warnings, in_story = (*warnings, *more), f" + {told.name} {told.version}"
-    states, moves = len(planned.keys), len(planned.moves)
+    states, moves, rehearsed = len(planned.keys), len(planned.moves), len(planned.rehearsals)
     per_scene = Counter(key.state.scene.name for key in planned.keys)
     out = Counter(move.start.scene.name for move in planned.moves)
     print(f"{' '.join(filter(None, (planned.title, found.version)))}{in_story}: {_count(len(planned.scenes), 'scene')}, "
-          f"{_count(states, 'state')}, {_count(states, 'key')}, {_count(moves, 'move')}, {_count(states + moves, 'shot')}")
+          f"{_count(states, 'state')}, {_count(states, 'key')} of which {rehearsed} rehearsed, {_count(moves, 'move')}, "
+          f"{_count(len(planned.shots), 'shot')}")
     print()
     print(f"{'scene':<13}{'states':>6}{'moves out':>12}")
     for name in planned.scenes:
@@ -67,7 +70,8 @@ def plan_app(args) -> int:
     _warn(warnings)
     print(f"0 errors, {_count(len(warnings), 'warning')}")
     if listing:
-        print(estimate(args.model or found.model, listing, len(planned.shots), len(planned.keys), found.takes))
+        print(estimate(args.model or found.model, listing, len(planned.shots), len(planned.keys), len(planned.moves),
+                       found.takes))
     return 0
 
 
@@ -80,18 +84,31 @@ def _unnamed(name: str, what: str, close: list[str]) -> ScreenplayError:
 
 
 def _shot_named(planned: Plan, name: str) -> Shot:
-    """The one shot a name picks out: a state's key, a move as "<state> -> <state>", or a move by its full title.
-    VT212 for a name that picks out none, with the closest, or two moves, with their full titles."""
+    """The one shot a name picks out: a state's key, a move as "<state> -> <state>", or a move by its full title. A
+    rehearsed move's shot is the key its take draws. VT212 for a name that picks out none, with the closest, or two
+    moves, with their full titles."""
     names = {key.state.name: [key] for key in planned.keys}
-    for move in planned.moves:
-        names.setdefault(f"{move.start.name} -> {move.land.name}", []).append(move)
-        names[move.title] = [move]
+    for shot in planned.shots:
+        if not isinstance(shot, (Move, Rehearsal)):
+            continue
+        move = shot.move if isinstance(shot, Rehearsal) else shot
+        names.setdefault(f"{move.start.name} -> {move.land.name}", []).append(shot)
+        names[move.title] = [shot]
     if name not in names:
         raise _unnamed(name, "state or move", get_close_matches(name, names, n=3))
     if len(shots := names[name]) > 1:
+        titles = [(shot.move if isinstance(shot, Rehearsal) else shot).title for shot in shots]
         raise ScreenplayError("VT212", f'"{name}"', f"names {_count(len(shots), 'move')}",
-                              "name one by its full title: " + "; ".join(shot.title for shot in shots))
+                              "name one by its full title: " + "; ".join(titles))
     return shots[0]
+
+
+def _states_of(shot: Shot) -> set[str]:
+    """The states a shot is of: a key's own, a move's start, and both for a rehearsal, which is the move that leaves
+    the one and the key of the other."""
+    if isinstance(shot, Rehearsal):
+        return {shot.state.name, shot.start.name}
+    return {shot.state.name if isinstance(shot, Key) else shot.start.name}
 
 
 def print_shots(args) -> int:
@@ -104,7 +121,7 @@ def print_shots(args) -> int:
         names = [key.state.name for key in planned.keys]
         if args.state not in names:
             raise _unnamed(args.state, "state", sorted(get_close_matches(args.state, names, n=3), key=names.index))
-        shots = [shot for shot in shots if (shot.state if isinstance(shot, Key) else shot.start).name == args.state]
+        shots = [shot for shot in shots if args.state in _states_of(shot)]
     prompts = [(shot, story.prompt(shot, told)) for shot in shots]
     width = max(len(str(clause.source)) for _, clauses in prompts for clause in clauses)
     print("\n\n".join("\n".join([shot.title, *(f"  {str(clause.source):<{width}}  {clause.text}" for clause in clauses)])
@@ -174,11 +191,11 @@ def _render(found: Project, args) -> int:
     _warn((*planned.warnings, *warnings))
     tape = _tape(found, told.name, args.out)
     model, takes = listing.model(), args.takes or found.takes
-    readers = [reader(tape) for reader in listing.readers]
+    readers, judge = [reader(tape) for reader in listing.readers], listing.judge(tape)
     cap = args.cap_usd if args.cap_usd is not None else found.cap_usd
     book = ledger.of(found.root, tape)
-    if listing.price or any(reader.paid for reader in readers):
-        print(f"{estimate(model.name, listing, len(planned.shots), len(planned.keys), takes)}, "
+    if listing.price or any(reader.paid for reader in readers) or judge.paid:
+        print(f"{estimate(model.name, listing, len(planned.shots), len(planned.keys), len(planned.moves), takes)}, "
               f"{f'cap ${cap:.2f}' if cap is not None else 'no cap'}, ${book.totals()['usd']:.2f} spent", flush=True)
     numbers = {shot: number for number, shot in enumerate(planned.shots, 1)}
 
@@ -190,8 +207,8 @@ def _render(found: Project, args) -> int:
         print(f"{numbers[filmed.shot]}. {filmed.shot.title}  kept take {filmed.kept.seed}, {verdict}, {filmed_takes}, "
               f"${filmed.usd:.2f}, {filmed.seconds:.1f} s", flush=True)
 
-    result = render(planned, told, model, readers, tape, book, made(found, told, model), takes=takes, limit=listing.limit,
-                    price=listing.price, cap=cap, resume=_resume(args, told.name), report=report)
+    result = render(planned, told, model, readers, judge, tape, book, made(found, told, model), takes=takes,
+                    limit=listing.limit, price=listing.price, cap=cap, resume=_resume(args, told.name), report=report)
     record = dailies.read(tape)
     print(f"{_count(len(result.shots), 'shot')}, {_count(sum(f.rendered for f in result.shots), 'take')} filmed, "
           f"${sum(f.usd for f in result.shots):.2f}, {result.seconds:.1f} s, tape {record['tape']['bytes'] / 1e6:.1f} MB"
@@ -214,7 +231,8 @@ def render_tape(args) -> int:
 
 def retake(args) -> int:
     """Film new takes of a shot with the model that made the tape, with seeds after the highest it has tried, and
-    render again so the best of all its takes is kept and the moves pinned to a key that changed are drawn again."""
+    render again so the best of all its takes is kept and the moves pinned to a key that changed, and the keys drawn
+    from its picture, are drawn again."""
     found = project.find(Path.cwd())
     planned = _planned(found)
     shot = _shot_named(planned, args.shot)

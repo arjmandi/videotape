@@ -52,10 +52,10 @@ Preconditions:
   - `sh -c 'for f in dist/Contrail-starter.app/Contents/Resources/tape/moves/*.mp4; do ffprobe -v error -select_streams v:0 -show_entries stream=codec_name,codec_tag_string -of csv=p=0 "$f"; done'` prints `hevc,hvc1` three times.
   - `unzip -l dist/Contrail-starter.zip` lists every entry under `Contrail-starter.app/`, with a 163-byte `._` entry beside each file and folder inside the app, though not beside `Contrail-starter.app/` itself, for its `com.apple.provenance` attribute, which `ditto -x -k` restores.
 - **Again.** Copy the lock aside, run the publish again as `publish-again`, and `cmp` the two. `.exit` is `0`, `.stdout` has no `building TapePlayer` line, starts with the `encoded 3 clips` line and ends with `videotape.lock held the label already`, and `cmp` exits `0`.
-- **Failing checks.** Run `sed -i '' 's/under a warm lamp/under a green lamp/' "$D/contrail/stories/starter.toml"`, then `vt-verify exec "$RUN" publish-render-failing -C "$D/contrail" -- uv run videotape render --story starter --model stand-in --takes 1`, which exits `1` with three of the stand-in's flaws on `.stderr`, then the publish as `publish-vt602`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is exactly:
+- **Failing checks.** Run `sed -i '' 's/under a warm lamp/under a green lamp/' "$D/contrail/stories/starter.toml"`, then `vt-verify exec "$RUN" publish-render-failing -C "$D/contrail" -- uv run videotape render --story starter --model stand-in --takes 1`, which exits `1` with two of the stand-in's flaws on `.stderr`, a misread line on the rehearsed `todo()` key and a cut on the move back, then the publish as `publish-vt602`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is exactly:
 
   ```
-  error VT602 tapes/starter: 3 checks fail that nobody accepted: key todo() VT502, home() -> todo() "See the steps" VT508, todo() -> home() "Back" VT508
+  error VT602 tapes/starter: 2 checks fail that nobody accepted: key todo() rehearsed from home() VT502, todo() -> home() "Back" VT506
   fix: review them with videotape dailies --story starter, then retake the shot or accept the failing check with a reason; for the first:
   videotape retake "todo()" --story starter
   videotape accept "todo()" VT502 --story starter --reason "..."

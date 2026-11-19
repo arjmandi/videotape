@@ -241,7 +241,8 @@ class Shoot:
                   f"{count}, {_money(filmed.usd)}, {filmed.seconds:.1f} s", flush=True)
 
         return render(Plan(self.plan.title, self.plan.scenes, keys, (), ()), self.told, self.model, self.readers,
-                      self.tape, ledger.of(self.found.root, self.tape), made(self.found, self.told, self.model),
+                      self.listing.judge(self.tape), self.tape, ledger.of(self.found.root, self.tape),
+                      made(self.found, self.told, self.model),
                       takes=takes, limit=self.listing.limit, price=self.listing.price, cap=self.cap,
                       resume=self.resume, report=report, every=every, bases=bases, bar=bar)
 
@@ -541,7 +542,10 @@ class Edition:
 
     @cached_property
     def prompts(self) -> dict[str, str]:
-        return {shot.id: story.text(story.prompt(shot, self.story)) for shot in self.plan.shots}
+        """Each key's own prompt and each move's, by the shot's id. The methods here draw every base from its own
+        prompt, as a render draws the entry's, so a rehearsed base's prompt is the state's alone."""
+        return {shot.id: story.text(story.prompt(shot, self.story))
+                for shot in (*(key.from_prompt() for key in self.plan.keys), *self.plan.moves)}
 
     @cached_property
     def bases(self) -> dict[str, Key]:

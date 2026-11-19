@@ -162,12 +162,27 @@ def test_every_contrail_key_quotes_each_of_its_lines_once_and_in_order_and_the_c
     look = told(CONTRAIL, name)
     plan_ = planned(CONTRAIL)
     for key in plan_.keys:
-        prompt = words(key, look)
+        prompt = words(key, look).partition(story.ARRIVES.text)[2] or words(key, look)
         said_chosen = r', with "([^"]*)" chosen'
         assert re.findall(r'"([^"]*)"', re.sub(said_chosen, "", prompt)) == list(key.lines), key.state.name
         chosen = [line.words for element in key.shown for line in element.lines if line.chosen]
         assert re.findall(said_chosen, prompt) == chosen, key.state.name
-    assert sum('" chosen' in words(key, look) for key in plan_.keys) == 12
+    assert sum('" chosen' in words(key.from_prompt(), look) for key in plan_.keys) == 12
+
+
+def test_a_rehearsals_prompt_carries_the_moves_clauses_then_the_states_own_without_the_static_shot():
+    full, terminal = planned(CONTRAIL), told(CONTRAIL, "terminal")
+    [search] = [key for key in full.rehearsals if key.state.name == "search()"]
+    composed = story.prompt(search, terminal)
+    move, key = words(search.move, terminal), words(search.from_prompt(), terminal)
+    assert story.text(composed) == f"{move} {story.ARRIVES.text} {key.removeprefix(story.STATIC.text + ' ')}"
+    assert story.text(composed).startswith('The search bar "Where to?" is pressed. The slot lights up. The camera steps closer '
+                                           "to the departure board. It ends held still on the next screen. A quiet international")
+    assert "Static shot." not in story.text(composed) and story.text(composed).endswith("Sharp, legible lettering.")
+    assert [str(clause.source) for clause in composed][:5] == ["screenplay home, SearchBar", "story moves.SearchBar",
+                                                                "engine", "story look", "story scenes.search"]
+    assert story.prompt(full.keys[0], terminal)[0] is story.STATIC
+    assert story.ARRIVES.text == "It ends held still on the next screen."
 
 
 def test_contrails_moves_take_their_types_move_in_terminal_and_the_default_in_posters():
@@ -211,7 +226,7 @@ def test_shots_prints_each_prompt_under_its_title_one_clause_to_a_line_with_its_
 def test_shots_without_a_state_prints_every_shot_of_the_plan():
     result = videotape(CONTRAIL, "shots", "--story", "terminal")
     shots = result.stdout.split("\n\n")
-    assert (len(shots), result.returncode) == (160, 0)
+    assert (len(shots), result.returncode) == (150, 0)
     assert [shot.splitlines()[0] for shot in shots] == [shot.title for shot in planned(CONTRAIL).shots]
 
 
@@ -251,10 +266,11 @@ def test_a_project_without_stories_says_which_file_to_add():
 def test_plan_checks_a_contrail_story_and_names_it_after_the_apps_version(name):
     result = videotape(CONTRAIL, "plan", "--story", name)
     assert (result.stderr, result.returncode) == ("", 0)
-    assert result.stdout.splitlines()[0] == f"Contrail 0.1.0 + {name} 1.0.0: 11 scenes, 58 states, 58 keys, 102 moves, 160 shots"
+    assert result.stdout.splitlines()[0] == (f"Contrail 0.1.0 + {name} 1.0.0: 11 scenes, 58 states, 58 keys of which 10 "
+                                             "rehearsed, 102 moves, 150 shots")
     assert result.stdout.splitlines()[-2:] == ["0 errors, 0 warnings", (
-        "gemini-omni-flash-1.2: 160 shots, 160 to 640 calls, $70.32 to $281.28 at $0.0819/s plus $0.03 a call for the "
-        "prompt, and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04")]
+        "gemini-omni-flash-1.2: 150 shots, 150 to 600 calls, $65.92 to $263.70 at $0.0819/s plus $0.03 a call for the prompt, "
+        "and 58 to 232 reads by claude-opus-5-5, at most $10.01 to $40.04, and 102 to 408 judgments by claude-opus-5-5, at most $12.47 to $49.87")]
     assert result.stdout.splitlines()[1:] == videotape(CONTRAIL, "plan").stdout.splitlines()[1:]
 
 

@@ -49,7 +49,7 @@ CODES: dict[str, Code] = {
         "an API key the project's model or one of its readers needs is not set",
         "A model that runs as a service needs its API key: wan3.0, minimax-h3 and gemini-omni-flash-1.2 run on fal "
         "and need FAL_KEY. So does a reader that runs as a service: Claude, a reader of the eye of every model but the "
-        "stand-in, needs ANTHROPIC_API_KEY. A project command "
+        "stand-in, and the judge of its moves, needs ANTHROPIC_API_KEY. A project command "
         "gets API keys from the environment and from the project's .env, one KEY=VALUE line each, and an API key "
         "already in the environment wins. No command prints an API key's value. The stand-in and its reader run here "
         "and need none, and so does Qwen3-VL-8B. A render with a reader whose API key is not set stops before any "
@@ -122,8 +122,10 @@ CODES: dict[str, Code] = {
         "80 GB, such as an H100. A Mac has no CUDA GPU. scripts/runpod-render rents one on Runpod, installs the extra "
         "there and renders the tape on it. wan3.0 runs Wan 3.0 on fal and needs only its API key, and the stand-in "
         "runs anywhere. wan2.2-5b also films no key from another key's picture, and a render draws the key of every "
-        "variant, a state of a scene after its base, from the base's picture, so a plan with a variant renders with a "
-        "model on fal or with the stand-in, which film one. Either way the render stops before its first take.",
+        "variant, a state of a scene after its base, from the base's picture, and every base but the entry's from the "
+        "picture of the state it is first reached from, so a plan with more than one scene renders with a model on "
+        "fal or with the stand-in, which film one. Either way the render stops before its first take. A plan with "
+        "--model wan2.2-5b stops on such a key too, and scripts/runpod-render runs that plan before it rents a pod.",
         "error VT111 wan2.2-5b: needs videotape's wan extra, which is not installed here",
         "fix: render with wan2.2-5b on a CUDA GPU with about 80 GB, as scripts/runpod-render does, or with another "
         "model, as in videotape render --story starter --model stand-in",
@@ -345,13 +347,13 @@ CODES: dict[str, Code] = {
     ),
     "VT402": Code(
         "the next call would pass the cap",
-        "A render with a model or a reader that bills per call spends under a cap: cap_usd in [tool.videotape], or "
-        "--cap-usd. "
+        "A render with a model, a reader or a judge that bills per call spends under a cap: cap_usd in "
+        "[tool.videotape], or --cap-usd. "
         "What a tape has spent is the sum of its lines in the project's ledger, so running the render again never "
         "resets it. Before each paid call the render stops when the call would pass the cap, says what was spent, and "
         "lets the calls in flight finish and reach the ledger. The render weighs each call against the cap at its "
         "listed price, and the ledger holds what the call then billed, which can differ a little, so the spend can "
-        "end a little past the cap. A render with a paid model or a paid reader and no cap does not start. "
+        "end a little past the cap. A render with a paid model, reader or judge and no cap does not start. "
         "scripts/screen-test holds one cap for all its tapes, renders each under what the others leave, and stops "
         "before its first call when its estimate passes the cap.",
         "error VT402 key search() take 1: the next call would pass the cap of $5.00, with $4.54 spent on this tape "
@@ -512,11 +514,43 @@ CODES: dict[str, Code] = {
         "retake the shot, change the scene's direction in the story so that the model has less to lay out anew, or "
         "accept it with a reason",
     ),
+    "VT506": Code(
+        "a move cuts",
+        "A move is one clip from the key it leaves to the key it lands on, a pinned move's take or the take of the key "
+        "it rehearses, and it should travel between the two as a camera would, with no cut. ffmpeg's scene score "
+        "says how much each frame differs from the one before it, "
+        "and a cut is a frame far from the one before. The check scores every frame of the kept take and fails the "
+        "move when the highest score after the first frame is over 0.3. That threshold parts the ten labelled moves "
+        "of 2026-11-10, which scripts/moves-test judges: the three that cut, two of them a whip past a surfboard, "
+        "score 0.319 and up, and the seven that dissolve 0.187 and under. The check names the frame, as ffmpeg "
+        "numbers frames from 0, and its score.",
+        "frame 37: scene score 0.350, over the threshold of 0.3",
+        "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
+        "with a reason",
+    ),
+    "VT507": Code(
+        "a move dissolves",
+        "A move should travel from one screen to the next as a camera would, and a video model often dissolves "
+        "instead: one picture fades into the other, and for a while the frame shows both overlaid. No pixel measure "
+        "tells a dissolve from a camera move, so a judge looks. Claude, claude.py's model, is shown eight frames "
+        "spread evenly across the kept take in one request and says of each whether it shows two pictures overlaid, "
+        "and what it shows. The move fails when any frame does, on a pinned move's take or the take of the key it "
+        "rehearses. A judgment is paid like a read, under the cap and into the ledger, and cached by its frames, so a "
+        "render run again pays for none. The stand-in's judge calls a frame overlaid when it is a blend of the clip's "
+        "first and last frames, which a crossfade makes its middle frames; the stand-in wipes from one picture to the "
+        "next, and crossfades only as a flaw. scripts/moves-test judges the ten labelled moves of 2026-11-10 and shows "
+        "where the judge agrees with the labels.",
+        "frames 43 and 64: 2 of 8 frames across the move show two pictures overlaid, by claude-opus-5-5",
+        "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
+        "with a reason",
+    ),
     "VT508": Code(
         "a seam between a move and its key is too wide",
         "A move is filmed from the key it leaves to the key it lands on, and its first and last frames are compared "
         "with those two keys' pictures. A difference over 0.05 at either end is a visible jump when the tape plays. "
-        "The dailies name which end and by how much.",
+        "The dailies name which end and by how much. The take of a rehearsed key is the move that first reaches its "
+        "state, so its first frame is compared with the key it leaves, and its last frame is the key itself, which "
+        "sits 0 away.",
         "end: difference 0.279, when the move's last frame is far from the key it lands on",
         "retake the move, change what the story's [moves] says the camera does for that element type, or accept it "
         "with a reason",
@@ -554,7 +588,7 @@ CODES: dict[str, Code] = {
         "retake passes it or a person accepts it with a reason, and an accept holds only for the take it was given "
         "on. Publish opens the tape's dailies.json, and while a failing check there is not accepted, it leaves dist/ "
         "and the lock as they were.",
-        "error VT602 tapes/starter: 1 check fails that nobody accepted: key todo() VT503",
+        "error VT602 tapes/starter: 1 check fails that nobody accepted: key todo() rehearsed from home() VT503",
         "fix: review it with videotape dailies --story starter, then retake the shot or accept the failing check with a "
         "reason; for the first:\nvideotape retake \"todo()\" --story starter\n"
         "videotape accept \"todo()\" VT503 --story starter --reason \"...\"",

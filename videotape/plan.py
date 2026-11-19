@@ -1,7 +1,10 @@
 """The plan: every state an app can reach, walked breadth first from its entry before anything renders. It holds the
 screenplay's words and nothing of how they look, which a story adds when it gives each shot its prompt. A scene's
-first state in the walk is its base, drawn from its own prompt, and each later state of the scene is a variant, drawn
-from the base's picture so that the scene keeps one layout whatever its data."""
+first state in the walk is its base, and each later state of the scene is a variant, drawn from the base's picture so
+that the scene keeps one layout whatever its data. The entry's key is drawn from its own prompt. Every other base is
+rehearsed: drawn as the move that first reaches it in the walk, image to video from the key of the state that move
+leaves, so the clip travels from one screen to the next as a camera would and its last frame is the key. A later move
+into a state is pinned, drawn first-and-last-frame between the two keys."""
 
 import inspect
 import re
@@ -65,7 +68,9 @@ class FromKey(Key):
     own prompt, so the picture's layout carries over. Its kept take's last frame is its key image, as a Key's is."""
 
     start: State
-    """The base: the first state of the variant's scene in the walk."""
+    """The state whose kept key picture this key starts on: the base, the first state of the variant's scene in the
+    walk, whose layout the key is held to. A key drawn from another scene's picture, as a test may draw, is held to no
+    layout."""
     mode: ClassVar[Mode] = Mode.FIRST_FRAME
 
     @property
@@ -102,13 +107,33 @@ class Move:
         return f"moves/{self.id}.mp4"
 
 
+@dataclass(frozen=True)
+class Rehearsal(FromKey):
+    """A scene's base drawn as the move that first reaches it in the walk: image to video from the key of the state
+    the move leaves, with a prompt of the move's clauses and then the state's, so the clip is the move and its last
+    frame is the key. It starts on another scene's picture, so no base layout holds it."""
+
+    move: Move
+
+    @property
+    def title(self) -> str:
+        return f"key {self.state.name} rehearsed from {self.start.name}"
+
+    @property
+    def clip(self) -> str:
+        """Where its kept take is in a tape, as the move's clip."""
+        return self.move.clip
+
+
 Shot = Key | Move
 
 
 @dataclass(frozen=True)
 class Plan:
-    """Every state's key in walk order, then every action's move in walk order. The first key is the entry's, and
-    the first key of each scene is a Key, the scene's base, which the scene's later keys are FromKeys of."""
+    """Every state's key in walk order, then every action's move in walk order. The first key is the entry's, a Key
+    drawn from its own prompt; the first key of every other scene is a Rehearsal, the scene's base drawn as the move
+    that first reaches it; and the scene's later keys are FromKeys of its base. A render films every key and every
+    move no rehearsal draws."""
 
     title: str
     scenes: tuple[str, ...]
@@ -117,8 +142,19 @@ class Plan:
     warnings: tuple[ScreenplayError, ...]
 
     @property
+    def rehearsals(self) -> tuple[Rehearsal, ...]:
+        return tuple(key for key in self.keys if isinstance(key, Rehearsal))
+
+    @property
+    def pinned(self) -> tuple[Move, ...]:
+        """The moves drawn on their own, first-and-last-frame between the keys of the two states: every move but the
+        one each rehearsal draws."""
+        rehearsed = {key.move.id for key in self.rehearsals}
+        return tuple(move for move in self.moves if move.id not in rehearsed)
+
+    @property
     def shots(self) -> tuple[Shot, ...]:
-        return *self.keys, *self.moves
+        return *self.keys, *self.pinned
 
 
 def plan(screenplay: Screenplay, max_states: int = MAX_STATES) -> Plan:
@@ -151,8 +187,18 @@ def plan(screenplay: Screenplay, max_states: int = MAX_STATES) -> Plan:
                               f"lead to it from a scene that is reached, as in to={unreached[0].called}, or delete it")
     moves = [Move(_unique(f"{key.id}--{_slug(line.action.words)}", ids), key.state, line.action, element.type)
              for key in keys for element in key.shown for line in element.lines if line.action]
-    return Plan(screenplay.title, tuple(scene.name for scene in screenplay.scenes), tuple(keys), tuple(moves),
-                tuple(warned.values()))
+    return Plan(screenplay.title, tuple(scene.name for scene in screenplay.scenes), tuple(_rehearsed(keys, moves)),
+                tuple(moves), tuple(warned.values()))
+
+
+def _rehearsed(keys: list[Key], moves: list[Move]) -> list[Key]:
+    """The keys with every base but the entry's as a Rehearsal of the move that first reaches its state: the first
+    move in walk order to land on it, which leaves a state the walk reached earlier."""
+    first = dict[State, Move]()
+    for move in moves:
+        first.setdefault(move.land, move)
+    return [Rehearsal(key.id, key.state, key.shown, first[key.state].start, first[key.state])
+            if type(key) is Key and key is not keys[0] else key for key in keys]
 
 
 def _entry(screenplay: Screenplay) -> State:

@@ -1,9 +1,10 @@
 """A render draws every shot of a plan in a story into a tape. Each shot films one take at a time, seed by seed, and
 stops at the first take that passes every check. Shots that do not depend on each other film at once, up to the
-model's limit: every base key is submitted first, a key drawn from a base's picture as soon as that base is done, and
-a move as soon as both of its keys are done. A model that bills per call films under a cap, and a reader that bills
-per read reads under the same cap. Every take on disk is reused, and so is every read, so a render run again resumes
-without paying for a take or a read twice."""
+model's limit: the entry's key is submitted first, a key drawn from another key's picture, a rehearsal or a variant,
+as soon as that key is done, and a pinned move as soon as both of its keys are done. Every move's take, a rehearsal's
+or a pinned move's, is judged for a cut and a dissolve. A model that bills per call films under a cap, and a reader
+or a judge that bills per call reads or judges under the same cap. Every take on disk is reused, and so is every read
+and judgment, so a render run again resumes without paying for any of them twice."""
 
 import hashlib
 import json
@@ -18,16 +19,16 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from videotape import dailies, frames, layout
-from videotape.checks import Checks, Failure, KeyChecks, Reader, score, seams
+from videotape.checks import FRAMES, Checks, Cut, Failure, Judge, KeyChecks, MoveChecks, Reader, score
 from videotape.dailies import Carried
 from videotape.errors import ModelError, RenderError, ScreenplayError, shown
 from videotape.fal import Price, Receipt
-from videotape.frames import Box, DecodeError, FfmpegError, Shape
+from videotape.frames import Box, DecodeError, FfmpegError, Frame, Shape
 from videotape.hosted import RecordedFailure, request_record
 from videotape.layout import Bar, Compared
 from videotape.ledger import Ledger, now
-from videotape.model import Model
-from videotape.plan import FromKey, Key, Mode, Move, Plan, Shot
+from videotape.model import Kind, Model
+from videotape.plan import FromKey, Key, Mode, Move, Plan, Rehearsal, Shot
 from videotape.atomic import partial, write_atomically
 from videotape.screenplay import State
 from videotape.story import Prompt, Story, prompt, text
@@ -163,6 +164,7 @@ class _Set:
 
     model: Model
     readers: tuple[Reader, ...]
+    judge: Judge
     tape: Path
     images: dict[State, Path]
     """Each state's key image, which the moves that leave or land on it are pinned to, and which a key drawn from
@@ -207,8 +209,9 @@ class _Stopped(Exception):
 
 @dataclass
 class _Purse:
-    """What a paid reader reserves and settles for one take's reads: the reservation goes under the render's cap at
-    the take's place, the read's ledger line names the shot and the seed, and spent adds up what the reads billed."""
+    """What a paid reader or judge reserves and settles for one take's reads and judgment: the reservation goes under
+    the render's cap at the take's place, the ledger line names the shot and the seed, and spent adds up what they
+    billed."""
 
     shared: _Set
     shot: Shot
@@ -232,27 +235,37 @@ def eye(readers: Sequence[Reader]) -> str:
     return " and ".join(reader.name for reader in readers)
 
 
-def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], tape: Path, ledger: Ledger, made: dict,
-           takes: int = 4, limit: int = 1, price: Price | None = None, cap: float | None = None,
+def check_modes(plan: Plan, model: Kind) -> None:
+    """VT111 when the plan has a key drawn from another key's picture and the model films none."""
+    started = [key for key in plan.keys if isinstance(key, FromKey)]
+    if started and Mode.FIRST_FRAME not in model.modes:
+        count = len(started)
+        raise ScreenplayError("VT111", model.name, f"films no key from another key's picture, and {count} key"
+                              f"{'' if count == 1 else 's'} of the plan {'is' if count == 1 else 'are'} drawn from "
+                              "one, a base's or the picture of the state a rehearsed base is reached from",
+                              "render with a model on fal, whose image-to-video takes one picture, as in --model "
+                              "gemini-omni-flash-1.2, or with the stand-in")
+
+
+def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], judge: Judge, tape: Path, ledger: Ledger,
+           made: dict, takes: int = 4, limit: int = 1, price: Price | None = None, cap: float | None = None,
            resume: str = "videotape render", report: Callable[[Filmed], None] = lambda filmed: None,
            every: bool = False, bases: Mapping[State, Base] | None = None, bar: Bar | None = layout.BAR) -> Render:
     """Draw a key for every state of the plan and a move for every action, each from the prompt the story gives it,
-    and write them into the tape. The readers are the model's eye, which reads each take of a key. made is the block
-    that says what made the tape, which tape.json carries. report is told each shot as it finishes. every films each
-    seed up to takes whatever passed before, as a retake's seeds are, so a screen test sees every take; a plan of
-    some keys alone, as a screen test films, gives a tape whose scenes have no hotspots. bases holds the kept keys
-    of states outside the plan that a FromKey of the plan starts from; a FromKey whose base is in the plan starts
-    from the key the render draws for it. bar judges every take of a FromKey against its base's picture, VT505, or
-    is None for a render that makes no layout check, as the variants test runs, which measures every layout itself."""
+    and write them into the tape. The readers are the model's eye, which reads each take of a key, and the judge
+    sees frames across each take of a move, a rehearsal's or a pinned move's, for the dissolve check. made is the
+    block that says what made the tape, which tape.json carries. report is told each shot as it finishes. every
+    films each seed up to takes whatever passed before, as a retake's seeds are, so a screen test sees every take; a
+    plan of some keys alone, as a screen test films, gives a tape whose scenes have no hotspots. bases holds the
+    kept keys of states outside the plan that a FromKey of the plan starts from; a FromKey whose start is in the
+    plan starts from the key the render draws for it. bar judges every take of a variant against its base's
+    picture, VT505, or is None for a render that makes no layout check, as the variants test runs, which measures
+    every layout itself."""
     started = time.perf_counter()
+    check_modes(plan, model)
     variants = [key for key in plan.keys if isinstance(key, FromKey)]
-    if variants and Mode.FIRST_FRAME not in model.modes:
-        count = len(variants)
-        raise ScreenplayError("VT111", model.name, f"films no key from another key's picture, and {count} key"
-                              f"{'' if count == 1 else 's'} of the plan {'is' if count == 1 else 'are'} drawn from "
-                              "the base's picture", "render with a model on fal, whose image-to-video takes one "
-                              "picture, as in --model gemini-omni-flash-1.2, or with the stand-in")
-    billed = [*([model.name] if price else []), *(reader.name for reader in readers if reader.paid)]
+    billed = list(dict.fromkeys([*([model.name] if price else []), *(reader.name for reader in readers if reader.paid),
+                                 *([judge.name] if judge.paid else [])]))
     if billed and cap is None:
         raise RenderError("VT402", "before the first call", f"{' and '.join(billed)} bill{'s' if len(billed) == 1 else ''}"
                           " per call, and no cap is set",
@@ -261,7 +274,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
     for folder in ("takes", "keys", "moves"):
         (tape / folder).mkdir(parents=True, exist_ok=True)
     carried = dailies.carried(tape, resume)
-    shared = _Set(model, tuple(readers), tape, {key.state: tape / key.image for key in plan.keys}, bar,
+    shared = _Set(model, tuple(readers), judge, tape, {key.state: tape / key.image for key in plan.keys}, bar,
                   Budget(ledger, price, cap), resume, threading.Event(), {}, threading.Lock())
     seeds = {shot.title: _seeds(shot, takes, carried, every) for shot in plan.shots}
     finished = dict[Shot, Filmed]()
@@ -283,7 +296,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
                 film_key(key, None)
             elif key.start not in states:
                 film_key(key, (bases or {})[key.start])
-        waiting = list(plan.moves)
+        waiting = list(plan.pinned)
 
         def stop() -> None:
             shared.stop.set()
@@ -324,7 +337,7 @@ def render(plan: Plan, story: Story, model: Model, readers: Sequence[Reader], ta
             raise
     elapsed = time.perf_counter() - started
     keys = tuple(finished[key] for key in plan.keys if key in finished)
-    moves = tuple(finished[move] for move in plan.moves if move in finished)
+    moves = tuple(finished[move] for move in plan.pinned if move in finished)
     result = Render(tape, keys, moves, elapsed)
     corrupt = _corrupt(carried, result)
     stopped = stopped or next(iter(unfilmed.values()), None)
@@ -374,13 +387,18 @@ def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes
                         lambda path, purse: _read(shared, key, path, purse, base))
     # The key image is the kept take's last frame. The worker writes it, since the moves pinned to it wait for it.
     write_atomically(shared.tape / key.image, lambda out: frames.write_png(frames.last_frame(filmed.kept.path), out))
+    if isinstance(key, Rehearsal):
+        write_atomically(shared.tape / key.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
     return filmed
 
 
 def _read(shared: _Set, key: Key, path: Path, purse: _Purse, base: Base | None) -> KeyChecks:
     """Every reader's read of the take's picture, then the key's checks on them. A paid read is reserved under the
     cap before it is sent and reaches the ledger after. A read that fails stops the render at the take, as a model's
-    call that fails does, and since only a whole read is cached, running the render again reads the take again."""
+    call that fails does, and since only a whole read is cached, running the render again reads the take again. The
+    layout check holds a variant to the layout of its own scene's base; a rehearsal travels from another scene's
+    picture to a place of its own, so no base layout holds it, and its take is judged as the move it is, against
+    the key it leaves alone, since its own last frame is its key."""
     frame = frames.last_frame(path)
     try:
         reads = [reader.see(frame, purse) for reader in shared.readers]
@@ -388,10 +406,27 @@ def _read(shared: _Set, key: Key, path: Path, purse: _Purse, base: Base | None) 
         raise RenderError(error.code, purse.place, error.message, "run the render again, which resumes and reads this "
                           f"take again:\n{shared.resume}") from None
     checks = score(key, reads)
-    if base is None or shared.bar is None:
+    if isinstance(key, Rehearsal) and base is not None:
+        return replace(checks, move=_judged(shared, path, purse, frames.read_png(base.picture), None))
+    if base is None or shared.bar is None or not (isinstance(key, FromKey) and key.start.scene is key.state.scene):
         return checks
     far = layout.distances(frames.read_png(base.picture), base.boxes, frame, checks.boxes)
     return replace(checks, layout=Compared(far, shared.bar))
+
+
+def _judged(shared: _Set, path: Path, purse: _Purse, start: Frame, end: Frame | None) -> MoveChecks:
+    """A move's take judged: its seams against the keys it is pinned to, or the key it leaves alone when its last
+    frame is its own key; its cut, by ffmpeg's scene score of every frame; and its dissolve, by the judge on FRAMES
+    frames across it. A paid judgment is reserved under the cap before it is sent and reaches the ledger after, and
+    one that fails stops the render at the take, as a read that fails does."""
+    seam_start = frames.difference(frames.first_frame(path), start)
+    seam_end = frames.difference(frames.last_frame(path), end) if end is not None else 0.0
+    try:
+        dissolve = shared.judge.judge(frames.sampled(path, FRAMES), purse)
+    except ModelError as error:
+        raise RenderError(error.code, purse.place, error.message, "run the render again, which resumes and judges "
+                          f"this take again:\n{shared.resume}") from None
+    return MoveChecks(seam_start, seam_end, Cut(tuple(frames.scene_scores(path))), dissolve)
 
 
 def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], retakes: list[int],
@@ -401,7 +436,7 @@ def _film_move(shared: _Set, move: Move, clauses: Prompt, seeds: list[int], reta
     pinned = frames.read_png(start), frames.read_png(end)
     filmed = _film_shot(shared, move, clauses, seeds, retakes, skipped,
                         lambda seed, out: shared.model.first_last_frame(words, start, end, seed, out), (start, end),
-                        lambda path, purse: seams(frames.first_frame(path), frames.last_frame(path), *pinned))
+                        lambda path, purse: _judged(shared, path, purse, *pinned))
     write_atomically(shared.tape / move.clip, lambda out: shutil.copyfile(filmed.kept.path, out))
     return filmed
 

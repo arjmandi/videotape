@@ -1,0 +1,452 @@
+#!/usr/bin/env python3
+"""Judge the ten labelled moves of 2026-11-10 with the two checks a render makes of every move's take, the cut check,
+VT506, and the dissolve check, VT507, and show where each agrees with the labels.
+
+    uv run scripts/moves-test examples/contrail --cap-usd 5 [--model <name>] [--estimate] [--clips <folder>] \\
+        [--fixture <file>]
+    open examples/contrail/tapes/moves-test/report.html
+
+A render draws every base but the entry's as the move that first reaches it, and every other move first-and-last-frame
+between two keys, and judges each move's take: ffmpeg's scene score of every frame for a cut, and the model's judge on
+FRAMES frames across the take for a dissolve. The ten labelled moves under --clips, LABELS, are what a person judged
+each check against: their scene scores cost nothing, their judgments are paid, and the report shows where each check
+agrees with the labels. --fixture <file> writes the judge's recorded answers to them, text only, which
+tests/test_moves_test.py replays. The project names the model whose judge judges, which --model overrides, and holds
+the ledger and the cache.
+
+Before any call it prints the estimate: a judgment of each labelled clip by the judge, at the most each costs.
+--estimate prints it and stops, and needs no API key. A most past --cap-usd stops it before any call, and the cap stops
+a run before the judgment that would pass it: the report still shows what was judged before it, the run exits 1, and a
+run again with a higher cap resumes. The frames and the judge's replies go into tapes/moves-test/calibration/ in the
+project, and every judgment into the project's ledger.jsonl. Run again, it judges no clip whose answer is cached, so
+the report is rebuilt for free.
+
+Standard library only; it imports videotape.
+"""
+
+from __future__ import annotations
+
+import argparse
+import dataclasses
+import json
+import math
+import shlex
+import sys
+from collections.abc import Sequence
+from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+
+from videotape import claude, dailies, errors, frames, ledger, project
+from videotape.atomic import write_atomically
+from videotape.checks import FRAMES, MAX_SCENE, Cut, Dissolve, Judge
+from videotape.claude import ClaudeJudge
+from videotape.errors import RenderError, ScreenplayError
+from videotape.model import MODELS
+from videotape.render import Budget
+
+FOLDER = Path("tapes") / "moves-test"
+CLIPS = Path(__file__).resolve().parent.parent / "examples" / "surf_shop"
+"""Where the labelled clips are unless --clips says: a folder git ignores, never copied into the repo."""
+LABELS = {
+    "tape/moves/entrance--browse-as-guest.mp4": "VT507",
+    "tape/moves/entrance--create-an-account.mp4": "VT507",
+    "tape/moves/entrance--i-have-an-account.mp4": "VT507",
+    "tape/moves/signup--sign-up.mp4": "VT507",
+    "tape/moves/welcome--enter-shop.mp4": "VT507",
+    "tape-wan3/moves/welcome--enter-shop.mp4": "VT507",
+    "tape-wan3/moves/entrance--i-have-an-account.mp4": "VT506",
+    "tape-wan3/moves/entrance--create-an-account.mp4": "VT507",
+    "tape-wan3/moves/entrance--browse-as-guest.mp4": "VT506",
+    "tape-wan3/moves/signup--sign-up.mp4": "VT506",
+}
+"""The ten labelled moves of 2026-11-10, by their path under the clips folder, and the check a person says each
+fails: VT506 for a cut, a whip past a surfboard among them, and VT507 for a dissolve. Each passes the other. Wan 2.2
+5B's five, under tape/, all dissolve. Of Wan 3.0's, under tape-wan3/, welcome--enter-shop walks to the door and then
+dissolves, entrance--i-have-an-account pushes in and then cuts, entrance--create-an-account dissolves, and
+entrance--browse-as-guest and signup--sign-up whip past a surfboard."""
+
+
+@dataclass(frozen=True)
+class Source:
+    title: str
+    url: str
+    date: str
+    said: str
+
+
+SOURCES = (
+    Source("ffmpeg filters, select", "https://ffmpeg.org/ffmpeg-filters.html#select_002c-aselect", "no date, read 2026-11-18",
+           "The select filter's scene variable is the scene change detection score of a frame against the one "
+           "before it, between 0 and 1, and the filter's own example takes 0.3 and up as a scene change. VT506 "
+           "scores every frame with select='gte(scene,0)' and metadata=print, and fails a move whose highest "
+           f"score is over {MAX_SCENE}."),
+    Source("Claude vision", "https://platform.claude.com/docs/en/build-with-claude/vision", "no date, read 2026-11-15",
+           "An image costs its width over 28 times its height over 28 tokens, so a judgment of eight 1280x720 "
+           "frames sends about 9,600 image tokens, and several images go in one request in order."),
+)
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'' if number == 1 else 's'}"
+
+
+def _money(usd: float) -> str:
+    return f"${usd:.2f}"
+
+
+def _cents_up(usd: float) -> float:
+    return math.ceil(round(usd * 100, 6)) / 100
+
+
+@dataclass(frozen=True)
+class Labelled:
+    """One labelled clip: its path under the clips folder, the check it fails, and its size, when it is there."""
+
+    clip: str
+    fails: str
+    path: Path
+    shape: frames.Shape | None
+
+    @property
+    def missing(self) -> bool:
+        return self.shape is None
+
+
+def labelled(clips: Path) -> tuple[Labelled, ...]:
+    """The LABELS as clips in the folder, or none when the folder is not there."""
+    if not clips.is_dir():
+        return ()
+    found = []
+    for name, fails in LABELS.items():
+        path = clips / name
+        found.append(Labelled(name, fails, path, frames.shape(path) if path.is_file() else None))
+    return tuple(found)
+
+
+def estimate(judge: type[Judge], clips: Path, labels: Sequence[Labelled]) -> tuple[list[str], float]:
+    """The estimate's lines, and the most the judgments cost."""
+    present = [label for label in labels if not label.missing]
+    if not labels:
+        return [f"calibration: no clips folder at {errors.shown(clips)}, so none"], 0.0
+    most = sum(judge.most(label.shape.width, label.shape.height) for label in labels if label.shape is not None)
+    cost = f"at most {_money(most)}" if judge.paid else "free"
+    return [f"calibration: {_count(len(present), 'labelled clip')} under {errors.shown(clips)}, their scene scores free, "
+            f"and {_count(len(present), 'judgment')} of {FRAMES} frames each by {judge.name}, {cost}"], most
+
+
+# Judging.
+
+@dataclass
+class Purse:
+    """What a paid judgment reserves and settles: the reservation goes under the test's cap at the clip, and the
+    judgment's ledger line names the clip as its shot, as a render's names a shot and a seed."""
+
+    budget: Budget
+    shot: str
+    resume: str
+    spent: float = 0.0
+
+    def reserve(self, usd: float) -> None:
+        self.budget.reserve(usd, self.shot, self.resume)
+
+    def settle(self, line: dict | None, reserved: float) -> None:
+        self.budget.settle({**line, "shot": self.shot, "seed": 1} if line else None, reserved)
+        self.spent += (line or {}).get("usd") or 0.0
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """A clip judged for travel: whether it cuts, whether it dissolves, None when the cap stopped its judgment, and
+    the frames sampled, as ffmpeg numbers them, with their pictures from the report's folder."""
+
+    cut: Cut
+    dissolve: Dissolve | None
+    at: tuple[int, ...]
+    pictures: tuple[str, ...]
+
+    def said(self) -> str:
+        cut = f"VT506 {self.cut.top[1]:.3f} {'passed' if self.cut.passed else 'failed'}"
+        if self.dissolve is None:
+            return f"{cut}, VT507 not judged, the cap"
+        return f"{cut}, VT507 {sum(self.dissolve.overlaid)} of {FRAMES} overlaid"
+
+
+def judged(label: Labelled, judge: Judge, purse: Purse, pictures: Path, root: Path) -> Verdict:
+    """The clip's cut and dissolve checks, with its judged frames written into pictures/ once, named by the clip's
+    path under the clips folder, since two of its folders hold clips of one name. The cut check is free, and a
+    dissolve check the cap stops is None."""
+    clip = label.path
+    sampled = frames.sampled(clip, FRAMES)
+    written = []
+    for at, picture in sampled:
+        out = pictures / f"{label.clip.removesuffix(clip.suffix).replace('/', '--')}-{at}.png"
+        if not out.is_file() or out.stat().st_mtime < clip.stat().st_mtime:
+            pictures.mkdir(parents=True, exist_ok=True)
+            write_atomically(out, lambda partial: frames.write_png(picture, partial))
+        written.append(out.relative_to(root).as_posix())
+    try:
+        dissolve = judge.judge(sampled, purse)
+    except RenderError as error:
+        if error.code != "VT402":
+            raise
+        dissolve = None
+    return Verdict(Cut(tuple(frames.scene_scores(clip))), dissolve, tuple(at for at, _ in sampled), tuple(written))
+
+
+def calibrate(labels: Sequence[Labelled], judge: Judge, root: Path, budget: Budget,
+              resume: str) -> tuple[list[Verdict | None], str | None]:
+    """Each labelled clip judged, in LABELS order, or None for one that is missing, and where the cap stopped the
+    judging, if it did."""
+    verdicts: list[Verdict | None] = []
+    stopped = None
+    print(f"calibration: {_count(sum(not label.missing for label in labels), 'labelled clip')} judged by {judge.name} -> "
+          f"{errors.shown(root / FOLDER / 'calibration')}", flush=True)
+    for number, label in enumerate(labels, 1):
+        if label.missing:
+            print(f"{number}. {label.clip}  missing", file=sys.stderr, flush=True)
+            verdicts.append(None)
+            continue
+        purse = Purse(budget, label.clip, resume)
+        verdict = judged(label, judge, purse, root / FOLDER / "calibration" / "frames", root / FOLDER)
+        verdicts.append(verdict)
+        if verdict.dissolve is None:
+            stopped = stopped or label.clip
+            print(f"{number}. {label.clip}  labelled {label.fails}, {verdict.said()}", flush=True)
+            continue
+        cost = f"{_money(purse.spent)} judged" if purse.spent else "cached" if judge.paid else "free"
+        print(f"{number}. {label.clip}  labelled {label.fails}, {verdict.said()}, {cost}", flush=True)
+    return verdicts, stopped
+
+
+# What the report shows.
+
+@dataclass(frozen=True)
+class Calibrated:
+    label: Labelled
+    verdict: Verdict | None
+
+    def agrees(self, code: str) -> bool | None:
+        """Whether the check of this code says what the label says: it fails the check the label names and passes the
+        other. None for a missing clip, or a dissolve check the cap stopped."""
+        if self.verdict is None or (code == "VT507" and self.verdict.dissolve is None):
+            return None
+        passed = self.verdict.cut.passed if code == "VT506" else self.verdict.dissolve.passed
+        return passed == (self.label.fails != code)
+
+
+@dataclass(frozen=True)
+class Tally:
+    passed: int
+    of: int
+
+    def __str__(self) -> str:
+        return f"{self.passed} of {self.of}"
+
+
+@dataclass(frozen=True)
+class Trial:
+    """What the report shows: the judge, the clips folder, each labelled clip judged, and what the judgments cost."""
+
+    judge: str
+    clips: str
+    calibrated: tuple[Calibrated, ...]
+    usd: float
+
+    def agreement(self, code: str) -> Tally:
+        judged = [agreed for one in self.calibrated if (agreed := one.agrees(code)) is not None]
+        return Tally(sum(judged), len(judged))
+
+
+STYLE = dailies.STYLE + """
+header, main { max-width: 1680px; }
+.strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.strip figure { margin: 0; font-size: 11px; color: var(--muted); }
+.strip figcaption { display: block; margin: 2px 0 0; overflow-wrap: anywhere; }
+.strip .overlaid figcaption { color: var(--fail); }
+#calibration .takes { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); }
+.sources li { margin: 6px 0; }
+"""
+
+
+def _strip(verdict: Verdict) -> str:
+    if verdict.dissolve is None:
+        figures = [f'<figure class="one" data-frame="{at}" data-overlaid="unjudged"><img src="{escape(picture)}" '
+                   f'alt="Frame {at}" loading="lazy"><figcaption>frame {at}: not judged, the cap</figcaption></figure>'
+                   for picture, at in zip(verdict.pictures, verdict.at)]
+        return f'<div class="strip">{"".join(figures)}</div>'
+    figures = []
+    for picture, at, overlaid, seen in zip(verdict.pictures, verdict.dissolve.at, verdict.dissolve.overlaid,
+                                           verdict.dissolve.seen):
+        figures.append(f'<figure class="{"overlaid" if overlaid else "one"}" data-frame="{at}" '
+                       f'data-overlaid="{"yes" if overlaid else "no"}"><img src="{escape(picture)}" alt="Frame {at}" '
+                       f'loading="lazy"><figcaption>frame {at}: {"two pictures overlaid" if overlaid else "one picture"}, '
+                       f"{escape(seen)}</figcaption></figure>")
+    return f'<div class="strip">{"".join(figures)}</div>'
+
+
+def _calibration(trial: Trial) -> str:
+    if not trial.calibrated:
+        return (f'<section class="shot" id="calibration"><h2>Calibration</h2><p class="note">No labelled clips: the '
+                f"folder {escape(trial.clips)} is not there, so the ten labelled moves of 2026-11-10 were not judged. "
+                "Name it with --clips.</p></section>")
+    cut, dissolve = trial.agreement("VT506"), trial.agreement("VT507")
+    figures = []
+    for one in trial.calibrated:
+        label = one.label
+        if one.verdict is None:
+            figures.append(f'<figure class="take" data-clip="{escape(label.clip)}"><p class="note fail">'
+                           f"{escape(label.clip)} is missing.</p></figure>")
+            continue
+        items = [check.item() for check in (one.verdict.cut, one.verdict.dissolve) if check is not None]
+        agreed = {code: {True: "agrees", False: "disagrees", None: "not judged"}[one.agrees(code)]
+                  for code in ("VT506", "VT507")}
+        badges = "".join(f'<span class="badge{"" if said == "agrees" else " failing"}">{code} {said}</span>'
+                         for code, said in agreed.items())
+        figures.append(f'<figure class="take" data-clip="{escape(label.clip)}" data-label="{label.fails}" '
+                       f'data-vt506="{agreed["VT506"]}" data-vt507="{agreed["VT507"]}">{_strip(one.verdict)}'
+                       f"<figcaption><strong>{escape(label.clip)}</strong><span class=\"badge\">labelled "
+                       f"{'a cut' if label.fails == 'VT506' else 'a dissolve'}</span>{badges}</figcaption>"
+                       f'<ul class="checks">{dailies.checklist([dataclasses.asdict(item) for item in items])}</ul></figure>')
+    return f"""<section class="shot" id="calibration" data-vt506="{cut}" data-vt507="{dissolve}">
+<h2>Calibration</h2>
+<p>The ten labelled moves of 2026-11-10 under {escape(trial.clips)}, judged by both checks. A clip labelled a cut should
+fail VT506 and pass VT507, and one labelled a dissolve the other way round. VT506 agrees with the labels on {cut} clips,
+and VT507, by {escape(trial.judge)}, on {dissolve}.</p>
+<div class="takes">
+{"".join(figures)}
+</div>
+</section>"""
+
+
+def _sources() -> str:
+    items = "".join(f'<li><a href="{escape(source.url)}">{escape(source.title)}</a>, {escape(source.date)}. '
+                    f"{escape(source.said)}</li>" for source in SOURCES)
+    return f'<section class="shot sources" id="sources">\n<h2>Sources</h2>\n<ul>{items}</ul>\n</section>'
+
+
+def page(trial: Trial) -> str:
+    summary = (f"{_count(len(trial.calibrated), 'labelled clip')} judged by {escape(trial.judge)}: "
+               f"{_money(trial.usd)} in the ledger.")
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moves test</title>
+<style>{STYLE}</style>
+</head>
+<body>
+<header>
+<h1>Moves test</h1>
+<p class="summary">{summary}</p>
+</header>
+<main>
+{_calibration(trial)}
+{_sources()}
+</main>
+</body>
+</html>
+"""
+
+
+# The command.
+
+def command(args: argparse.Namespace, cap: float | None) -> str:
+    """The command that runs this moves test again, with the cap last."""
+    words = ["uv", "run", errors.shown(Path(__file__)), args.project]
+    if args.model:
+        words += ["--model", args.model]
+    if args.clips:
+        words += ["--clips", args.clips]
+    return shlex.join([*words, *(["--cap-usd", f"{cap:.2f}"] if cap is not None else [])])
+
+
+def fixture(labels: Sequence[Labelled], judge: ClaudeJudge) -> dict:
+    """The judge's recorded answers to the labelled clips, text only, with what they answer, for a test to replay."""
+    clips = {label.clip: judge.recorded(frames.sampled(label.path, FRAMES)) for label in labels if not label.missing}
+    return {"test": "moves-test", "judge": judge.name, "asked": claude.asked(), "clips": clips}
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="scripts/moves-test", description=__doc__.splitlines()[0])
+    parser.add_argument("project", help="the app's project, the folder whose pyproject.toml has [tool.videotape], whose "
+                        "model's judge judges and whose ledger the judgments go into")
+    parser.add_argument("--model", choices=sorted(MODELS), help="the model whose judge judges (default: model in "
+                        "[tool.videotape])")
+    parser.add_argument("--cap-usd", type=float, help="the most the moves test may spend on the judge's judgments")
+    parser.add_argument("--estimate", action="store_true", help="print the estimate and stop, before any call; needs "
+                        "no API key")
+    parser.add_argument("--clips", help=f"the folder of the ten labelled clips (default: {errors.shown(CLIPS)})")
+    parser.add_argument("--fixture", help="write the judge's recorded answers to the labelled clips into this file, "
+                        "for tests/test_moves_test.py to replay")
+    args = parser.parse_args(argv)
+    try:
+        return _run(args)
+    except (ScreenplayError, RenderError) as error:
+        print(error.report(), file=sys.stderr)
+        return 1
+
+
+def _run(args: argparse.Namespace) -> int:
+    found = project.find(Path(args.project).resolve())
+    name = args.model or found.model
+    if name is None:
+        raise ScreenplayError("VT110", errors.shown(found.root / "pyproject.toml"), "[tool.videotape] names no model, "
+                              "and neither does --model", 'set it in [tool.videotape], as in model = "stand-in", or name '
+                              "one for this moves test, as in --model stand-in")
+    judge = MODELS[name].judge
+    if args.fixture and judge is not ClaudeJudge:
+        raise ScreenplayError("VT110", "--fixture", f"holds {ClaudeJudge.name}'s answers, and {name}'s judge is "
+                              f"{judge.name}", "run the moves test with a model whose moves Claude judges, as in --model "
+                              "gemini-omni-flash-1.2")
+    clips = Path(args.clips).absolute() if args.clips else CLIPS
+    labels = labelled(clips)
+    print(f"moves test on {name}, judged by {judge.name}: the ten labelled moves of 2026-11-10")
+    lines, most = estimate(judge, clips, labels)
+    for line in lines:
+        print(line)
+    cap = args.cap_usd
+    if not judge.paid or not labels:
+        print("the moves test: free", flush=True)
+    else:
+        fits = "no cap" if cap is None else f"{'under' if most <= cap else 'past'} the cap of ${cap:.2f} at the most"
+        print(f"the moves test: at most ${most:.2f}, {fits}", flush=True)
+    if args.estimate:
+        return 0
+    if judge.paid and labels and cap is None:
+        raise RenderError("VT402", "before the first call", f"{judge.name} bills per judgment, and no cap is set",
+                          f"set the most the moves test may spend, as in:\n{command(args, _cents_up(most))}")
+    if cap is not None and most > cap:
+        raise RenderError("VT402", "before the first call", f"the moves test costs at most ${most:.2f}, which "
+                          f"passes the cap of ${cap:.2f}", f"run it with a cap of at least ${_cents_up(most):.2f}, "
+                          f"as in:\n{command(args, _cents_up(most))}")
+    calibration = found.root / FOLDER / "calibration"
+    judging, resume = judge(calibration), command(args, cap)
+    book = ledger.of(found.root, calibration)
+    calibrated, stop = calibrate(labels, judging, found.root, Budget(book, None, cap), resume) if labels else ([], None)
+    if args.fixture:
+        held = fixture(labels, judging)
+        Path(args.fixture).parent.mkdir(parents=True, exist_ok=True)
+        write_atomically(Path(args.fixture), lambda out: out.write_text(json.dumps(held, indent=2) + "\n"))
+        print(f"wrote {errors.shown(Path(args.fixture))}: {_count(len(held['clips']), 'recorded answer')}")
+    trial = Trial(judge.name, errors.shown(clips), tuple(Calibrated(label, verdict) for label, verdict in zip(labels, calibrated)),
+                  book.spent())
+    report = found.root / FOLDER / "report.html"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    write_atomically(report, lambda out: out.write_text(page(trial)))
+    print(f"wrote {errors.shown(report)}")
+    if trial.calibrated:
+        print(f"the calibration: VT506 agrees with the labels on {trial.agreement('VT506')} clips, VT507 on "
+              f"{trial.agreement('VT507')}")
+    if stop:
+        print(RenderError("VT402", stop, f"the next judgment would pass the moves test's cap of ${cap:.2f}, with "
+                          f"${book.spent():.2f} spent, and the report shows what was judged before it",
+                          "run the moves test again with a higher cap, which resumes, as in:\n"
+                          f"{command(args, 2 * cap)}").report(), file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

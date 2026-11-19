@@ -1,7 +1,7 @@
 """What the readers find on a take, and which of it fails. Each check carries the code it fails with: VT501 an action
 not found, VT502 a line misread or an option's label on a day that has none, VT503 a control the model invented,
-VT504 a chart off its data, VT505 a variant's layout off its base's, VT508 a seam between a move and its keys, and
-VT509 a choice not drawn marked.
+VT504 a chart off its data, VT505 a variant's layout off its base's, VT506 a move that cuts, VT507 a move that
+dissolves, VT508 a seam between a move and its keys, and VT509 a choice not drawn marked.
 
 The data shape, from what a reader sees to what the dailies record:
 
@@ -17,6 +17,13 @@ The data shape, from what a reader sees to what the dailies record:
       charts    a Plotted per chart, per reader that reports charts                                          VT504
       marks     a Marked per element that offers a choice, per reader that reports marks                     VT509
       layout    the Layout distances from the base's picture and the Bar that judges them, for a variant   VT505
+      move      the MoveChecks of a rehearsal, whose take is the move that first reaches its state
+    MoveChecks a move's take judged:
+      start, end how far its first and last frames sit from the keys it is pinned to; a rehearsal's end is
+                0, since its last frame is its own key                                                    VT508
+      cut       the Cut: ffmpeg's scene score of every frame, whose highest says whether the move cuts    VT506
+      dissolve  the Dissolve: a judge's answer for each of FRAMES frames across the move, whether it shows
+                two pictures overlaid, and what it shows                                                  VT507
     Item      one check: its code, what it is about, its evidence, whether it passed, its box, the element type it
               judges, or None for a whole-key check, and each reader's reading behind a VT501 or VT502.
 
@@ -50,6 +57,11 @@ from videotape.screenplay import Chart, Line, Shown
 
 MAX_CER = 0.0
 MAX_DIFFERENCE = 0.05
+MAX_SCENE = 0.3
+"""The scene score over which a frame is a cut. On the ten labelled moves of 2026-11-10 the three cuts score 0.319 and
+up, and the seven dissolves 0.187 and under."""
+FRAMES = 8
+"""How many frames across a move the dissolve check judges."""
 FIND_MAX_CER = 0.2
 VALUE_TOLERANCE = 0.1
 """How far a chart's value may sit from the data, as a fraction of the data's value."""
@@ -117,6 +129,25 @@ class Reader(Protocol):
         ...
 
     def see(self, frame: Frame, purse: Purse = Free()) -> Read: ...
+
+
+class Judge(Protocol):
+    """What judges a move's take for the dissolve check: it is shown frames spread across the take and says of each
+    whether it shows two pictures overlaid. It is built for the tape it may cache its judgments in, and its class
+    says what it needs, as a Reader's does."""
+
+    name: ClassVar[str]
+    key: ClassVar[str | None]
+    paid: ClassVar[bool]
+
+    def __init__(self, tape: Path) -> None: ...
+
+    @staticmethod
+    def most(width: int, height: int) -> float:
+        """The most one judgment of FRAMES frames this size costs. 0 for a judge that runs here."""
+        ...
+
+    def judge(self, sampled: Sequence[tuple[int, Frame]], purse: Purse = Free()) -> Dissolve: ...
 
 
 def cer(expected: str, actual: str) -> float:
@@ -296,6 +327,8 @@ class KeyChecks:
     charts: tuple[Plotted, ...] = ()
     marks: tuple[Marked, ...] = ()
     layout: Compared | None = None
+    move: MoveChecks | None = None
+    """A rehearsal's take judged as the move it is, or None for a key that is no move."""
 
     @property
     def hotspots(self) -> dict[str, Box | None]:
@@ -350,7 +383,7 @@ class KeyChecks:
                               f"shading {far.shading:.4f}, edges {far.edges:.4f}, {far.kept:.0%} of the picture "
                               f"compared; {bar.metric} {'under' if self.layout.same else 'over'} the threshold of "
                               f"{bar.threshold:.4f}", self.layout.same, None))
-        return items
+        return items + (self.move.items() if self.move is not None else [])
 
     @property
     def failures(self) -> list[Item]:
@@ -381,15 +414,68 @@ def _read(seen: Sequence[Seen], many: bool) -> str:
 
 
 @dataclass(frozen=True)
+class Cut:
+    """ffmpeg's scene score of every frame of a move's take, how much each differs from the one before it. The
+    highest after the first is the evidence: over MAX_SCENE, the move cuts there."""
+
+    scores: tuple[float, ...]
+
+    @property
+    def top(self) -> tuple[int, float]:
+        """The frame that scores highest, as ffmpeg numbers frames, from 0, and its score."""
+        return max(enumerate(self.scores[1:], 1), key=lambda scored: scored[1], default=(0, 0.0))
+
+    @property
+    def passed(self) -> bool:
+        return self.top[1] <= MAX_SCENE
+
+    def item(self) -> Item:
+        at, score = self.top
+        return Item("VT506", f"frame {at}", f"scene score {score:.3f}, {'under' if self.passed else 'over'} the "
+                    f"threshold of {MAX_SCENE}", self.passed, None)
+
+
+@dataclass(frozen=True)
+class Dissolve:
+    """What a judge saw on frames spread across a move's take: for each, whether it shows two pictures overlaid, as
+    the middle of a dissolve does, and what it shows. at numbers the frames as ffmpeg does, from 0."""
+
+    judge: str
+    at: tuple[int, ...]
+    overlaid: tuple[bool, ...]
+    seen: tuple[str, ...]
+
+    @property
+    def passed(self) -> bool:
+        """The rule the calibration tunes: a move dissolves when any judged frame shows two pictures overlaid."""
+        return not any(self.overlaid)
+
+    def item(self) -> Item:
+        found = [str(at) for at, overlaid in zip(self.at, self.overlaid) if overlaid]
+        count = len(self.overlaid)
+        if found:
+            about = f"frame{'s' if len(found) > 1 else ''} {_listed(found)}"
+            result = f"{len(found)} of {count} frames across the move show two pictures overlaid, by {self.judge}"
+        else:
+            about = "no frame"
+            result = f"none of {count} frames across the move shows two pictures overlaid, by {self.judge}"
+        return Item("VT507", about, result, self.passed, None)
+
+
+@dataclass(frozen=True)
 class MoveChecks:
-    """How far a move take's first and last frames sit from the keys it is pinned to."""
+    """A move's take judged: how far its first and last frames sit from the keys it is pinned to, whether it cuts and
+    whether it dissolves."""
 
     start: float
     end: float
+    cut: Cut
+    dissolve: Dissolve
 
     def items(self) -> list[Item]:
-        return [Item("VT508", name, f"difference {value:.3f}", value <= MAX_DIFFERENCE, None)
-                for name, value in (("start", self.start), ("end", self.end))]
+        seams = [Item("VT508", name, f"difference {value:.3f}", value <= MAX_DIFFERENCE, None)
+                 for name, value in (("start", self.start), ("end", self.end))]
+        return [*seams, self.cut.item(), self.dissolve.item()]
 
     @property
     def failures(self) -> list[Item]:
@@ -477,10 +563,6 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
              for one in reads if one.marked is not None for element in key.shown
              if any(_choice(line) for line in element.lines)]
     return KeyChecks(actions, text, tuple(invented), tuple(stray), tuple(charts), tuple(marks))
-
-
-def seams(first: Frame, last: Frame, start_key: Frame, end_key: Frame) -> MoveChecks:
-    return MoveChecks(start=frames.difference(first, start_key), end=frames.difference(last, end_key))
 
 
 def readings(reader: str, lines: Sequence[str], spots: Sequence[Spot]) -> tuple[tuple[Seen, tuple[Spot, ...]], ...]:

@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -149,6 +150,47 @@ def last_frame(clip: Path) -> Frame:
     return _decode(clip, "-vf", "reverse")
 
 
+def frame_at(clip: Path, number: int) -> Frame:
+    """The frame of a clip with this number, as ffmpeg counts frames, from 0."""
+    return _decode(clip, "-vf", f"select='eq(n,{number})'", "-fps_mode", "passthrough")
+
+
+def count(clip: Path) -> int:
+    """How many frames a clip decodes to, counted by decoding it."""
+    probed = _tool("ffprobe", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames",
+                   "-of", "csv=p=0", str(clip))
+    try:
+        return int(probed.split()[0])
+    except (IndexError, ValueError):
+        raise DecodeError(f"{_shown(clip)} did not decode to one frame: ffprobe counted none") from None
+
+
+def sampled(clip: Path, wanted: int) -> list[tuple[int, Frame]]:
+    """wanted frames spread evenly across a clip, the first and the last among them, each with its number as ffmpeg
+    counts frames, from 0. A clip with fewer frames repeats some."""
+    total = count(clip)
+    numbers = [round(place * (total - 1) / (wanted - 1)) for place in range(wanted)] if wanted > 1 else [0]
+    distinct = sorted(set(numbers))
+    size = shape(clip)
+    picked = "+".join(f"eq(n,{number})" for number in distinct)
+    raw = _ffmpeg("-i", str(clip), "-vf", f"select='{picked}'", "-fps_mode", "passthrough", "-f", "rawvideo",
+                  "-pix_fmt", "rgb24", "-")
+    each = size.width * size.height * 3
+    if len(raw) != each * len(distinct):
+        raise DecodeError(f"{_shown(clip)} did not decode to one frame: {len(raw) // each} of {len(distinct)} frames "
+                          "came out")
+    frames = {number: Frame(size.width, size.height, raw[at * each:(at + 1) * each]) for at, number in enumerate(distinct)}
+    return [(number, frames[number]) for number in numbers]
+
+
+def scene_scores(clip: Path) -> list[float]:
+    """ffmpeg's scene score of every frame of a clip, in order: how much each frame differs from the one before it,
+    0 at the first. A cut lands on a frame that scores high."""
+    printed = _ffmpeg("-i", str(clip), "-vf", "select='gte(scene,0)',metadata=print:key=lavfi.scene_score:file=/dev/stdout",
+                      "-f", "null", "/dev/null")
+    return [float(line.partition(b"=")[2]) for line in printed.splitlines() if line.startswith(b"lavfi.scene_score=")]
+
+
 def gray(*same: Frame) -> list[bytes]:
     """Each frame scaled to SMALL in grey, a byte a pixel, in one pass of ffmpeg: VT407 when two differ in size."""
     first = same[0]
@@ -182,10 +224,31 @@ def hevc(clip: Path, out: Path) -> None:
     _ffmpeg("-i", str(clip), *HEVC, str(out))
 
 
-def crossfade(start: Path, end: Path, out: Path) -> None:
+def _joined(start: Path, end: Path, out: Path, transition: str) -> None:
+    """One second from the start picture to the end picture: the start held for 0.1 s, the transition over 0.4 s, and
+    the end held for the rest."""
     _ffmpeg("-loop", "1", "-framerate", str(FPS), "-t", "0.5", "-i", str(start),
             "-loop", "1", "-framerate", str(FPS), "-t", "0.9", "-i", str(end),
-            "-filter_complex", "[0][1]xfade=transition=fade:duration=0.4:offset=0.1,format=yuv420p", *ENCODE, str(out))
+            "-filter_complex", f"[0][1]xfade=transition={transition}:duration=0.4:offset=0.1,format=yuv420p", *ENCODE,
+            str(out))
+
+
+def crossfade(start: Path, end: Path, out: Path) -> None:
+    """The start picture fading into the end picture, so the middle frames show both overlaid."""
+    _joined(start, end, out, "fade")
+
+
+def wipe(start: Path, end: Path, out: Path) -> None:
+    """The end picture wiped over the start picture from the right, so each frame shows a part of each and no pixel
+    blends the two."""
+    _joined(start, end, out, "wipeleft")
+
+
+def cut(pictures: Sequence[Path], out: Path, seconds: float = 0.4) -> None:
+    """The pictures held in turn, each for this long, cut together."""
+    held = [word for picture in pictures for word in ("-loop", "1", "-framerate", str(FPS), "-t", str(seconds), "-i", str(picture))]
+    inputs = "".join(f"[{number}]" for number in range(len(pictures)))
+    _ffmpeg(*held, "-filter_complex", f"{inputs}concat=n={len(pictures)}:v=1:a=0,format=yuv420p", *ENCODE, str(out))
 
 
 def write_video(rgb_frames: list[bytes], out: Path) -> None:

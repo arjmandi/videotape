@@ -27,7 +27,7 @@ from videotape.claude import ClaudeReader
 from videotape.errors import ModelError
 from videotape.fal import Price, Receipt
 from videotape.model import MODELS
-from videotape.plan import FromKey, Key, Mode
+from videotape.plan import FromKey, Key, Mode, Rehearsal
 from videotape.standin import Flaw, StandIn, StandInEye
 
 ROOT = CONTRAIL.parent.parent
@@ -154,7 +154,8 @@ def test_the_sampler_holds_every_element_type_of_contrail_and_a_state_the_plan_l
     sample = script.sampled(planned)
     assert [key.state.name for key in sample.keys] == list(script.SAMPLER) and sample.moves == ()
     assert all(type(key) is Key and key.mode is Mode.TEXT_TO_VIDEO for key in sample.keys)
-    assert sum(isinstance(key, FromKey) for key in planned.keys if key.state.name in script.SAMPLER) == 4
+    sampled_from = [key for key in planned.keys if key.state.name in script.SAMPLER and isinstance(key, FromKey)]
+    assert (sum(type(key) is FromKey for key in sampled_from), sum(isinstance(key, Rehearsal) for key in sampled_from)) == (4, 3)
     assert {element.type for key in sample.keys for element in key.shown} == {
         "Heading", "Text", "Button", "SearchBar", "DatePicker", "DateStrip", "List", "BarChart", "LineChart", "Tabs"}
     monkeypatch.setattr(script, "SAMPLER", (*script.SAMPLER[:2], "dates(JFX)"))

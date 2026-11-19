@@ -11,7 +11,7 @@ from videotape import dailies, ledger
 from videotape.fal import Price, Receipt
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
-from videotape.standin import Flaw, StandIn, StandInEye
+from videotape.standin import Flaw, StandIn, StandInEye, StandInJudge
 
 PRICE = Price(usd_per_second=0.10, seconds=5)
 RENDER = ("render", "--story", "chalk")
@@ -20,7 +20,7 @@ DONE = 'The button "Done" is pressed.'
 
 
 def flaws(mode: Mode, prompt: str, seed: int) -> Flaw:
-    """thanks(Latte) and both Done moves need three takes. The other eight shots pass at their first."""
+    """thanks(Latte) and both Done moves need three takes. The other six shots pass at their first."""
     if THANKS_LATTE in prompt:
         return {1: Flaw.MISSPELL, 2: Flaw.DROP_LINE}.get(seed, Flaw.NONE)
     if DONE in prompt:
@@ -28,7 +28,7 @@ def flaws(mode: Mode, prompt: str, seed: int) -> Flaw:
     return Flaw.NONE
 
 
-CALLS = 8 + 3 * 3
+CALLS = 6 + 3 * 3
 """The takes a render of the cafe films with these flaws."""
 
 
@@ -58,7 +58,7 @@ class Metered(StandIn):
 
 def metered(monkeypatch, **flaw) -> Metered:
     model = Metered(**flaw)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, (StandInEye,), price=PRICE, limit=2, kind=model))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: model, (StandInEye,), price=PRICE, limit=2, kind=model, judge=StandInJudge))
     return model
 
 
@@ -72,7 +72,7 @@ def test_a_paid_model_with_no_cap_does_not_start(tmp_path, cli, capsys, monkeypa
     model = metered(monkeypatch, flaw=flaws)
     assert cli(directory, *RENDER) == 1
     out, err = capsys.readouterr()
-    assert out == "stand-in: 11 shots, 11 to 44 calls, $5.50 to $22.00 at $0.10/s, no cap, $0.00 spent\n"
+    assert out == "stand-in: 9 shots, 9 to 36 calls, $4.50 to $18.00 at $0.10/s, no cap, $0.00 spent\n"
     assert err.splitlines() == [
         "error VT402 before the first call: stand-in bills per call, and no cap is set",
         "next: set the most this render may spend, as in videotape render --story chalk --cap-usd 20, or for good in "
@@ -86,7 +86,7 @@ def test_a_render_stops_at_the_cap_resumes_with_a_higher_one_and_pays_for_each_t
     model = metered(monkeypatch, flaw=flaws)
     assert cli(directory, *RENDER, "--cap-usd", "3") == 1
     out, err = capsys.readouterr()
-    assert out.splitlines()[0] == "stand-in: 11 shots, 11 to 44 calls, $5.50 to $22.00 at $0.10/s, cap $3.00, $0.00 spent"
+    assert out.splitlines()[0] == "stand-in: 9 shots, 9 to 36 calls, $4.50 to $18.00 at $0.10/s, cap $3.00, $0.00 spent"
     stop = [line for line in err.splitlines() if line.startswith("error VT402 ")]
     assert len(stop) == 1 and " take " in stop[0] and ": the next call would pass the cap of $3.00, with $" in stop[0]
     assert stop[0].endswith(" reserved for the calls in flight, at the listed price of $0.50 a call")
@@ -99,13 +99,13 @@ def test_a_render_stops_at_the_cap_resumes_with_a_higher_one_and_pays_for_each_t
     assert book.totals()["usd"] == 0.5 * model.submitted <= 3.0
     assert not (directory / "tapes" / "chalk" / "tape.json").exists()
     partial = dailies.read(directory / "tapes" / "chalk")
-    assert partial["complete"] is False and len(partial["keys"]) + len(partial["moves"]) < 11
+    assert partial["complete"] is False and len(partial["keys"]) + len(partial["moves"]) < 9
     done = [line for line in out.splitlines()[1:] if line[0].isdigit()]
     assert len(done) == len(partial["keys"]) + len(partial["moves"])
 
     assert cli(directory, *RENDER, "--cap-usd", "20") == 0
     out, err = capsys.readouterr()
-    assert out.splitlines()[0] == (f"stand-in: 11 shots, 11 to 44 calls, $5.50 to $22.00 at $0.10/s, cap $20.00, "
+    assert out.splitlines()[0] == (f"stand-in: 9 shots, 9 to 36 calls, $4.50 to $18.00 at $0.10/s, cap $20.00, "
                                    f"${0.5 * len(stopped_lines):.2f} spent")
     assert err == ""
     assert model.submitted == len(model.calls) == CALLS
@@ -114,7 +114,7 @@ def test_a_render_stops_at_the_cap_resumes_with_a_higher_one_and_pays_for_each_t
     assert {line["request_id"] for line in lines} == {f"request-{n}" for n in range(1, CALLS + 1)}
     assert all(line["usd"] == 0.5 for line in lines) and book.totals()["usd"] == 0.5 * CALLS
     record = dailies.read(directory / "tapes" / "chalk")
-    assert record["complete"] is True and record["ledger"]["usd"] == 8.5
+    assert record["complete"] is True and record["ledger"]["usd"] == 7.5
     cached = sum(take["cached"] for shot in record["keys"] + record["moves"] for take in shot["takes"])
     assert cached == len(stopped_lines)
 
@@ -132,7 +132,7 @@ def test_the_cap_in_the_project_counts_what_the_tape_already_spent(tmp_path, cli
     directory = copy_of("cafe", tmp_path)
     model = metered(monkeypatch, flaw=flaws)
     pyproject = directory / "pyproject.toml"
-    pyproject.write_text(pyproject.read_text() + "cap_usd = 8.5\n")
+    pyproject.write_text(pyproject.read_text() + "cap_usd = 7.5\n")
     assert cli(directory, *RENDER) == 0
     assert model.submitted == CALLS
     capsys.readouterr()
@@ -140,12 +140,11 @@ def test_the_cap_in_the_project_counts_what_the_tape_already_spent(tmp_path, cli
     heading.write_text(heading.read_text().replace('vt.Heading("Corner Cafe")', 'vt.Heading("The Corner Cafe")'))
     assert cli(directory, *RENDER) == 1
     out, err = capsys.readouterr()
-    assert out.splitlines()[0].endswith(", cap $8.50, $8.50 spent")
-    assert "the next call would pass the cap of $8.50, with $8.50 spent on this tape" in err
+    assert out.splitlines()[0].endswith(", cap $7.50, $7.50 spent")
+    assert "the next call would pass the cap of $7.50, with $7.50 spent on this tape" in err
     assert model.submitted == CALLS
-    # The new heading films the menu key again and the four moves pinned to it, two of which need three takes.
-    assert cli(directory, *RENDER, "--cap-usd", "14") == 0
-    assert model.submitted == CALLS + 9
+    assert cli(directory, *RENDER, "--cap-usd", str(2 * CALLS * PRICE.usd)) == 0
+    assert model.submitted == 2 * CALLS
     assert json.loads((directory / "tapes" / "chalk" / "tape.json").read_text())["scenes"]["menu()"]["words"][0] == \
         "The Corner Cafe"
 

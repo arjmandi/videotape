@@ -5,15 +5,16 @@ it first and carries them over when it writes it again."""
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from videotape import errors, frames
-from videotape.checks import Checks, Failure
+from videotape.checks import Checks, Failure, MoveChecks
 from videotape.frames import Box, Frame
-from videotape.plan import Key, Move, Shot
+from videotape.plan import Key, Move, Rehearsal, Shot
 from videotape.atomic import write_atomically
 from videotape.story import FromStory, Story, line_of, text
 
@@ -141,7 +142,7 @@ def record(title: str, checks: str, render: Render, story: Story, tape_name: str
         "takes": takes,
         "complete": complete,
         "keys": [{**_shot_record(filmed, render.tape), "state": filmed.shot.state.name, "key": filmed.shot.image,
-                  "items": _items(filmed.kept.checks)} for filmed in render.keys],
+                  "items": _items(filmed.kept.checks), **_rehearsed(filmed.shot)} for filmed in render.keys],
         "moves": [{**_shot_record(filmed, render.tape), "move": filmed.shot.clip, "start": filmed.shot.start.name,
                    "land": filmed.shot.land.name, "label": filmed.shot.label} for filmed in render.moves],
         "failures": [_failure(failure, filmed, story, out, carry, render.tape, again)
@@ -182,7 +183,7 @@ def write(tape: Path, record: dict, totals: dict) -> None:
     the size of its frames, and a crop for each failure. The crops of failures the record no longer holds are
     deleted."""
     played = ["tape.json", "moves/opening.mp4", *(key["key"] for key in record["keys"]),
-              *(move["move"] for move in record["moves"])]
+              *(shot["move"] for shot in (*record["keys"], *record["moves"]) if "move" in shot)]
     size = sum((tape / path).stat().st_size for path in played if (tape / path).is_file())
     pictures = [tape / key["key"] for key in record["keys"] if (tape / key["key"]).is_file()]
     shape = frames.shape(pictures[0]) if pictures else None
@@ -211,6 +212,13 @@ def verdict(accepts: list[dict], shot: str, code: str, clip: str) -> dict:
     return {"accepted": None, "accepted_before": {**said, "seed": accept.get("seed")}}
 
 
+def _rehearsed(shot: Shot) -> dict:
+    """The move a rehearsal's take is, as a move's record names it, or nothing for a key that is no move."""
+    if not isinstance(shot, Rehearsal):
+        return {}
+    return {"move": shot.clip, "start": shot.start.name, "land": shot.state.name, "label": shot.move.label}
+
+
 def _shot_record(filmed: Filmed, tape: Path) -> dict:
     shot = filmed.shot
     return {
@@ -219,11 +227,16 @@ def _shot_record(filmed: Filmed, tape: Path) -> dict:
         "prompt": text(filmed.prompt),
         "takes": [{"seed": take.seed, "clip": take.path.relative_to(tape).as_posix(), "cached": take.cached,
                    "kept": take is filmed.kept, "seconds": take.seconds, "gpu": take.gpu, "usd": take.usd,
-                   **({"start": take.checks.start, "end": take.checks.end} if isinstance(shot, Move) else {}),
-                   "items": _items(take.checks)} for take in filmed.takes],
+                   **_seams(take.checks), "items": _items(take.checks)} for take in filmed.takes],
         "corrupt": list(filmed.corrupt),
         "refused": list(filmed.refused),
     }
+
+
+def _seams(checks: Checks) -> dict:
+    """A move's seams, from a pinned move's checks or a rehearsal's, or nothing for a key that is no move."""
+    moved = checks if isinstance(checks, MoveChecks) else checks.move
+    return {"start": moved.start, "end": moved.end} if moved is not None else {}
 
 
 def _items(checks: Checks) -> list[dict]:
@@ -237,7 +250,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
     shot, kept = filmed.shot, filmed.kept
     name, where = named(shot), f" --out {out}" if out else ""
     box = failure.box or _found_elsewhere(failure, filmed)
-    frame = "first" if failure.code == "VT508" and failure.about == "start" else "last"
+    frame = _frame_of(failure)
     return {
         **asdict(failure),
         "take": kept.seed,
@@ -247,7 +260,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
         "next": {
             **({"retake": f'videotape retake "{name}" --story {story.name}{where}'} if again is None else {"render": again}),
             "story": _story_line(failure, filmed, story),
-            "screenplay": _screenplay_line(shot),
+            "screenplay": _screenplay_line(shot, failure.code),
             "accept": f'videotape accept "{name}" {failure.code} --story {story.name}{where} --reason "..."',
         },
         **verdict(carry.accepted, shot.title, failure.code, kept.path.relative_to(tape).as_posix()),
@@ -263,22 +276,41 @@ def _found_elsewhere(failure: Failure, filmed: Filmed) -> Box | None:
     return None
 
 
+MOVE_CODES = ("VT506", "VT507", "VT508")
+"""The checks of a move's take, which a story's [moves] line drew, on a pinned move or a rehearsal."""
+
+
 def _story_line(failure: Failure, filmed: Filmed, story: Story) -> str:
-    """The story line that drew what failed, named from the prompt's clause sources: the appearance or the move of
-    the element type the check judges, else the scene's direction, else the look."""
+    """The story line that drew what failed, named from the prompt's clause sources: the move of the element type
+    pressed for a check of the move, else the appearance of the element type the check judges, else the scene's
+    direction, else the look."""
     shot = filmed.shot
-    kind = shot.element if isinstance(shot, Move) else failure.element
     sources = [clause.source.part for clause in filmed.prompt if isinstance(clause.source, FromStory)]
-    wanted = [f"moves.{kind}", "moves.default"] if isinstance(shot, Move) else \
-        [f"elements.{kind}", f"scenes.{shot.state.scene.name}", "look"]
+    if failure.code in MOVE_CODES:
+        pressed = (shot.move if isinstance(shot, Rehearsal) else shot).element
+        wanted = [f"moves.{pressed}", "moves.default"]
+    else:
+        wanted = [f"elements.{failure.element}", f"scenes.{shot.state.scene.name}", "look"]
     part = next((part for part in wanted if part in sources), sources[0] if sources else "look")
     table, _, name = part.partition(".")
     line = line_of(story.path, table, name) if name else line_of(story.path, None, part)
     return f"{errors.shown(story.path)}{f' line {line}' if line else ''}, {part}"
 
 
-def _screenplay_line(shot: Shot) -> str:
-    scene = shot.state.scene if isinstance(shot, Key) else shot.start.scene
+def _frame_of(failure: Failure) -> str | int:
+    """The frame the failure shows on: the first for a start seam, the frame a cut or a dissolve check names first,
+    else the last."""
+    if failure.code == "VT508" and failure.about == "start":
+        return "first"
+    named = re.search(r"\d+", failure.about) if failure.code in ("VT506", "VT507") else None
+    return int(named[0]) if named else "last"
+
+
+def _screenplay_line(shot: Shot, code: str) -> str:
+    """Where the scene that drew what failed is defined: a move's check is of the control pressed, in the scene the
+    move leaves, a rehearsal's too, and every other check is of the key's own scene."""
+    moved = not isinstance(shot, Key) or (isinstance(shot, Rehearsal) and code in MOVE_CODES)
+    scene = shot.start.scene if moved else shot.state.scene
     return f"{errors.shown(scene.defined[0])} line {scene.defined[1]}"
 
 
@@ -287,7 +319,9 @@ def _crop(tape: Path, number: int, failure: dict) -> str:
     folder = tape / "dailies"
     folder.mkdir(exist_ok=True)
     clip = tape / failure["clip"]
-    frame = frames.first_frame(clip) if failure["frame"] == "first" else frames.last_frame(clip)
+    at = failure["frame"]
+    frame = (frames.first_frame(clip) if at == "first" else frames.last_frame(clip) if at == "last" else
+             frames.frame_at(clip, at))
     if box := failure.get("crop_box"):
         frame = _cut(frame, Box(**box))
     out = folder / f"{number}.png"
@@ -457,7 +491,11 @@ def _shot(number: int, shot: dict) -> str:
         status += ' <span class="badge failing">kept take fails checks</span>'
     takes = "\n".join(_take(take) for take in shot["takes"])
     notes = []
-    if "move" in shot:
+    if "move" in shot and "state" in shot:
+        seams = (f'A rehearsal of {escape(shot["start"])} -&gt; {escape(shot["land"])}: leaves {escape(shot["start"])} by '
+                 f'{kept["start"]:.3f}, and its last frame is the key of {escape(shot["land"])}.')
+        notes.append(f'<p class="note{"" if all(item["passed"] for item in kept["items"]) else " fail"}">{seams}</p>')
+    elif "move" in shot:
         seams = f'Seams: leaves {escape(shot["start"])} by {kept["start"]:.3f}, enters {escape(shot["land"])} by {kept["end"]:.3f}.'
         passed = all(item["passed"] for item in kept["items"])
         notes.append(f'<p class="note{"" if passed else " fail"}">{seams}</p>')

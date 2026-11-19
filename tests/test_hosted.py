@@ -20,7 +20,7 @@ from videotape.fal import Fal, Receipt
 from videotape.hosted import OnFal, request_record
 from videotape.model import MODELS
 from videotape.plan import FromKey, Mode
-from videotape.standin import StandInEye
+from videotape.standin import StandInEye, StandInJudge
 
 KEY = "fal-test-key-0123456789abcdef"
 
@@ -145,7 +145,7 @@ def on_fal(case: Case, tmp_path: Path, monkeypatch) -> tuple[Path, Queue]:
     fal = Queue(case.name, tmp_path / "clips", case.size)
     listing = MODELS[case.name]
     monkeypatch.setitem(MODELS, case.name, dataclasses.replace(
-        listing, model=lambda: OnFal(listing.kind, Fal(KEY, send=fal, sleep=lambda _: None)), readers=(StandInEye,)))
+        listing, model=lambda: OnFal(listing.kind, Fal(KEY, send=fal, sleep=lambda _: None)), readers=(StandInEye,), judge=StandInJudge))
     return directory, fal
 
 
@@ -207,15 +207,16 @@ def test_a_render_films_every_shot_on_fal_and_writes_each_calls_price_in_the_led
     out = directory / "tape-fal"
     assert cli(directory, *render_args(case)) == 1
     stdout = capsys.readouterr().out
-    assert stdout.splitlines()[0] == f"{case.name}: 11 shots, 11 calls, ${11 * case.usd:.2f} at {case.rate}, cap $20.00, $0.00 spent"
+    assert stdout.splitlines()[0] == f"{case.name}: 9 shots, 9 calls, ${9 * case.usd:.2f} at {case.rate}, cap $20.00, $0.00 spent"
     assert fal.most == 2
     plan = planned(directory)
     images = {key.state: out / key.image for key in plan.keys}
     keys = {words(key, told(directory)) for key in plan.keys if not isinstance(key, FromKey)}
     variants = {(words(key, told(directory)), data_uri(images[key.start])) for key in plan.keys if isinstance(key, FromKey)}
-    moves = {(words(move, told(directory)), data_uri(images[move.start]), data_uri(images[move.land])) for move in plan.moves}
-    # Three bases are text-to-video, and the two variants and six moves image-to-video.
-    assert sorted(endpoint for endpoint, _ in fal.posts) == sorted([case.endpoints[0]] * 3 + [case.endpoints[1]] * 8)
+    moves = {(words(move, told(directory)), data_uri(images[move.start]), data_uri(images[move.land])) for move in plan.pinned}
+    assert (len(keys), len(variants), len(moves)) == (1, 4, 4)
+    assert sorted(endpoint for endpoint, _ in fal.posts) == sorted(
+        [case.endpoints[0]] * len(keys) + [case.endpoints[1]] * (len(variants) + len(moves)))
     for endpoint, body in fal.posts:
         if endpoint == case.endpoints[0]:
             assert body == {"prompt": body["prompt"], **case.key, **seed(case, 1)} and body["prompt"] in keys
@@ -230,14 +231,14 @@ def test_a_render_films_every_shot_on_fal_and_writes_each_calls_price_in_the_led
     assert sorted((line["tape"], line["model"], line["shot"], line["mode"], line["seed"], line["gpu"], line["duration"],
                    line["usd"]) for line in lines) == sorted(
         ("tape-fal", case.name, shot.title, shot.mode.value, 1, "fal", 5.0, case.usd) for shot in plan.shots)
-    assert {line["request_id"] for line in lines} == {f"request-{number}" for number in range(11)}
-    assert ledger.of(directory, out).totals()["usd"] == round(11 * case.usd, 2)
+    assert {line["request_id"] for line in lines} == {f"request-{number}" for number in range(9)}
+    assert ledger.of(directory, out).totals()["usd"] == round(9 * case.usd, 2)
     assert json.loads((out / "tape.json").read_text())["size"] == {"width": case.size[0], "height": case.size[1]}
 
     posts = len(fal.posts)
     capsys.readouterr()
     cli(directory, *render_args(case))
-    assert len(fal.posts) == posts and len(ledger.of(directory, out).lines()) == 11
+    assert len(fal.posts) == posts and len(ledger.of(directory, out).lines()) == 9
 
 
 @CASES
@@ -304,10 +305,11 @@ def test_a_render_on_fal_without_the_api_key_of_its_reader_claude_stops_before_a
 def test_plan_estimates_the_model_and_warns_of_a_prompt_past_its_limit(case, tmp_path, cli, capsys):
     directory = copy_of("cafe", tmp_path)
     assert cli(directory, "plan", "--story", "chalk", "--model", case.name) == 0
-    read = claude.estimate(1280, 704)
+    read, judgment = claude.estimate(1280, 704), claude.judge_estimate(1280, 704)
     assert capsys.readouterr().out.splitlines()[-1] == (
-        f"{case.name}: 11 shots, 11 to 44 calls, ${11 * case.usd:.2f} to ${44 * case.usd:.2f} at {case.rate}, and 5 to "
-        f"20 reads by claude-opus-5-5, at most ${5 * read:.2f} to ${20 * read:.2f}")
+        f"{case.name}: 9 shots, 9 to 36 calls, ${9 * case.usd:.2f} to ${36 * case.usd:.2f} at {case.rate}, and 5 to "
+        f"20 reads by claude-opus-5-5, at most ${5 * read:.2f} to ${20 * read:.2f}, and 6 to 24 judgments by "
+        f"claude-opus-5-5, at most ${6 * judgment:.2f} to ${24 * judgment:.2f}")
     chalk = directory / "stories" / "chalk.toml"
     look = "A chalkboard cafe. " * 400
     assert 7_000 < len(look) < 20_000

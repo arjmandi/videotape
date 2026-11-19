@@ -14,7 +14,7 @@ from videotape.made import made
 from videotape.model import MODELS, Listing
 from videotape.plan import Mode
 from videotape.render import render
-from videotape.standin import Flaw, StandIn, StandInEye
+from videotape.standin import Flaw, StandIn, StandInEye, StandInJudge
 
 HASH = re.compile(r"[0-9a-f]{64}")
 
@@ -118,7 +118,7 @@ def cafe(tmp_path_factory) -> Path:
     directory = copy_of("cafe", tmp_path_factory.mktemp("made"))
     found, chalk, model = project.find(directory), told(directory), StandIn(flaw=clean)
     tape = directory / "tapes" / "chalk"
-    render(planned(directory), chalk, model, [StandInEye()], tape, ledger.of(directory, tape), made(found, chalk, model),
+    render(planned(directory), chalk, model, [StandInEye()], StandInJudge(), tape, ledger.of(directory, tape), made(found, chalk, model),
            takes=1)
     return directory
 
@@ -134,7 +134,7 @@ def test_tape_json_carries_the_made_block_beside_what_the_player_reads(cafe):
 def test_the_cli_writes_the_made_block_of_the_model_it_rendered_with(cafe, tmp_path, cli, monkeypatch):
     directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
     tuned = Tuned(flaw=clean)
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: tuned, (StandInEye,), kind=tuned))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: tuned, (StandInEye,), kind=tuned, judge=StandInJudge))
     assert cli(directory, "render", "--story", "chalk", "--takes", "1", "--out", "tape-tuned") == 0
     written = json.loads((directory / "tape-tuned" / "tape.json").read_text())["made"]
     assert written == block(directory, "chalk", tuned)
@@ -156,7 +156,7 @@ def test_an_app_without_a_project_name_is_named_by_its_folder(tmp_path):
 def two(cafe, tmp_path, cli, monkeypatch, capsys):
     """A copy of the rendered cafe, and a way to render it again after a change, with a stand-in that never flaws."""
     directory = Path(shutil.copytree(cafe, tmp_path / "cafe", ignore=shutil.ignore_patterns("__pycache__")))
-    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), (StandInEye,), kind=StandIn))
+    monkeypatch.setitem(MODELS, "stand-in", Listing(lambda: StandIn(flaw=clean), (StandInEye,), kind=StandIn, judge=StandInJudge))
 
     def render_again(*arguments: str) -> None:
         assert cli(directory, "render", "--takes", "1", *arguments) == 0

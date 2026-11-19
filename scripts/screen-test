@@ -932,7 +932,7 @@ def _film(found: project.Project, sample: Plan, told: story.Story, name: str, mo
         print(f"{sample.keys.index(filmed.shot) + 1}. {filmed.shot.title}  kept take {filmed.kept.seed}, {verdict}, "
               f"{filmed_takes}, ${filmed.usd:.2f}, {filmed.seconds:.1f} s", flush=True)
 
-    render(sample, told, model, readers, tape, ledger.of(found.root, tape), made(found, told, model), takes=TAKES,
+    render(sample, told, model, readers, listing.judge(tape), tape, ledger.of(found.root, tape), made(found, told, model), takes=TAKES,
            limit=listing.limit, price=listing.price, cap=cap, resume=resume, report=report, every=True)
 
 if __name__ == "__main__":
