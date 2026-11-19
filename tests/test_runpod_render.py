@@ -21,11 +21,19 @@ from videotape.render import check_modes
 
 ROOT = Path(__file__).parent.parent
 SCRIPT = str(ROOT / "scripts" / "runpod-render")
-BARE = {"PATH": f"{Path(shutil.which('uv')).parent}:/usr/bin:/bin", "UV_PROJECT_ENVIRONMENT": sys.prefix,
-        "https_proxy": "http://127.0.0.1:9"}
+UV = {"UV_PROJECT_ENVIRONMENT": sys.prefix, "UV_PYTHON": sys.executable}
+"""Where the script's uv checks the plan: this venv on this Python, since uv run on the repository's .python-version
+would rebuild the venv the tests run in on another Python."""
+BARE = {"PATH": f"{Path(shutil.which('uv')).parent}:/usr/bin:/bin", **UV, "https_proxy": "http://127.0.0.1:9"}
 """An environment with no API key, where the script finds uv, which checks the plan with this venv, and whose requests go
 to a proxy that answers none."""
 PUBLIC_KEY = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeFakeFakeFakeFakeFakeFakeFakeFakeFakeFake videotape-runpod\n"
+
+
+@pytest.fixture(autouse=True)
+def uv_here(monkeypatch):
+    for name, value in UV.items():
+        monkeypatch.setenv(name, value)
 
 
 @pytest.fixture(scope="module")
