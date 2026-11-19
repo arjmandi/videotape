@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from pathlib import Path
@@ -218,10 +219,31 @@ def hevc(clip: Path, out: Path) -> None:
     _ffmpeg("-i", str(clip), *HEVC, str(out))
 
 
-def crossfade(start: Path, end: Path, out: Path) -> None:
+def _joined(start: Path, end: Path, out: Path, transition: str) -> None:
+    """One second from the start picture to the end picture: the start held for 0.1 s, the transition over 0.4 s, and
+    the end held for the rest."""
     _ffmpeg("-loop", "1", "-framerate", str(FPS), "-t", "0.5", "-i", str(start),
             "-loop", "1", "-framerate", str(FPS), "-t", "0.9", "-i", str(end),
-            "-filter_complex", "[0][1]xfade=transition=fade:duration=0.4:offset=0.1,format=yuv420p", *ENCODE, str(out))
+            "-filter_complex", f"[0][1]xfade=transition={transition}:duration=0.4:offset=0.1,format=yuv420p", *ENCODE,
+            str(out))
+
+
+def crossfade(start: Path, end: Path, out: Path) -> None:
+    """The start picture fading into the end picture, so the middle frames show both overlaid."""
+    _joined(start, end, out, "fade")
+
+
+def wipe(start: Path, end: Path, out: Path) -> None:
+    """The end picture wiped over the start picture from the right, so each frame shows a part of each and no pixel
+    blends the two."""
+    _joined(start, end, out, "wipeleft")
+
+
+def cut(pictures: Sequence[Path], out: Path, seconds: float = 0.4) -> None:
+    """The pictures held in turn, each for this long, cut together."""
+    held = [word for picture in pictures for word in ("-loop", "1", "-framerate", str(FPS), "-t", str(seconds), "-i", str(picture))]
+    inputs = "".join(f"[{number}]" for number in range(len(pictures)))
+    _ffmpeg(*held, "-filter_complex", f"{inputs}concat=n={len(pictures)}:v=1:a=0,format=yuv420p", *ENCODE, str(out))
 
 
 def write_video(rgb_frames: list[bytes], out: Path) -> None:

@@ -1,8 +1,9 @@
 """The stand-in is a model that needs no GPU: it draws each of a prompt's quoted lines as a labelled box, the line
 the prompt says is chosen as an inverted one, and its eye reads them back from the pixels. A key drawn from a start
-picture opens on that picture and ends on the boxes. A move crossfades from the key it leaves to the key it lands on,
-and its judge tells that crossfade's middle frames, a blend of its two ends, from its ends. A render with it proves
-everything around the model."""
+picture opens on that picture and ends on the boxes. Every clip travels from its first picture to its last by a wipe,
+which shows a part of each and blends nothing, unless a flaw makes it dissolve or cut instead; its judge tells a frame
+that blends the clip's two ends from one that shows a part of each. A render with it proves everything around the
+model."""
 
 import hashlib
 import re
@@ -57,15 +58,21 @@ class Flaw(Enum):
     EXTRA_BOX = "extra box"
     WRONG_START = "wrong start"
     WRONG_END = "wrong end"
+    DISSOLVE = "dissolve"
+    CUT = "cut"
 
 
 # Seeds 1 and 2 may carry a flaw of their kind, so the checks have something to reject. Seed 3 is always clean. A key
-# flaw is a misspelt line (VT502), a line left out (VT501 and VT502), or a box the prompt never asked for (VT503).
+# flaw is a misspelt line (VT502), a line left out (VT501 and VT502), or a box the prompt never asked for (VT503). A
+# move flaw is a first or last frame that is not its key (VT508), a crossfade in place of the wipe (VT507), or a jump
+# through the last picture's negative (VT506). A key drawn from a start picture is a move too, so it may carry a
+# crossfade or a jump when asked, and by default carries a key flaw.
 KEY_FLAWS = (Flaw.MISSPELL, Flaw.DROP_LINE, Flaw.EXTRA_BOX)
+TRAVEL_FLAWS = (Flaw.DISSOLVE, Flaw.CUT)
 FLAWS = {
     Mode.TEXT_TO_VIDEO: KEY_FLAWS,
     Mode.FIRST_FRAME: KEY_FLAWS,
-    Mode.FIRST_AND_LAST_FRAME: (Flaw.WRONG_START, Flaw.WRONG_END),
+    Mode.FIRST_AND_LAST_FRAME: (Flaw.WRONG_START, Flaw.WRONG_END, *TRAVEL_FLAWS),
 }
 
 
@@ -118,7 +125,7 @@ class StandIn:
         digest = hashlib.sha256(f"{seed}\n{prompt}".encode()).digest()
         kinds = [kind for kind in FLAWS[mode] if mode is Mode.FIRST_AND_LAST_FRAME or rows]
         flaw = self.flaw(mode, prompt, seed) if self.flaw else _default_flaw(digest, seed, kinds)
-        if flaw is not Flaw.NONE and flaw not in kinds:
+        if flaw is not Flaw.NONE and flaw not in (*kinds, *(TRAVEL_FLAWS if mode is Mode.FIRST_FRAME else ())):
             raise ValueError(f"{flaw.name} does not apply to this {mode.value} take")
         if flaw in (Flaw.MISSPELL, Flaw.DROP_LINE):
             rows, (r, i) = _spoil(rows, flaw, digest)
@@ -140,7 +147,12 @@ class StandIn:
                 first = _png(_negative(frames.read_png(first)), scratch / "wrong-start.png")
             if flaw is Flaw.WRONG_END:
                 last = _png(_negative(frames.read_png(last)), scratch / "wrong-end.png")
-            frames.crossfade(first, last, out)
+            if flaw is Flaw.DISSOLVE:
+                frames.crossfade(first, last, out)
+            elif flaw is Flaw.CUT:
+                frames.cut((first, _png(_negative(frames.read_png(last)), scratch / "flash.png"), last), out)
+            else:
+                frames.wipe(first, last, out)
         self.drawn[out] = drawn
 
 
@@ -168,9 +180,10 @@ class StandInEye:
 BLEND = (0.1, 0.9)
 """How far from the first frame toward the last a blend must lie, as a share, to show both: nearer either end it
 shows that end."""
-BLEND_RESIDUAL = 0.04
-"""How far a frame may sit from the nearest blend of the first and last frames, as a mean grey difference, and still
-be one."""
+BLEND_RESIDUAL = 0.1
+"""How far a frame may sit from the nearest blend of the first and last frames, as a share of how far those two sit
+apart, and still be one. A crossfade's middle frame sits within 0.03 of its blend, encoding and all; a wipe's, which
+shows a part of each picture, sits 0.18 and further from any blend, whatever the pictures show."""
 BLEND_APART = 0.001
 """How far the first and last frames must sit from each other, as a mean grey difference, before a frame can be a
 blend of them: nearer, they are alike but for the encoding, and every frame shows the one picture. Two of the
@@ -179,9 +192,9 @@ stand-in's keys sit about 0.007 apart, and one key encoded twice 0.00004."""
 
 class StandInJudge:
     """Judges the stand-in's moves without a model. A frame shows two pictures overlaid when it is a blend of the
-    clip's first and last frames, which the stand-in's own crossfade makes its middle frames; the first and last
-    frames, a frame all of one or the other, and a frame that is neither nor a blend of them show one picture. It
-    costs nothing and caches nothing."""
+    clip's first and last frames, which a crossfade makes its middle frames; the first and last frames, a frame all
+    of one or the other, and a frame that is neither nor a blend of them, as a wipe's middle frames are, show one
+    picture. It costs nothing and caches nothing."""
 
     name = "stand-in"
     key = None
@@ -204,12 +217,13 @@ class StandInJudge:
 def blended(first: bytes, last: bytes, grey: bytes) -> tuple[bool, str]:
     """Whether a grey frame is a blend of the first and last frames that shows both, and what it shows. The blend
     nearest the frame is found by least squares, and the frame is that blend when it sits within BLEND_RESIDUAL of
-    it."""
-    if sum(abs(b - a) for a, b in zip(first, last)) / (255 * len(grey)) < BLEND_APART:
+    it, measured against how far the first and last frames sit apart."""
+    apart = sum(abs(b - a) for a, b in zip(first, last))
+    if apart / (255 * len(grey)) < BLEND_APART:
         return False, "the first and last frames, which are alike"
     span = sum((b - a) ** 2 for a, b in zip(first, last))
     along = sum((x - a) * (b - a) for a, b, x in zip(first, last, grey)) / span
-    residual = sum(abs(x - (a + along * (b - a))) for a, b, x in zip(first, last, grey)) / (255 * len(grey))
+    residual = sum(abs(x - (a + along * (b - a))) for a, b, x in zip(first, last, grey)) / apart
     if residual > BLEND_RESIDUAL:
         return False, "a picture that is neither the first frame nor the last"
     if along <= BLEND[0]:

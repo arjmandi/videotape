@@ -210,13 +210,14 @@ def test_the_stand_in_says_which_line_it_has_no_room_or_no_letters_for(tmp_path)
         standin.draw([["Café"]])
 
 
-def test_the_stand_ins_judge_calls_the_middle_of_its_own_crossfade_overlaid_and_a_held_or_cut_picture_one(tmp_path):
+def test_the_stand_ins_judge_calls_the_middle_of_a_crossfade_overlaid_and_a_wipes_held_or_cut_picture_one(tmp_path):
     start, end = tmp_path / "start.png", tmp_path / "end.png"
     frames.write_png(standin.draw([["Thanks"], ["One Espresso coming up."]])[0], start)
     frames.write_png(standin.draw([["Corner Cafe"], ["Drinks"]])[0], end)
-    crossfade, held, cut = tmp_path / "crossfade.mp4", tmp_path / "held.mp4", tmp_path / "cut.mp4"
+    crossfade, wipe, held, cut = (tmp_path / name for name in ("crossfade.mp4", "wipe.mp4", "held.mp4", "cut.mp4"))
     frames.crossfade(start, end, crossfade)
-    frames.crossfade(start, start, held)
+    frames.wipe(start, end, wipe)
+    frames.wipe(start, start, held)
     first, last = frames.read_png(start).rgb, frames.read_png(end).rgb
     frames.write_video([first] * 12 + [last] * 12, cut)
     judge = StandInJudge(tmp_path)
@@ -227,6 +228,13 @@ def test_the_stand_ins_judge_calls_the_middle_of_its_own_crossfade_overlaid_and_
     assert faded.seen[0] == "the first frame" and faded.seen[-1] == "the last frame"
     assert faded.seen[2].startswith("the first frame fading into the last, ") and faded.seen[2].endswith("% of the way")
     assert max(frames.scene_scores(crossfade)) < 0.3
+    wiped = judge.judge(frames.sampled(wipe, 8))
+    assert wiped.passed and wiped.at == faded.at
+    assert "a picture that is neither the first frame nor the last" in wiped.seen
+    assert set(wiped.seen) <= {"the first frame", "a picture that is neither the first frame nor the last", "the last frame"}
+    assert max(frames.scene_scores(wipe)) < 0.3
+    assert frames.difference(frames.first_frame(wipe), frames.read_png(start)) < 0.01
+    assert frames.difference(frames.last_frame(wipe), frames.read_png(end)) < 0.01
     still = judge.judge(frames.sampled(held, 8))
     assert still.passed and set(still.seen) == {"the first and last frames, which are alike"}
     hard = judge.judge(frames.sampled(cut, 8))
@@ -238,3 +246,36 @@ def test_a_cut_between_two_stand_in_keys_scores_under_the_cut_threshold_since_th
     last = frames.read_png(_png(standin.draw([["Corner Cafe"], ["Drinks"]])[0], tmp_path / "e.png")).rgb
     frames.write_video([first] * 12 + [last] * 12, tmp_path / "cut.mp4")
     assert max(frames.scene_scores(tmp_path / "cut.mp4")) < 0.05
+
+
+def test_a_wipe_travels_and_the_dissolve_and_cut_flaws_fail_their_check_and_keep_the_seams(tmp_path):
+    """A clean move wipes from the key it leaves to the key it lands on, so it passes the cut check, the stand-in's
+    judge and both seams. The dissolve flaw crossfades instead, which the judge calls overlaid, and the cut flaw jumps
+    through the last picture's negative, which scores far over the cut threshold since the two keys alone sit too
+    close for a cut between them to score."""
+    start, end = tmp_path / "start.png", tmp_path / "end.png"
+    frames.write_png(standin.draw([["Thanks"], ["One Espresso coming up."]])[0], start)
+    frames.write_png(standin.draw([["Corner Cafe"], ["Drinks"]])[0], end)
+    judge, taken = StandInJudge(), {}
+    for flaw in (Flaw.NONE, Flaw.DISSOLVE, Flaw.CUT):
+        for mode in (Mode.FIRST_AND_LAST_FRAME, Mode.FIRST_FRAME):
+            model = StandIn(flaw=lambda mode, prompt, seed: flaw)
+            out = tmp_path / f"{flaw.value}-{mode.value}.mp4"
+            if mode is Mode.FIRST_AND_LAST_FRAME:
+                model.first_last_frame('The button "Done" is pressed.', start, end, 1, out)
+            else:
+                model.first_frame('Reading "Corner Cafe". Reading "Drinks".', start, 1, out)
+            taken[flaw, mode] = (judge.judge(frames.sampled(out, 8)).passed, max(frames.scene_scores(out)) <= 0.3,
+                                 frames.difference(frames.first_frame(out), frames.read_png(start)) < 0.01)
+    assert taken == {(Flaw.NONE, Mode.FIRST_AND_LAST_FRAME): (True, True, True),
+                     (Flaw.NONE, Mode.FIRST_FRAME): (True, True, True),
+                     (Flaw.DISSOLVE, Mode.FIRST_AND_LAST_FRAME): (False, True, True),
+                     (Flaw.DISSOLVE, Mode.FIRST_FRAME): (False, True, True),
+                     (Flaw.CUT, Mode.FIRST_AND_LAST_FRAME): (True, False, True),
+                     (Flaw.CUT, Mode.FIRST_FRAME): (True, False, True)}
+    pinned = tmp_path / f"{Flaw.CUT.value}-{Mode.FIRST_AND_LAST_FRAME.value}.mp4"
+    assert frames.difference(frames.last_frame(pinned), frames.read_png(end)) < 0.01
+    with pytest.raises(ValueError, match="DISSOLVE does not apply to this text-to-video take"):
+        StandIn(flaw=lambda mode, prompt, seed: Flaw.DISSOLVE).text_to_video('Reading "Drinks".', 1, tmp_path / "no.mp4")
+    assert standin.FLAWS[Mode.FIRST_AND_LAST_FRAME] == (Flaw.WRONG_START, Flaw.WRONG_END, Flaw.DISSOLVE, Flaw.CUT)
+    assert standin.FLAWS[Mode.FIRST_FRAME] == standin.FLAWS[Mode.TEXT_TO_VIDEO] == (Flaw.MISSPELL, Flaw.DROP_LINE, Flaw.EXTRA_BOX)
