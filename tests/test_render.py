@@ -1384,11 +1384,15 @@ def test_a_take_that_dissolves_or_cuts_fails_its_check_and_the_render_takes_the_
     assert err[0].startswith(f"fail: 2. {ORDER_ESPRESSO_KEY}  VT507 frame") and err[0].endswith("overlaid, by stand-in")
     assert err[1] == '  next: videotape retake "order(Espresso)" --story chalk --out tape-d'
     [failure] = dailies.read(directory / "tape-d")["failures"]
-    assert (failure["shot"], failure["code"], failure["frame"]) == (ORDER_ESPRESSO_KEY, "VT507", "last")
+    assert (failure["shot"], failure["code"]) == (ORDER_ESPRESSO_KEY, "VT507")
+    assert failure["frame"] == int(failure["about"].split()[1]) and failure["crop_box"] is None
+    clip = directory / "tape-d" / failure["clip"]
+    assert frames.read_png(directory / "tape-d" / failure["crop"]) == frames.frame_at(clip, failure["frame"])
+    assert frames.read_png(directory / "tape-d" / failure["crop"]) != frames.last_frame(clip)
     assert failure["next"] == {
         "retake": 'videotape retake "order(Espresso)" --story chalk --out tape-d',
         "story": "stories/chalk.toml line 21, moves.default",
-        "screenplay": "cafe.py line 24",
+        "screenplay": "cafe.py line 15",
         "accept": 'videotape accept "order(Espresso)" VT507 --story chalk --out tape-d --reason "..."'}
     assert cli(directory, "accept", "menu() -> order(Espresso)", "VT507", "--story", "chalk", "--out", "tape-d",
                "--reason", "the fade is fine here") == 0

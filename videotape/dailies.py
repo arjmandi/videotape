@@ -5,6 +5,7 @@ it first and carries them over when it writes it again."""
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from html import escape
 from pathlib import Path
@@ -249,7 +250,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
     shot, kept = filmed.shot, filmed.kept
     name, where = named(shot), f" --out {out}" if out else ""
     box = failure.box or _found_elsewhere(failure, filmed)
-    frame = "first" if failure.code == "VT508" and failure.about == "start" else "last"
+    frame = _frame_of(failure)
     return {
         **asdict(failure),
         "take": kept.seed,
@@ -259,7 +260,7 @@ def _failure(failure: Failure, filmed: Filmed, story: Story, out: str | None, ca
         "next": {
             **({"retake": f'videotape retake "{name}" --story {story.name}{where}'} if again is None else {"render": again}),
             "story": _story_line(failure, filmed, story),
-            "screenplay": _screenplay_line(shot),
+            "screenplay": _screenplay_line(shot, failure.code),
             "accept": f'videotape accept "{name}" {failure.code} --story {story.name}{where} --reason "..."',
         },
         **verdict(carry.accepted, shot.title, failure.code, kept.path.relative_to(tape).as_posix()),
@@ -296,8 +297,20 @@ def _story_line(failure: Failure, filmed: Filmed, story: Story) -> str:
     return f"{errors.shown(story.path)}{f' line {line}' if line else ''}, {part}"
 
 
-def _screenplay_line(shot: Shot) -> str:
-    scene = shot.state.scene if isinstance(shot, Key) else shot.start.scene
+def _frame_of(failure: Failure) -> str | int:
+    """The frame the failure shows on: the first for a start seam, the frame a cut or a dissolve check names first,
+    else the last."""
+    if failure.code == "VT508" and failure.about == "start":
+        return "first"
+    named = re.search(r"\d+", failure.about) if failure.code in ("VT506", "VT507") else None
+    return int(named[0]) if named else "last"
+
+
+def _screenplay_line(shot: Shot, code: str) -> str:
+    """Where the scene that drew what failed is defined: a move's check is of the control pressed, in the scene the
+    move leaves, a rehearsal's too, and every other check is of the key's own scene."""
+    moved = not isinstance(shot, Key) or (isinstance(shot, Rehearsal) and code in MOVE_CODES)
+    scene = shot.start.scene if moved else shot.state.scene
     return f"{errors.shown(scene.defined[0])} line {scene.defined[1]}"
 
 
@@ -306,7 +319,9 @@ def _crop(tape: Path, number: int, failure: dict) -> str:
     folder = tape / "dailies"
     folder.mkdir(exist_ok=True)
     clip = tape / failure["clip"]
-    frame = frames.first_frame(clip) if failure["frame"] == "first" else frames.last_frame(clip)
+    at = failure["frame"]
+    frame = (frames.first_frame(clip) if at == "first" else frames.last_frame(clip) if at == "last" else
+             frames.frame_at(clip, at))
     if box := failure.get("crop_box"):
         frame = _cut(frame, Box(**box))
     out = folder / f"{number}.png"

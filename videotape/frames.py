@@ -150,6 +150,11 @@ def last_frame(clip: Path) -> Frame:
     return _decode(clip, "-vf", "reverse")
 
 
+def frame_at(clip: Path, number: int) -> Frame:
+    """The frame of a clip with this number, as ffmpeg counts frames, from 0."""
+    return _decode(clip, "-vf", f"select='eq(n,{number})'", "-fps_mode", "passthrough")
+
+
 def count(clip: Path) -> int:
     """How many frames a clip decodes to, counted by decoding it."""
     probed = _tool("ffprobe", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames",
