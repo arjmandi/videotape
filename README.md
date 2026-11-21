@@ -554,14 +554,14 @@ white letters in a plain sans-serif face.
 
 [scenes]
 home = "The main hall, facing the big departure board."
-search = "Up close at the departure board, where the destinations are listed."
-not_found = "The departure board, with a printed notice taped beside it."
+search = "A self-service kiosk by the tall windows, its screen listing the destinations."
+not_found = "A printed notice taped to a steel pillar."
 no_flights = "An empty gate, its sign lit and its seats empty."
 dates = "A wall calendar beside the ticket desk."
 results = "The departure board, showing one day's flights."
 flight = "The gate desk, with the flight's details on its sign."
 booked = "A printed boarding pass on the gate desk."
-my_trips = "A lounge wall pinned with boarding passes."
+my_trips = "A dark panel on the lounge wall, beside pinned boarding passes."
 trip = "One boarding pass on a lounge table, seen from above."
 profile = "The lounge's wall display, beside a window onto the runway."
 
@@ -569,20 +569,20 @@ profile = "The lounge's wall display, beside a window onto the runway."
 Heading = "large white letters on a long dark sign"
 Text = "smaller white letters on a dark sign"
 Button = "a lit amber panel with bold black letters, like a gate sign"
-SearchBar = "a wide white slot in the departure board with black letters, its destinations listed below it as lines of the board"
+SearchBar = "a wide white slot with black letters, its destinations listed below it as lines"
 DatePicker = "a wall calendar of square white tiles, each with the day's number large, a flight day's fare small beneath its number, and days without flights greyed out"
 DateStrip = "a row of square white tiles, one per day, with the chosen day lit amber"
-List = "a departure board, one line per row, its words in columns"
+List = "white words in columns on a dark panel, one line per row"
 BarChart = "a backlit wall display with amber bars and white labels"
 LineChart = "a backlit wall display with one amber line and white labels"
 Tabs = "three dark signs hanging in a row, the current one lit amber"
 
 [moves]
-default = "The camera glides through the terminal to the next place and settles."
+default = "The camera turns from the sign, which keeps its words, glides through the terminal to the next place, and settles."
 Button = "The panel lights up as it is pressed. The camera walks forward."
-SearchBar = "The slot lights up. The camera steps closer to the departure board."
 List = "The row lights up. The camera pushes in toward the gate."
-Tabs = "The sign lights up. The camera pans across the concourse."
+DateStrip = "The tile lights up. The board's letters flip over, row by row, to that day's flights."
+Tabs = "The sign lights up. The camera turns from the board, which keeps its words, and pans across the concourse to the next place."
 ```
 
 `plan --story` reads the story too. It stops on a direction for a scene the screenplay lacks, and warns about a scene without a direction:
@@ -606,26 +606,25 @@ uv run videotape shots --story terminal --state "home()"
 
 ```text
 key home()
-  engine                         Static shot.
-  story look                     A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
-  story scenes.home              The main hall, facing the big departure board.
-  story elements.Heading         Large white letters on a long dark sign,
-  screenplay home, Heading       reading "Good morning, Alex".
-  story elements.SearchBar       A wide white slot in the departure board with black letters, its destinations listed below it as lines of the board,
-  screenplay home, SearchBar     reading "Where to?".
-  story elements.List            A departure board, one line per row, its words in columns,
-  screenplay home, List          reading "Your next trip"; and "San Francisco to New York" and "Friday, December 18".
-  story elements.Text            Smaller white letters on a dark sign,
-  screenplay home, Text          reading "48,250 Contrail Miles".
-  story elements.Tabs            Three dark signs hanging in a row, the current one lit amber,
-  screenplay home, Tabs          reading "Home", "Trips", and "Profile", with "Home" chosen.
-  engine                         Sharp, legible lettering.
+  engine                          Static shot.
+  story look                      A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
+  story scenes.home               The main hall, facing the big departure board.
+  story elements.Heading          Large white letters on a long dark sign,
+  screenplay home, Heading        reading "Good morning, Alex".
+  story elements.SearchBar        A wide white slot with black letters, its destinations listed below it as lines,
+  screenplay home, SearchBar      reading "Where to?".
+  story elements.List             White words in columns on a dark panel, one line per row,
+  screenplay home, List           reading "Your next trip"; and "San Francisco to New York" and "Friday, December 18".
+  story elements.Text             Smaller white letters on a dark sign,
+  screenplay home, Text           reading "48,250 Contrail Miles".
+  story elements.Tabs             Three dark signs hanging in a row, the current one lit amber,
+  screenplay home, Tabs           reading "Home", "Trips", and "Profile", with "Home" chosen.
+  engine                          Sharp, legible lettering.
 
 key search() rehearsed from home()
-  screenplay home, SearchBar     The search bar "Where to?" is pressed.
-  story moves.SearchBar          The slot lights up. The camera steps closer to the departure board.
-  engine                         It ends held still on the next screen.
-  story look                     A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
+  screenplay home, SearchBar      The search bar "Where to?" is pressed.
+  story moves.default             The camera turns from the sign, which keeps its words, glides through the terminal to the next place, and settles.
+  engine                          It ends held still on the next screen.
 ...
 ```
 
@@ -669,7 +668,8 @@ LineChart = "a screen-printed line chart in coral, with cream labels"
 Tabs = "three printed tabs along the poster's bottom edge, the current one in coral"
 
 [moves]
-default = "The camera slides along the wall to the next poster and settles straight on."
+default = "The camera slides from the poster, which stays as it is, along the wall to the next poster and settles straight on."
+DateStrip = "The day square is pressed. A hand pins a fresh printed timetable over the old one."
 ```
 
 The same state in this story has the same words, and looks different:

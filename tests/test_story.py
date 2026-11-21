@@ -101,7 +101,8 @@ def test_an_element_is_quoted_line_by_line_with_a_label_beside_its_value_and_row
     engine, look, element_words, *after, lettering = story.prompt(key, a_story())
     assert (engine.text, look.text, lettering.text) == ("Static shot.", "A plain room.", "Sharp, legible lettering.")
     assert [clause.text for clause in after] == (
-        ["Every other day shows its number alone, and no day is marked."] if isinstance(element, vt.DatePicker) else [])
+        ["The 1st falls on a Tuesday.", "Every other day shows its number alone, and no day is marked."]
+        if isinstance(element, vt.DatePicker) else [])
     assert (element_words.text, str(element_words.source)) == (reading, f"screenplay home, {type(element).__name__}")
     assert re.findall(r'"([^"]*)"', reading) == list(key.lines)
 
@@ -121,7 +122,7 @@ def test_an_option_or_tab_that_leads_to_the_state_it_is_on_is_quoted_again_as_th
     on_home, on_trips = plan(app).keys
     assert words(on_home, a_story()) == (
         'Static shot. A plain room. Reading "Home" and "Trips", with "Home" chosen. Reading "December 2026"; and '
-        '"11" "$99" and "12" "$89", with "11" chosen. Every other day shows its number alone. '
+        '"11" "$99" and "12" "$89", with "11" chosen. The 1st falls on a Tuesday. Every other day shows its number alone. '
         "Sharp, legible lettering.")
     assert 'Reading "Home" and "Trips", with "Trips" chosen.' in words(on_trips, a_story())
 
@@ -214,6 +215,7 @@ def test_a_date_pickers_words_are_followed_by_the_engines_line_that_its_other_da
     assert [(clause.text, str(clause.source)) for clause in story.prompt(key, dressed)][3:] == [
         ("A wall calendar,", "story elements.DatePicker"),
         ('reading "December 2026"; and "11" "$99" and "12" "$89".', "screenplay home, DatePicker"),
+        ("The 1st falls on a Tuesday.", "engine"),
         ("Every other day shows its number alone, and no day is marked.", "engine"),
         ("Sharp, legible lettering.", "engine")]
     assert "Every other day" not in words(home_key(vt.DateStrip(DAYS)), dressed)

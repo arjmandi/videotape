@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import re
 import tomllib
+from datetime import datetime
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from difflib import get_close_matches
@@ -94,7 +95,8 @@ RELETTERED = Clause("Only the lettering changes: every sign now reads as describ
 base's words, and a model left to itself keeps them."""
 BARE_DAYS = Clause("Every other day shows its number alone.", Engine())
 UNMARKED = Clause("Every other day shows its number alone, and no day is marked.", Engine())
-"""What follows a DatePicker's words. A model draws a month as a grid of alike squares and puts a label on each."""
+"""What follows a DatePicker's words, after the weekday its month begins on. A model draws a month as a grid of alike
+squares, puts a label on each, and starts the month on whatever weekday it likes."""
 
 
 def text(prompt: Prompt) -> str:
@@ -131,7 +133,9 @@ def _key(key: Key, story: Story) -> Prompt:
         if reading:
             clauses.append(Clause(reading if appearance else _capital(reading), FromScreenplay(scene, element.type)))
         if element.type == "DatePicker":
-            clauses.append(BARE_DAYS if any(line.chosen for line in element.lines) else UNMARKED)
+            first = datetime.strptime(element.lines[0].words, "%B %Y")
+            clauses += [Clause(f"The 1st falls on a {first:%A}.", Engine()),
+                        BARE_DAYS if any(line.chosen for line in element.lines) else UNMARKED]
     return *clauses, LETTERING
 
 
