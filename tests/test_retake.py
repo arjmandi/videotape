@@ -25,10 +25,12 @@ def misspelt_until_five(mode: Mode, prompt: str, seed: int) -> Flaw:
     return Flaw.MISSPELL if ORDER_LATTE in prompt and mode is not Mode.FIRST_AND_LAST_FRAME and seed < 5 else Flaw.NONE
 
 
-def misspelt_thanks_latte(mode: Mode, prompt: str, seed: int) -> Flaw:
-    """thanks(Latte)'s key is misspelt on every seed: its Done button on seed 1, so the button is not found, and its
-    heading on seed 2, which the shot then keeps."""
-    return Flaw.MISSPELL if THANKS_LATTE in prompt and mode is not Mode.FIRST_AND_LAST_FRAME else Flaw.NONE
+def flawed_thanks_latte(mode: Mode, prompt: str, seed: int) -> Flaw:
+    """thanks(Latte)'s key leaves a line out on seed 1 and misspells one on every later seed, which the shot then
+    keeps, since a misspelt line reads closer than a missing one."""
+    if THANKS_LATTE not in prompt or mode is Mode.FIRST_AND_LAST_FRAME:
+        return Flaw.NONE
+    return Flaw.DROP_LINE if seed == 1 else Flaw.MISSPELL
 
 
 def extra_on_thanks_espresso(mode: Mode, prompt: str, seed: int) -> Flaw:
@@ -243,9 +245,9 @@ def test_an_accept_holds_for_its_take_and_a_retake_that_keeps_another_fails_agai
         tmp_path, cli, capsys, monkeypatch):
     directory = copy_of("cafe", tmp_path)
     tape = directory / "tapes" / "chalk"
-    stand_in(monkeypatch, misspelt_thanks_latte)
+    stand_in(monkeypatch, flawed_thanks_latte)
     assert cli(directory, *RENDER, "--takes", "1") == 1
-    reason = "the heading reads well enough"
+    reason = "the line reads well enough"
     assert cli(directory, "accept", "thanks(Latte)", "VT502", "--story", "chalk", "--reason", reason) == 0
     [accepted] = dailies.read(tape)["accepted"]
     assert accepted["seed"] == 1
@@ -254,7 +256,8 @@ def test_an_accept_holds_for_its_take_and_a_retake_that_keeps_another_fails_agai
     assert cli(directory, "retake", "thanks(Latte)", "--story", "chalk") == 1
     out, err = capsys.readouterr()
     assert f"5. {THANKS_LATTE_KEY}  kept take 2, fails VT502, 1 take filmed" in out
-    assert err.splitlines() == [f'fail: 5. {THANKS_LATTE_KEY}  VT502 Thanks: read "xhanks", CER 0.167',
+    assert err.splitlines() == [f'fail: 5. {THANKS_LATTE_KEY}  VT502 One Latte coming up.: read "One Lattx coming up.", '
+                                'CER 0.050',
                                 '  next: videotape retake "thanks(Latte)" --story chalk']
     record = dailies.read(tape)
     [failure] = record["failures"]
@@ -265,14 +268,15 @@ def test_an_accept_holds_for_its_take_and_a_retake_that_keeps_another_fails_agai
     assert f'<p class="again">Accepted on take 1: {reason}; this is take 2, so look again</p>' in page
     assert "1 failing, 1 to act on, 0 accepted" in page and "badge accepted" not in page
 
-    again = "the new heading reads well enough too"
+    again = "the new line reads well enough too"
     assert cli(directory, "accept", "thanks(Latte)", "VT502", "--story", "chalk", "--reason", again) == 0
     assert [accept["seed"] for accept in dailies.read(tape)["accepted"]] == [2]
     capsys.readouterr()
     assert cli(directory, *RENDER, "--takes", "1") == 0
     out, err = capsys.readouterr()
     assert f"5. {THANKS_LATTE_KEY}  kept take 2, fails VT502, cached" in out
-    assert err.splitlines() == [f'accepted: 5. {THANKS_LATTE_KEY}  VT502 Thanks: read "xhanks", CER 0.167',
+    assert err.splitlines() == [f'accepted: 5. {THANKS_LATTE_KEY}  VT502 One Latte coming up.: read "One Lattx coming '
+                                'up.", CER 0.050',
                                 f"  reason: {again}"]
     [failure] = dailies.read(tape)["failures"]
     assert (failure["accepted"]["reason"], failure["accepted_before"]) == (again, None)

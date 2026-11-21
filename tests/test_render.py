@@ -1294,7 +1294,7 @@ def test_the_dailies_folder_holds_only_the_crops_of_the_failures_the_record_name
     crops = lambda: sorted(failure["crop"] for failure in dailies.read(directory / TAPE)["failures"])
     files = lambda: sorted(path.relative_to(directory / TAPE).as_posix() for path in folder.iterdir())
     assert cli(directory, *RENDER, "--takes", "1") == 1
-    assert files() == crops() == ["dailies/1.png", "dailies/2.png", "dailies/3.png", "dailies/4.png"]
+    assert files() == crops() == ["dailies/1.png", "dailies/2.png", "dailies/3.png"]
     assert cli(directory, *RENDER, "--takes", "2") == 1
     assert files() == crops() == ["dailies/1.png"]
     monkeypatch.setitem(MODELS, "stand-in", stand_in(StandIn(flaw=clean)))
