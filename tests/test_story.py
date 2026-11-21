@@ -121,7 +121,7 @@ def test_an_option_or_tab_that_leads_to_the_state_it_is_on_is_quoted_again_as_th
     on_home, on_trips = plan(app).keys
     assert words(on_home, a_story()) == (
         'Static shot. A plain room. Reading "Home" and "Trips", with "Home" chosen. Reading "December 2026"; and '
-        '"11" "$99" and "12" "$89", with "11" chosen. Every other day shows its number alone, and no day is marked. '
+        '"11" "$99" and "12" "$89", with "11" chosen. Every other day shows its number alone. '
         "Sharp, legible lettering.")
     assert 'Reading "Home" and "Trips", with "Trips" chosen.' in words(on_trips, a_story())
 

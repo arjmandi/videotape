@@ -526,7 +526,7 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
     labels = {_shape(placed[index].line.words) for index, (_, part) in options.items() if part == "label"}
     rows = [words for element in key.shown if element.type not in DAYS and not element.chart for row in element.rows
             if len(words := tuple(line.words for cell in row for line in cell)) > 1]
-    pressed = [at.line.action.words for at in placed if at.line.action]
+    pressed = [at.line.action.label for at in placed if at.line.action]
     kind = next((at.element.type for index, at in enumerate(placed) if index in options), "DatePicker")
     days = DAYS[kind]
     reads = [_apart(one, labels, days) for one in reads]
@@ -556,7 +556,7 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
                                                                  if index in seen[one.reader]))
                  for index, at in enumerate(placed))
     actions = tuple(Hotspot(at.line.action.label, at.element.type,
-                            tuple(_found(one.reader, one.spots, at.line.action.words) for one in reads))
+                            tuple(_found(one.reader, _cells(one.spots, rows), at.line.action.words) for one in reads))
                     for at in placed if at.line.action)
     stray, invented = [], []
     for one in reads:

@@ -92,7 +92,8 @@ RELETTERED = Clause("Only the lettering changes: every sign now reads as describ
                     "picture's words remain.", Engine())
 """What a variant's prompt says after the static shot. A variant is drawn from its base's picture, which shows the
 base's words, and a model left to itself keeps them."""
-BARE_DAYS = Clause("Every other day shows its number alone, and no day is marked.", Engine())
+BARE_DAYS = Clause("Every other day shows its number alone.", Engine())
+UNMARKED = Clause("Every other day shows its number alone, and no day is marked.", Engine())
 """What follows a DatePicker's words. A model draws a month as a grid of alike squares and puts a label on each."""
 
 
@@ -130,7 +131,7 @@ def _key(key: Key, story: Story) -> Prompt:
         if reading:
             clauses.append(Clause(reading if appearance else _capital(reading), FromScreenplay(scene, element.type)))
         if element.type == "DatePicker":
-            clauses.append(BARE_DAYS)
+            clauses.append(BARE_DAYS if any(line.chosen for line in element.lines) else UNMARKED)
     return *clauses, LETTERING
 
 

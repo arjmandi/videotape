@@ -339,8 +339,6 @@ def test_a_list_row_read_whole_as_one_spot_reads_each_of_its_lines_in_its_share_
     assert checks.invented == ()
 
 
-@pytest.mark.xfail(strict=True, reason="the row's action is found by its title alone, and b236b7f exempts a control "
-                                       "that reads an action's words, which are that title, not the row's label")
 def test_a_list_row_read_whole_as_one_control_is_its_action_found_and_not_an_invented_control():
     checks = score(flight_row(), [Read("claude", (Spot("9:00 AM to 12:35 PM 5h 35m, Nonstop $279", Box(100, 200, 410, 30), True),))])
     assert checks.passed, failed(checks)
