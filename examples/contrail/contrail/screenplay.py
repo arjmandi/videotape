@@ -125,7 +125,7 @@ def booked(f: Flight):
 def my_trips():
     recent = trips.where(lambda t: t.day < TODAY).order_by("day", descending=True).limit(3)
     return [
-        vt.Heading("Trips"),
+        vt.Heading("Your trips"),
         vt.List([vt.Row(f"San Francisco to {city(t.destination)}", long_day(t.day), to=trip(t))
                  for t in upcoming()], title="Upcoming"),
         vt.List([vt.Row(f"{city(t.origin)} to {city(t.destination)}", short_day(t.day)) for t in recent],

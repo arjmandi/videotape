@@ -100,7 +100,8 @@ def test_an_element_is_quoted_line_by_line_with_a_label_beside_its_value_and_row
     key = home_key(element)
     engine, look, element_words, *after, lettering = story.prompt(key, a_story())
     assert (engine.text, look.text, lettering.text) == ("Static shot.", "A plain room.", "Sharp, legible lettering.")
-    assert after == []
+    zero_bars = isinstance(element, vt.BarChart) and 0 in key.shown[0].chart.values
+    assert [clause.text for clause in after] == (["A 0 has no bar, only its label."] if zero_bars else [])
     assert (element_words.text, str(element_words.source)) == (reading, f"screenplay home, {type(element).__name__}")
     assert re.findall(r'"([^"]*)"', reading) == list(key.lines)
 

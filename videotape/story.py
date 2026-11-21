@@ -92,6 +92,9 @@ RELETTERED = Clause("Only the lettering changes: every sign now reads as describ
                     "picture's words remain.", Engine())
 """What a variant's prompt says after the static shot. A variant is drawn from its base's picture, which shows the
 base's words, and a model left to itself keeps them."""
+NO_BAR = Clause("A 0 has no bar, only its label.", Engine())
+"""What follows a BarChart's words when it plots a 0. A model left to itself draws a bar of some height for every
+label."""
 
 
 def text(prompt: Prompt) -> str:
@@ -127,6 +130,8 @@ def _key(key: Key, story: Story) -> Prompt:
             clauses.append(Clause(f"{_capital(appearance)}{ends}", FromStory(f"elements.{element.type}")))
         if reading:
             clauses.append(Clause(reading if appearance else _capital(reading), FromScreenplay(scene, element.type)))
+        if element.type == "BarChart" and element.chart and 0 in element.chart.values:
+            clauses.append(NO_BAR)
     return *clauses, LETTERING
 
 
