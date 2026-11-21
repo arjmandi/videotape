@@ -16,7 +16,7 @@ from videotape.checks import Checks, Failure, MoveChecks
 from videotape.frames import Box, Frame
 from videotape.plan import Key, Move, Rehearsal, Shot
 from videotape.atomic import write_atomically
-from videotape.story import FromStory, Story, line_of, text
+from videotape.story import FromStory, Prompt, Story, line_of
 
 if TYPE_CHECKING:
     from videotape.render import Filmed, Render
@@ -28,11 +28,13 @@ PAD = 24
 @dataclass(frozen=True)
 class Carried:
     """What a tape's record carries from one render to the next, each by the shot's title: the seeds a retake added,
-    the seeds whose takes were corrupt, and the failures a person accepted."""
+    the seeds whose takes were corrupt, the failures a person accepted, and what each shot was, its prompt, its
+    kept take and what that take failed, so a changed prompt shows what changed."""
 
     retakes: dict[str, list[int]] = field(default_factory=dict)
     corrupt: dict[str, list[int]] = field(default_factory=dict)
     accepted: list[dict] = field(default_factory=list)
+    shots: dict[str, dict] = field(default_factory=dict)
 
 
 def carried(tape: Path, render: str) -> Carried:
@@ -41,7 +43,8 @@ def carried(tape: Path, render: str) -> Carried:
     if not (tape / "dailies.json").is_file():
         return Carried()
     held = _held(tape, render)
-    return Carried(dict(held.get("retakes", {})), dict(held.get("corrupt", {})), list(held.get("accepted", [])))
+    shots = {**held.get("earlier", {}), **{shot["title"]: _was(shot) for shot in (*held["keys"], *held["moves"])}}
+    return Carried(dict(held.get("retakes", {})), dict(held.get("corrupt", {})), list(held.get("accepted", [])), shots)
 
 
 def named(shot: Shot) -> str:
@@ -107,6 +110,13 @@ figcaption { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; marg
 .failure .again { color: var(--kept); font-size: 13px; margin: 0 0 8px; }
 .next { margin: 0; padding-left: 20px; font-size: 13px; }
 .next li { margin: 2px 0; overflow-wrap: anywhere; }
+.changed { border-left: 3px solid var(--kept); padding-left: 12px; margin-top: 12px; }
+.changed .take { max-width: 320px; margin-top: 8px; }
+.clauses { margin: 6px 0 0; padding-left: 20px; font-size: 13px; }
+.clauses li { overflow-wrap: anywhere; }
+.clauses .added strong { color: var(--pass); }
+.clauses .removed strong { color: var(--fail); }
+.clauses .source { color: var(--muted); }
 code { background: var(--kept-soft); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 @media (max-width: 640px) { .failure { grid-template-columns: 1fr; } }
 """
@@ -131,9 +141,10 @@ def record(title: str, checks: str, render: Render, story: Story, tape_name: str
     is false for a render that stopped short of its last shot, and unfilmed names each shot whose every take the
     model refused for its content, with those seeds. again is the command a stopped render's failures name in place
     of a retake, which needs the tape.json only a finished render writes. The ledger totals and the tape's size are
-    read at write time."""
+    read at write time. A stopped render keeps what each shot it did not reach was, for the render that resumes it."""
     out = None if tape_name == f"tapes/{story.name}" else tape_name
     shots = render.shots
+    reached = {filmed.shot.title for filmed in shots}
     return {
         "title": title,
         "checks": checks,
@@ -141,9 +152,9 @@ def record(title: str, checks: str, render: Render, story: Story, tape_name: str
         "out": out,
         "takes": takes,
         "complete": complete,
-        "keys": [{**_shot_record(filmed, render.tape), "state": filmed.shot.state.name, "key": filmed.shot.image,
+        "keys": [{**_shot_record(filmed, render.tape, carry), "state": filmed.shot.state.name, "key": filmed.shot.image,
                   "items": _items(filmed.kept.checks), **_rehearsed(filmed.shot)} for filmed in render.keys],
-        "moves": [{**_shot_record(filmed, render.tape), "move": filmed.shot.clip, "start": filmed.shot.start.name,
+        "moves": [{**_shot_record(filmed, render.tape, carry), "move": filmed.shot.clip, "start": filmed.shot.start.name,
                    "land": filmed.shot.land.name, "label": filmed.shot.label} for filmed in render.moves],
         "failures": [_failure(failure, filmed, story, out, carry, render.tape, again)
                      for filmed in shots for failure in filmed.failures],
@@ -152,6 +163,7 @@ def record(title: str, checks: str, render: Render, story: Story, tape_name: str
         "corrupt": carry.corrupt,
         "accepted": carry.accepted,
         "unfilmed": unfilmed or {},
+        "earlier": {} if complete else {title: was for title, was in carry.shots.items() if title not in reached},
     }
 
 
@@ -219,18 +231,66 @@ def _rehearsed(shot: Shot) -> dict:
     return {"move": shot.clip, "start": shot.start.name, "land": shot.state.name, "label": shot.move.label}
 
 
-def _shot_record(filmed: Filmed, tape: Path) -> dict:
+def _shot_record(filmed: Filmed, tape: Path, carry: Carried) -> dict:
     shot = filmed.shot
+    prompt = _clauses(filmed.prompt)
     return {
         "title": shot.title,
         "mode": shot.mode.value,
-        "prompt": text(filmed.prompt),
+        "prompt": prompt,
+        "changed": _changes(carry.shots.get(shot.title), prompt),
         "takes": [{"seed": take.seed, "clip": take.path.relative_to(tape).as_posix(), "cached": take.cached,
                    "kept": take is filmed.kept, "seconds": take.seconds, "gpu": take.gpu, "usd": take.usd,
                    **_seams(take.checks), "items": _items(take.checks)} for take in filmed.takes],
         "corrupt": list(filmed.corrupt),
         "refused": list(filmed.refused),
     }
+
+
+def _clauses(prompt: Prompt) -> list[dict]:
+    return [{"text": clause.text, "source": str(clause.source)} for clause in prompt]
+
+
+def _was(shot: dict) -> dict:
+    """What a shot's record says it was: its prompt, what changed in it before, and its kept take and the codes that
+    take failed."""
+    kept = _kept(shot)
+    return {"prompt": shot["prompt"], "changed": shot.get("changed", []), "take": kept["seed"], "clip": kept["clip"],
+            "failed": sorted({item["code"] for item in kept["items"] if not item["passed"]})}
+
+
+def _changes(was: dict | None, prompt: list[dict]) -> list[dict]:
+    """The changes to a shot's prompt, oldest first: those its record held, and one more when the prompt differs from
+    the recorded one, with that prompt, the clauses taken out and put in, and the take the shot kept with it. A prompt
+    recorded as text, as records were before they kept each clause's source, is compared sentence by sentence."""
+    if was is None:
+        return []
+    before = was["prompt"]
+    if isinstance(before, str):
+        before, prompt = _sentences(before), _sentences(_text(prompt))
+    if before == prompt:
+        return was["changed"]
+    return [*was["changed"], {"prompt": before, "removed": _without(before, prompt), "added": _without(prompt, before),
+                              **{part: was[part] for part in ("take", "clip", "failed")}}]
+
+
+def _sentences(text: str) -> list[dict]:
+    return [{"text": sentence, "source": None} for sentence in re.split(r"(?<=[.!?])\s+", text) if sentence]
+
+
+def _without(clauses: list[dict], others: list[dict]) -> list[dict]:
+    """The clauses in order, but for one of each the others hold."""
+    left, kept = list(others), []
+    for clause in clauses:
+        if clause in left:
+            left.remove(clause)
+        else:
+            kept.append(clause)
+    return kept
+
+
+def _text(prompt: str | list[dict]) -> str:
+    return prompt if isinstance(prompt, str) else " ".join(clause["text"] for clause in prompt)
 
 
 def _seams(checks: Checks) -> dict:
@@ -511,12 +571,31 @@ def _shot(number: int, shot: dict) -> str:
                      f'<span>Gave <strong>{escape(shot["state"])}</strong> its key: the last frame of take {kept["seed"]}.</span></div>')
     return f"""<section class="shot" id="shot-{number}">
 <div class="head"><h2>{number}. {escape(shot["title"])} ({shot["mode"]})</h2><div>{status}</div></div>
-<details><summary>Prompt</summary><p>{escape(shot["prompt"])}</p></details>
-<div class="takes">
+<details><summary>Prompt</summary><p>{escape(_text(shot["prompt"]))}</p></details>
+{"".join(map(_change, shot.get("changed", [])))}<div class="takes">
 {takes}
 </div>
 {"".join(notes)}
 </section>"""
+
+
+def _change(change: dict) -> str:
+    """One change to a shot's prompt: each clause put in and taken out, with where it came from, and the kept take the
+    prompt had before, with the checks it failed."""
+    def clause(word: str, kind: str, said: dict) -> str:
+        source = f' <span class="source">from {escape(said["source"])}</span>' if said["source"] else ""
+        return f'<li class="{kind}"><strong>{word}</strong> {escape(said["text"])}{source}</li>'
+
+    failed = f'failed {", ".join(change["failed"])}' if change["failed"] else "passed every check"
+    return f"""<div class="changed">
+<p class="note">The prompt changed since a render whose kept take {change["take"]} {failed}.</p>
+<ul class="clauses">{"".join(clause("Added", "added", said) for said in change["added"])}{"".join(
+        clause("Removed", "removed", said) for said in change["removed"])}</ul>
+<figure class="take"><video data-src="{escape(change["clip"])}" loop muted playsinline preload="none"></video>
+<figcaption><strong>Take {change["take"]}</strong><span class="badge">before the change</span></figcaption></figure>
+<details><summary>Prompt before the change</summary><p>{escape(_text(change["prompt"]))}</p></details>
+</div>
+"""
 
 
 def _take(take: dict) -> str:

@@ -373,7 +373,7 @@ def _corrupt(carried: Carried, result: Render) -> Carried:
         for seed in filmed.corrupt:
             if seed not in corrupt.setdefault(filmed.shot.title, []):
                 corrupt[filmed.shot.title].append(seed)
-    return Carried(carried.retakes, corrupt, carried.accepted)
+    return replace(carried, corrupt=corrupt)
 
 
 def _film_key(shared: _Set, key: Key, clauses: Prompt, seeds: list[int], retakes: list[int], skipped: list[int],

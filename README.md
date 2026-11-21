@@ -729,7 +729,7 @@ uv run videotape dailies --story terminal
 wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "reads": 0, "judgments": 0, "usd": 0.0}
 ```
 
-`dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what each reader read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. `explain` prints a code's long form:
+`dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what each reader read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. When a shot's prompt changed since an earlier render, its card shows each clause added and removed, with the story line, screenplay line or engine rule it came from, and the take the shot kept before, with the checks it failed. `explain` prints a code's long form:
 
 ```sh
 uv run videotape explain VT502

@@ -1342,7 +1342,8 @@ def test_a_rehearsal_starts_on_the_picture_of_the_state_it_is_reached_from_is_ju
     assert frames.read_png(tape / espresso.image) == frames.last_frame(filmed.kept.path)
     record = dailies.read(tape)
     [_, rehearsed] = record["keys"]
-    assert (rehearsed["title"], rehearsed["mode"], rehearsed["prompt"]) == (ORDER_ESPRESSO_KEY, "first-frame", composed)
+    assert (rehearsed["title"], rehearsed["mode"]) == (ORDER_ESPRESSO_KEY, "first-frame")
+    assert " ".join(clause["text"] for clause in rehearsed["prompt"]) == composed
     assert (rehearsed["move"], rehearsed["start"], rehearsed["land"], rehearsed["label"]) == (
         "moves/menu--espresso.mp4", "menu()", "order(Espresso)", "Espresso, $3")
     assert [(take["seed"], take["end"]) for take in rehearsed["takes"]] == [(1, 0.0), (2, 0.0)]
@@ -1399,3 +1400,84 @@ def test_a_take_that_dissolves_or_cuts_fails_its_check_and_the_render_takes_the_
     assert capsys.readouterr().out == f"accepted VT507 on {ORDER_ESPRESSO_KEY}: the fade is fine here\n"
     assert cli(directory, "retake", "menu() -> order(Espresso)", "--story", "chalk", "--out", "tape-d") == 0
     assert capsys.readouterr().out.splitlines()[0] == 'retaking key order(Espresso) rehearsed from menu() with seed 2'
+
+
+SMALLER, SMALL = "A line of smaller chalk letters,", "A line of small chalk letters,"
+
+
+def lettered_small(directory: Path) -> None:
+    story = directory / "stories" / "chalk.toml"
+    source = story.read_text()
+    assert source.count('Text = "a line of smaller chalk letters"') == 1
+    story.write_text(source.replace('Text = "a line of smaller chalk letters"', 'Text = "a line of small chalk letters"'))
+
+
+def shot_of(record: dict, title: str) -> dict:
+    return next(shot for shot in (*record["keys"], *record["moves"]) if shot["title"] == title)
+
+
+def test_a_story_line_changed_between_renders_shows_on_the_shot_with_its_clauses_and_the_kept_take_it_replaced(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / TAPE
+    rendered(directory, StandIn(flaw=flaws), takes=1)
+    first = shot_of(dailies.read(tape), THANKS_LATTE_KEY)
+    [kept] = first["takes"]
+    assert first["changed"] == [] and {"text": SMALLER, "source": "story elements.Text"} in first["prompt"]
+    assert " ".join(clause["text"] for clause in first["prompt"]) == words(
+        next(key for key in planned(directory).keys if key.title == THANKS_LATTE_KEY), told(directory))
+    lettered_small(directory)
+    rendered(directory, StandIn(flaw=flaws), takes=1)
+    record = dailies.read(tape)
+    [change] = shot_of(record, THANKS_LATTE_KEY)["changed"]
+    assert change == {"prompt": first["prompt"], "removed": [{"text": SMALLER, "source": "story elements.Text"}],
+                      "added": [{"text": SMALL, "source": "story elements.Text"}], "take": 1, "clip": kept["clip"],
+                      "failed": ["VT502"]}
+    assert (tape / change["clip"]).is_file() and change["clip"] != shot_of(record, THANKS_LATTE_KEY)["takes"][0]["clip"]
+    assert shot_of(record, "key menu()")["changed"] == []
+    page = (tape / "dailies.html").read_text()
+    assert "The prompt changed since a render whose kept take 1 failed VT502." in page
+    assert f'<li class="added"><strong>Added</strong> {SMALL} <span class="source">from story elements.Text</span></li>' in page
+    assert f'<li class="removed"><strong>Removed</strong> {SMALLER} <span class="source">from story elements.Text</span></li>' in page
+    assert f'<video data-src="{kept["clip"]}"' in page
+    rendered(directory, StandIn(flaw=flaws), takes=1)
+    assert shot_of(dailies.read(tape), THANKS_LATTE_KEY)["changed"] == [change]
+
+
+def test_a_render_stopped_before_a_changed_shot_keeps_what_the_shot_was_for_the_render_that_resumes(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / TAPE
+    rendered(directory, StandIn(flaw=flaws), takes=1)
+    [kept] = shot_of(dailies.read(tape), THANKS_LATTE_KEY)["takes"]
+    lettered_small(directory)
+    with pytest.raises(RenderError):
+        rendered(directory, Refusing(set(), on=THANKS_LATTE, failing=frozenset({1}), flaw=flaws), takes=1)
+    stopped = dailies.read(tape)
+    assert THANKS_LATTE_KEY not in {shot["title"] for shot in stopped["keys"]}
+    assert stopped["earlier"][THANKS_LATTE_KEY]["clip"] == kept["clip"]
+    rendered(directory, StandIn(flaw=flaws), takes=1)
+    record = dailies.read(tape)
+    [change] = shot_of(record, THANKS_LATTE_KEY)["changed"]
+    assert (change["removed"], change["take"], change["clip"], change["failed"]) == (
+        [{"text": SMALLER, "source": "story elements.Text"}], 1, kept["clip"], ["VT502"])
+    assert record["earlier"] == {}
+
+
+def test_a_record_written_before_prompts_kept_their_sources_is_compared_with_the_new_prompt_sentence_by_sentence(tmp_path):
+    directory = copy_of("cafe", tmp_path)
+    tape = directory / TAPE
+    rendered(directory, StandIn(flaw=flaws), takes=1)
+    record = dailies.read(tape)
+    for shot in (*record["keys"], *record["moves"]):
+        shot["prompt"] = " ".join(clause["text"] for clause in shot["prompt"])
+        del shot["changed"]
+    del record["earlier"]
+    (tape / "dailies.json").write_text(json.dumps(record))
+    lettered_small(directory)
+    rendered(directory, StandIn(flaw=flaws), takes=1)
+    [change] = shot_of(dailies.read(tape), THANKS_LATTE_KEY)["changed"]
+    assert (change["removed"], change["added"], change["failed"]) == (
+        [{"text": f'{SMALLER} reading "One Latte coming up.".', "source": None}],
+        [{"text": f'{SMALL} reading "One Latte coming up.".', "source": None}], ["VT502"])
+    assert f"<li class=\"added\"><strong>Added</strong> {SMALL} reading &quot;One Latte coming up.&quot;.</li>" in (
+        tape / "dailies.html").read_text()
+    assert shot_of(dailies.read(tape), "key menu()")["changed"] == []
