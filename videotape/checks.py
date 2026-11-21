@@ -515,8 +515,9 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
     """Judge what every reader saw against the key. Each reader finds each action by its words and reads each line,
     each from a different spot, so a line the key shows twice is read twice. A control the readings paired with a
     line is that line, misread or not; one left over that reads like no line is invented. A reader that reports
-    charts judges each chart whole and leaves its lines out of its readings, and one that reports marks says which of
-    an element's choices are drawn marked."""
+    charts judges each chart whole, its title, labels, count and values, so no reader reads a chart's lines as
+    lettering beside it, since a chart's labels repeat short values that a reading cannot be paired by. One that
+    reports marks says which of an element's choices are drawn marked."""
     placed = [_Placed(line, element) for element in key.shown for line in element.lines]
     # A DatePicker's or a DateStrip's options, by their lines' places among the key's: each option's day and its
     # label, which are read from the calendar's cells before any other line is read.
@@ -532,6 +533,7 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
     reads = [_apart(one, labels, days) for one in reads]
     if kind == "DateStrip":
         reads = [_weekdays(one) for one in reads]
+    charted = any(one.charts is not None for one in reads)
     seen: dict[str, dict[int, Seen]] = {}
     sources: dict[str, dict[int, tuple[Spot, ...]]] = {}
     calendars: dict[str, Calendar] = {}
@@ -546,8 +548,7 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
                                                spots[0].box if spots else None)
                 sources[one.reader][index] = spots
         taken = set(calendars[one.reader].cells) if options else set()
-        judged = [index for index, at in enumerate(placed)
-                  if not (one.charts is not None and at.element.chart) and index not in options]
+        judged = [index for index, at in enumerate(placed) if not (charted and at.element.chart) and index not in options]
         paired = readings(one.reader, [placed[i].line.words for i in judged],
                           _cells([spot for spot in one.spots if spot not in taken], rows))
         for index, (found, spots) in zip(judged, paired):

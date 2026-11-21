@@ -116,7 +116,7 @@ def test_every_check_item_names_the_element_type_it_judges():
     by_code = {}
     for item in items:
         by_code.setdefault(item.code, set()).add(item.element)
-    assert by_code == {"VT501": {"Tabs"}, "VT502": {"Heading", "Text", "BarChart", "LineChart", "Tabs"},
+    assert by_code == {"VT501": {"Tabs"}, "VT502": {"Heading", "Text", "Tabs"},
                        "VT504": {"BarChart", "LineChart"}, "VT509": {"Tabs"}}
     assert all(item.passed for item in items)
     assert [item.element for item in items if item.code == "VT504"] == ["BarChart", "LineChart"]
@@ -169,16 +169,15 @@ def test_a_date_picker_with_no_chosen_day_marks_none_and_a_reader_that_reports_n
     assert "VT509" not in [item.code for item in score(key, [replace(seen, marked=None)]).items()]
 
 
-def test_vt504_judges_a_chart_whole_from_a_reader_that_reports_charts_and_leaves_its_lines_to_the_readers_that_do_not():
+def test_vt504_judges_a_chart_whole_from_a_reader_that_reports_charts_and_no_reader_reads_its_lines_beside_it():
     key = key_of(vt.Heading("Flown"), vt.BarChart("Flights per month", {"Jan": 0, "Feb": 1, "Mar": 2}))
     frame, seen = drawn(key)
     chart = Chart("Flights per month", ("Jan", "Feb", "Mar"), (0.0, 1.0, 2.1))
     charted = Read("made-up", seen.spots, charts=(chart,))
     checks = score(key, [seen, charted])
     assert checks.passed
-    assert [(reading.line, [one.reader for one in reading.seen]) for reading in checks.text] == [
-        ("Flown", ["stand-in", "made-up"]), ("Flights per month", ["stand-in"]), ("Jan", ["stand-in"]),
-        ("0", ["stand-in"]), ("Feb", ["stand-in"]), ("1", ["stand-in"]), ("Mar", ["stand-in"]), ("2", ["stand-in"])]
+    assert [(reading.line, [one.reader for one in reading.seen]) for reading in checks.text if reading.seen] == [
+        ("Flown", ["stand-in", "made-up"])]
     [plotted] = [item for item in checks.items() if item.code == "VT504"]
     assert (plotted.about, plotted.result, plotted.element, plotted.box) == (
         "Flights per month", "3 bars, the title, every label and every value within 10%, by made-up", "BarChart", None)

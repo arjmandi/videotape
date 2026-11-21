@@ -488,9 +488,9 @@ CODES: dict[str, Code] = {
         "A BarChart or a LineChart plots the screenplay's data: a title, category names in order, and a value at "
         "each. A reader that reports charts, Claude, judges each chart whole: its title and its category names read "
         "back exactly and in order, the key shows as many bars or points as the data has, and each value it reads "
-        "sits within a tenth of the data's. Those are facts that reading the chart's letters cannot judge, so that "
-        "reader's VT502 leaves the chart's lines out, and a reader that reports no charts reads them as lettering. The "
-        "dailies name what is off.",
+        "sits within a tenth of the data's. Those are facts that reading the chart's letters cannot judge, and a "
+        "chart's labels repeat short values that a reading cannot be paired by, so when a reader reports charts, VT502 "
+        "leaves the chart's lines out for every reader. The dailies name what is off.",
         'vt.BarChart("Flights per month in 2026", {"Jan": 0, "Feb": 1, "Mar": 2}), read with 2 bars where the data '
         "has 3, and Mar read 5 where the data has 2",
         "retake the shot, change the story's appearance for the chart's type, plot fewer categories in the "

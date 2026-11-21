@@ -11,7 +11,7 @@ from contrail.copy import clock, confirmation, duration, joined, long_day, money
 from contrail.data import Airport, Flight, Trip, airports, flights, traveler, trips
 
 TODAY = date(2026, 12, 1)
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"]
+SHOWN = {6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov"}
 
 app = vt.Screenplay("Contrail")
 
@@ -148,12 +148,11 @@ def trip(t: Trip):
 def profile():
     by_month = trips.where(lambda t: t.day < TODAY and t.day.year == TODAY.year).group_by(lambda t: t.day.month)
     flown, miles = by_month.count(), by_month.sum("miles")
-    running = accumulate(miles.get(month, 0) for month in range(1, 12))
+    running = dict(zip(range(1, 12), accumulate(miles.get(month, 0) for month in range(1, 12))))
     return [
         vt.Heading(traveler.name),
         vt.Text(f"{traveler.status} member, {traveler.miles:,} miles"),
-        vt.BarChart("Flights per month in 2026", {name: flown.get(month, 0)
-                                                  for month, name in enumerate(MONTHS, 1)}),
-        vt.LineChart("Miles flown in 2026", dict(zip(MONTHS, running))),
+        vt.BarChart("Flights per month since June", {name: flown.get(month, 0) for month, name in SHOWN.items()}),
+        vt.LineChart("Miles flown in 2026", {name: running[month] for month, name in SHOWN.items()}),
         tabs(),
     ]
