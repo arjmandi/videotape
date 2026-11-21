@@ -570,7 +570,7 @@ Heading = "large white letters on a long dark sign"
 Text = "smaller white letters on a dark sign"
 Button = "a lit amber panel with bold black letters, like a gate sign"
 SearchBar = "a wide white slot in the departure board with black letters, its destinations listed below it as lines of the board"
-DatePicker = "a wall calendar of square white tiles, each with the day's number large and the fare small beneath it, and days without flights greyed out"
+DatePicker = "a wall calendar of square white tiles, each with the day's number large, a flight day's fare small beneath its number, and days without flights greyed out"
 DateStrip = "a row of square white tiles, one per day, with the chosen day lit amber"
 List = "a departure board, one line per row, its words in columns"
 BarChart = "a backlit wall display with amber bars and white labels"
@@ -660,8 +660,8 @@ profile = "A poster of printed charts beside a suitcase."
 Heading = "big bold cream letters across the top of the poster"
 Text = "smaller dark letters printed on the poster"
 Button = "a printed coral tab with bold cream letters"
-SearchBar = "a printed cream box with dark letters and a small magnifier, its destinations printed below it on cream strips"
-DatePicker = "a printed month calendar, each day a square with its number and its fare, and days without flights faded"
+SearchBar = "a printed cream box with dark letters and a small magnifier"
+DatePicker = "a printed month calendar, each day a square with its number, a flight day's fare under its number, and days without flights faded"
 DateStrip = "a printed row of day squares, with the chosen day in coral"
 List = "a printed timetable, one line per row"
 BarChart = "a screen-printed bar chart in teal, with cream labels"
@@ -711,7 +711,7 @@ uv run videotape render --story terminal
 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 6.3 s
 ...
 160 shots, 166 takes filmed, $0.00, 51.7 s, tape 9.8 MB -> tapes/terminal
-fail: 34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Exrns 2,586 miles.", CER 0.029
+fail: 34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Earns 2,5x6 miles.", CER 0.029
   next: videotape retake "flight(CT 104, 2026-12-13)" --story terminal
 fail: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
   next: videotape retake "booked(CT 300, 2026-12-11)" --story terminal

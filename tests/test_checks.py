@@ -316,6 +316,42 @@ def test_an_action_split_across_a_list_rows_columns_is_found():
     assert checks.hotspots == {"8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89": Box(291, 273, 236, 38)}
 
 
+@pytest.mark.parametrize("line, read", [("You're booked.", "You’re booked."), ('Say "hi".', "Say “hi”."),
+                                        ("2h 10m, Nonstop", "2h  10m,   Nonstop")])
+def test_a_curly_quote_or_a_doubled_space_reads_as_the_line_typed(line, read):
+    checks = score(key_of(vt.Text(line)), [Read("claude", spots(read))])
+    assert checks.passed, failed(checks)
+    [reading] = checks.text
+    assert [(seen.text, seen.cer) for seen in reading.seen] == [(read, 0.0)]
+
+
+def flight_row() -> Key:
+    return key_of(vt.List([vt.Row("9:00 AM to 12:35 PM", "5h 35m, Nonstop", "$279", to=key_of(vt.Text("There")).state)]))
+
+
+@pytest.mark.parametrize("whole", ["9:00 AM to 12:35 PM 5h 35m, Nonstop $279", "9:00 AM to 12:35 PM, 5h 35m, Nonstop, $279"])
+def test_a_list_row_read_whole_as_one_spot_reads_each_of_its_lines_in_its_share_of_the_box(whole):
+    checks = score(flight_row(), [Read("claude", (Spot(whole, Box(100, 200, 410, 30), False),))])
+    assert not [item for item in checks.failures if item.code in ("VT502", "VT503")]
+    assert [(reading.line, reading.box) for reading in checks.text] == [
+        ("9:00 AM to 12:35 PM", Box(100, 200, 205, 30)), ("5h 35m, Nonstop", Box(305, 200, 161, 30)),
+        ("$279", Box(466, 200, 43, 30))]
+    assert checks.invented == ()
+
+
+@pytest.mark.xfail(strict=True, reason="the row's action is found by its title alone, and b236b7f exempts a control "
+                                       "that reads an action's words, which are that title, not the row's label")
+def test_a_list_row_read_whole_as_one_control_is_its_action_found_and_not_an_invented_control():
+    checks = score(flight_row(), [Read("claude", (Spot("9:00 AM to 12:35 PM 5h 35m, Nonstop $279", Box(100, 200, 410, 30), True),))])
+    assert checks.passed, failed(checks)
+
+
+def test_a_list_row_misread_whole_fails_vt502_for_each_of_its_lines():
+    checks = score(flight_row(), [Read("claude", (Spot("9:00 AM to 12:35 PM 5h 35m, Nonstop $297", Box(100, 200, 410, 30), True),))])
+    assert [(item.code, item.about) for item in checks.failures if item.code == "VT502"] == [
+        ("VT502", "9:00 AM to 12:35 PM"), ("VT502", "5h 35m, Nonstop"), ("VT502", "$279")]
+
+
 def test_an_invented_control_names_its_reader_when_there_are_several():
     key = key_of(vt.Heading("Thanks"))
     first = Read("stand-in", spots("Thanks"))

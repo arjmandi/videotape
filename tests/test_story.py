@@ -7,11 +7,12 @@ import pytest
 import videotape as vt
 from conftest import CONTRAIL, FIXTURES, a_story, as_explained, planned, told, videotape, words
 from videotape import story
-from videotape.plan import Key, plan
+from videotape.plan import FromKey, Key, Rehearsal, plan
 
 RESULTS = "results(SEA, 2026-12-12)"
 POSTERS_RESULTS = (
-    "Static shot. A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat "
+    "Static shot. Only the lettering changes: every sign now reads as described below, and none of the first "
+    "picture's words remain. A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat "
     "shapes, a few bold colors (teal, coral, mustard, and cream), paper grain, and bold geometric sans-serif letters. "
     "The camera faces the wall straight on. A poster of a printed timetable under a city skyline. Big bold cream "
     'letters across the top of the poster, reading "San Francisco to Seattle". A printed row of day squares, with the '
@@ -58,10 +59,10 @@ def test_a_keys_prompt_is_the_look_its_scenes_direction_each_element_and_the_let
     prompt = story.prompt(contrail_key(RESULTS), told(CONTRAIL, "posters"))
     assert story.text(prompt) == POSTERS_RESULTS
     assert [str(clause.source) for clause in prompt] == [
-        "engine", "story look", "story scenes.results", "story elements.Heading", "screenplay results, Heading",
+        "engine", "engine", "story look", "story scenes.results", "story elements.Heading", "screenplay results, Heading",
         "story elements.DateStrip", "screenplay results, DateStrip", "story elements.List", "screenplay results, List",
         "engine"]
-    assert [clause.text for clause in prompt][3:5] == [
+    assert [clause.text for clause in prompt][4:6] == [
         "Big bold cream letters across the top of the poster,", 'reading "San Francisco to Seattle".']
 
 
@@ -69,7 +70,9 @@ def test_a_story_never_changes_the_words_a_key_quotes():
     key = contrail_key(RESULTS)
     quoted = [re.findall(r'"[^"]*"', words(key, told(CONTRAIL, name))) for name in ("posters", "terminal")]
     assert quoted[0] == quoted[1]
-    assert words(key, told(CONTRAIL, "terminal")).startswith("Static shot. A quiet international airport terminal")
+    assert words(key, told(CONTRAIL, "terminal")).startswith(
+        "Static shot. Only the lettering changes: every sign now reads as described below, and none of the first "
+        "picture's words remain. A quiet international airport terminal")
 
 
 THERE = a_state()
@@ -95,8 +98,10 @@ DAYS = {date(2026, 12, 11): vt.Option("$99", THERE), date(2026, 12, 12): vt.Opti
 ])
 def test_an_element_is_quoted_line_by_line_with_a_label_beside_its_value_and_rows_apart(element, reading):
     key = home_key(element)
-    engine, look, element_words, lettering = story.prompt(key, a_story())
+    engine, look, element_words, *after, lettering = story.prompt(key, a_story())
     assert (engine.text, look.text, lettering.text) == ("Static shot.", "A plain room.", "Sharp, legible lettering.")
+    assert [clause.text for clause in after] == (
+        ["Every other day shows its number alone, and no day is marked."] if isinstance(element, vt.DatePicker) else [])
     assert (element_words.text, str(element_words.source)) == (reading, f"screenplay home, {type(element).__name__}")
     assert re.findall(r'"([^"]*)"', reading) == list(key.lines)
 
@@ -116,7 +121,8 @@ def test_an_option_or_tab_that_leads_to_the_state_it_is_on_is_quoted_again_as_th
     on_home, on_trips = plan(app).keys
     assert words(on_home, a_story()) == (
         'Static shot. A plain room. Reading "Home" and "Trips", with "Home" chosen. Reading "December 2026"; and '
-        '"11" "$99" and "12" "$89", with "11" chosen. Sharp, legible lettering.')
+        '"11" "$99" and "12" "$89", with "11" chosen. Every other day shows its number alone, and no day is marked. '
+        "Sharp, legible lettering.")
     assert 'Reading "Home" and "Trips", with "Trips" chosen.' in words(on_trips, a_story())
 
 
@@ -185,6 +191,34 @@ def test_a_rehearsals_prompt_carries_the_moves_clauses_then_the_states_own_witho
     assert story.ARRIVES.text == "It ends held still on the next screen."
 
 
+RELETTERED = ("Only the lettering changes: every sign now reads as described below, and none of the first picture's "
+              "words remain.")
+
+
+@pytest.mark.parametrize("name", ["terminal", "posters"])
+def test_a_variants_prompt_says_after_the_static_shot_that_only_its_lettering_changes_and_a_bases_never_does(name):
+    look, plan_ = told(CONTRAIL, name), planned(CONTRAIL)
+    variant = story.prompt(contrail_key(RESULTS), look)
+    assert [(clause.text, str(clause.source)) for clause in variant[:3]] == [
+        ("Static shot.", "engine"), (RELETTERED, "engine"), (look.look, "story look")]
+    variants = [key for key in plan_.keys if isinstance(key, FromKey) and not isinstance(key, Rehearsal)]
+    bases = [key for key in plan_.keys if key not in variants]
+    assert (len(variants), len(bases)) == (47, 11)
+    assert all(words(key, look).startswith(f"Static shot. {RELETTERED} ") for key in variants)
+    assert not any(RELETTERED in words(key, look) for key in bases)
+
+
+def test_a_date_pickers_words_are_followed_by_the_engines_line_that_its_other_days_are_bare():
+    key = home_key(vt.Heading("Dates"), vt.DatePicker(DAYS))
+    dressed = a_story(elements={"DatePicker": "a wall calendar"})
+    assert [(clause.text, str(clause.source)) for clause in story.prompt(key, dressed)][3:] == [
+        ("A wall calendar,", "story elements.DatePicker"),
+        ('reading "December 2026"; and "11" "$99" and "12" "$89".', "screenplay home, DatePicker"),
+        ("Every other day shows its number alone, and no day is marked.", "engine"),
+        ("Sharp, legible lettering.", "engine")]
+    assert "Every other day" not in words(home_key(vt.DateStrip(DAYS)), dressed)
+
+
 def test_contrails_moves_take_their_types_move_in_terminal_and_the_default_in_posters():
     plan_ = planned(CONTRAIL)
     terminal, posters = told(CONTRAIL, "terminal"), told(CONTRAIL, "posters")
@@ -214,7 +248,7 @@ def test_shots_prints_each_prompt_under_its_title_one_clause_to_a_line_with_its_
     key, first_move = shots[0][1:], shots[1][1:]
     assert all(line[:2] == "  " and line[31:33] == "  " and line[33] != " " for line in key + first_move)
     assert [line[2:31].rstrip() for line in key] == [
-        "engine", "story look", "story scenes.results", "story elements.Heading", "screenplay results, Heading",
+        "engine", "engine", "story look", "story scenes.results", "story elements.Heading", "screenplay results, Heading",
         "story elements.DateStrip", "screenplay results, DateStrip", "story elements.List", "screenplay results, List",
         "engine"]
     assert " ".join(line[33:] for line in key) == POSTERS_RESULTS

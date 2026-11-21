@@ -32,6 +32,7 @@ Preconditions:
   ```
   key results(SEA, 2026-12-12) from results(HNL, 2026-12-11)
     engine                         Static shot.
+    engine                         Only the lettering changes: every sign now reads as described below, and none of the first picture's words remain.
     story look                     A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat shapes, a few bold colors (teal, coral, mustard, and cream), paper grain, and bold geometric sans-serif letters. The camera faces the wall straight on.
     story scenes.results           A poster of a printed timetable under a city skyline.
     story elements.Heading         Big bold cream letters across the top of the poster,
