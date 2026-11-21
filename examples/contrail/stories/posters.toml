@@ -33,4 +33,5 @@ LineChart = "a screen-printed line chart in coral, with cream labels"
 Tabs = "three printed tabs along the poster's bottom edge, the current one in coral"
 
 [moves]
-default = "The camera slides along the wall to the next poster and settles straight on."
+default = "The camera slides from the poster, which stays as it is, along the wall to the next poster and settles straight on."
+DateStrip = "The day square is pressed. A hand pins a fresh printed timetable over the old one."
