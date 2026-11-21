@@ -18,7 +18,7 @@ PROMPT = ('Find every piece of text in this image. Answer with a JSON array and 
           'For a button, bbox_2d covers the whole button, not only its text.'
           ' Read text on signs seen at an angle too. Never add a character that is not drawn, such as a period at the '
           'end of a line.')
-MAX_NEW_TOKENS = 1024
+MAX_NEW_TOKENS = 4096
 ADD_EXTRA = ('in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
              'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync')
 """How a project adds videotape's qwen extra, whichever source its videotape dependency names: a folder, a git
