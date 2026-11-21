@@ -100,7 +100,6 @@ def test_an_element_is_quoted_line_by_line_with_a_label_beside_its_value_and_row
     key = home_key(element)
     engine, look, element_words, *after, lettering = story.prompt(key, a_story())
     assert (engine.text, look.text, lettering.text) == ("Static shot.", "A plain room.", "Sharp, legible lettering.")
-
     assert after == []
     assert (element_words.text, str(element_words.source)) == (reading, f"screenplay home, {type(element).__name__}")
     assert re.findall(r'"([^"]*)"', reading) == list(key.lines)
