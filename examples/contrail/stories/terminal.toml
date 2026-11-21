@@ -9,8 +9,8 @@ white letters in a plain sans-serif face.
 
 [scenes]
 home = "The main hall, facing the big departure board."
-search = "Up close at the departure board, where the destinations are listed."
-not_found = "The departure board, with a printed notice taped beside it."
+search = "A second departure board beside the first, listing the destinations."
+not_found = "A printed notice taped to a steel pillar."
 no_flights = "An empty gate, its sign lit and its seats empty."
 dates = "A wall calendar beside the ticket desk."
 results = "The departure board, showing one day's flights."
@@ -37,4 +37,5 @@ default = "The camera glides through the terminal to the next place and settles.
 Button = "The panel lights up as it is pressed. The camera walks forward."
 SearchBar = "The slot lights up. The camera steps closer to the departure board."
 List = "The row lights up. The camera pushes in toward the gate."
+DateStrip = "The tile lights up. The board's letters flip over, row by row, to that day's flights."
 Tabs = "The sign lights up. The camera pans across the concourse."

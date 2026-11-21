@@ -86,6 +86,9 @@ Prompt = tuple[Clause, ...]
 
 STATIC = Clause("Static shot.", Engine())
 LETTERING = Clause("Sharp, legible lettering.", Engine())
+TRAVELS = Clause("Every sign keeps its words while the camera travels.", Engine())
+"""What a move between two scenes says after its own clauses. Left to itself a model changes the pressed sign's words
+in place, a dissolve, before the camera leaves it."""
 ARRIVES = Clause("It ends held still on the next screen.", Engine())
 """What a rehearsal's prompt says between the move's clauses and the state's."""
 RELETTERED = Clause("Only the lettering changes: every sign now reads as described below, and none of the first "
@@ -139,7 +142,8 @@ def _move(move: Move, story: Story) -> Prompt:
     pressed = Clause(f'The {move.action.kind} "{move.action.words}" is pressed.',
                      FromScreenplay(move.start.scene.name, move.element))
     told = next((name for name in (move.element, DEFAULT) if name in story.moves), None)
-    return (pressed, Clause(story.moves[told], FromStory(f"moves.{told}"))) if told else (pressed,)
+    clauses = (pressed, Clause(story.moves[told], FromStory(f"moves.{told}"))) if told else (pressed,)
+    return (*clauses, TRAVELS) if move.start.scene is not move.land.scene else clauses
 
 
 def _reading(shown: Shown) -> str:
