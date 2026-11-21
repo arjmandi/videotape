@@ -50,7 +50,7 @@ def test_a_story_is_a_file_named_by_its_file_with_a_version_a_look_and_three_tab
     assert terminal.scenes["results"] == "The departure board, showing one day's flights."
     assert sorted(terminal.elements) == TYPES
     assert terminal.elements["Button"] == "a lit amber panel with bold black letters, like a gate sign"
-    assert sorted(terminal.moves) == ["Button", "List", "SearchBar", "Tabs", "default"]
+    assert sorted(terminal.moves) == ["Button", "DateStrip", "List", "Tabs", "default"]
     assert terminal.hash == hashlib.sha256(file.read_bytes()).hexdigest()
     assert told(CONTRAIL, "posters").hash != terminal.hash
 
@@ -183,10 +183,11 @@ def test_a_rehearsals_prompt_carries_the_moves_clauses_then_the_states_own_witho
     composed = story.prompt(search, terminal)
     move, key = words(search.move, terminal), words(search.from_prompt(), terminal)
     assert story.text(composed) == f"{move} {story.ARRIVES.text} {key.removeprefix(story.STATIC.text + ' ')}"
-    assert story.text(composed).startswith('The search bar "Where to?" is pressed. The slot lights up. The camera steps closer '
-                                           "to the departure board. It ends held still on the next screen. A quiet international")
+    assert story.text(composed).startswith('The search bar "Where to?" is pressed. The camera turns from the sign, which keeps '
+                                           "its words, glides through the terminal to the next place, and settles. It ends "
+                                           "held still on the next screen. A quiet international")
     assert "Static shot." not in story.text(composed) and story.text(composed).endswith("Sharp, legible lettering.")
-    assert [str(clause.source) for clause in composed][:5] == ["screenplay home, SearchBar", "story moves.SearchBar",
+    assert [str(clause.source) for clause in composed][:5] == ["screenplay home, SearchBar", "story moves.default",
                                                                 "engine", "story look", "story scenes.search"]
     assert story.prompt(full.keys[0], terminal)[0] is story.STATIC
     assert story.ARRIVES.text == "It ends held still on the next screen."
@@ -221,14 +222,16 @@ def test_a_date_pickers_words_are_followed_by_the_engines_line_that_its_other_da
     assert "Every other day" not in words(home_key(vt.DateStrip(DAYS)), dressed)
 
 
-def test_contrails_moves_take_their_types_move_in_terminal_and_the_default_in_posters():
+def test_contrails_moves_take_their_types_move_where_the_story_has_one_and_the_default_elsewhere():
     plan_ = planned(CONTRAIL)
     terminal, posters = told(CONTRAIL, "terminal"), told(CONTRAIL, "posters")
     sources = {move.element: str(story.prompt(move, terminal)[1].source) for move in plan_.moves}
-    assert sources == {"SearchBar": "story moves.SearchBar", "List": "story moves.List", "Tabs": "story moves.Tabs",
+    assert sources == {"SearchBar": "story moves.default", "List": "story moves.List", "Tabs": "story moves.Tabs",
                        "Button": "story moves.Button", "DatePicker": "story moves.default",
-                       "DateStrip": "story moves.default"}
-    assert {str(story.prompt(move, posters)[1].source) for move in plan_.moves} == {"story moves.default"}
+                       "DateStrip": "story moves.DateStrip"}
+    assert {move.element: str(story.prompt(move, posters)[1].source) for move in plan_.moves} == {
+        "SearchBar": "story moves.default", "List": "story moves.default", "Tabs": "story moves.default",
+        "Button": "story moves.default", "DatePicker": "story moves.default", "DateStrip": "story moves.DateStrip"}
     book = next(move for move in plan_.moves if move.title == 'flight(CT 300, 2026-12-12) -> booked(CT 300, 2026-12-12) "Book for $89"')
     assert words(book, terminal) == ('The button "Book for $89" is pressed. The panel lights up as it is pressed. '
                                      "The camera walks forward.")
@@ -256,7 +259,7 @@ def test_shots_prints_each_prompt_under_its_title_one_clause_to_a_line_with_its_
     assert " ".join(line[33:] for line in key) == POSTERS_RESULTS
     assert first_move == [
         '  screenplay results, DateStrip  The day "Fri 11" is pressed.',
-        "  story moves.default            The camera slides along the wall to the next poster and settles straight on."]
+        "  story moves.DateStrip          The day square is pressed. A hand pins a fresh printed timetable over the old one."]
 
 
 def test_shots_without_a_state_prints_every_shot_of_the_plan():

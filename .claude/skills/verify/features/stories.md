@@ -7,7 +7,7 @@ A story is one look of an app. It is `stories/<name>.toml` in the project, named
 - `stories-shots-state` prints the key of `results(SEA, 2026-12-12)` in `posters` and the four moves that leave it, each clause beside its source.
 - `stories-shots-all` prints all 150 shots of Contrail in a story, 58 keys, 10 of them rehearsed, and then the 92 pinned moves.
 - `stories-words` shows that the two stories quote the same words in the same order.
-- `stories-moves` gives a move what `terminal` says the camera does for its element type, and `default` in `posters`, which has only that one.
+- `stories-moves` gives a move what its story says the camera does for its element type, and `default` for a type the story's `[moves]` leaves out: `terminal` has `Button`, `List`, `DateStrip` and `Tabs`, and `posters` only `DateStrip`.
 - `stories-missing` names the stories the project has when the one asked for is not among them, names the closest states for a state the app does not have, and rejects `shots` and `render` without `--story`.
 - `stories-made` writes the `made` block and the label into `tape.json`.
 - `stories-diff` says `same app` and `another story` for Contrail's two tapes, with 58 states and 102 moves shared.
@@ -45,24 +45,24 @@ Preconditions:
 
   results(SEA, 2026-12-12) -> results(SEA, 2026-12-11) "Friday, December 11, $99"
     screenplay results, DateStrip  The day "Fri 11" is pressed.
-    story moves.default            The camera slides along the wall to the next poster and settles straight on.
+    story moves.DateStrip          The day square is pressed. A hand pins a fresh printed timetable over the old one.
 
   results(SEA, 2026-12-12) -> results(SEA, 2026-12-13) "Sunday, December 13, $109"
     screenplay results, DateStrip  The day "Sun 13" is pressed.
-    story moves.default            The camera slides along the wall to the next poster and settles straight on.
+    story moves.DateStrip          The day square is pressed. A hand pins a fresh printed timetable over the old one.
 
   results(SEA, 2026-12-12) -> flight(CT 300, 2026-12-12) "8:15 AM to 10:25 AM, 2h 10m, Nonstop, $89"
     screenplay results, List       The row "8:15 AM to 10:25 AM" is pressed.
-    story moves.default            The camera slides along the wall to the next poster and settles straight on.
+    story moves.default            The camera slides from the poster, which stays as it is, along the wall to the next poster and settles straight on.
 
   results(SEA, 2026-12-12) -> flight(CT 306, 2026-12-12) "5:40 PM to 7:50 PM, 2h 10m, Nonstop, $119"
     screenplay results, List       The row "5:40 PM to 7:50 PM" is pressed.
-    story moves.default            The camera slides along the wall to the next poster and settles straight on.
+    story moves.default            The camera slides from the poster, which stays as it is, along the wall to the next poster and settles straight on.
   ```
   The key's clauses, joined by single spaces, are the prompt the model is sent.
-- **Every shot.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-shots-all examples/contrail -- shots --story terminal`. `.exit` is `0`, `grep -c '^[^ ]' "$RUN/stories-shots-all.stdout"` prints `150`, one title per shot. The first title is `key home()`, and its clauses end `reading "Home", "Trips", and "Profile", with "Home" chosen.` and `Sharp, legible lettering.` The second title, `grep -n '^[^ ]' "$RUN/stories-shots-all.stdout" | sed -n 2p`, is `key search() rehearsed from home()`, and the three lines under it are `  screenplay home, SearchBar      The search bar "Where to?" is pressed.`, `  story moves.SearchBar           The slot lights up. The camera steps closer to the departure board.` and `  engine                          It ends held still on the next screen.`, before the state's own clauses without `Static shot.` The 59th title is a pinned move, `search() -> no_flights(ORD) "Chicago (ORD)"`. The source column is as wide as the longest source the command prints, so it is narrower with `--state`.
+- **Every shot.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-shots-all examples/contrail -- shots --story terminal`. `.exit` is `0`, `grep -c '^[^ ]' "$RUN/stories-shots-all.stdout"` prints `150`, one title per shot. The first title is `key home()`, and its clauses end `reading "Home", "Trips", and "Profile", with "Home" chosen.` and `Sharp, legible lettering.` The second title, `grep -n '^[^ ]' "$RUN/stories-shots-all.stdout" | sed -n 2p`, is `key search() rehearsed from home()`, and the three lines under it are `  screenplay home, SearchBar      The search bar "Where to?" is pressed.`, `  story moves.default             The camera turns from the sign, which keeps its words, glides through the terminal to the next place, and settles.` and `  engine                          It ends held still on the next screen.`, before the state's own clauses without `Static shot.` The 59th title is a pinned move, `search() -> no_flights(ORD) "Chicago (ORD)"`. The source column is as wide as the longest source the command prints, so it is narrower with `--state`.
 - **Same words.** Run the same with `--story posters` as `stories-shots-all-posters`. `diff <(grep -o '"[^"]*"' "$RUN/stories-shots-all.stdout") <(grep -o '"[^"]*"' "$RUN/stories-shots-all-posters.stdout")` prints nothing and exits 0.
-- **Moves.** `grep -o '^  story moves\.[A-Za-z]*' "$RUN/stories-shots-all.stdout" | sort | uniq -c` prints `40   story moves.Button`, `21   story moves.List`, `8   story moves.SearchBar`, `6   story moves.Tabs` and `27   story moves.default`, which are the 9 days of the date pickers and the 18 of the date strips. The same on `stories-shots-all-posters.stdout` prints one line, `102   story moves.default`.
+- **Moves.** `grep -o '^  story moves\.[A-Za-z]*' "$RUN/stories-shots-all.stdout" | sort | uniq -c` prints `40   story moves.Button`, `18   story moves.DateStrip`, `21   story moves.List`, `6   story moves.Tabs` and `17   story moves.default`, which are the 8 presses of a search bar and the 9 days of the date pickers. The 102 lines are the 92 pinned moves and the 10 rehearsals, whose prompts start with their move's. The same on `stories-shots-all-posters.stdout` prints two lines, `18   story moves.DateStrip` and `84   story moves.default`.
 - **Missing.** Run `.claude/skills/verify/scripts/vt-verify run "$RUN" stories-no-story examples/contrail -- shots --story poster`. `.exit` is `1`, `.stdout` is empty, and `.stderr` is `error VT309 stories: no story "poster"` over `fix: name one of the stories there, posters and terminal`. `plan --story poster` and `render --story poster` print the same, and `command ls examples/contrail/tapes` shows no `poster`. With `-- shots --story posters --state "results(SEA, 2026-12-21)"`, `.stderr` is `error VT212 "results(SEA, 2026-12-21)": the app has no state of this name` over `fix: name one of the closest: results(SEA, 2026-12-11), results(SEA, 2026-12-12), results(SEA, 2026-12-13)`. With `-- shots` alone, `.exit` is `2` and `.stderr` ends with `videotape shots: error: the following arguments are required: --story`, and `-- render` alone ends the same way for `videotape render`.
 - **Made.** Run `.venv/bin/python -c 'import json; m = json.load(open("examples/contrail/tapes/terminal/tape.json"))["made"]; print(list(m)); print(m["label"]); print(m["app"]["name"], m["app"]["version"], m["story"], m["model"]); print(all(len(h) == 64 for h in (m["id"], m["app"]["code"], m["app"]["data"], m["engine"])))'`. It prints `['label', 'id', 'app', 'story', 'model', 'engine']`, then `contrail 0.1.0 + terminal 1.0.0`, then `contrail 0.1.0 {'name': 'terminal', 'version': '1.0.0', 'hash': '0b012621d2d6da91c4ab4fff5ce5c2ede46c642ed001570e7bb6299466fb8811'} {'name': 'stand-in', 'settings': {'text-to-video': {}, 'first-and-last-frame': {}}}`, then `True`. `shasum -a 256 examples/contrail/stories/terminal.toml` prints the same hash. The posters tape's label is `contrail 0.1.0 + posters 1.0.0`.
 - **Diff.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" stories-diff -C examples/contrail -- uv run videotape diff tapes/terminal tapes/posters`. `.exit` is `0`, `.stderr` is empty, and `.stdout` is these six lines, with each tape's own 64-character id in place of `<id>`:
@@ -81,13 +81,13 @@ Preconditions:
   2. key order(Espresso) rehearsed from menu()  kept take 3, passed, 3 takes filmed, $0.00
   3. key order(Latte) from order(Espresso)  kept take 1, passed, 1 take filmed, $0.00
   4. key thanks(Espresso) rehearsed from order(Espresso)  kept take 1, passed, 1 take filmed, $0.00
-  5. key thanks(Latte) from thanks(Espresso)  kept take 1, passed, 1 take filmed, $0.00
+  5. key thanks(Latte) from thanks(Espresso)  kept take 3, passed, 3 takes filmed, $0.00
   6. menu() -> order(Latte) "Latte, $5"  kept take 1, passed, 1 take filmed, $0.00
   7. order(Latte) -> thanks(Latte) "Order"  kept take 2, passed, 2 takes filmed, $0.00
   8. thanks(Espresso) -> menu() "Done"  kept take 1, passed, 1 take filmed, $0.00
-  9. thanks(Latte) -> menu() "Done"  kept take 1, passed, cached, $0.00
+  9. thanks(Latte) -> menu() "Done"  kept take 1, passed, 1 take filmed, $0.00
   ```
-  The two keys of the order scene film again, the thanks scene's base, rehearsed from `order(Espresso)`'s new picture, and its variant with it, and the pinned moves that start or land on them, though no move's prompt changed; the menu stays cached, as does `thanks(Latte) -> menu()`, since `thanks(Latte)`'s new take ended on the same picture to the byte. The last line starts `9 shots, 10 takes filmed, $0.00, `. `$RUN/stories-cascade.project/chalk.toml` shows the edited line.
+  The two keys of the order scene film again, the thanks scene's base, rehearsed from `order(Espresso)`'s new picture, and its variant with it, and the pinned moves that start or land on them, though no move's prompt changed; only the menu stays cached. The last line starts `9 shots, 13 takes filmed, $0.00, `. `$RUN/stories-cascade.project/chalk.toml` shows the edited line.
 - **What renders again.** Run `uv run pytest tests/test_rerender.py -v`. All 10 tests pass. It took about 4 minutes on 2026-11-19, with each render filming its shots at once. The module renders Contrail once in `terminal` with one take per shot, makes each change in a copy of that render, and renders again. A rehearsed base starts on the key of the state it is reached from, so a change walks down: the results scene's direction surely films its 9 keys, the flight base rehearsed from one of them and the 43 pinned moves that touch the scene, and at most the 45 keys of the results, flight and booked scenes and the 78 pinned moves that touch them, since a key drawn again from a changed picture ends on the same boxes and whether its encoded last frame is the same bytes is the encoder's to say. The DatePicker's appearance films the 3 dates keys and at most 48 keys and 80 moves. The look films all 58 keys and 92 pinned moves. One fare in `data/flights.json` that no base shows films exactly the 5 keys that show it and 17 moves.
 - **Proof.** For each journey cite `.cmd`, `.exit` and the asserted `.stdout` or `.stderr` lines. Also cite the empty `diff` for `stories-words`, the `shasum` line for `stories-made`, and the `.project/chalk.toml` copy for `stories-cascade`.
 

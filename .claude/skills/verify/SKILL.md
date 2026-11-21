@@ -34,7 +34,7 @@ Run once per checkout, and again after a `pyproject.toml` or `uv.lock` changes:
 .claude/skills/verify/scripts/vt-verify launch
 ```
 
-Ready means it prints `ready: videotape CLI installed in <repo>/.venv and <repo>/examples/contrail/.venv`. It runs `uv sync` for the repo, which creates `.venv` on Python 3.12 (pinned by `.python-version`) and installs the package in editable mode, and `uv sync` for `examples/contrail`, whose own `.venv` holds videotape and pyright. Later source edits need no relaunch. Teardown is nothing: no process outlives a drive.
+Ready means it prints `ready: videotape CLI installed in <repo>/.venv and <repo>/examples/contrail/.venv`. It runs `uv sync` for the repo, which creates `.venv` on Python 3.12 (pinned by `.python-version`) and installs the package in editable mode, and `uv sync` for `examples/contrail`, whose own `.venv` holds videotape with its `qwen` extra, since Contrail's `pyproject.toml` depends on `videotape[qwen]`, and pyright. That `.venv` has torch and transformers, so the first sync of `examples/contrail` downloads them unless uv's cache holds them. Later source edits need no relaunch. Teardown is nothing: no process outlives a drive.
 
 For a model other than the stand-in, run `.claude/skills/verify/scripts/vt-verify launch qwen` instead. It runs `uv sync --extra qwen` in the repo, which adds torch and transformers, and prints `ready: videotape CLI installed in <repo>/.venv with the qwen extra`. For `--model wan2.2-5b`, run `.claude/skills/verify/scripts/vt-verify launch wan`, which adds diffusers and what VideoX-Fun imports on top. A plain `launch` uninstalls the extras again.
 

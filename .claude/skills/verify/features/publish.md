@@ -29,7 +29,7 @@ Preconditions:
 - A fresh project and caches: `D=$(mktemp -d)`, then `export UV_CACHE_DIR="$D/uv-cache" VIDEOTAPE_CACHE_DIR="$D/vt-cache"` and `unset FAL_KEY ANTHROPIC_API_KEY RUNPOD_API_KEY`, in the shell that runs every journey below.
 - Xcode, as doctor's `info Xcode` line reports, since publish builds TapePlayer.
 
-- **New and render.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" publish-new -C "$D" -- uvx --from "$PWD" videotape new contrail`, then `.claude/skills/verify/scripts/vt-verify exec "$RUN" publish-render -C "$D/contrail" -- uv run videotape render --story starter --model stand-in`. Both `.exit` are `0`, and the render's last `.stdout` line is `4 shots, 9 takes filmed, $0.00, <s> s, tape 0.2 MB -> tapes/starter`.
+- **New and render.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" publish-new -C "$D" -- uvx --from "$PWD" videotape new contrail`, then `.claude/skills/verify/scripts/vt-verify exec "$RUN" publish-render -C "$D/contrail" -- uv run videotape render --story starter --model stand-in`. Both `.exit` are `0`, and the render's last `.stdout` line is `3 shots, 4 takes filmed, $0.00, <s> s, tape 0.2 MB -> tapes/starter`.
 - **Publish.** Run `.claude/skills/verify/scripts/vt-verify exec "$RUN" publish -C "$D/contrail" -- uv run videotape publish --story starter`. `.exit` is `0`, `.stderr` is empty, and `.stdout` is:
 
   ```
