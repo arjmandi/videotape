@@ -103,7 +103,7 @@ uv run videotape render --story starter --model stand-in
 3 shots, 4 takes filmed, $0.00, 3.0 s, tape 0.2 MB -> tapes/starter
 ```
 
-Each line is a shot. A shot films takes until one passes its checks, so the key of `todo()` kept its third take. The render wrote a tape to `tapes/starter/`. Play it:
+Each line is a shot. A shot films takes until one passes its checks, so the move back from `todo()` kept its second take. The render wrote a tape to `tapes/starter/`. Play it:
 
 ```sh
 uv run videotape play --story starter
@@ -703,14 +703,14 @@ uv run videotape render --story terminal
 ```
 
 ```text
-1. key home()  kept take 1, passed, 1 take filmed, $0.00, 1.5 s
-2. key search() rehearsed from home()  kept take 1, passed, 1 take filmed, $0.00, 0.5 s
+1. key home()  kept take 1, passed, 1 take filmed, $0.00, 0.3 s
+2. key search() rehearsed from home()  kept take 1, passed, 1 take filmed, $0.00, 0.6 s
 ...
-34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 1, fails VT502, 4 takes filmed, $0.00, 6.1 s
+34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 4, fails VT502, 4 takes filmed, $0.00, 2.9 s
 ...
-53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 6.3 s
+53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 2.5 s
 ...
-160 shots, 166 takes filmed, $0.00, 51.7 s, tape 9.8 MB -> tapes/terminal
+150 shots, 156 takes filmed, $0.00, 109.5 s, tape 7.1 MB -> tapes/terminal
 fail: 34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Earns 2,5x6 miles.", CER 0.029
   next: videotape retake "flight(CT 104, 2026-12-13)" --story terminal
 fail: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
@@ -726,7 +726,7 @@ uv run videotape dailies --story terminal
 ```
 
 ```text
-wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "reads": 0, "judgments": 0, "usd": 0.0}
+wrote tapes/terminal/dailies.html with {"takes": 156, "gpu_seconds": 60.5, "pods": 0, "pod_hours": 0.0, "reads": 0, "judgments": 0, "usd": 0.0}
 ```
 
 `dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what each reader read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. When a shot's prompt changed since an earlier render, its card shows each clause added and removed, with the story line, screenplay line or engine rule it came from, and the take the shot kept before, with the checks it failed. `explain` prints a code's long form:
@@ -772,11 +772,11 @@ uv run videotape retake "flight(CT 104, 2026-12-13)" --story terminal
 ```text
 retaking key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11) with seed 5
 ...
-34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 5, passed, 1 take filmed, $0.00, 1.1 s
+34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 5, passed, 1 take filmed, $0.00, 0.8 s
 ...
 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, cached, $0.00, 0.0 s
 ...
-160 shots, 3 takes filmed, $0.00, 36.2 s, tape 9.8 MB -> tapes/terminal
+150 shots, 3 takes filmed, $0.00, 106.8 s, tape 7.1 MB -> tapes/terminal
 accepted: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
   reason: a printed logo, not a control
 ```
@@ -822,9 +822,9 @@ uv run videotape publish --story terminal
 ```text
 encoded 103 clips as HEVC; on each one's last frame, where TapePlayer rests, every check its key passed still passes
 signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app
-published dist/Contrail-terminal.app, 8.1 MB, zipped to dist/Contrail-terminal.zip, 7.3 MB
+published dist/Contrail-terminal.app, 5.3 MB, zipped to dist/Contrail-terminal.zip, 4.4 MB
 label contrail 0.1.0 + terminal 1.0.0
-id 7ab3bc3c8733a665eb87538384f91837a8db27507e1f05d1172f4d478c5a3fb3
+id 56f541b6da7fac79aa56b344a091a671c053aaa11a091e17878d538925351ecb
 videotape.lock holds the label now; commit it
 ```
 
