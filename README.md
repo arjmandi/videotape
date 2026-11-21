@@ -606,25 +606,25 @@ uv run videotape shots --story terminal --state "home()"
 
 ```text
 key home()
-  engine                          Static shot.
-  story look                      A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
-  story scenes.home               The main hall, facing the big departure board.
-  story elements.Heading          Large white letters on a long dark sign,
-  screenplay home, Heading        reading "Good morning, Alex".
-  story elements.SearchBar        A wide white slot with black letters, its destinations listed below it as lines,
-  screenplay home, SearchBar      reading "Where to?".
-  story elements.List             White words in columns on a dark panel, one line per row,
-  screenplay home, List           reading "Your next trip"; and "San Francisco to New York" and "Friday, December 18".
-  story elements.Text             Smaller white letters on a dark sign,
-  screenplay home, Text           reading "48,250 Contrail Miles".
-  story elements.Tabs             Three dark signs hanging in a row, the current one lit amber,
-  screenplay home, Tabs           reading "Home", "Trips", and "Profile", with "Home" chosen.
-  engine                          Sharp, legible lettering.
+  engine                         Static shot.
+  story look                     A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
+  story scenes.home              The main hall, facing the big departure board.
+  story elements.Heading         Large white letters on a long dark sign,
+  screenplay home, Heading       reading "Good morning, Alex".
+  story elements.SearchBar       A wide white slot with black letters, its destinations listed below it as lines,
+  screenplay home, SearchBar     reading "Where to?".
+  story elements.List            White words in columns on a dark panel, one line per row,
+  screenplay home, List          reading "Your next trip"; and "San Francisco to New York" and "Friday, December 18".
+  story elements.Text            Smaller white letters on a dark sign,
+  screenplay home, Text          reading "48,250 Contrail Miles".
+  story elements.Tabs            Three dark signs hanging in a row, the current one lit amber,
+  screenplay home, Tabs          reading "Home", "Trips", and "Profile", with "Home" chosen.
+  engine                         Sharp, legible lettering.
 
 key search() rehearsed from home()
-  screenplay home, SearchBar      The search bar "Where to?" is pressed.
-  story moves.default             The camera turns from the sign, which keeps its words, glides through the terminal to the next place, and settles.
-  engine                          It ends held still on the next screen.
+  screenplay home, SearchBar     The search bar "Where to?" is pressed.
+  story moves.default            The camera turns from the sign, which keeps its words, glides through the terminal to the next place, and settles.
+  engine                         It ends held still on the next screen.
 ...
 ```
 
@@ -686,7 +686,7 @@ key home()
 ...
 key search() rehearsed from home()
   screenplay home, SearchBar     The search bar "Where to?" is pressed.
-  story moves.default            The camera slides along the wall to the next poster and settles straight on.
+  story moves.default            The camera slides from the poster, which stays as it is, along the wall to the next poster and settles straight on.
 ...
 ```
 
