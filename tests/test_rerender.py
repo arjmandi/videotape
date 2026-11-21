@@ -23,8 +23,8 @@ STORY = "terminal"
 CHANGES = {
     "direction": ("stories/terminal.toml", 'results = "The departure board, showing one day\'s flights."',
                   'results = "The departure board at dusk, showing one day\'s flights."'),
-    "appearance": ("stories/terminal.toml", 'DatePicker = "a wall calendar of square white tiles',
-                   'DatePicker = "a wall calendar of round brass tokens'),
+    "appearance": ("stories/terminal.toml", 'DatePicker = "a wall calendar page',
+                   'DatePicker = "a brass calendar plate'),
     "look": ("stories/terminal.toml", "low golden sun", "a low red sun"),
     "fare": ("data/flights.json", '"fare": 89,', '"fare": 91,'),
     "base": ("data/flights.json", '"fare": 279,', '"fare": 281,'),
