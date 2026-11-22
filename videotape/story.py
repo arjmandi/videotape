@@ -105,7 +105,8 @@ def prompt(shot: Shot, story: Story) -> Prompt:
     """The shot's prompt in this story. A key is the look, its scene's direction, then each element as its type's
     appearance and its own words. A move is the element that was pressed, then its type's move. A rehearsal is the
     move's clauses, that it ends held still on the next screen, then the state's own clauses, but for the static shot
-    a key alone is drawn as, since this clip moves. A variant says first that only its lettering changes."""
+    a key alone is drawn as, since this clip moves. A variant says after the static shot that only its lettering
+    changes."""
     match shot:
         case Rehearsal():
             return (*_move(shot.move, story), ARRIVES, *(clause for clause in _key(shot, story) if clause is not STATIC))

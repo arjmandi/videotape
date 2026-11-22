@@ -262,7 +262,7 @@ def _was(shot: dict) -> dict:
 def _changes(was: dict | None, prompt: list[dict]) -> list[dict]:
     """The changes to a shot's prompt, oldest first: those its record held, and one more when the prompt differs from
     the recorded one, with that prompt, the clauses taken out and put in, and the take the shot kept with it. A prompt
-    recorded as text, as records were before they kept each clause's source, is compared sentence by sentence."""
+    recorded as text is compared sentence by sentence."""
     if was is None:
         return []
     before = was["prompt"]

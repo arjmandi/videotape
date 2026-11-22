@@ -6,9 +6,8 @@
 For each story it reads tapes/<story>/dailies.json, the project's ledger.jsonl and dist/, and gives: the pass rate of
 each element type's checks on the kept takes, the first-take yield, the takes, the cost from the ledger by kind, the
 render time, the tape's size, and the published app's size. Nothing is called and nothing is paid. The render time
-is read from the ledger: a render's paid calls follow each other closely, so the time from a run's first line to its
-last, summed over the runs, where a run ends at a gap of more than GAP between two lines, is the time the tape spent
-rendering. A run's reading after its last paid call is not in it.
+is the time from a run's first ledger line to its last, summed over the runs, where a run ends at a gap of more than
+GAP between two lines. A run's reading after its last paid call is not in it.
 """
 
 from __future__ import annotations

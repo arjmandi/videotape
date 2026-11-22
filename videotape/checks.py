@@ -515,9 +515,8 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
     """Judge what every reader saw against the key. Each reader finds each action by its words and reads each line,
     each from a different spot, so a line the key shows twice is read twice. A control the readings paired with a
     line is that line, misread or not; one left over that reads like no line is invented. A reader that reports
-    charts judges each chart whole, its title, labels, count and values, so no reader reads a chart's lines as
-    lettering beside it, since a chart's labels repeat short values that a reading cannot be paired by. One that
-    reports marks says which of an element's choices are drawn marked."""
+    charts judges each chart whole, its title, labels, count and values, and then no reader reads a chart's lines as
+    lettering. One that reports marks says which of an element's choices are drawn marked."""
     placed = [_Placed(line, element) for element in key.shown for line in element.lines]
     # A DatePicker's or a DateStrip's options, by their lines' places among the key's: each option's day and its
     # label, which are read from the calendar's cells before any other line is read.
