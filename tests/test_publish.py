@@ -19,15 +19,16 @@ from pathlib import Path
 import pytest
 
 import conftest
+import videotape as vt
 from conftest import CONTRAIL, as_explained, forget, told
-from test_checks import recorded
+from test_checks import drawn, recorded
 from videotape import doctor, frames, made, new, player, project, publish
 from videotape.cli import main
 from videotape.errors import CODES, ScreenplayError
 from videotape.model import MODELS, Listing
-from videotape.checks import Free, Read, score
+from videotape.checks import Chart, Free, Read, score
 from videotape.standin import Flaw, StandIn, StandInEye, StandInJudge
-from videotape.plan import Mode
+from videotape.plan import Mode, plan
 from videotape.hosted import WAN3
 
 LABEL = "contrail 0.1.0 + starter 1.0.0"
@@ -603,3 +604,29 @@ def test_an_encoded_frame_the_free_reader_reads_with_the_period_it_added_at_rend
             rests()
     else:
         rests()
+
+
+def test_a_chart_a_reader_judged_whole_at_render_is_not_read_as_lettering_again_on_its_encoded_frame(monkeypatch):
+    """Render judged the chart whole, by the reader that reports charts, so the record holds no check of its lines.
+    Publish reads again with the free reader alone, which misreads a value, and judges only the checks the record
+    holds."""
+    app = vt.Screenplay("Test")
+    app.scene(lambda: [vt.Heading("Flown"), vt.BarChart("Flights per month", {"Jan": 0, "Feb": 1, "Mar": 2})]).name = "home"
+    planned = plan(app)
+    key = planned.keys[0]
+    _, seen = drawn(key)
+    charted = Read("claude", seen.spots, charts=(Chart("Flights per month", ("Jan", "Feb", "Mar"), (0.0, 1.0, 2.0)),))
+    record = {"story": "terminal", "out": None, "moves": [],
+              "keys": [{"state": key.state.name, "key": key.image,
+                        "items": [dataclasses.asdict(item) for item in score(key, [seen, charted]).items()]}]}
+    again = dataclasses.replace(seen, spots=tuple(dataclasses.replace(spot, text="O") if spot.text == "0" else spot
+                                                  for spot in seen.spots))
+    for name, stub in (("last_frame", lambda clip: None), ("read_png", lambda path: None),
+                       ("difference", lambda a, b: 0.0)):
+        monkeypatch.setattr(frames, name, stub)
+
+    class Qwen:
+        def see(self, frame):
+            return again
+
+    publish._rests(planned, record, [Qwen()], Path("tape"), Path("inside"), {"moves/x.mp4": key.state.name})

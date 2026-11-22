@@ -59,8 +59,8 @@ def story(root: Path, name: str, title: str) -> list[str]:
     tape = root / "tapes" / name
     record = dailies.read(tape)
     lines = of(root, tape).lines()
-    accepted = {(accept["shot"], accept["code"]) for accept in record.get("accepted", [])}
-    passed, total, waved = Counter(), Counter(), Counter()
+    passed, total = Counter(), Counter()
+    waved = Counter(_kind(failure) for failure in record["failures"] if failure["accepted"])
     shots = [*record["keys"], *record["moves"]]
     for shot in shots:
         kept = next(take for take in shot["takes"] if take["kept"])
@@ -68,7 +68,6 @@ def story(root: Path, name: str, title: str) -> list[str]:
             kind = _kind(item)
             total[kind] += 1
             passed[kind] += item["passed"]
-            waved[kind] += not item["passed"] and (shot["title"], item["code"]) in accepted
     takes = sum(len(shot["takes"]) for shot in shots)
     usd = Counter()
     for line in lines:

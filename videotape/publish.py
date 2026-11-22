@@ -232,8 +232,9 @@ def _encode(tape: Path, manifest: dict, inside: Path) -> dict[str, str]:
 def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, inside: Path, clips: dict[str, str]) -> None:
     """VT604 when the last frame of an encoded clip, where TapePlayer rests, fails a check that passed in the record:
     the readers' checks of the state it lands on, which its key passed, and the seam with that state's key image,
-    which the move's kept take passed. Only the readers that cost nothing read the encoded frames again, so a check
-    only a paid reader makes is not judged here."""
+    which the move's kept take passed. Only the readers that cost nothing read the encoded frames again, and only the
+    checks the record holds are judged, so a check only a paid reader makes, or one a paid reader's charts left out of
+    the render, is not judged here."""
     keys = {key.state.name: key for key in planned.keys}
     recorded = {key["state"]: key for key in record["keys"]}
     seams = {move["move"]: next(take for take in move["takes"] if take["kept"]) for move in record["moves"]}
@@ -246,9 +247,11 @@ def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, i
         if state not in images:
             images[state] = frames.read_png(tape / recorded[state]["key"])
         end = frames.difference(frame, images[state])
-        items = [*score(keys[state], [reader.see(frame) for reader in readers]).items(),
-                 Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)]
-        broken = [item for check, item in zip(_numbered((item.code, item.about) for item in items), items)
+        read = score(keys[state], [reader.see(frame) for reader in readers]).items()
+        judged = [(check, item) for check, item in zip(_numbered((item.code, item.about) for item in read), read)
+                  if check in earlier]
+        seam = Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)
+        broken = [item for check, item in [*judged, (("VT508", "end", 0), seam)]
                   if check not in failed and not _passes(item, earlier.get(check, {}))]
         if broken:
             shot = next((move for move in planned.moves if move.clip == clip), planned.keys[0])

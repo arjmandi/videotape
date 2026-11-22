@@ -343,6 +343,12 @@ def test_a_list_row_read_whole_as_one_control_is_its_action_found_and_not_an_inv
     assert checks.passed, failed(checks)
 
 
+def test_a_list_row_with_no_action_read_whole_as_one_control_is_no_invented_control():
+    key = key_of(vt.List([vt.Row("Lisbon", "12 May", "$199")]))
+    checks = score(key, [Read("claude", (Spot("Lisbon 12 May $199", Box(100, 200, 410, 30), True),))])
+    assert checks.passed, failed(checks)
+
+
 def test_a_list_row_misread_whole_fails_vt502_for_each_of_its_lines():
     checks = score(flight_row(), [Read("claude", (Spot("9:00 AM to 12:35 PM 5h 35m, Nonstop $297", Box(100, 200, 410, 30), True),))])
     assert [(item.code, item.about) for item in checks.failures if item.code == "VT502"] == [

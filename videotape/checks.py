@@ -564,7 +564,7 @@ def score(key: Key, reads: Sequence[Read]) -> KeyChecks:
         calendar = calendars.get(one.reader)
         strayed = calendar.strays(used) if calendar else []
         stray += [Sighting(one.reader, spot) for spot in strayed]
-        left = [spot for spot in one.spots if spot not in used and spot not in strayed]
+        left = [spot for spot in _cells(one.spots, rows) if spot not in used and spot not in strayed]
         invented += [Sighting(one.reader, spot) for spot in left if spot.control
                      and not (calendar and spot in calendar.numbers)
                      and all(cer(line, spot.text) > FIND_MAX_CER for line in (*key.lines, *pressed))]
