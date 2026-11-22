@@ -22,7 +22,7 @@ from videotape.errors import ScreenplayError, shown
 from videotape.frames import Frame
 from videotape.made import made, manifest, model_named
 from videotape.model import MODELS
-from videotape.plan import Plan, plan
+from videotape.plan import Key, Plan, plan
 from videotape.project import Project
 
 LOCK = "videotape.lock"
@@ -230,11 +230,12 @@ def _encode(tape: Path, manifest: dict, inside: Path) -> dict[str, str]:
 
 
 def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, inside: Path, clips: dict[str, str]) -> None:
-    """VT604 when the last frame of an encoded clip, where TapePlayer rests, fails a check that passed in the record:
-    the readers' checks of the state it lands on, which its key passed, and the seam with that state's key image,
-    which the move's kept take passed. Only the readers that cost nothing read the encoded frames again, and only the
-    checks the record holds are judged, so a check only a paid reader makes, or one a paid reader's charts left out of
-    the render, is not judged here."""
+    """VT604 when the last frame of an encoded clip, where TapePlayer rests, fails a check that passed in the record
+    and passes on the clip's last frame before the encoding: the readers' checks of the state it lands on, which its
+    key passed, and the seam with that state's key image, which the move's kept take passed. Only the readers that
+    cost nothing read the frames again, and only the checks the record holds are judged, so a check only a paid reader
+    makes, or one a paid reader's charts left out of the render, is not judged here. A check that fails on both frames
+    is the reader's, not the encoding's."""
     keys = {key.state.name: key for key in planned.keys}
     recorded = {key["state"]: key for key in record["keys"]}
     seams = {move["move"]: next(take for take in move["takes"] if take["kept"]) for move in record["moves"]}
@@ -242,17 +243,13 @@ def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, i
     for clip, state in clips.items():
         before = [*recorded[state]["items"], *seams.get(clip, {}).get("items", [])]
         earlier = dict(zip(_numbered((item["code"], item["about"]) for item in before), before))
-        failed = {check for check, item in earlier.items() if not item["passed"]}
-        frame = frames.last_frame(inside / clip)
         if state not in images:
             images[state] = frames.read_png(tape / recorded[state]["key"])
-        end = frames.difference(frame, images[state])
-        read = score(keys[state], [reader.see(frame) for reader in readers]).items()
-        judged = [(check, item) for check, item in zip(_numbered((item.code, item.about) for item in read), read)
-                  if check in earlier]
-        seam = Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)
-        broken = [item for check, item in [*judged, (("VT508", "end", 0), seam)]
-                  if check not in failed and not _passes(item, earlier.get(check, {}))]
+        broken = _broken(keys[state], readers, frames.last_frame(inside / clip), images[state], earlier)
+        if broken:
+            unencoded = _broken(keys[state], readers, frames.last_frame(tape / clip), images[state], earlier)
+            broken = {check: item for check, item in broken.items() if check not in unencoded}
+        broken = list(broken.values())
         if broken:
             shot = next((move for move in planned.moves if move.clip == clip), planned.keys[0])
             checks = "a check its key passed:" if len(broken) == 1 else f"{len(broken)} checks its key passed, the first"
@@ -260,6 +257,17 @@ def _rests(planned: Plan, record: dict, readers: Sequence[Reader], tape: Path, i
                                   f"{checks} {broken[0].code} {broken[0].about}: {broken[0].result}",
                                   "retake the shot, whose next take may come through the encoding, then publish again:"
                                   f'\nvideotape retake "{dailies.named(shot)}" --story {record["story"]}{_out(record)}')
+
+
+def _broken(key: Key, readers: Sequence[Reader], frame: Frame, image: Frame, earlier: dict) -> dict:
+    """The checks the record holds as passed that this frame fails, by check."""
+    read = score(key, [reader.see(frame) for reader in readers]).items()
+    end = frames.difference(frame, image)
+    judged = [(check, item) for check, item in zip(_numbered((item.code, item.about) for item in read), read)
+              if check in earlier]
+    seam = Item("VT508", "end", f"difference {end:.3f}", end <= MAX_DIFFERENCE, None)
+    return {check: item for check, item in [*judged, (("VT508", "end", 0), seam)]
+            if earlier.get(check, {}).get("passed", True) and not _passes(item, earlier.get(check, {}))}
 
 
 def _passes(item: Item, earlier: dict) -> bool:

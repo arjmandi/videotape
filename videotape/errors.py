@@ -609,8 +609,9 @@ CODES: dict[str, Code] = {
         "Publish encodes each clip of the tape as HEVC, which makes a Wan tape's app smaller than the clips a render keeps."
         " A clip's last frame is where TapePlayer rests until the next press, so publish decodes each encoded "
         "clip's last frame, runs the tape's eye on it against the state the clip lands on, and compares it with that "
-        "state's picture. A check that passed on the key and fails on this frame means the encoding lost what the "
-        "check needs. Publish leaves dist/ and the lock as they were.",
+        "state's picture. A check that passed on the key, fails on this frame and passes on the clip's last frame "
+        "before the encoding means the encoding lost what the check needs; one that fails on both is the reader's. "
+        "Publish leaves dist/ and the lock as they were.",
         "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where TapePlayer rests on todo(), fails 2 "
         "checks its key passed, the first VT501 Back: not found",
         "fix: retake the shot, whose next take may come through the encoding, then publish again:\n"
