@@ -1,6 +1,7 @@
 """Contrail books one-way flights from San Francisco. Each function below is a scene, one screen of
 the app, and the first one is where the app opens. Calling a scene, as in results(place, day), names
-a state for an action to go to."""
+a state for an action to go to. A search bar with options lists them, and typing a city or an airport
+code narrows the list to the ones that match; no_match is where text that matches none goes."""
 
 from datetime import date
 from itertools import accumulate
