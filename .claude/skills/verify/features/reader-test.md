@@ -2,7 +2,7 @@
 
 `scripts/reader-test` asks whether a reader can tell what Contrail does from its screenplay alone. The first call sends only `examples/contrail/contrail/screenplay.py` to `claude-opus-5-5` and asks what the app does. The second call checks that answer against each of the nine features in `examples/contrail/README.md`, one yes or no each. It asks whether the answer describes each feature's behavior, in any words, and never asks for a look, because a screenplay can't say how an element looks, such as that a date picker is a month calendar. The script saves both answers in `examples/contrail/reader-test.md`, prints the two calls' tokens and cost, and exits 0 only when every feature is a yes. The key comes from `ANTHROPIC_API_KEY` in the environment and is never printed. Both calls are paid.
 
-The paid run of 2026-11-12 stated 8 of 9 features, and `examples/contrail/reader-test.md` holds it. Its checker still asked for every word of a feature, and said no to feature 3 because the answer never called the date picker a month calendar. The checker's prompt has changed since, and no paid run has been made with it. The missing-key error and the tests below were driven.
+The paid run of 2026-11-22 stated 9 of 9 features, and `examples/contrail/reader-test.md` holds it. The run before it, the same day, stated 8 of 9: the answer listed the search's airports and what text that matches none does, but never said that typing a city or a code finds one, which the screenplay never said either, since what a search bar with options does lives in the framework. The screenplay's docstring now says it. The missing-key error and the tests below were driven.
 
 ## Sub-features
 

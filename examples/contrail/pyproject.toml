@@ -3,7 +3,7 @@ name = "contrail"
 version = "0.1.0"
 description = "A flight booking demo written as a Videotape screenplay."
 requires-python = ">=3.12"
-dependencies = ["videotape"]
+dependencies = ["videotape[qwen]"]
 
 [dependency-groups]
 dev = ["pyright"]

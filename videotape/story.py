@@ -14,7 +14,7 @@ from pathlib import Path
 
 from videotape import errors
 from videotape.errors import ScreenplayError
-from videotape.plan import Key, Move, Plan, Rehearsal, Shot
+from videotape.plan import FromKey, Key, Move, Plan, Rehearsal, Shot
 from videotape.screenplay import Shown
 
 DEFAULT = "default"
@@ -88,6 +88,13 @@ STATIC = Clause("Static shot.", Engine())
 LETTERING = Clause("Sharp, legible lettering.", Engine())
 ARRIVES = Clause("It ends held still on the next screen.", Engine())
 """What a rehearsal's prompt says between the move's clauses and the state's."""
+RELETTERED = Clause("Only the lettering changes: every sign now reads as described below, and none of the first "
+                    "picture's words remain.", Engine())
+"""What a variant's prompt says after the static shot. A variant is drawn from its base's picture, which shows the
+base's words, and a model left to itself keeps them."""
+NO_BAR = Clause("A 0 has no bar, only its label.", Engine())
+"""What follows a BarChart's words when it plots a 0. A model left to itself draws a bar of some height for every
+label."""
 
 
 def text(prompt: Prompt) -> str:
@@ -98,10 +105,13 @@ def prompt(shot: Shot, story: Story) -> Prompt:
     """The shot's prompt in this story. A key is the look, its scene's direction, then each element as its type's
     appearance and its own words. A move is the element that was pressed, then its type's move. A rehearsal is the
     move's clauses, that it ends held still on the next screen, then the state's own clauses, but for the static shot
-    a key alone is drawn as, since this clip moves."""
+    a key alone is drawn as, since this clip moves. A variant says after the static shot that only its lettering
+    changes."""
     match shot:
         case Rehearsal():
             return (*_move(shot.move, story), ARRIVES, *(clause for clause in _key(shot, story) if clause is not STATIC))
+        case FromKey() if shot.start.scene is shot.state.scene:
+            return STATIC, RELETTERED, *_key(shot, story)[1:]
         case Key():
             return _key(shot, story)
         case Move():
@@ -121,6 +131,8 @@ def _key(key: Key, story: Story) -> Prompt:
             clauses.append(Clause(f"{_capital(appearance)}{ends}", FromStory(f"elements.{element.type}")))
         if reading:
             clauses.append(Clause(reading if appearance else _capital(reading), FromScreenplay(scene, element.type)))
+        if element.type == "BarChart" and element.chart and 0 in element.chart.values:
+            clauses.append(NO_BAR)
     return *clauses, LETTERING
 
 

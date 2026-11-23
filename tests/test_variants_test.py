@@ -59,9 +59,11 @@ def script():
 
 @pytest.fixture(scope="module")
 def prompts() -> dict[str, str]:
-    """Each state's prompt in the terminal story, by the state's name."""
+    """Each state's name in the terminal story, by each prompt it is drawn from: the plan's, which from-key draws a
+    variant with, and its own, which seed draws every state with."""
     terminal = told(CONTRAIL, "terminal")
-    return {key.state.name: words(key, terminal) for key in planned(CONTRAIL).keys}
+    return {words(drawn, terminal): key.state.name for key in planned(CONTRAIL).keys
+            for drawn in (key, key.from_prompt())}
 
 
 @pytest.fixture(autouse=True)
@@ -160,7 +162,7 @@ class Gemini(StandIn):
     def __init__(self, prompts: dict[str, str]):
         super().__init__(flaw=self._flaw)
         self.name, self.price = GEMINI, MODELS[GEMINI].price
-        self.states = {prompt: state for state, prompt in prompts.items()}
+        self.states = prompts
 
     def _flaw(self, mode: Mode, prompt: str, seed: int) -> Flaw:
         if seed != 1:

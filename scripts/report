@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Write a project's report.md from its rendered tapes, its ledger and its published apps.
+
+    uv run scripts/report examples/contrail --story terminal --story posters
+
+For each story it reads tapes/<story>/dailies.json, the project's ledger.jsonl and dist/, and gives: the pass rate of
+each element type's checks on the kept takes, the first-take yield, the takes, the cost from the ledger by kind, the
+render time, the tape's size, and the published app's size. Nothing is called and nothing is paid. The render time
+is the time from a run's first ledger line to its last, summed over the runs, where a run ends at a gap of more than
+GAP between two lines. A run's reading after its last paid call is not in it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import Counter
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from videotape import dailies, project
+from videotape.ledger import of
+
+GAP = timedelta(minutes=30)
+MOVE_CODES = {"VT506": "cut", "VT507": "dissolve", "VT508": "seam"}
+
+
+def _size(path: Path) -> int:
+    return sum(file.stat().st_size for file in path.rglob("*") if file.is_file()) if path.is_dir() else (
+        path.stat().st_size if path.is_file() else 0)
+
+
+def _mb(size: int) -> str:
+    return f"{size / 1e6:.1f} MB"
+
+
+def _rendering(lines: list[dict]) -> timedelta:
+    times = sorted(datetime.fromisoformat(line["at"]) for line in lines)
+    total, start = timedelta(), times[0] if times else None
+    for before, after in zip(times, times[1:]):
+        if after - before > GAP:
+            total += before - start
+            start = after
+    return total + (times[-1] - start if times else timedelta())
+
+
+def _kind(item: dict) -> str:
+    if item["code"] in MOVE_CODES:
+        return "Move"
+    if item["code"] == "VT505":
+        return "Layout"
+    if item["code"] == "VT503":
+        return "Invented control"
+    return item["element"] or "Other"
+
+
+def story(root: Path, name: str, title: str) -> list[str]:
+    tape = root / "tapes" / name
+    record = dailies.read(tape)
+    lines = of(root, tape).lines()
+    passed, total = Counter(), Counter()
+    waved = Counter(_kind(failure) for failure in record["failures"] if failure["accepted"])
+    shots = [*record["keys"], *record["moves"]]
+    for shot in shots:
+        kept = next(take for take in shot["takes"] if take["kept"])
+        for item in kept["items"]:
+            kind = _kind(item)
+            total[kind] += 1
+            passed[kind] += item["passed"]
+    takes = sum(len(shot["takes"]) for shot in shots)
+    usd = Counter()
+    for line in lines:
+        usd[line["kind"]] += line.get("usd") or 0.0
+    app, archive = root / "dist" / f"{title}-{name}.app", root / "dist" / f"{title}-{name}.zip"
+    out = [f"## {name}", "",
+           f"- Shots: {len(shots)}, {len(record['keys'])} keys and {len(record['moves'])} moves.",
+           f"- First-take yield: {record['yield']['first_take']} of {record['yield']['shots']} shots "
+           f"({record['yield']['first_take'] / max(record['yield']['shots'], 1):.0%}) passed every check on their first take.",
+           f"- Takes: {takes} on the tape for its {len(shots)} shots; the ledger bills {sum(line['kind'] == 'take' for line in lines)}, "
+           "with every take of an earlier prompt.",
+           f"- Cost from the ledger: ${sum(usd.values()):.2f}, of which "
+           + ", ".join(f"{kind}s ${amount:.2f}" for kind, amount in sorted(usd.items())) + ".",
+           f"- Render time: {_rendering(lines).total_seconds() / 3600:.2f} hours, from the ledger's runs of paid calls.",
+           f"- Tape: {_mb(record['tape']['bytes'])}, what plays: tape.json, the keys and the moves.",
+           f"- Published app: {_mb(_size(app))}, {_mb(_size(archive))} zipped." if app.exists()
+           else "- Published app: not published yet.",
+           "", "| Element type | Checks passed on kept takes | Accepted |", "|---|---|---|"]
+    for kind in sorted(total):
+        out.append(f"| {kind} | {passed[kind]} of {total[kind]} ({passed[kind] / total[kind]:.0%}) | {waved[kind]} |")
+    return [*out, ""]
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("project", type=Path)
+    parser.add_argument("--story", action="append", required=True)
+    args = parser.parse_args()
+    found = project.find(args.project.resolve())
+    title = found.load().title
+    body = [f"# {title}: the rendered demo", "",
+            f"Written by `scripts/report` from each story's dailies.json, the project's ledger.jsonl and dist/. A "
+            f"check's pass rate counts the checks of every kept take by the element they judge; a move's cut, "
+            f"dissolve and seams count as Move.", ""]
+    if (found.root / "retry.md").exists():
+        body += ["The failures accepted in each tape, why each fails and what would fix it are in [retry.md](retry.md).", ""]
+    for name in args.story:
+        body += story(found.root, name, title)
+    (found.root / "report.md").write_text("\n".join(body))
+    print(f"wrote {found.root / 'report.md'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

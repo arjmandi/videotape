@@ -1,6 +1,7 @@
 """Contrail books one-way flights from San Francisco. Each function below is a scene, one screen of
 the app, and the first one is where the app opens. Calling a scene, as in results(place, day), names
-a state for an action to go to."""
+a state for an action to go to. A search bar with options lists them, and typing a city or an airport
+code narrows the list to the ones that match; no_match is where text that matches none goes."""
 
 from datetime import date
 from itertools import accumulate
@@ -11,7 +12,7 @@ from contrail.copy import clock, confirmation, duration, joined, long_day, money
 from contrail.data import Airport, Flight, Trip, airports, flights, traveler, trips
 
 TODAY = date(2026, 12, 1)
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"]
+SHOWN = {6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov"}
 
 app = vt.Screenplay("Contrail")
 
@@ -125,7 +126,7 @@ def booked(f: Flight):
 def my_trips():
     recent = trips.where(lambda t: t.day < TODAY).order_by("day", descending=True).limit(3)
     return [
-        vt.Heading("Trips"),
+        vt.Heading("Your trips"),
         vt.List([vt.Row(f"San Francisco to {city(t.destination)}", long_day(t.day), to=trip(t))
                  for t in upcoming()], title="Upcoming"),
         vt.List([vt.Row(f"{city(t.origin)} to {city(t.destination)}", short_day(t.day)) for t in recent],
@@ -148,12 +149,11 @@ def trip(t: Trip):
 def profile():
     by_month = trips.where(lambda t: t.day < TODAY and t.day.year == TODAY.year).group_by(lambda t: t.day.month)
     flown, miles = by_month.count(), by_month.sum("miles")
-    running = accumulate(miles.get(month, 0) for month in range(1, 12))
+    running = dict(zip(range(1, 12), accumulate(miles.get(month, 0) for month in range(1, 12))))
     return [
         vt.Heading(traveler.name),
         vt.Text(f"{traveler.status} member, {traveler.miles:,} miles"),
-        vt.BarChart("Flights per month in 2026", {name: flown.get(month, 0)
-                                                  for month, name in enumerate(MONTHS, 1)}),
-        vt.LineChart("Miles flown in 2026", dict(zip(MONTHS, running))),
+        vt.BarChart("Flights per month since June", {name: flown.get(month, 0) for month, name in SHOWN.items()}),
+        vt.LineChart("Miles flown in 2026", {name: running[month] for month, name in SHOWN.items()}),
         tabs(),
     ]

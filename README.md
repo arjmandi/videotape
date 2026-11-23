@@ -103,7 +103,7 @@ uv run videotape render --story starter --model stand-in
 3 shots, 4 takes filmed, $0.00, 3.0 s, tape 0.2 MB -> tapes/starter
 ```
 
-Each line is a shot. A shot films takes until one passes its checks, so the key of `todo()` kept its third take. The render wrote a tape to `tapes/starter/`. Play it:
+Each line is a shot. A shot films takes until one passes its checks, so the move back from `todo()` kept its second take. The render wrote a tape to `tapes/starter/`. Play it:
 
 ```sh
 uv run videotape play --story starter
@@ -315,7 +315,8 @@ Then replace `contrail/screenplay.py` with Contrail's screenplay:
 ```python title=contrail/screenplay.py
 """Contrail books one-way flights from San Francisco. Each function below is a scene, one screen of
 the app, and the first one is where the app opens. Calling a scene, as in results(place, day), names
-a state for an action to go to."""
+a state for an action to go to. A search bar with options lists them, and typing a city or an airport
+code narrows the list to the ones that match; no_match is where text that matches none goes."""
 
 from datetime import date
 from itertools import accumulate
@@ -326,7 +327,7 @@ from contrail.copy import clock, confirmation, duration, joined, long_day, money
 from contrail.data import Airport, Flight, Trip, airports, flights, traveler, trips
 
 TODAY = date(2026, 12, 1)
-MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov"]
+SHOWN = {6: "Jun", 7: "Jul", 8: "Aug", 9: "Sep", 10: "Oct", 11: "Nov"}
 
 app = vt.Screenplay("Contrail")
 
@@ -440,7 +441,7 @@ def booked(f: Flight):
 def my_trips():
     recent = trips.where(lambda t: t.day < TODAY).order_by("day", descending=True).limit(3)
     return [
-        vt.Heading("Trips"),
+        vt.Heading("Your trips"),
         vt.List([vt.Row(f"San Francisco to {city(t.destination)}", long_day(t.day), to=trip(t))
                  for t in upcoming()], title="Upcoming"),
         vt.List([vt.Row(f"{city(t.origin)} to {city(t.destination)}", short_day(t.day)) for t in recent],
@@ -463,13 +464,12 @@ def trip(t: Trip):
 def profile():
     by_month = trips.where(lambda t: t.day < TODAY and t.day.year == TODAY.year).group_by(lambda t: t.day.month)
     flown, miles = by_month.count(), by_month.sum("miles")
-    running = accumulate(miles.get(month, 0) for month in range(1, 12))
+    running = dict(zip(range(1, 12), accumulate(miles.get(month, 0) for month in range(1, 12))))
     return [
         vt.Heading(traveler.name),
         vt.Text(f"{traveler.status} member, {traveler.miles:,} miles"),
-        vt.BarChart("Flights per month in 2026", {name: flown.get(month, 0)
-                                                  for month, name in enumerate(MONTHS, 1)}),
-        vt.LineChart("Miles flown in 2026", dict(zip(MONTHS, running))),
+        vt.BarChart("Flights per month since June", {name: flown.get(month, 0) for month, name in SHOWN.items()}),
+        vt.LineChart("Miles flown in 2026", {name: running[month] for month, name in SHOWN.items()}),
         tabs(),
     ]
 ```
@@ -554,14 +554,14 @@ white letters in a plain sans-serif face.
 
 [scenes]
 home = "The main hall, facing the big departure board."
-search = "Up close at the departure board, where the destinations are listed."
-not_found = "The departure board, with a printed notice taped beside it."
+search = "A self-service kiosk by the tall windows, its screen listing the destinations."
+not_found = "A printed notice taped to a steel pillar."
 no_flights = "An empty gate, its sign lit and its seats empty."
 dates = "A wall calendar beside the ticket desk."
 results = "The departure board, showing one day's flights."
 flight = "The gate desk, with the flight's details on its sign."
 booked = "A printed boarding pass on the gate desk."
-my_trips = "A lounge wall pinned with boarding passes."
+my_trips = "A dark panel on the lounge wall, beside pinned boarding passes."
 trip = "One boarding pass on a lounge table, seen from above."
 profile = "The lounge's wall display, beside a window onto the runway."
 
@@ -569,20 +569,20 @@ profile = "The lounge's wall display, beside a window onto the runway."
 Heading = "large white letters on a long dark sign"
 Text = "smaller white letters on a dark sign"
 Button = "a lit amber panel with bold black letters, like a gate sign"
-SearchBar = "a wide white slot in the departure board with black letters, its destinations listed below it as lines of the board"
-DatePicker = "a wall calendar of square white tiles, each with the day's number large and the fare small beneath it, and days without flights greyed out"
+SearchBar = "a wide white slot with black letters, its destinations listed below it as lines"
+DatePicker = "a wall calendar page, its month at the top and, below it, only the days with flights, as large square white tiles in a row, each with the day's number large and its fare small beneath, and no arrows"
 DateStrip = "a row of square white tiles, one per day, with the chosen day lit amber"
-List = "a departure board, one line per row, its words in columns"
+List = "white words in columns on a dark panel, one line per row"
 BarChart = "a backlit wall display with amber bars and white labels"
 LineChart = "a backlit wall display with one amber line and white labels"
 Tabs = "three dark signs hanging in a row, the current one lit amber"
 
 [moves]
-default = "The camera glides through the terminal to the next place and settles."
+default = "The camera turns from the sign, which keeps its words, glides through the terminal to the next place, and settles."
 Button = "The panel lights up as it is pressed. The camera walks forward."
-SearchBar = "The slot lights up. The camera steps closer to the departure board."
 List = "The row lights up. The camera pushes in toward the gate."
-Tabs = "The sign lights up. The camera pans across the concourse."
+DateStrip = "The tile lights up. The board's letters flip over, row by row, to that day's flights."
+Tabs = "The sign lights up. The camera turns from the board, which keeps its words, and pans across the concourse to the next place."
 ```
 
 `plan --story` reads the story too. It stops on a direction for a scene the screenplay lacks, and warns about a scene without a direction:
@@ -611,9 +611,9 @@ key home()
   story scenes.home              The main hall, facing the big departure board.
   story elements.Heading         Large white letters on a long dark sign,
   screenplay home, Heading       reading "Good morning, Alex".
-  story elements.SearchBar       A wide white slot in the departure board with black letters, its destinations listed below it as lines of the board,
+  story elements.SearchBar       A wide white slot with black letters, its destinations listed below it as lines,
   screenplay home, SearchBar     reading "Where to?".
-  story elements.List            A departure board, one line per row, its words in columns,
+  story elements.List            White words in columns on a dark panel, one line per row,
   screenplay home, List          reading "Your next trip"; and "San Francisco to New York" and "Friday, December 18".
   story elements.Text            Smaller white letters on a dark sign,
   screenplay home, Text          reading "48,250 Contrail Miles".
@@ -623,9 +623,8 @@ key home()
 
 key search() rehearsed from home()
   screenplay home, SearchBar     The search bar "Where to?" is pressed.
-  story moves.SearchBar          The slot lights up. The camera steps closer to the departure board.
+  story moves.default            The camera turns from the sign, which keeps its words, glides through the terminal to the next place, and settles.
   engine                         It ends held still on the next screen.
-  story look                     A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp white letters in a plain sans-serif face.
 ...
 ```
 
@@ -660,8 +659,8 @@ profile = "A poster of printed charts beside a suitcase."
 Heading = "big bold cream letters across the top of the poster"
 Text = "smaller dark letters printed on the poster"
 Button = "a printed coral tab with bold cream letters"
-SearchBar = "a printed cream box with dark letters and a small magnifier, its destinations printed below it on cream strips"
-DatePicker = "a printed month calendar, each day a square with its number and its fare, and days without flights faded"
+SearchBar = "a printed cream box with dark letters and a small magnifier"
+DatePicker = "a printed calendar page, its month at the top and, below it, only the days with flights, as squares in a row, each with its number and its fare under it, and no arrows"
 DateStrip = "a printed row of day squares, with the chosen day in coral"
 List = "a printed timetable, one line per row"
 BarChart = "a screen-printed bar chart in teal, with cream labels"
@@ -669,7 +668,8 @@ LineChart = "a screen-printed line chart in coral, with cream labels"
 Tabs = "three printed tabs along the poster's bottom edge, the current one in coral"
 
 [moves]
-default = "The camera slides along the wall to the next poster and settles straight on."
+default = "The camera slides from the poster, which stays as it is, along the wall to the next poster and settles straight on."
+DateStrip = "The day square is pressed. A hand pins a fresh printed timetable over the old one."
 ```
 
 The same state in this story has the same words, and looks different:
@@ -686,7 +686,7 @@ key home()
 ...
 key search() rehearsed from home()
   screenplay home, SearchBar     The search bar "Where to?" is pressed.
-  story moves.default            The camera slides along the wall to the next poster and settles straight on.
+  story moves.default            The camera slides from the poster, which stays as it is, along the wall to the next poster and settles straight on.
 ...
 ```
 
@@ -703,15 +703,15 @@ uv run videotape render --story terminal
 ```
 
 ```text
-1. key home()  kept take 1, passed, 1 take filmed, $0.00, 1.5 s
-2. key search() rehearsed from home()  kept take 1, passed, 1 take filmed, $0.00, 0.5 s
+1. key home()  kept take 1, passed, 1 take filmed, $0.00, 0.3 s
+2. key search() rehearsed from home()  kept take 1, passed, 1 take filmed, $0.00, 0.6 s
 ...
-34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 1, fails VT502, 4 takes filmed, $0.00, 6.1 s
+34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 4, fails VT502, 4 takes filmed, $0.00, 2.9 s
 ...
-53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 6.3 s
+53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, 4 takes filmed, $0.00, 2.5 s
 ...
-160 shots, 166 takes filmed, $0.00, 51.7 s, tape 9.8 MB -> tapes/terminal
-fail: 34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Exrns 2,586 miles.", CER 0.029
+150 shots, 156 takes filmed, $0.00, 109.5 s, tape 7.1 MB -> tapes/terminal
+fail: 34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  VT502 Airbus A321neo. Earns 2,586 miles.: read "Airbus A321neo. Earns 2,5x6 miles.", CER 0.029
   next: videotape retake "flight(CT 104, 2026-12-13)" --story terminal
 fail: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
   next: videotape retake "booked(CT 300, 2026-12-11)" --story terminal
@@ -726,10 +726,10 @@ uv run videotape dailies --story terminal
 ```
 
 ```text
-wrote tapes/terminal/dailies.html with {"takes": 166, "gpu_seconds": 108.0, "pods": 0, "pod_hours": 0.0, "reads": 0, "judgments": 0, "usd": 0.0}
+wrote tapes/terminal/dailies.html with {"takes": 156, "gpu_seconds": 60.5, "pods": 0, "pod_hours": 0.0, "reads": 0, "judgments": 0, "usd": 0.0}
 ```
 
-`dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what each reader read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. `explain` prints a code's long form:
+`dailies` writes the tape's dailies page and opens it in your browser. Failing shots come first, each with its error code, what each reader read, a crop of the key where the failure is, and the commands that fix it. Below them is every shot with all its takes. When a shot's prompt changed since an earlier render, its card shows each clause added and removed, with the story line, screenplay line or engine rule it came from, and the take the shot kept before, with the checks it failed. `explain` prints a code's long form:
 
 ```sh
 uv run videotape explain VT502
@@ -772,11 +772,11 @@ uv run videotape retake "flight(CT 104, 2026-12-13)" --story terminal
 ```text
 retaking key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11) with seed 5
 ...
-34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 5, passed, 1 take filmed, $0.00, 1.1 s
+34. key flight(CT 104, 2026-12-13) from flight(CT 500, 2026-12-11)  kept take 5, passed, 1 take filmed, $0.00, 0.8 s
 ...
 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  kept take 1, fails VT503, cached, $0.00, 0.0 s
 ...
-160 shots, 3 takes filmed, $0.00, 36.2 s, tape 9.8 MB -> tapes/terminal
+150 shots, 3 takes filmed, $0.00, 106.8 s, tape 7.1 MB -> tapes/terminal
 accepted: 53. key booked(CT 300, 2026-12-11) from booked(CT 500, 2026-12-11)  VT503 Not in the script: a control reading "Not in the script" at 24,192 315x33, and no action has those words
   reason: a printed logo, not a control
 ```
@@ -822,13 +822,13 @@ uv run videotape publish --story terminal
 ```text
 encoded 103 clips as HEVC; on each one's last frame, where TapePlayer rests, every check its key passed still passes
 signed ad hoc, not with a Developer ID, so another Mac's Gatekeeper asks before it opens the app
-published dist/Contrail-terminal.app, 8.1 MB, zipped to dist/Contrail-terminal.zip, 7.3 MB
+published dist/Contrail-terminal.app, 5.3 MB, zipped to dist/Contrail-terminal.zip, 4.4 MB
 label contrail 0.1.0 + terminal 1.0.0
-id 7ab3bc3c8733a665eb87538384f91837a8db27507e1f05d1172f4d478c5a3fb3
+id 56f541b6da7fac79aa56b344a091a671c053aaa11a091e17878d538925351ecb
 videotape.lock holds the label now; commit it
 ```
 
-`publish` refuses a tape that is out of date with its project's files (`VT601`), that has a failing check nobody accepted (`VT602`), or whose label `videotape.lock` holds with another made id (`VT305`). Then it builds TapePlayer and writes `dist/Contrail-terminal.app`, named after the screenplay and the story, with the tape inside it and each move re-encoded as HEVC. Then the tape's eye reads the last frame of each clip in the app again, against the state the clip lands on and that state's key. A check that passed in the tape and fails on that frame is `VT604`. It signs the app ad hoc, not with a Developer ID, zips it to `dist/Contrail-terminal.zip`, and adds the label, the made id, and the file hashes to `videotape.lock`. The app opens on the tape it holds.
+`publish` refuses a tape that is out of date with its project's files (`VT601`), that has a failing check nobody accepted (`VT602`), or whose label `videotape.lock` holds with another made id (`VT305`). Then it builds TapePlayer and writes `dist/Contrail-terminal.app`, named after the screenplay and the story, with the tape inside it and each move re-encoded as HEVC. Then the tape's eye reads the last frame of each clip in the app again, against the state the clip lands on and that state's key. A check that passed in the tape, fails on that frame, and passes on the same frame before the encoding is `VT604`. It signs the app ad hoc, not with a Developer ID, zips it to `dist/Contrail-terminal.zip`, and adds the label, the made id, and the file hashes to `videotape.lock`. The app opens on the tape it holds.
 
 ## The words Videotape uses
 

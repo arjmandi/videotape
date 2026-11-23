@@ -7,11 +7,12 @@ import pytest
 import videotape as vt
 from conftest import CONTRAIL, FIXTURES, a_story, as_explained, planned, told, videotape, words
 from videotape import story
-from videotape.plan import Key, plan
+from videotape.plan import FromKey, Key, Rehearsal, plan
 
 RESULTS = "results(SEA, 2026-12-12)"
 POSTERS_RESULTS = (
-    "Static shot. A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat "
+    "Static shot. Only the lettering changes: every sign now reads as described below, and none of the first "
+    "picture's words remain. A long sunlit wall in a 1960s airline ticket office, hung with screen-printed travel posters. Flat "
     "shapes, a few bold colors (teal, coral, mustard, and cream), paper grain, and bold geometric sans-serif letters. "
     "The camera faces the wall straight on. A poster of a printed timetable under a city skyline. Big bold cream "
     'letters across the top of the poster, reading "San Francisco to Seattle". A printed row of day squares, with the '
@@ -49,7 +50,7 @@ def test_a_story_is_a_file_named_by_its_file_with_a_version_a_look_and_three_tab
     assert terminal.scenes["results"] == "The departure board, showing one day's flights."
     assert sorted(terminal.elements) == TYPES
     assert terminal.elements["Button"] == "a lit amber panel with bold black letters, like a gate sign"
-    assert sorted(terminal.moves) == ["Button", "List", "SearchBar", "Tabs", "default"]
+    assert sorted(terminal.moves) == ["Button", "DateStrip", "List", "Tabs", "default"]
     assert terminal.hash == hashlib.sha256(file.read_bytes()).hexdigest()
     assert told(CONTRAIL, "posters").hash != terminal.hash
 
@@ -58,10 +59,10 @@ def test_a_keys_prompt_is_the_look_its_scenes_direction_each_element_and_the_let
     prompt = story.prompt(contrail_key(RESULTS), told(CONTRAIL, "posters"))
     assert story.text(prompt) == POSTERS_RESULTS
     assert [str(clause.source) for clause in prompt] == [
-        "engine", "story look", "story scenes.results", "story elements.Heading", "screenplay results, Heading",
+        "engine", "engine", "story look", "story scenes.results", "story elements.Heading", "screenplay results, Heading",
         "story elements.DateStrip", "screenplay results, DateStrip", "story elements.List", "screenplay results, List",
         "engine"]
-    assert [clause.text for clause in prompt][3:5] == [
+    assert [clause.text for clause in prompt][4:6] == [
         "Big bold cream letters across the top of the poster,", 'reading "San Francisco to Seattle".']
 
 
@@ -69,7 +70,9 @@ def test_a_story_never_changes_the_words_a_key_quotes():
     key = contrail_key(RESULTS)
     quoted = [re.findall(r'"[^"]*"', words(key, told(CONTRAIL, name))) for name in ("posters", "terminal")]
     assert quoted[0] == quoted[1]
-    assert words(key, told(CONTRAIL, "terminal")).startswith("Static shot. A quiet international airport terminal")
+    assert words(key, told(CONTRAIL, "terminal")).startswith(
+        "Static shot. Only the lettering changes: every sign now reads as described below, and none of the first "
+        "picture's words remain. A quiet international airport terminal")
 
 
 THERE = a_state()
@@ -95,8 +98,10 @@ DAYS = {date(2026, 12, 11): vt.Option("$99", THERE), date(2026, 12, 12): vt.Opti
 ])
 def test_an_element_is_quoted_line_by_line_with_a_label_beside_its_value_and_rows_apart(element, reading):
     key = home_key(element)
-    engine, look, element_words, lettering = story.prompt(key, a_story())
+    engine, look, element_words, *after, lettering = story.prompt(key, a_story())
     assert (engine.text, look.text, lettering.text) == ("Static shot.", "A plain room.", "Sharp, legible lettering.")
+    zero_bars = isinstance(element, vt.BarChart) and 0 in key.shown[0].chart.values
+    assert [clause.text for clause in after] == (["A 0 has no bar, only its label."] if zero_bars else [])
     assert (element_words.text, str(element_words.source)) == (reading, f"screenplay home, {type(element).__name__}")
     assert re.findall(r'"([^"]*)"', reading) == list(key.lines)
 
@@ -116,7 +121,8 @@ def test_an_option_or_tab_that_leads_to_the_state_it_is_on_is_quoted_again_as_th
     on_home, on_trips = plan(app).keys
     assert words(on_home, a_story()) == (
         'Static shot. A plain room. Reading "Home" and "Trips", with "Home" chosen. Reading "December 2026"; and '
-        '"11" "$99" and "12" "$89", with "11" chosen. Sharp, legible lettering.')
+        '"11" "$99" and "12" "$89", with "11" chosen. '
+        "Sharp, legible lettering.")
     assert 'Reading "Home" and "Trips", with "Trips" chosen.' in words(on_trips, a_story())
 
 
@@ -176,23 +182,43 @@ def test_a_rehearsals_prompt_carries_the_moves_clauses_then_the_states_own_witho
     composed = story.prompt(search, terminal)
     move, key = words(search.move, terminal), words(search.from_prompt(), terminal)
     assert story.text(composed) == f"{move} {story.ARRIVES.text} {key.removeprefix(story.STATIC.text + ' ')}"
-    assert story.text(composed).startswith('The search bar "Where to?" is pressed. The slot lights up. The camera steps closer '
-                                           "to the departure board. It ends held still on the next screen. A quiet international")
+    assert story.text(composed).startswith('The search bar "Where to?" is pressed. The camera turns from the sign, which keeps '
+                                           "its words, glides through the terminal to the next place, and settles. It ends "
+                                           "held still on the next screen. A quiet international")
     assert "Static shot." not in story.text(composed) and story.text(composed).endswith("Sharp, legible lettering.")
-    assert [str(clause.source) for clause in composed][:5] == ["screenplay home, SearchBar", "story moves.SearchBar",
+    assert [str(clause.source) for clause in composed][:5] == ["screenplay home, SearchBar", "story moves.default",
                                                                 "engine", "story look", "story scenes.search"]
     assert story.prompt(full.keys[0], terminal)[0] is story.STATIC
     assert story.ARRIVES.text == "It ends held still on the next screen."
 
 
-def test_contrails_moves_take_their_types_move_in_terminal_and_the_default_in_posters():
+RELETTERED = ("Only the lettering changes: every sign now reads as described below, and none of the first picture's "
+              "words remain.")
+
+
+@pytest.mark.parametrize("name", ["terminal", "posters"])
+def test_a_variants_prompt_says_after_the_static_shot_that_only_its_lettering_changes_and_a_bases_never_does(name):
+    look, plan_ = told(CONTRAIL, name), planned(CONTRAIL)
+    variant = story.prompt(contrail_key(RESULTS), look)
+    assert [(clause.text, str(clause.source)) for clause in variant[:3]] == [
+        ("Static shot.", "engine"), (RELETTERED, "engine"), (look.look, "story look")]
+    variants = [key for key in plan_.keys if isinstance(key, FromKey) and not isinstance(key, Rehearsal)]
+    bases = [key for key in plan_.keys if key not in variants]
+    assert (len(variants), len(bases)) == (47, 11)
+    assert all(words(key, look).startswith(f"Static shot. {RELETTERED} ") for key in variants)
+    assert not any(RELETTERED in words(key, look) for key in bases)
+
+
+def test_contrails_moves_take_their_types_move_where_the_story_has_one_and_the_default_elsewhere():
     plan_ = planned(CONTRAIL)
     terminal, posters = told(CONTRAIL, "terminal"), told(CONTRAIL, "posters")
     sources = {move.element: str(story.prompt(move, terminal)[1].source) for move in plan_.moves}
-    assert sources == {"SearchBar": "story moves.SearchBar", "List": "story moves.List", "Tabs": "story moves.Tabs",
+    assert sources == {"SearchBar": "story moves.default", "List": "story moves.List", "Tabs": "story moves.Tabs",
                        "Button": "story moves.Button", "DatePicker": "story moves.default",
-                       "DateStrip": "story moves.default"}
-    assert {str(story.prompt(move, posters)[1].source) for move in plan_.moves} == {"story moves.default"}
+                       "DateStrip": "story moves.DateStrip"}
+    assert {move.element: str(story.prompt(move, posters)[1].source) for move in plan_.moves} == {
+        "SearchBar": "story moves.default", "List": "story moves.default", "Tabs": "story moves.default",
+        "Button": "story moves.default", "DatePicker": "story moves.default", "DateStrip": "story moves.DateStrip"}
     book = next(move for move in plan_.moves if move.title == 'flight(CT 300, 2026-12-12) -> booked(CT 300, 2026-12-12) "Book for $89"')
     assert words(book, terminal) == ('The button "Book for $89" is pressed. The panel lights up as it is pressed. '
                                      "The camera walks forward.")
@@ -214,13 +240,13 @@ def test_shots_prints_each_prompt_under_its_title_one_clause_to_a_line_with_its_
     key, first_move = shots[0][1:], shots[1][1:]
     assert all(line[:2] == "  " and line[31:33] == "  " and line[33] != " " for line in key + first_move)
     assert [line[2:31].rstrip() for line in key] == [
-        "engine", "story look", "story scenes.results", "story elements.Heading", "screenplay results, Heading",
+        "engine", "engine", "story look", "story scenes.results", "story elements.Heading", "screenplay results, Heading",
         "story elements.DateStrip", "screenplay results, DateStrip", "story elements.List", "screenplay results, List",
         "engine"]
     assert " ".join(line[33:] for line in key) == POSTERS_RESULTS
     assert first_move == [
         '  screenplay results, DateStrip  The day "Fri 11" is pressed.',
-        "  story moves.default            The camera slides along the wall to the next poster and settles straight on."]
+        "  story moves.DateStrip          The day square is pressed. A hand pins a fresh printed timetable over the old one."]
 
 
 def test_shots_without_a_state_prints_every_shot_of_the_plan():

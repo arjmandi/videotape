@@ -19,15 +19,16 @@ from pathlib import Path
 import pytest
 
 import conftest
+import videotape as vt
 from conftest import CONTRAIL, as_explained, forget, told
-from test_checks import recorded
+from test_checks import drawn, recorded
 from videotape import doctor, frames, made, new, player, project, publish
 from videotape.cli import main
 from videotape.errors import CODES, ScreenplayError
 from videotape.model import MODELS, Listing
-from videotape.checks import Free, Read, score
+from videotape.checks import Chart, Free, Read, score
 from videotape.standin import Flaw, StandIn, StandInEye, StandInJudge
-from videotape.plan import Mode
+from videotape.plan import Mode, plan
 from videotape.hosted import WAN3
 
 LABEL = "contrail 0.1.0 + starter 1.0.0"
@@ -512,15 +513,17 @@ def test_a_label_the_lock_holds_with_another_id_is_vt305_until_a_version_is_bump
 TWICE = "in the data folder"
 
 
-def smudging(clear: int) -> type[StandInEye]:
-    """The stand-in's eye, which reads every time TWICE shows on a frame after the first clear times as smudged."""
+def smudging(clear: int, encoded: list | None = None) -> type[StandInEye]:
+    """The stand-in's eye, which reads every time TWICE shows on a frame after the first clear times as smudged: on
+    every frame, or, given the frames publish takes from the encoded clips, on those alone."""
     class Smudging(StandInEye):
         def see(self, frame: frames.Frame, purse=Free()) -> Read:
             shown = itertools.count(1)
             seen = super().see(frame)
+            smudged = encoded is None or any(frame is one for one in encoded)
             return dataclasses.replace(seen, spots=tuple(
-                dataclasses.replace(spot, text="in the dark folder") if spot.text == TWICE and next(shown) > clear
-                else spot for spot in seen.spots))
+                dataclasses.replace(spot, text="in the dark folder")
+                if spot.text == TWICE and next(shown) > clear and smudged else spot for spot in seen.spots))
     return Smudging
 
 
@@ -528,8 +531,8 @@ def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_a
         contrail, cli, capsys, monkeypatch):
     steps = contrail / "data" / "steps.json"
     steps.write_text(steps.read_text().replace("in the stories folder", TWICE))
-    eye = lambda clear: Listing(lambda: StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE),
-                                (smudging(clear),), limit=8, kind=StandIn, judge=StandInJudge)
+    eye = lambda clear, encoded=None: Listing(lambda: StandIn(flaw=lambda mode, prompt, seed: Flaw.NONE),
+                                              (smudging(clear, encoded),), limit=8, kind=StandIn, judge=StandInJudge)
     monkeypatch.setitem(MODELS, "stand-in", eye(1))
     assert cli(contrail, "render", "--story", "starter", "--model", "stand-in", "--takes", "1") == 1
     assert [(failure["shot"], failure["code"], failure["about"]) for failure in
@@ -538,7 +541,16 @@ def test_a_line_a_key_shows_twice_is_two_checks_so_the_one_that_passed_failing_a
     assert cli(contrail, "accept", "todo()", "VT502", "--story", "starter", "--reason", "the second line, smudged") == 0
     capsys.readouterr()
 
-    monkeypatch.setitem(MODELS, "stand-in", eye(0))
+    encoded, last_frame = [], frames.last_frame
+
+    def tagged(clip: Path) -> frames.Frame:
+        frame = last_frame(clip)
+        if "dist" in clip.parts:
+            encoded.append(frame)
+        return frame
+
+    monkeypatch.setattr(frames, "last_frame", tagged)
+    monkeypatch.setitem(MODELS, "stand-in", eye(0, encoded))
     assert cli(contrail, "publish", "--story", "starter") == 1
     assert refused(contrail, capsys).startswith(
         "error VT604 moves/home--see-the-steps.mp4: its HEVC last frame, where TapePlayer rests on todo(), fails a "
@@ -573,12 +585,15 @@ def test_an_encoded_clip_whose_last_frame_fails_a_check_its_key_passed_is_vt604(
     assert [path.name for path in (contrail / "dist").iterdir()] == []
 
 
-@pytest.mark.parametrize(("read_again", "refused"), [("1:30 PM to 11:40 PM, 7h 10m, 1 stop.", False),
-                                                     ("1:30 PM to 11:40 PM, 7h 10m, 1 stp.", True)])
+@pytest.mark.parametrize(("read_again", "unencoded_too", "refused"),
+                         [("1:30 PM to 11:40 PM, 7h 10m, 1 stop.", False, False),
+                          ("1:30 PM to 11:40 PM, 7h 10m, 1 stp.", False, True),
+                          ("1:30 PM to 11:40 PM, 7h 10m, 1 stp.", True, False)])
 def test_an_encoded_frame_the_free_reader_reads_with_the_period_it_added_at_render_is_not_vt604(
-        monkeypatch, read_again, refused):
+        monkeypatch, read_again, unencoded_too, refused):
     """Render forgave Qwen's period because Claude read the line exactly. Publish reads again with Qwen alone, and
-    judges the line with Claude's reading from the record, so only a reading the encoding changed is VT604."""
+    judges the line with Claude's reading from the record, so only a reading the encoding changed is VT604: a misread
+    Qwen makes on the clip's last frame before the encoding too is Qwen's."""
     line = "1:30 PM to 11:40 PM, 7h 10m, 1 stop"
     planned = conftest.planned(CONTRAIL)
     key = next(key for key in planned.keys if key.state.name == "flight(CT 104, 2026-12-13)")
@@ -588,13 +603,13 @@ def test_an_encoded_frame_the_free_reader_reads_with_the_period_it_added_at_rend
                         "items": [dataclasses.asdict(item) for item in score(key, [qwen, claude]).items()]}]}
     again = dataclasses.replace(qwen, spots=tuple(dataclasses.replace(spot, text=read_again)
                                                   if spot.text == f"{line}." else spot for spot in qwen.spots))
-    for name, stub in (("last_frame", lambda clip: None), ("read_png", lambda path: None),
+    for name, stub in (("last_frame", lambda clip: clip), ("read_png", lambda path: None),
                        ("difference", lambda a, b: 0.0)):
         monkeypatch.setattr(frames, name, stub)
 
     class Qwen:
         def see(self, frame):
-            return again
+            return again if unencoded_too or Path("inside") in frame.parents else qwen
 
     rests = lambda: publish._rests(planned, record, [Qwen()], Path("tape"), Path("inside"),
                                    {"moves/x.mp4": key.state.name})
@@ -603,3 +618,29 @@ def test_an_encoded_frame_the_free_reader_reads_with_the_period_it_added_at_rend
             rests()
     else:
         rests()
+
+
+def test_a_chart_a_reader_judged_whole_at_render_is_not_read_as_lettering_again_on_its_encoded_frame(monkeypatch):
+    """Render judged the chart whole, by the reader that reports charts, so the record holds no check of its lines.
+    Publish reads again with the free reader alone, which misreads a value, and judges only the checks the record
+    holds."""
+    app = vt.Screenplay("Test")
+    app.scene(lambda: [vt.Heading("Flown"), vt.BarChart("Flights per month", {"Jan": 0, "Feb": 1, "Mar": 2})]).name = "home"
+    planned = plan(app)
+    key = planned.keys[0]
+    _, seen = drawn(key)
+    charted = Read("claude", seen.spots, charts=(Chart("Flights per month", ("Jan", "Feb", "Mar"), (0.0, 1.0, 2.0)),))
+    record = {"story": "terminal", "out": None, "moves": [],
+              "keys": [{"state": key.state.name, "key": key.image,
+                        "items": [dataclasses.asdict(item) for item in score(key, [seen, charted]).items()]}]}
+    again = dataclasses.replace(seen, spots=tuple(dataclasses.replace(spot, text="O") if spot.text == "0" else spot
+                                                  for spot in seen.spots))
+    for name, stub in (("last_frame", lambda clip: None), ("read_png", lambda path: None),
+                       ("difference", lambda a, b: 0.0)):
+        monkeypatch.setattr(frames, name, stub)
+
+    class Qwen:
+        def see(self, frame):
+            return again
+
+    publish._rests(planned, record, [Qwen()], Path("tape"), Path("inside"), {"moves/x.mp4": key.state.name})
