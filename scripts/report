@@ -102,6 +102,8 @@ def main() -> int:
             f"Written by `scripts/report` from each story's dailies.json, the project's ledger.jsonl and dist/. A "
             f"check's pass rate counts the checks of every kept take by the element they judge; a move's cut, "
             f"dissolve and seams count as Move.", ""]
+    if (found.root / "retry.md").exists():
+        body += ["The failures accepted in each tape, why each fails and what would fix it are in [retry.md](retry.md).", ""]
     for name in args.story:
         body += story(found.root, name, title)
     (found.root / "report.md").write_text("\n".join(body))
