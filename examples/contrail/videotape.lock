@@ -1,0 +1,22 @@
+# What videotape publish shipped: each label, with the id of the tape it holds and the hashes the id is made of.
+# Commit it. A label ships once, so another tape under the same versions is refused with VT305.
+
+["contrail 0.1.0 + posters 1.0.0"]
+id = "c40ca8cdd14fa7b67db2c61c7ef0d091c779834b90c6bd60b3492fefcd121aca"
+screenplay = "contrail.screenplay:app"
+code = "b58c637268c780e3a94713f58d718c4298930cd62ec3cda5db04905f5bad3ec6"
+data = "99ce3b2007754ab8fa396cfac20ef6c0c71d87fdee250fbc3e2d34089e820cdf"
+story = "89135ba212fa86869c84631138e366185b5952b54afa91a0439cedb436b8a80d"
+model = "gemini-omni-flash-1.2"
+settings = "b89608e56213d1dbee853f39c5e329a487e7bff28e745900eb1b0331f2983741"
+engine = "37fd04f189b587179c03e2d538d5cfdc707134ef60774b3327905e5aff0414a4"
+
+["contrail 0.1.0 + terminal 1.0.0"]
+id = "4e93cd7d03dccc3fcf90cd8c4359854dc20bdf7ce6f439921a388269e41156c8"
+screenplay = "contrail.screenplay:app"
+code = "b58c637268c780e3a94713f58d718c4298930cd62ec3cda5db04905f5bad3ec6"
+data = "99ce3b2007754ab8fa396cfac20ef6c0c71d87fdee250fbc3e2d34089e820cdf"
+story = "8943c499d7577a56b58bcb7208b2af405cef2f2eb8bb72a8725910a618fd413f"
+model = "gemini-omni-flash-1.2"
+settings = "b89608e56213d1dbee853f39c5e329a487e7bff28e745900eb1b0331f2983741"
+engine = "37fd04f189b587179c03e2d538d5cfdc707134ef60774b3327905e5aff0414a4"
