@@ -50,8 +50,9 @@ def words(shot: Shot, told: Story) -> str:
     return story.text(story.prompt(shot, told))
 
 
-LEFT_BEHIND = shutil.ignore_patterns(".venv", "tape*", "ledger.jsonl", "uv.lock", "__pycache__", ".env")
-"""What a copy of a project leaves behind: what a render, uv or Python wrote in it, and the .env that holds a
+LEFT_BEHIND = shutil.ignore_patterns(".venv", "tape*", "ledger.jsonl", "dist", "videotape.lock", "uv.lock",
+                                     "__pycache__", ".env")
+"""What a copy of a project leaves behind: what a render, publish, uv or Python wrote in it, and the .env that holds a
 developer's API keys."""
 
 
