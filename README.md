@@ -8,7 +8,7 @@ The goal is video as a user interface. No HTML, widgets, or layout code draw any
 
 This is a research prototype. It runs on macOS. The finished demo, a flight-booking app called [Contrail](examples/contrail), renders 150 shots per look, and its measured results and shortfalls are [below](#example-contrail).
 
-To click through Contrail in your browser, open the website: [arjmandi.github.io/videotape](https://arjmandi.github.io/videotape/).
+To click through Contrail in your browser, open the website: [arjmandi.github.io/videotape](https://arjmandi.github.io/videotape/). The paper, a preprint on Zenodo, reports every measurement: [doi:10.5281/zenodo.24511068](https://doi.org/10.5281/zenodo.24511068).
 
 - [How it works](#how-it-works)
 - [Getting started](#getting-started)
@@ -280,7 +280,7 @@ The Python suite needs ffmpeg, but no API key, and makes no paid call. The tests
 
 ## Status
 
-Videotape is in its second prototype. Prototype 1 showed that one model can draw a small app and that a player can click through it. Prototype 2 built Contrail to test the developer's path and the render of each element. A paper on the results is in progress.
+Videotape is in its second prototype. Prototype 1 showed that one model can draw a small app and that a player can click through it. Prototype 2 built Contrail to test the developer's path and the render of each element. The paper on the results is a preprint on [Zenodo](https://zenodo.org/records/24511068).
 
 ## License
 
