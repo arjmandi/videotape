@@ -8,6 +8,8 @@ The goal is video as a user interface. No HTML, widgets, or layout code draw any
 
 This is a research prototype. It runs on macOS. The finished demo, a flight-booking app called [Contrail](examples/contrail), renders 150 shots per look, and its measured results and shortfalls are [below](#example-contrail).
 
+To click through Contrail in your browser, open the website: [arjmandi.github.io/videotape](https://arjmandi.github.io/videotape/).
+
 - [How it works](#how-it-works)
 - [Getting started](#getting-started)
 - [Example: Contrail](#example-contrail)
