@@ -279,3 +279,7 @@ The Python suite needs ffmpeg, but no API key, and makes no paid call. The tests
 ## Status
 
 Videotape is in its second prototype. Prototype 1 showed that one model can draw a small app and that a player can click through it. Prototype 2 built Contrail to test the developer's path and the render of each element. A paper on the results is in progress.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE).
