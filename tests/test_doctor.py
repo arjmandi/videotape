@@ -184,7 +184,7 @@ def test_a_wan_model_without_the_qwen_extra_fails_vt105_and_says_to_add_it_to_th
     assert capsys.readouterr().out.splitlines()[3:] == [*KEYS, CODES["VT105"].example, f"  fix: {CODES['VT105'].fix}"]
     assert CODES["VT105"].fix == (
         'in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
-        'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync')
+        'file:///Users/me/videotape" or "videotape[qwen]==0.1.0", then run uv sync')
 
 
 def test_the_qwen_extra_counts_as_installed_when_every_distribution_it_names_is(monkeypatch):

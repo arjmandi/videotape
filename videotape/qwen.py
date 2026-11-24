@@ -20,7 +20,7 @@ PROMPT = ('Find every piece of text in this image. Answer with a JSON array and 
           'end of a line.')
 MAX_NEW_TOKENS = 4096
 ADD_EXTRA = ('in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
-             'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync')
+             'file:///Users/me/videotape" or "videotape[qwen]==0.1.0", then run uv sync')
 """How a project adds videotape's qwen extra, whichever source its videotape dependency names: a folder, a git
 commit, or a version on an index."""
 

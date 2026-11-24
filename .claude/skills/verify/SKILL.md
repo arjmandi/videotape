@@ -76,7 +76,7 @@ RUN=.verify/runs/$(date -u +%Y%m%dT%H%M%SZ)
 
 It prints a one-line summary. Read the files to assert; the summary is not proof.
 
-`exec` captures any other command the same way, and `-C <dir>` runs it in a folder. Use it for the guide's own commands in `README.md`, which go through `uv run` in a project such as the example:
+`exec` captures any other command the same way, and `-C <dir>` runs it in a folder. Use it for the guide's own commands in `docs/guide.md`, which go through `uv run` in a project such as the example:
 
 ```bash
 .claude/skills/verify/scripts/vt-verify exec "$RUN" <name> -C examples/contrail -- uv run videotape plan --story terminal

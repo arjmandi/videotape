@@ -16,4 +16,4 @@ Contrail is a flight booking demo written as a Videotape screenplay. It books on
 
 ## Build it
 
-The repository's [README](../../README.md) is the developer's guide, and it builds Contrail from an empty folder. Its whole files are this folder's files, and `tests/test_guide.py` holds the two together. This folder's `pyproject.toml` renders with the stand-in, so a render here costs nothing.
+The repository's [developer's guide](../../docs/guide.md), and it builds Contrail from an empty folder. Its whole files are this folder's files, and `tests/test_guide.py` holds the two together. This folder's `pyproject.toml` renders with the stand-in, so a render here costs nothing.

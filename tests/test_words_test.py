@@ -119,7 +119,7 @@ def test_under_the_cap_it_counts_then_sends_the_words_every_help_text_and_every_
     assert count == {"model": call["model"], "messages": call["messages"]}
     [message] = call["messages"]
     content = message["content"]
-    words = (ROOT / "README.md").read_text().split("## The words Videotape uses\n", 1)[1].strip()
+    words = (ROOT / "docs" / "guide.md").read_text().split("## The words Videotape uses\n", 1)[1].strip()
     assert f"<words>\n{words}\n</words>" in content
     for name in subcommands(capsys):
         assert f"usage: videotape {name} " in content
@@ -141,7 +141,7 @@ def test_the_answer_is_saved_with_the_model_tokens_and_cost_and_the_ledger_gets_
         "estimate  14,210 input tokens and at most 24,000 output tokens, at most $0.5368, cap $1.00",
         f"call      {spent} -> {tmp_path / 'words-test.md'}"]
     saved = (tmp_path / "words-test.md").read_text()
-    assert saved.startswith("# Words test\n\n`scripts/words-test` sent the words section of `README.md`")
+    assert saved.startswith("# Words test\n\n`scripts/words-test` sent the words section of `docs/guide.md`")
     assert f"## The places\n\n{recorded()['answer']['content'][1]['text'].strip()}\n\n" in saved
     assert saved.endswith(f"## Tokens and cost\n\n- {spent}\n")
     [line] = [json.loads(line) for line in (tmp_path / "ledger.jsonl").read_text().splitlines()]
@@ -193,9 +193,9 @@ def test_a_key_that_an_http_header_cannot_carry_is_refused_before_anything_is_se
                         "break\n")
 
 
-def test_a_readme_without_the_words_section_fails_before_anything_is_sent(run, script, tmp_path, monkeypatch):
-    (tmp_path / "README.md").write_text("# Videotape\n\n## 1. Start a project\n")
-    monkeypatch.setattr(script, "README", tmp_path / "README.md")
+def test_a_guide_without_the_words_section_fails_before_anything_is_sent(run, script, tmp_path, monkeypatch):
+    (tmp_path / "guide.md").write_text("# Videotape\n\n## 1. Start a project\n")
+    monkeypatch.setattr(script, "GUIDE", tmp_path / "guide.md")
     code, claude, said = run(recorded()["count"], recorded()["answer"])
     assert (code, claude.seen) == (1, [])
-    assert said.err == f'error: {tmp_path / "README.md"} has no section under "## The words Videotape uses"\n'
+    assert said.err == f'error: {tmp_path / "guide.md"} has no section under "## The words Videotape uses"\n'

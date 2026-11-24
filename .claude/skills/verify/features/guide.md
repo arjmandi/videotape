@@ -1,6 +1,6 @@
 # Guide
 
-`README.md` at the repo root is the developer's guide. It builds Contrail from an empty folder in six parts: start a project with `videotape new contrail`, what a screenplay holds, connect the data, write the screenplay, write the stories, and render, review, fix and publish. It ends with a section, `## The words Videotape uses`, that gives each of the framework's words one meaning. Each file the guide shows whole, in a fence such as ```` ```python title=contrail/data.py ````, is that file of `examples/contrail`, byte for byte. A ```` ```sh ```` block holds commands, one to a line, and a ```` ```text ```` block right after it shows what its last command prints. `tests/test_guide.py` runs the commands in order: first in the project `new` writes, then, from the guide's first whole file on, with `examples/contrail` copied over that project and the stand-in as its model, as the guide's part 2 sets it. The stand-in is made to fail the key of the state the guide retakes, on the render's takes, and of the state it accepts, on every take, so both commands act on a real failure. It films Contrail's other shots clean on the first take, and the starter with its own flaws, as a reader's stand-in does. `scripts/words-test` asks Claude where the help texts and error messages name a concept by another word than the words section gives it, and writes the answer to `words-test.md`.
+`docs/guide.md` is the developer's guide. It builds Contrail from an empty folder in six parts: start a project with `videotape new contrail`, what a screenplay holds, connect the data, write the screenplay, write the stories, and render, review, fix and publish. It ends with a section, `## The words Videotape uses`, that gives each of the framework's words one meaning. Each file the guide shows whole, in a fence such as ```` ```python title=contrail/data.py ````, is that file of `examples/contrail`, byte for byte. A ```` ```sh ```` block holds commands, one to a line, and a ```` ```text ```` block right after it shows what its last command prints. `tests/test_guide.py` runs the commands in order: first in the project `new` writes, then, from the guide's first whole file on, with `examples/contrail` copied over that project and the stand-in as its model, as the guide's part 2 sets it. The stand-in is made to fail the key of the state the guide retakes, on the render's takes, and of the state it accepts, on every take, so both commands act on a real failure. It films Contrail's other shots clean on the first take, and the starter with its own flaws, as a reader's stand-in does. `scripts/words-test` asks Claude where the help texts and error messages name a concept by another word than the words section gives it, and writes the answer to `words-test.md`.
 
 ## Sub-features
 
@@ -13,7 +13,7 @@
 
 ## How to get to it (user POV)
 
-- Read `README.md` and follow it in an empty folder, from `uvx --from <git URL or checkout> videotape new contrail`.
+- Read `docs/guide.md` and follow it in an empty folder, from `uvx --from <git URL or checkout> videotape new contrail`.
 - From the repo root, run `uv run pytest tests/test_guide.py`.
 - Export `ANTHROPIC_API_KEY`, or set it in the repo's `.env`, then run `uv run scripts/words-test --cap-usd 1` from the repo root and read `words-test.md`.
 

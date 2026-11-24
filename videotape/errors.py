@@ -68,7 +68,7 @@ CODES: dict[str, Code] = {
         "--model stand-in.",
         "fail VT105 wan3.0's eye runs Qwen3-VL-8B through videotape's qwen extra, which is not installed here",
         'in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ '
-        'file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync',
+        'file:///Users/me/videotape" or "videotape[qwen]==0.1.0", then run uv sync',
     ),
     "VT106": Code(
         "no project here",

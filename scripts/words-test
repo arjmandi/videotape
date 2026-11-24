@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Ask Claude where videotape names a concept by another word than the README's words section gives it.
+"""Ask Claude where videotape names a concept by another word than the guide's words section gives it.
 
     uv run scripts/words-test --cap-usd 1 [--record response.json]
 
-One call sends the words section of README.md, every help text of the videotape command, and every error message in
+One call sends the words section of docs/guide.md, every help text of the videotape command, and every error message in
 the videotape package to claude-opus-5-5. It asks for each place that names a concept by another word than the
 section gives it, or gives a word of the section another meaning. The answer, the model, the tokens and the cost go
 to words-test.md at the repository's root, and the call's tokens and cost to one line of its ledger.jsonl.
@@ -31,7 +31,7 @@ from videotape import claude, cli, errors, project
 from videotape.claude import MODEL, Reply, Send, price
 
 ROOT = Path(__file__).resolve().parent.parent
-README = ROOT / "README.md"
+GUIDE = ROOT / "docs" / "guide.md"
 PACKAGE = ROOT / "videotape"
 REPORT = ROOT / "words-test.md"
 LEDGER = ROOT / "ledger.jsonl"
@@ -69,10 +69,10 @@ class WordsTestError(Exception):
 
 
 def words(readme: str) -> str:
-    """The README's words section, from its heading to the next heading of its level or the end."""
+    """The guide's words section, from its heading to the next heading of its level or the end."""
     section = re.search(rf"^{re.escape(WORDS)}\n(.*?)(?=^## |\Z)", readme, re.M | re.S)
     if not section or not section.group(1).strip():
-        raise WordsTestError(f'{README} has no section under "{WORDS}"')
+        raise WordsTestError(f'{GUIDE} has no section under "{WORDS}"')
     return section.group(1).strip()
 
 
@@ -132,13 +132,13 @@ def messages() -> list[str]:
 
 
 def request() -> dict:
-    content = ASK.format(words=words(README.read_text()), helps="\n\n".join(helps()), messages="\n\n".join(messages()))
+    content = ASK.format(words=words(GUIDE.read_text()), helps="\n\n".join(helps()), messages="\n\n".join(messages()))
     return {"model": MODEL, "max_tokens": MAX_TOKENS, "output_config": {"effort": claude.EFFORT},
             "messages": [{"role": "user", "content": content}]}
 
 
 def report(reply: Reply) -> str:
-    return (f"# Words test\n\n`scripts/words-test` sent the words section of `README.md`, every help text of the "
+    return (f"# Words test\n\n`scripts/words-test` sent the words section of `docs/guide.md`, every help text of the "
             f"`videotape` command, and every error message in the `videotape` package to {reply.model}. It asked for "
             f"each place that names a concept by another word than the words section gives it, or gives a word of the "
             f"section another meaning.\n\n## The places\n\n{reply.text}\n\n## Tokens and cost\n\n- {reply.spent()}\n")

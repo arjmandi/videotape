@@ -53,7 +53,7 @@ Preconditions:
   fail VT104 wan3.0's reader claude-opus-5-5 needs ANTHROPIC_API_KEY, and it is not in the environment or .env
     fix: copy .env.example to .env and set ANTHROPIC_API_KEY there, or export it
   fail VT105 wan3.0's eye runs Qwen3-VL-8B through videotape's qwen extra, which is not installed here
-    fix: in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ file:///Users/me/videotape-p1p" or "videotape[qwen]==0.1.0", then run uv sync
+    fix: in pyproject.toml, put [qwen] right after videotape in dependencies, as in "videotape[qwen] @ file:///Users/me/videotape" or "videotape[qwen]==0.1.0", then run uv sync
   ```
 
   The Python and Xcode versions are this machine's. `vt-verify run` runs the repo's `.venv`, which has no qwen extra after a plain `launch`. After `launch qwen` the last line is `ok   VT105 Apple silicon and videotape's qwen extra, for wan3.0's eye`, with no fix line. With `examples/contrail` as the folder, as `project-doctor-contrail`, `.exit` is `0` and the last two lines are `ok   VT104 stand-in needs no API key` and `ok   VT105 stand-in's eye needs no GPU`.

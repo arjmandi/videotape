@@ -1,4 +1,4 @@
-"""README.md is the developer's guide. Every file it shows whole is that file of examples/contrail, byte for byte, and
+"""docs/guide.md is the developer's guide. Every file it shows whole is that file of examples/contrail, byte for byte, and
 its commands run in order, each printing what the guide shows of it.
 
 The commands start in the project videotape new writes. From the guide's first whole file on, they run in that project
@@ -29,7 +29,7 @@ from videotape.plan import Shot
 from videotape.standin import Flaw
 
 ROOT = CONTRAIL.parent.parent
-GUIDE = ROOT / "README.md"
+GUIDE = ROOT / "docs" / "guide.md"
 FENCE = re.compile(r"^```(?P<info>[^\n]*)\n(?P<text>.*?)^```$", re.M | re.S)
 VIDEOTAPE = ["uv", "run", "videotape"]
 FLAWS = {"VT502": Flaw.MISSPELL, "VT503": Flaw.EXTRA_BOX}
@@ -206,8 +206,8 @@ def contrail_over(folder: Path) -> None:
 def test_every_file_the_guide_shows_whole_is_contrails_byte_for_byte():
     shown = [event for event in walk(GUIDE.read_text()) if isinstance(event, Block)]
     for block in shown:
-        assert (CONTRAIL / block.file).is_file(), f"README.md:{block.line} shows {block.file}, which examples/contrail lacks"
-        assert block.text == (CONTRAIL / block.file).read_text(), f"README.md:{block.line} is not {block.file}"
+        assert (CONTRAIL / block.file).is_file(), f"docs/guide.md:{block.line} shows {block.file}, which examples/contrail lacks"
+        assert block.text == (CONTRAIL / block.file).read_text(), f"docs/guide.md:{block.line} is not {block.file}"
     written = {path.relative_to(CONTRAIL).as_posix() for pattern in ("contrail/*.py", "stories/*.toml")
                for path in CONTRAIL.glob(pattern) if path.read_text()}
     assert written == {block.file for block in shown}
@@ -262,7 +262,7 @@ def test_the_guides_commands_run_in_order_and_print_what_it_shows(real_player, t
         else:
             finished = subprocess.run(words, cwd=here, env=environment, capture_output=True, text=True)
             code, said = finished.returncode, finished.stdout + finished.stderr
-        where = f"README.md:{step.line} {step.command}"
+        where = f"docs/guide.md:{step.line} {step.command}"
         assert code == int(failing(step.shown)), f"{where} exited with {code}:\n{said}"
         assert not missing(step.shown or "", said), f"{where} did not print {missing(step.shown or '', said)}:\n{said}"
         if real_player and videotape_command(step, "play"):
