@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Videotape: user interface as video</title>
+<meta name="description" content="Videotape writes an app as a screenplay, has one video model film every screen and every transition, and plays the film as the app.">
+<meta property="og:title" content="Videotape: user interface as video">
+<meta property="og:description" content="Write an app as a screenplay. One video model films every screen and every move between them. The film is the app.">
+<meta property="og:image" content="https://arjmandi.github.io/videotape/media/demo.jpg">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+	<canvas id="art" width="1820" height="1024" role="img"
+		aria-label="Hand-painted illustration: screenplays stream in from the left over a robot in a director's cap who writes prompts; both pour into a glowing magic box that feeds a film tape to a projector, which plays a silent film on a screen in a 1920s studio lot."></canvas>
+	<div class="title-card">
+		<p class="kicker">Videotape</p>
+		<h1>User interface as video</h1>
+		<p class="lede">Write an app as a screenplay. One video model films every screen and every move between them. A player clicks through the film, and to the person using it, the film is the app.</p>
+		<nav class="cta">
+			<a class="button primary" href="#play">Play the demo</a>
+			<a class="button" href="https://github.com/arjmandi/videotape">Code on GitHub</a>
+			<a class="button" href="#paper">The paper</a>
+		</nav>
+	</div>
+</header>
+
+<main>
+
+<section id="why" class="band">
+	<div class="wrap prose">
+		<p class="reel">Reel 1</p>
+		<h2>The next interface will be filmed, not built</h2>
+		<p>Generative models already stand in for software that people used to write by hand. <a href="https://arxiv.org/abs/2507.08800">NeuralOS</a> simulates an operating system with a diffusion model trained on desktop sessions. <a href="https://arxiv.org/abs/2408.14837">GameNGen</a> runs DOOM in real time from past frames and key presses. <a href="https://arxiv.org/abs/2402.15391">Genie</a> learns playable worlds from video. <a href="https://arxiv.org/abs/2604.09577">Generative UI</a> has a language model write a whole experience as a web page. And video models are turning into <a href="https://arxiv.org/abs/2509.20328">general vision systems</a> that can reason about what they draw.</p>
+		<p>We think the whole application is next. An app could be rendered ahead of time by a video model like today's, or generated live by a real-time world model. Either way, the pixels come from a model, and nobody builds a front end.</p>
+		<p>Why would anyone want that? A toolkit gives every app the same rectangles, type, and icons. A video model's material is anything a paragraph can describe. An app can be a departure board at dawn in one version and a wall of printed travel posters in the next, from the same code. Moving between screens can be a camera move through a place instead of a slide. Describing an app is easier than building one, and the result can be more fun to use.</p>
+	</div>
+</section>
+
+<section id="how" class="band paper">
+	<div class="wrap">
+		<div class="prose">
+			<p class="reel">Reel 2</p>
+			<h2>How Videotape makes an app</h2>
+			<p>You don't set up a framework, a component library, or a build for each platform. You write two things, the user stories and the look, and Videotape films the rest.</p>
+		</div>
+		<ol class="steps">
+			<li class="step wide">
+				<div class="step-text">
+					<h3>Write the user stories as a screenplay</h3>
+					<p>Each screen is a Python function. Each action names the screen it goes to. The data comes from plain JSON files. The screenplay says nothing about looks.</p>
+				</div>
+				<figure class="term py">
+					<div class="term-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="term-title">examples/contrail/contrail/screenplay.py</span></div>
+<pre><code><span class="d">@app.scene</span>
+<span class="k">def</span> <span class="f">search</span>():
+    options: <span class="t">list</span>[vt.<span class="t">Option</span>] = []
+    <span class="k">for</span> place <span class="k">in</span> airports.<span class="f">where</span>(<span class="k">lambda</span> a: a.code != <span class="s">"SFO"</span>).<span class="f">order_by</span>(<span class="s">"city"</span>):
+        go = <span class="f">dates</span>(place) <span class="k">if</span> <span class="f">served</span>(place) <span class="k">else</span> <span class="f">no_flights</span>(place)
+        options.<span class="f">append</span>(vt.<span class="t">Option</span>(<span class="s">f"{place.city} ({place.code})"</span>, to=go))
+    <span class="k">return</span> [vt.<span class="t">SearchBar</span>(<span class="s">"Where to?"</span>, options=options, no_match=<span class="f">not_found</span>())]
+
+
+<span class="d">@app.scene</span>
+<span class="k">def</span> <span class="f">not_found</span>():
+    <span class="k">return</span> [
+        vt.<span class="t">Heading</span>(<span class="s">"No airport matches"</span>),
+        vt.<span class="t">Text</span>(<span class="s">"Try a city or a three-letter airport code."</span>),
+        vt.<span class="t">Button</span>(<span class="s">"Search again"</span>, to=<span class="f">search</span>()),
+    ]</code></pre>
+				</figure>
+			</li>
+			<li class="step wide">
+				<div class="step-text">
+					<h3>Write the look as a story</h3>
+					<p>A story is a few short prompts: one for the whole look, one line per screen, one per kind of element, and one per kind of move. A second story gives the same app a new look without touching the code.</p>
+				</div>
+				<figure class="term toml">
+					<div class="term-bar"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="term-title">examples/contrail/stories/terminal.toml</span></div>
+<pre><code><span class="c"># Contrail as a quiet airport terminal at first light. Each scene is a place in it.</span>
+<span class="n">version</span> = <span class="s">"1.0.0"</span>
+
+<span class="n">look</span> = <span class="s">"""</span>
+<span class="s">A quiet international airport terminal at first light. Polished pale terrazzo, tall glass walls onto</span>
+<span class="s">the runway, brushed steel, warm walnut, and low golden sun. Every sign is a dark panel with crisp</span>
+<span class="s">white letters in a plain sans-serif face.</span>
+<span class="s">"""</span>
+
+<span class="h">[scenes]</span>
+<span class="n">home</span> = <span class="s">"The main hall, facing the big departure board."</span>
+<span class="n">search</span> = <span class="s">"A self-service kiosk by the tall windows, its screen listing the destinations."</span>
+<span class="c"># ...</span>
+
+<span class="h">[elements]</span>
+<span class="n">Button</span> = <span class="s">"a lit amber panel with bold black letters, like a gate sign"</span>
+<span class="c"># ...</span>
+
+<span class="h">[moves]</span>
+<span class="n">default</span> = <span class="s">"The camera turns from the sign, which keeps its words, glides through the terminal to the next place, and settles."</span></code></pre>
+				</figure>
+			</li>
+			<li class="step">
+				<h3>Render and check</h3>
+				<p>Videotape walks every state the screenplay can reach before anything is filmed. One video model then films a still for every state and a clip for every move. Two vision-language readers from different model families read every take back, and a line passes only if both read it exactly as the screenplay wrote it.</p>
+			</li>
+			<li class="step">
+				<h3>Play it anywhere video plays</h3>
+				<p>The result is a tape: the clips, plus a small file that maps each drawn button to the clip it plays. The player rests on a still, turns a click into a clip, and hands the screenplay's exact words to the screen reader. Today's player is a native macOS app. Players for iOS, the web, and Android are the next milestone, and the demo below already plays the tape in your browser.</p>
+			</li>
+		</ol>
+	</div>
+</section>
+
+<section id="unlocks" class="band">
+	<div class="wrap">
+		<div class="prose">
+			<p class="reel">Reel 3</p>
+			<h2>What apps as video unlock</h2>
+			<p>Some of these Contrail already shows. Others are where we think the approach leads, and each card says which.</p>
+		</div>
+		<ul class="cards">
+			<li>
+				<p class="tag shown">Shown</p>
+				<h3>The code is the user journeys</h3>
+				<p>A screenplay reads like the user stories a product team already writes: this screen shows these things, and this button goes there. The gap between what product means and what engineering builds shrinks, and so does the risk of building the wrong thing.</p>
+			</li>
+			<li>
+				<p class="tag shown">Shown</p>
+				<h3>No front end to build</h3>
+				<p>The model draws every pixel of every screen and every transition. Developers spend their time on the stories and on how they fit together to serve a purpose, not on layouts, widgets, and styling.</p>
+			</li>
+			<li>
+				<p class="tag shown">Shown</p>
+				<h3>Gaps show up before anyone ships</h3>
+				<p>The app is a finite graph of states, so Videotape walks all of it first. A screen that no action reaches, a button that leads nowhere, or two buttons that can't be told apart is an error with a code before a single frame is filmed. An event-driven app usually needs extra tools to find its unhandled paths.</p>
+			</li>
+			<li>
+				<p class="tag shown">Shown</p>
+				<h3>A new look is a paragraph</h3>
+				<p>A holiday theme, a dark mode, a brand refresh, or a look for one event is a new story, not a redesign. Contrail has two stories that share every line of code.</p>
+				<div class="looks">
+					<figure><img src="media/contrail/terminal/keys/home.webp" alt="Contrail's home screen as a departure board in an airport terminal at dawn" loading="lazy"><figcaption>terminal</figcaption></figure>
+					<figure><img src="media/contrail/posters/keys/home.webp" alt="Contrail's home screen as a 1960s screen-printed travel poster" loading="lazy"><figcaption>posters</figcaption></figure>
+				</div>
+			</li>
+			<li>
+				<p class="tag bet">Our bet</p>
+				<h3>Every platform already plays video</h3>
+				<p>A tape needs no cross-platform framework and no particular language. A player on each platform is a video view with hotspots. Sensors and other device features still need each platform's own code, but the interface itself carries over unchanged.</p>
+			</li>
+			<li>
+				<p class="tag bet">Our bet</p>
+				<h3>Apps travel like videos</h3>
+				<p>A tape is a set of files, versioned and signed, that any player runs. Sharing an app could be as easy as sending a video, without app store reviews and their restrictions in the way.</p>
+			</li>
+			<li>
+				<p class="tag bet">Our bet</p>
+				<h3>Everyone makes their own apps</h3>
+				<p>Software keeps moving toward people building what they need for themselves. If describing an app is enough to make one, the player can become the layer apps run on, and much of what an operating system does for apps today stops mattering. That is a new way to deliver software.</p>
+			</li>
+		</ul>
+	</div>
+</section>
+
+<section id="play" class="band screening">
+	<div class="wrap">
+		<div class="prose">
+			<p class="reel">Reel 4</p>
+			<h2>Play Contrail</h2>
+			<p>Contrail is a demo flight-booking app: search, a date picker, flight lists, a booking, trips, and a profile with two charts. Every pixel below was drawn by one video model, gemini-omni-flash-1.2. Click the drawn buttons. Switch the story at any screen to see the same state in the other look.</p>
+		</div>
+
+		<div id="player" class="player" data-story="terminal">
+			<div class="screen">
+				<video class="clip" muted playsinline preload="auto"></video>
+				<img class="key" alt="Contrail's home screen" width="1280" height="720">
+				<div class="hotspots"></div>
+				<button class="start"><span aria-hidden="true">▶</span> Play the opening</button>
+			</div>
+			<div class="controls">
+				<div class="group" role="group" aria-label="Story">
+					<button data-story="terminal" aria-pressed="true">Terminal</button>
+					<button data-story="posters" aria-pressed="false">Posters</button>
+				</div>
+				<div class="group">
+					<button data-act="back" disabled>Back</button>
+					<button data-act="restart">Start over</button>
+					<button data-act="hotspots" aria-pressed="false">Show hotspots</button>
+				</div>
+				<form class="typing" hidden>
+					<label>Type a destination <input list="destinations" autocomplete="off" placeholder="Where to?"></label>
+					<datalist id="destinations"></datalist>
+					<button>Go</button>
+				</form>
+			</div>
+			<details class="tape-file">
+				<summary>What the tape says about this screen: <code class="state-name">home()</code></summary>
+				<p>These are the exact words the screenplay gives this state. The player hands them to the screen reader, and the checks hold the picture to them.</p>
+				<ul class="words"></ul>
+			</details>
+		</div>
+
+		<div class="prose">
+			<h3>The walkthrough</h3>
+			<p>The paper's supplementary video clicks through both published tapes, 2 minutes 36 seconds with no sound.</p>
+		</div>
+		<video class="demo" src="media/demo.mp4" poster="media/demo.jpg" controls muted playsinline preload="none"></video>
+	</div>
+</section>
+
+<section id="made" class="band paper">
+	<div class="wrap">
+		<div class="prose">
+			<p class="reel">Reel 5</p>
+			<h2>From the first slices to the final tapes</h2>
+			<p>Contrail was built in eight slices. Each design decision was settled by a paid run with a cap approved before the first call, and every take was checked. These are the takes those tests filmed.</p>
+		</div>
+
+		<article class="test">
+			<h3>Prototype 1: a surf shop that dissolved</h3>
+			<p>The first tape was a five-screen surf shop. Wan 2.2 TI2V-5B drew 3 of its 5 buttons legibly for $3.48. Wan 3.0 drew all 5 for $15.00. But no move between two separately drawn screens traveled like a camera. The 5B model dissolved all five, and Wan 3.0 dissolved two, cut one, and wiped two. Continuity became the problem to solve.</p>
+			<div class="pair">
+				<figure><video src="media/surf-shop/wan2.2-5b/welcome--enter-shop.mp4" muted loop playsinline preload="none"></video><figcaption>Wan 2.2 TI2V-5B, "Enter shop"</figcaption></figure>
+				<figure><video src="media/surf-shop/wan3.0/welcome--enter-shop.mp4" muted loop playsinline preload="none"></video><figcaption>Wan 3.0, "Enter shop"</figcaption></figure>
+			</div>
+		</article>
+
+		<article class="test">
+			<h3>The screen test: three models, the same screens</h3>
+			<p>Eight keys that hold every element type, three hosted models, both stories, two takes each. The model that drew the most elements so that every check passed became Contrail's model.</p>
+			<div class="tabs" role="tablist" aria-label="Model">
+				<button role="tab" aria-selected="false" data-model="wan3.0">wan3.0</button>
+				<button role="tab" aria-selected="false" data-model="minimax-h3">minimax-h3</button>
+				<button role="tab" aria-selected="true" data-model="gemini-omni-flash-1.2">gemini-omni-flash-1.2</button>
+			</div>
+			<div class="grid4 screen-test">
+				<img data-key="terminal/home" alt="" loading="lazy">
+				<img data-key="terminal/dates-jfk" alt="" loading="lazy">
+				<img data-key="posters/profile" alt="" loading="lazy">
+				<img data-key="posters/results-sea-2026-12-12" alt="" loading="lazy">
+			</div>
+			<table class="numbers">
+				<thead><tr><th scope="col">Model</th><th scope="col">Elements passing every check</th><th scope="col">Invented controls</th></tr></thead>
+				<tbody>
+					<tr><th scope="row">wan3.0</th><td>68 of 120 (56.7%)</td><td>87</td></tr>
+					<tr><th scope="row">minimax-h3</th><td>67 of 120 (55.8%)</td><td>22</td></tr>
+					<tr class="pick"><th scope="row">gemini-omni-flash-1.2</th><td>96 of 120 (80.0%)</td><td>0</td></tr>
+				</tbody>
+			</table>
+		</article>
+
+		<article class="test">
+			<h3>Variants: one layout across many data</h3>
+			<p>Most of Contrail's screens are variants: 9 results, 18 flights, and 18 confirmations, each sharing a scene with others and differing only in their data. In a test of 20 variants drawn each on its own, the layout held in 3. Drawn from the scene's first picture, it held in all 20, at $2.35 per passing variant instead of $9.14. The catch: a variant drawn from a picture tends to keep that picture's words, so those get retaken.</p>
+			<div class="rows">
+				<p class="row-label">Each on its own</p>
+				<div class="grid3">
+					<img src="media/variants-test/seed/results-jfk-2026-12-11.webp" alt="Results for New York on December 11, drawn on its own" loading="lazy">
+					<img src="media/variants-test/seed/results-jfk-2026-12-12.webp" alt="Results for New York on December 12, drawn on its own" loading="lazy">
+					<img src="media/variants-test/seed/results-jfk-2026-12-13.webp" alt="Results for New York on December 13, drawn on its own" loading="lazy">
+				</div>
+				<p class="row-label">From the first picture</p>
+				<div class="grid3">
+					<img src="media/variants-test/from-key/results-jfk-2026-12-11.webp" alt="Results for New York on December 11, drawn from the base picture" loading="lazy">
+					<img src="media/variants-test/from-key/results-jfk-2026-12-12.webp" alt="Results for New York on December 12, drawn from the base picture" loading="lazy">
+					<img src="media/variants-test/from-key/results-jfk-2026-12-13.webp" alt="Results for New York on December 13, drawn from the base picture" loading="lazy">
+				</div>
+			</div>
+		</article>
+
+		<article class="test">
+			<h3>Moves: film the screen as the camera arrives</h3>
+			<p>Pinning a clip between two separately drawn pictures made 4 of 12 terminal moves travel, with 3 cuts. Drawing each screen as the last frame of the move into it, a rehearsal, made 7 of 12 travel and removed every cut. The posters story, which stays on one wall, traveled in 11 of 12 either way.</p>
+			<div class="pair">
+				<figure><video src="media/moves-test/pinned/terminal.mp4" muted loop playsinline preload="none"></video><figcaption>Pinned between two pictures</figcaption></figure>
+				<figure><video src="media/moves-test/rehearse/terminal.mp4" muted loop playsinline preload="none"></video><figcaption>Rehearsed into the screen</figcaption></figure>
+			</div>
+		</article>
+
+		<article class="test">
+			<h3>The two full tapes</h3>
+			<p>Each story is 150 shots: 58 screens and the moves between them. A UI test then walked all 164 steps of every journey on a fresh copy of each published app.</p>
+			<table class="numbers">
+				<thead><tr><th scope="col"></th><th scope="col">terminal</th><th scope="col">posters</th></tr></thead>
+				<tbody>
+					<tr><th scope="row">Shots right on the first take</th><td>80 of 150 (53%)</td><td>106 of 150 (71%)</td></tr>
+					<tr><th scope="row">Cost</th><td>$248.87</td><td>$149.35</td></tr>
+					<tr><th scope="row">Render time</th><td>6.5 hours</td><td>3.5 hours</td></tr>
+					<tr><th scope="row">Published app</th><td>59.4 MB</td><td>56.1 MB</td></tr>
+					<tr><th scope="row">Failures accepted</th><td>12</td><td>4</td></tr>
+				</tbody>
+			</table>
+			<p>Across all four paid tests, both readers read 4,364 lines. They agreed on 76.1% being exact. On about one line in fourteen, only one of them read it exactly, so neither reader could be dropped.</p>
+		</article>
+	</div>
+</section>
+
+<section id="limits" class="band">
+	<div class="wrap prose">
+		<p class="reel">Reel 6</p>
+		<h2>Where it falls short, and why now</h2>
+		<p>This is early work, and the shortfalls are part of the result.</p>
+		<ul>
+			<li><strong>A tape is as big as its data.</strong> Contrail's search offers six destinations and its date picker three days. Any city or any date needs states rendered on demand, which isn't built.</li>
+			<li><strong>Nothing is remembered between screens.</strong> A booking shows its confirmation but doesn't appear in Trips, because keeping it would multiply every later screen by the 18 flights.</li>
+			<li><strong>Three elements were narrowed to what the model could draw.</strong> The date picker became a row of day tiles, the charts cover June to November instead of the whole year, and the trips heading was renamed. Dense numeric elements such as line charts still defy current models.</li>
+			<li><strong>Words are not yet exact on the first take.</strong> 53% and 71% of shots passed first time, and 16 failures were accepted when the budget ran out.</li>
+			<li><strong>Many UI components are still untried,</strong> and so far there is one app, one person marking the checks, and a player only for macOS.</li>
+		</ul>
+		<p>Still, two full tapes of 150 shots each were filmed, checked line by line against the screenplay, published, and clicked through end to end, at $149 to $249 a tape. That is the case for doing this now: the video models are already good enough to make apps this way, and the gaps have clear next steps. The next rungs are fine-tuning an open video model on the takes these tapes produced, then pre-training one for interfaces.</p>
+	</div>
+</section>
+
+<section id="paper" class="band paper">
+	<div class="wrap prose">
+		<p class="reel">Reel 7</p>
+		<h2>The paper</h2>
+		<p class="paper-title">Videotape: An App Written as a Screenplay and Rendered, Screen by Screen, by One Video Model</p>
+		<p>Mohsen Arjmandi. Draft of November 2026. The preprint is coming to Zenodo.</p>
+		<p>The paper reports every measurement on this page, the cost of each slice, how the checks were calibrated against a person's judgments, and the remedies we plan. The framework, the demo, the ledgers, and every take's checks are or will be public.</p>
+		<nav class="cta">
+			<a class="button primary" href="https://github.com/arjmandi/videotape">Code on GitHub</a>
+			<a class="button" href="https://github.com/arjmandi/videotape/blob/main/docs/guide.md">The developer's guide</a>
+		</nav>
+	</div>
+</section>
+
+</main>
+
+<footer>
+	<div class="wrap">
+		<p>Videotape is released under the <a href="https://github.com/arjmandi/videotape/blob/main/LICENSE">Apache License 2.0</a>. Contrail's traveler, Alex Rivera, and all of its data are invented.</p>
+	</div>
+</footer>
+
+<script src="header-art.js"></script>
+<script src="player.js" type="module"></script>
+<script src="page.js" type="module"></script>
+</body>
+</html>

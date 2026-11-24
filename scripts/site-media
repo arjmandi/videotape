@@ -1,0 +1,138 @@
+#!/usr/bin/env python3
+"""Encode the clips and stills the website shows, from rendered tapes, into site/media.
+
+    scripts/site-media --contrail examples/contrail/tapes --surf-shop path/to/surf_shop --demo videotape-demo.mp4 \\
+        [--zip site-media.zip]
+
+Tapes are not in the repository, so the site's media is not either. This script makes it from:
+
+- --contrail: Contrail's tapes folder, holding terminal/ and posters/ and the slices' tests (screen-test/,
+  moves-test/, variants-test/).
+- --surf-shop: prototype 1's examples/surf_shop, holding tape/ (Wan 2.2 TI2V-5B) and tape-wan3/ (Wan 3.0), from the
+  prototype-1 release's surf-shop-tapes.zip.
+- --demo: the paper's supplementary video.
+
+Every key becomes WebP, and every move becomes H.264 with no sound, plus a reversed copy that the page's Back button
+plays. Each story's tape.json is rewritten with the new paths. --zip packs site/media into the zip that the Pages
+workflow downloads from the site-media release. Needs ffmpeg and cwebp.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import zipfile
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "site" / "media"
+STORIES = ("terminal", "posters")
+MODELS = ("wan3.0", "minimax-h3", "gemini-omni-flash-1.2")
+SCREEN_TEST_KEYS = ("home", "profile", "dates-jfk", "results-sea-2026-12-12")
+MOVES_TEST_MOVE = "search--new-york-jfk"
+VARIANT_KEYS = ("results-jfk-2026-12-11", "results-jfk-2026-12-12", "results-jfk-2026-12-13")
+SURF_TAPES = {"tape": "wan2.2-5b", "tape-wan3": "wan3.0"}
+SURF_MOVES = ("opening", "welcome--enter-shop", "entrance--create-an-account")
+
+
+def run(*command: str | Path) -> None:
+    subprocess.run([str(part) for part in command], check=True, capture_output=True)
+
+
+def clip(source: Path, target: Path, crf: int = 28, reverse: bool = False) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    filters = ["-vf", "reverse"] if reverse else []
+    run("ffmpeg", "-y", "-i", source, "-an", *filters, "-c:v", "libx264", "-preset", "slow", "-crf", str(crf),
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart", target)
+
+
+def still(source: Path, target: Path) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    run("cwebp", "-quiet", "-q", "85", source, "-o", target)
+
+
+def poster(source: Path, target: Path, at: float) -> None:
+    target.parent.mkdir(parents=True, exist_ok=True)
+    run("ffmpeg", "-y", "-ss", str(at), "-i", source, "-frames:v", "1", "-q:v", "3", target)
+
+
+def story(tape: Path, name: str, jobs: list) -> None:
+    """Queue one story's keys and moves, and write the tape.json the page's player reads."""
+    source = json.loads((tape / "tape.json").read_text())
+    out = OUT / "contrail" / name
+    scenes = {}
+    for state, scene in source["scenes"].items():
+        key = f"keys/{Path(scene['key']).stem}.webp"
+        jobs.append((still, tape / scene["key"], out / key))
+        scenes[state] = {"key": key, "words": scene["words"], "hotspots": scene.get("hotspots", [])}
+        if "search" in scene:
+            scenes[state]["search"] = scene["search"]
+    moves = {}
+    for move, entry in {"opening": source["opening"], **source["moves"]}.items():
+        stem = Path(entry["clip"]).stem
+        jobs.append((clip, tape / entry["clip"], out / f"moves/{stem}.mp4"))
+        jobs.append((lambda s, t: clip(s, t, crf=30, reverse=True), tape / entry["clip"], out / f"back/{stem}.mp4"))
+        moves[move] = {"clip": f"moves/{stem}.mp4", "back": f"back/{stem}.mp4", "lands": entry["lands"]}
+    made = source["made"]
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "tape.json").write_text(json.dumps({
+        "size": source["size"], "fps": source["fps"], "label": made["label"], "model": made["model"]["name"],
+        "opening": moves.pop("opening"), "scenes": scenes, "moves": moves,
+    }, indent=1))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--contrail", type=Path, required=True)
+    parser.add_argument("--surf-shop", type=Path, required=True)
+    parser.add_argument("--demo", type=Path, required=True)
+    parser.add_argument("--zip", type=Path)
+    args = parser.parse_args()
+
+    shutil.rmtree(OUT, ignore_errors=True)
+    jobs: list = []
+    for name in STORIES:
+        story(args.contrail / name, name, jobs)
+
+    for model in MODELS:
+        for name in STORIES:
+            keys = args.contrail / "screen-test" / model / name / "keys"
+            for key in SCREEN_TEST_KEYS:
+                jobs.append((still, keys / f"{key}.png", OUT / "screen-test" / model / name / f"{key}.webp"))
+    for way in ("pinned", "rehearse"):
+        for name in STORIES:
+            move = args.contrail / "moves-test" / way / name / "moves" / f"{MOVES_TEST_MOVE}.mp4"
+            jobs.append((clip, move, OUT / "moves-test" / way / f"{name}.mp4"))
+    for way in ("seed", "from-key"):
+        for key in VARIANT_KEYS:
+            source = args.contrail / "variants-test" / way / "results" / "keys" / f"{key}.png"
+            jobs.append((still, source, OUT / "variants-test" / way / f"{key}.webp"))
+    for folder, model in SURF_TAPES.items():
+        for move in SURF_MOVES:
+            source = args.surf_shop / folder / "moves" / f"{move}.mp4"
+            jobs.append((clip, source, OUT / "surf-shop" / model / f"{move}.mp4"))
+
+    jobs.append((lambda s, t: clip(s, t, crf=26), args.demo, OUT / "demo.mp4"))
+    jobs.append((lambda s, t: poster(s, t, 1.0), args.demo, OUT / "demo.jpg"))
+
+    with ThreadPoolExecutor() as pool:
+        for future in [pool.submit(job, source, target) for job, source, target in jobs]:
+            future.result()
+
+    files = sorted(path for path in OUT.rglob("*") if path.is_file())
+    size = sum(path.stat().st_size for path in files)
+    print(f"{len(files)} files, {size / 1e6:.1f} MB in {OUT.relative_to(ROOT)}")
+    if args.zip:
+        with zipfile.ZipFile(args.zip, "w", zipfile.ZIP_STORED) as archive:
+            for path in files:
+                archive.write(path, path.relative_to(OUT))
+        print(f"{args.zip}: {args.zip.stat().st_size / 1e6:.1f} MB")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

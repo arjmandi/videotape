@@ -19,3 +19,5 @@ examples/**/compare.html
 examples/**/compare-frames/
 .DS_Store
 .env
+site/media/
+site-media.zip

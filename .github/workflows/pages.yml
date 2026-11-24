@@ -1,0 +1,43 @@
+# Publishes site/ to GitHub Pages. The site's clips and stills are too big for the repository, so they live in the
+# site-media release as site-media.zip, which scripts/site-media builds from rendered tapes.
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the site's media
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download site-media --pattern site-media.zip --dir "$RUNNER_TEMP"
+          unzip -q "$RUNNER_TEMP/site-media.zip" -d site/media
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
